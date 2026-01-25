@@ -1,0 +1,23 @@
+[package]
+name = "impress-domain"
+description = "Domain types for the impress suite (Publication, Author, Annotation, Manuscript, etc.)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+uniffi = { workspace = true, optional = true }
+
+# For author name normalization
+unicode-normalization = "0.1"
+lazy_static = { workspace = true }

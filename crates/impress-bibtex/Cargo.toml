@@ -1,0 +1,25 @@
+[package]
+name = "impress-bibtex"
+description = "BibTeX parsing and formatting for the impress suite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+impress-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+nom = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
+uniffi = { workspace = true, optional = true }
+
+# For Bdsk-File encoding
+plist = "1.6"
+base64 = "0.22"

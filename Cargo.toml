@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/impress-domain",
+    "crates/impress-bibtex",
+    "crates/impress-identifiers",
+    "crates/impress-collab",
+    "crates/imprint-core",
+    # "crates/imbib-core",  # TODO: Migrate from imbib repo
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/yipihey/impress-apps"
+
+[workspace.dependencies]
+# Shared dependencies across crates
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1.0"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Parsing
+nom = "7.1"
+regex = "1.10"
+lazy_static = "1.4"
+
+# UniFFI for FFI bindings (optional)
+uniffi = { version = "0.28", features = ["cli"] }
+
+# Internal workspace crates
+impress-domain = { path = "crates/impress-domain" }
+impress-bibtex = { path = "crates/impress-bibtex" }
+impress-identifiers = { path = "crates/impress-identifiers" }
+impress-collab = { path = "crates/impress-collab" }
+imprint-core = { path = "crates/imprint-core" }
+# imbib-core = { path = "crates/imbib-core" }  # TODO: Migrate from imbib repo

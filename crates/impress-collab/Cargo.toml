@@ -1,0 +1,21 @@
+[package]
+name = "impress-collab"
+description = "Shared collaboration infrastructure for the impress suite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true, optional = true }
+bitflags = { version = "2", features = ["serde"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

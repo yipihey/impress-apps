@@ -1,0 +1,37 @@
+[package]
+name = "imprint-core"
+description = "Core document and bibliography management for imprint - CRDT-based collaborative academic writing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+# Enable Typst rendering support (requires typst dependencies)
+typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
+
+[dependencies]
+# Workspace crates
+impress-domain = { workspace = true }
+impress-bibtex = { workspace = true }
+impress-identifiers = { workspace = true }
+
+# CRDT support
+automerge = "0.5"
+
+# Serialization and error handling
+serde = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+# Typst rendering (optional, behind feature flag)
+typst = { version = "0.14", optional = true }
+typst-pdf = { version = "0.14", optional = true }
+typst-svg = { version = "0.14", optional = true }
+typst-as-lib = { version = "0.15", optional = true }
+comemo = { version = "0.4", optional = true }

@@ -1,0 +1,28 @@
+[package]
+name = "impress-identifiers"
+description = "Identifier extraction and validation for the impress suite (DOI, arXiv, ISBN, etc.)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+native = ["dep:reqwest", "dep:tokio"]
+
+[dependencies]
+impress-domain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+lazy_static = { workspace = true }
+uniffi = { workspace = true, optional = true }
+unicode-normalization = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+# For URL resolution (native only)
+url = "2"
+urlencoding = "2"
+reqwest = { version = "0.12", features = ["json"], optional = true }
+tokio = { version = "1", features = ["rt", "macros"], optional = true }

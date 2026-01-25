@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# macOS
+.DS_Store
+*.swp
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Build artifacts
+*.dylib
+*.so
+*.a
+*.dll
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Environment
+.env
+.env.local
