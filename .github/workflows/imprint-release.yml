@@ -1,0 +1,216 @@
+name: imprint - Build and Release
+
+on:
+  push:
+    tags:
+      - 'imprint-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.2.1)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Build Rust xcframework
+        working-directory: crates/imprint-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
+      - name: Generate Xcode project
+        working-directory: apps/imprint
+        run: xcodegen generate
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate
+          echo "$CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Build app
+        working-directory: apps/imprint
+        run: |
+          xcodebuild -scheme imprint \
+            -configuration Release \
+            -derivedDataPath $RUNNER_TEMP/DerivedData \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Sign app
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/Release/imprint.app"
+
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Using identity: $IDENTITY"
+
+          # Sign frameworks first (if any)
+          if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+            find "$APP_PATH/Contents/Frameworks" -name "*.framework" -o -name "*.dylib" | while read framework; do
+              codesign --force --options runtime --sign "$IDENTITY" "$framework"
+            done
+          fi
+
+          # Sign the main app
+          codesign --force --options runtime --sign "$IDENTITY" "$APP_PATH"
+
+          # Verify
+          codesign -dv --verbose=2 "$APP_PATH"
+
+          # Move to export location
+          mkdir -p $RUNNER_TEMP/export
+          cp -R "$APP_PATH" $RUNNER_TEMP/export/
+
+      - name: Notarize app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd $RUNNER_TEMP/export
+          ditto -c -k --keepParent imprint.app imprint-notarize.zip
+
+          xcrun notarytool submit imprint-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+
+          xcrun stapler staple imprint.app
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+
+          cd $RUNNER_TEMP
+          create-dmg \
+            --volname "imprint" \
+            --volicon "export/imprint.app/Contents/Resources/AppIcon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "imprint.app" 150 190 \
+            --hide-extension "imprint.app" \
+            --app-drop-link 450 190 \
+            --no-internet-enable \
+            "imprint.dmg" \
+            "export/imprint.app" || true
+
+          if [ ! -f "imprint.dmg" ]; then
+            hdiutil create -volname "imprint" -srcfolder "export/imprint.app" -ov -format UDZO "imprint.dmg"
+          fi
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd $RUNNER_TEMP
+
+          xcrun notarytool submit imprint.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+
+          xcrun stapler staple imprint.dmg
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/tags/imprint-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/imprint-}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$RUNNER_TEMP/export/imprint.app/Contents/Info.plist" 2>/dev/null || echo "")
+            if [ -n "$APP_VERSION" ]; then
+              echo "version=v${APP_VERSION}-dev" >> $GITHUB_OUTPUT
+            else
+              echo "version=v0.0.0-dev.$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Rename DMG with version
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          mv $RUNNER_TEMP/imprint.dmg $RUNNER_TEMP/imprint-${VERSION}-macOS.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imprint-macos-dmg
+          path: ${{ runner.temp }}/imprint-*-macOS.dmg
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ runner.temp }}/imprint-*-macOS.dmg
+          draft: false
+          prerelease: true
+          name: "imprint ${{ steps.version.outputs.version }} (Development)"
+          body: |
+            ## Development Release
+
+            This is a pre-release development build of imprint - collaborative scientific writing.
+
+            **What's included:**
+            - macOS app (Apple Silicon + Intel)
+            - Code signed and notarized
+
+            For the latest changes, see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/apps/imprint/CHANGELOG.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true

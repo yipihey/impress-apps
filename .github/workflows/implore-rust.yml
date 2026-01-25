@@ -1,0 +1,103 @@
+name: implore - Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/implore-*/**'
+      - '.github/workflows/implore-rust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/implore-*/**'
+      - '.github/workflows/implore-rust.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-implore-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting (implore-core)
+        working-directory: crates/implore-core
+        run: cargo fmt --check
+
+      - name: Check formatting (implore-stats)
+        working-directory: crates/implore-stats
+        run: cargo fmt --check
+
+      - name: Check formatting (implore-io)
+        working-directory: crates/implore-io
+        run: cargo fmt --check
+
+      - name: Check formatting (implore-selection)
+        working-directory: crates/implore-selection
+        run: cargo fmt --check
+
+      - name: Clippy (all implore crates)
+        run: |
+          cargo clippy -p implore-core -p implore-stats -p implore-io -p implore-selection \
+            --all-targets -- -D warnings
+
+      - name: Run tests (all implore crates)
+        run: |
+          cargo test -p implore-core -p implore-stats -p implore-io -p implore-selection
+
+  generate-bindings:
+    name: Generate Swift Bindings
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-implore-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build library
+        working-directory: crates/implore-core
+        run: cargo build --release
+
+      - name: Generate Swift bindings
+        working-directory: crates/implore-core
+        run: |
+          mkdir -p generated
+          cargo run --release --bin uniffi-bindgen generate \
+            --library ../../target/release/libimplore_core.dylib \
+            --language swift \
+            --out-dir generated
+
+      - name: Upload Swift bindings
+        uses: actions/upload-artifact@v4
+        with:
+          name: implore-swift-bindings
+          path: crates/implore-core/generated/

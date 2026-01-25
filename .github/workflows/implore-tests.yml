@@ -1,0 +1,156 @@
+name: implore - UI Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/implore/**'
+      - 'crates/implore-*/**'
+      - '.github/workflows/implore-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/implore/**'
+      - 'crates/implore-*/**'
+      - '.github/workflows/implore-tests.yml'
+
+jobs:
+  ui-tests:
+    name: UI Tests
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-implore-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-implore-
+
+      - name: Build Rust xcframework
+        working-directory: apps/implore
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-rust.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/implore
+        run: xcodegen generate
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/implore/build/SourcePackages
+          key: ${{ runner.os }}-spm-implore-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-implore-
+
+      - name: Build for Testing
+        working-directory: apps/implore
+        run: |
+          xcodebuild build-for-testing \
+            -scheme implore \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run UI Tests
+        working-directory: apps/implore
+        run: |
+          xcodebuild test-without-building \
+            -scheme implore \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -testPlan UITests \
+            -resultBundlePath TestResults.xcresult \
+            -parallel-testing-enabled YES \
+            CODE_SIGNING_ALLOWED=NO || true
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: implore-ui-test-results
+          path: apps/implore/TestResults.xcresult
+          if-no-files-found: warn
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-implore-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-implore-
+
+      - name: Build Rust xcframework
+        working-directory: apps/implore
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-rust.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/implore
+        run: xcodegen generate
+
+      - name: Run Unit Tests
+        working-directory: apps/implore
+        run: |
+          xcodebuild test \
+            -scheme implore \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -only-testing:imploreTests \
+            -resultBundlePath UnitTestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO || true
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: implore-unit-test-results
+          path: apps/implore/UnitTestResults.xcresult
+          if-no-files-found: warn
