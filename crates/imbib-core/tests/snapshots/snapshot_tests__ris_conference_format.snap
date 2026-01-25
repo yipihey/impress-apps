@@ -1,0 +1,13 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - CONF
+TI  - Conference Paper
+AU  - Presenter, P
+PY  - 2024
+T2  - International Conference on Testing
+CY  - San Francisco, CA
+SP  - 1
+EP  - 10
+ER  -

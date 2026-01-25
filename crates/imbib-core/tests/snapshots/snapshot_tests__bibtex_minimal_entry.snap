@@ -1,0 +1,7 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@misc{Minimal,
+    title = {Minimal Entry},
+}

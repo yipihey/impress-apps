@@ -1,0 +1,11 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@misc{Website2024,
+    author = {Open Source Project},
+    title = {Project Documentation},
+    url = {https://example.com/docs},
+    year = 2024,
+    note = {Accessed: 2024-01-15},
+}

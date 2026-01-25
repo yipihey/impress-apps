@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@phdthesis{Student2024,
+    author = {Jane Doe},
+    title = {Novel Approaches to Machine Learning},
+    school = {Stanford University},
+    year = 2024,
+}

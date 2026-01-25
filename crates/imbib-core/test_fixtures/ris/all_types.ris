@@ -1,0 +1,76 @@
+TY  - BOOK
+AU  - Knuth, Donald E.
+TI  - The Art of Computer Programming, Volume 1: Fundamental Algorithms
+PY  - 1997
+ET  - 3rd
+PB  - Addison-Wesley
+CY  - Reading, MA
+SN  - 978-0201896831
+ID  - Knuth1997
+ER  -
+
+TY  - CHAP
+AU  - Bishop, Christopher M.
+TI  - Neural Networks for Pattern Recognition
+T2  - Pattern Recognition and Machine Learning
+A2  - Jordan, Michael I.
+PY  - 2006
+PB  - Springer
+CY  - New York
+SP  - 225
+EP  - 290
+ID  - Bishop2006
+ER  -
+
+TY  - THES
+AU  - Goodfellow, Ian J.
+TI  - Deep Learning of Representations and its Application to Computer Vision
+PY  - 2014
+PB  - Université de Montréal
+M3  - Ph.D. thesis
+ID  - Goodfellow2014
+ER  -
+
+TY  - RPRT
+AU  - OpenAI
+TI  - GPT-4 Technical Report
+PY  - 2023
+UR  - https://arxiv.org/abs/2303.08774
+ID  - OpenAI2023
+ER  -
+
+TY  - ELEC
+AU  - Wikipedia Contributors
+TI  - Machine Learning
+T2  - Wikipedia, The Free Encyclopedia
+PY  - 2024
+Y2  - 2024/01/15
+UR  - https://en.wikipedia.org/wiki/Machine_learning
+ID  - Wiki2024
+ER  -
+
+TY  - NEWS
+AU  - Smith, John
+TI  - AI Advances Continue to Accelerate
+JF  - The New York Times
+PY  - 2024
+DA  - 2024/01/10
+ID  - Smith2024
+ER  -
+
+TY  - PAT
+AU  - Page, Lawrence
+AU  - Brin, Sergey
+TI  - Method for node ranking in a linked database
+PY  - 1998
+M3  - US Patent 6,285,999
+ID  - Page1998
+ER  -
+
+TY  - GEN
+AU  - Unknown Author
+TI  - Some Generic Reference
+PY  - 2020
+N1  - This is a note about the reference
+ID  - Unknown2020
+ER  -

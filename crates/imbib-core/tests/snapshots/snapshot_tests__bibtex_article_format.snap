@@ -1,0 +1,12 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Einstein1905,
+    author = {Albert Einstein},
+    title = {On the Electrodynamics of Moving Bodies},
+    journal = {Annalen der Physik},
+    year = 1905,
+    volume = 17,
+    pages = {891--921},
+}

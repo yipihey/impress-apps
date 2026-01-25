@@ -6,7 +6,7 @@ members = [
     "crates/impress-identifiers",
     "crates/impress-collab",
     "crates/imprint-core",
-    # "crates/imbib-core",  # TODO: Migrate from imbib repo
+    "crates/imbib-core",
 ]
 
 [workspace.package]
@@ -37,4 +37,4 @@ impress-bibtex = { path = "crates/impress-bibtex" }
 impress-identifiers = { path = "crates/impress-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 imprint-core = { path = "crates/imprint-core" }
-# imbib-core = { path = "crates/imbib-core" }  # TODO: Migrate from imbib repo
+imbib-core = { path = "crates/imbib-core" }

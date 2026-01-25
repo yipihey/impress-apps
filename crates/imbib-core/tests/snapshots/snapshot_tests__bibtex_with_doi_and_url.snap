@@ -1,0 +1,12 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Online2024,
+    author = {Digital, D},
+    title = {Online Paper},
+    journal = {Digital Journal},
+    year = 2024,
+    doi = {10.1234/test.2024.001},
+    url = {https://example.com/paper},
+}

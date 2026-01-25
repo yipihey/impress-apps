@@ -1,0 +1,42 @@
+TY  - JOUR
+AU  - Krizhevsky, Alex
+AU  - Sutskever, Ilya
+AU  - Hinton, Geoffrey E.
+TI  - ImageNet Classification with Deep Convolutional Neural Networks
+JF  - Advances in Neural Information Processing Systems
+T2  - NIPS
+PY  - 2012
+VL  - 25
+SP  - 1097
+EP  - 1105
+AB  - We trained a large, deep convolutional neural network to classify the 1.2 million high-resolution images in the ImageNet LSVRC-2010 contest into the 1000 different classes. On the test data, we achieved top-1 and top-5 error rates of 37.5% and 17.0% which is considerably better than the previous state-of-the-art.
+KW  - deep learning
+KW  - convolutional neural networks
+KW  - image classification
+KW  - ImageNet
+UR  - https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks
+ID  - Krizhevsky2012
+ER  -
+
+TY  - CONF
+AU  - Vaswani, Ashish
+AU  - Shazeer, Noam
+AU  - Parmar, Niki
+AU  - Uszkoreit, Jakob
+AU  - Jones, Llion
+AU  - Gomez, Aidan N.
+AU  - Kaiser, Lukasz
+AU  - Polosukhin, Illia
+TI  - Attention Is All You Need
+T2  - Advances in Neural Information Processing Systems
+PY  - 2017
+VL  - 30
+SP  - 5998
+EP  - 6008
+AB  - The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.
+DO  - 10.48550/arXiv.1706.03762
+KW  - transformer
+KW  - attention mechanism
+KW  - neural machine translation
+ID  - Vaswani2017
+ER  -

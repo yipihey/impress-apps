@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Latex,
+    author = {M{\"u}ller, Hans},
+    title = {The {LaTeX} Guide: From $\alpha$ to $\omega$},
+    journal = {Journal of {TeX}nology},
+    year = 2024,
+}

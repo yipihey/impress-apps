@@ -1,0 +1,11 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@inproceedings{Turing1950,
+    author = {Alan M. Turing},
+    title = {Computing Machinery and Intelligence},
+    booktitle = {Mind},
+    year = 1950,
+    pages = {433--460},
+}

@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Special,
+    author = {O'Brien, John & Smith, Jane},
+    title = {Cost: $100 & Benefits > Costs},
+    journal = {Journal of Testing & Validation},
+    year = 2024,
+}

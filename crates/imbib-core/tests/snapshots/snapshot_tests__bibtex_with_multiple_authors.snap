@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Team2024,
+    author = {Smith, John and Doe, Jane and Wilson, Bob and Brown, Alice},
+    title = {Collaborative Research Paper},
+    journal = {Science},
+    year = 2024,
+}

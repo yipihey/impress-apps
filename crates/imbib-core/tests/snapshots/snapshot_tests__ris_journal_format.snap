@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - JOUR
+TI  - Test Article
+AU  - Smith, John
+AU  - Doe, Jane
+PY  - 2024
+JF  - Nature
+VL  - 123
+SP  - 456
+EP  - 789
+DO  - 10.1038/test
+ER  -

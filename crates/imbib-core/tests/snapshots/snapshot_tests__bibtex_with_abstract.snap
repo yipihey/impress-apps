@@ -1,0 +1,11 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Paper2024,
+    author = {Author, A},
+    title = {Paper with Abstract},
+    journal = {Journal},
+    year = 2024,
+    abstract = {This is a detailed abstract that describes the paper content, methodology, and key findings. It spans multiple sentences to test formatting.},
+}

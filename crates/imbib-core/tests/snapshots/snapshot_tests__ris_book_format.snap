@@ -1,0 +1,12 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - BOOK
+TI  - Important Book
+AU  - Author, A
+PY  - 2020
+PB  - Publisher Inc
+CY  - New York
+SN  - 978-0-123-45678-9
+ER  -

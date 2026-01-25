@@ -1,0 +1,11 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - JOUR
+TI  - Online Paper
+AU  - Web, W
+PY  - 2024
+UR  - https://example.com/paper
+L1  - https://example.com/paper.pdf
+ER  -

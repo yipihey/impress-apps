@@ -1,0 +1,7 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - GEN
+TI  - Minimal Entry
+ER  -

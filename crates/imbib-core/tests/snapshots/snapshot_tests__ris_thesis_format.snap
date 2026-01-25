@@ -1,0 +1,11 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - THES
+TI  - Doctoral Dissertation
+AU  - Graduate, G
+PY  - 2024
+PB  - University of Testing
+M3  - Ph.D. thesis
+ER  -

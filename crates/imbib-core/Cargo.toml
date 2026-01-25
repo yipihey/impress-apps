@@ -1,0 +1,107 @@
+[package]
+name = "imbib-core"
+description = "Cross-platform core library for imbib publication manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "imbib_core"
+
+[features]
+default = ["native"]
+native = ["uniffi", "tokio", "reqwest", "hnsw_rs", "bincode", "impress-domain/uniffi", "impress-bibtex/uniffi", "impress-identifiers/uniffi"]
+wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
+embeddings = ["fastembed"]  # Optional: semantic search requires ~100MB model
+
+[dependencies]
+# Shared impress crates
+impress-domain = { workspace = true }
+impress-bibtex = { workspace = true }
+impress-identifiers = { workspace = true }
+
+# UniFFI for Swift/Kotlin bindings (optional, native only)
+uniffi = { workspace = true, features = ["tokio"], optional = true }
+
+# Async runtime and HTTP client (optional, native only)
+tokio = { version = "1", features = ["rt", "macros"], optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+
+# URL parsing
+url = "2"
+urlencoding = "2"
+
+# Parsing
+nom = { workspace = true }
+quick-xml = "0.31"
+
+# Regex for identifier extraction
+regex = { workspace = true }
+lazy_static = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Unicode normalization for deduplication
+unicode-normalization = "0.1"
+
+# String similarity for deduplication
+strsim = "0.11"
+
+# Serialization for domain models
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# UUID generation for domain models
+uuid = { workspace = true, features = ["js"] }
+
+# Plist encoding/decoding for BibDesk file references
+plist = "1.6"
+
+# Base64 encoding for Bdsk-File fields
+base64 = "0.22"
+
+# Timestamps for annotations
+chrono = { workspace = true }
+
+# Semantic search (optional - large model, native only)
+fastembed = { version = "4", optional = true }
+
+# Approximate Nearest Neighbor search (optional)
+hnsw_rs = { version = "0.3", optional = true }
+bincode = { version = "1.3", optional = true }  # For ANN index serialization
+
+# Native-only dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Full-text search (uses filesystem)
+tantivy = "0.22"
+# PDF processing
+pdfium-render = "0.8"
+
+# WASM dependencies (optional)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"              # Property-based testing
+rstest = "0.18"               # Parameterized tests
+test-case = "3.3"             # Simple test cases
+insta = "1.34"                # Snapshot testing
+tempfile = "3.10"             # Temporary files
+
+[[bench]]
+name = "bibtex_benchmark"
+harness = false

@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - JOUR
+TI  - Paper with Abstract
+AU  - Researcher, R
+PY  - 2024
+AB  - This is a long abstract that describes the paper in detail. It includes the motivation, methodology, results, and conclusions of the research work.
+ER  -

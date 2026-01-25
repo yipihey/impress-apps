@@ -1,0 +1,10 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Unicode,
+    author = {François Müller and José García},
+    title = {Über die Théorie des α-Zerfalls},
+    journal = {日本語ジャーナル},
+    year = 2024,
+}

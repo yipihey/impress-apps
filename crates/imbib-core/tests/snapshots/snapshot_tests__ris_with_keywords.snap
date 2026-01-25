@@ -1,0 +1,13 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_ris(entry)
+---
+TY  - JOUR
+TI  - Tagged Paper
+AU  - Tagger, T
+PY  - 2024
+KW  - machine learning
+KW  - deep learning
+KW  - neural networks
+KW  - artificial intelligence
+ER  -
