@@ -7,6 +7,11 @@ members = [
     "crates/impress-collab",
     "crates/imprint-core",
     "crates/imbib-core",
+    # implore - scientific data visualization
+    "crates/implore-core",
+    "crates/implore-stats",
+    "crates/implore-io",
+    "crates/implore-selection",
 ]
 
 [workspace.package]
@@ -38,3 +43,19 @@ impress-identifiers = { path = "crates/impress-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
+
+# implore crates
+implore-core = { path = "crates/implore-core" }
+implore-stats = { path = "crates/implore-stats" }
+implore-io = { path = "crates/implore-io" }
+implore-selection = { path = "crates/implore-selection" }
+
+# Scientific data I/O (for implore)
+hdf5 = "0.8"
+fitsio = "0.21"
+parquet = "53"
+csv = "1.3"
+
+# URL handling
+url = "2"
+urlencoding = "2"

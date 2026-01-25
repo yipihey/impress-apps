@@ -1,0 +1,31 @@
+[package]
+name = "implore-io"
+description = "Data I/O for implore - HDF5, FITS, CSV, Parquet readers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["csv"]
+uniffi = ["dep:uniffi"]
+hdf5 = ["dep:hdf5"]
+fits = ["dep:fitsio"]
+parquet = ["dep:parquet"]
+csv = ["dep:csv"]
+
+[dependencies]
+# Serialization and error handling
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+# Data formats (optional)
+hdf5 = { workspace = true, optional = true }
+fitsio = { workspace = true, optional = true }
+parquet = { workspace = true, optional = true }
+csv = { workspace = true, optional = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]

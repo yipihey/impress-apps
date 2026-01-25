@@ -1,0 +1,21 @@
+[package]
+name = "implore-stats"
+description = "Statistical functions for implore - ECDF, PCDF, FastCDF"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+# Serialization and error handling
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]

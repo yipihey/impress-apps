@@ -1,0 +1,358 @@
+//! Dataset representation for scientific data
+//!
+//! A dataset encapsulates:
+//! - Source location (file path, format, dataset path within file)
+//! - Schema describing field names and types
+//! - Metadata (units, descriptions, etc.)
+//! - Provenance linking to academic publications
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use thiserror::Error;
+
+/// Errors that can occur during dataset operations
+#[derive(Debug, Error)]
+pub enum DatasetError {
+    #[error("Field not found: {0}")]
+    FieldNotFound(String),
+
+    #[error("Invalid field type: expected {expected}, got {actual}")]
+    InvalidFieldType { expected: String, actual: String },
+
+    #[error("I/O error: {0}")]
+    IoError(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+}
+
+/// Result type for dataset operations
+pub type DatasetResult<T> = Result<T, DatasetError>;
+
+/// A scientific dataset with schema and provenance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct Dataset {
+    /// Unique identifier for this dataset
+    pub id: String,
+
+    /// Human-readable name
+    pub name: String,
+
+    /// Source location and format
+    pub source: DatasetSource,
+
+    /// Schema describing fields
+    pub schema: DataSchema,
+
+    /// Additional metadata
+    pub metadata: DatasetMetadata,
+
+    /// Academic provenance (links to publications)
+    pub provenance: DataProvenance,
+}
+
+impl Dataset {
+    /// Create a new dataset with the given source
+    pub fn new(name: impl Into<String>, source: DatasetSource) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            source,
+            schema: DataSchema::default(),
+            metadata: DatasetMetadata::default(),
+            provenance: DataProvenance::default(),
+        }
+    }
+
+    /// Get a field by name
+    pub fn field(&self, name: &str) -> Option<&FieldDescriptor> {
+        self.schema.fields.iter().find(|f| f.name == name)
+    }
+
+    /// Get field names
+    pub fn field_names(&self) -> Vec<&str> {
+        self.schema.fields.iter().map(|f| f.name.as_str()).collect()
+    }
+
+    /// Number of records in the dataset
+    pub fn num_records(&self) -> usize {
+        self.schema.num_records
+    }
+}
+
+/// Source location and format for a dataset
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum DatasetSource {
+    /// HDF5 file with dataset path
+    Hdf5 {
+        path: String,
+        dataset_path: String,
+    },
+
+    /// FITS file with extension number
+    Fits {
+        path: String,
+        extension: u32,
+    },
+
+    /// CSV file with optional delimiter
+    Csv {
+        path: String,
+        delimiter: Option<char>,
+    },
+
+    /// Parquet file
+    Parquet {
+        path: String,
+    },
+
+    /// In-memory data (for testing or generated data)
+    InMemory {
+        format: String,
+    },
+}
+
+impl DatasetSource {
+    /// Get the file path if this is a file-based source
+    pub fn file_path(&self) -> Option<&str> {
+        match self {
+            DatasetSource::Hdf5 { path, .. } => Some(path),
+            DatasetSource::Fits { path, .. } => Some(path),
+            DatasetSource::Csv { path, .. } => Some(path),
+            DatasetSource::Parquet { path } => Some(path),
+            DatasetSource::InMemory { .. } => None,
+        }
+    }
+
+    /// Get the format name
+    pub fn format_name(&self) -> &'static str {
+        match self {
+            DatasetSource::Hdf5 { .. } => "HDF5",
+            DatasetSource::Fits { .. } => "FITS",
+            DatasetSource::Csv { .. } => "CSV",
+            DatasetSource::Parquet { .. } => "Parquet",
+            DatasetSource::InMemory { .. } => "In-Memory",
+        }
+    }
+}
+
+/// Schema describing dataset fields
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct DataSchema {
+    /// Field descriptors
+    pub fields: Vec<FieldDescriptor>,
+
+    /// Number of records
+    pub num_records: usize,
+}
+
+impl DataSchema {
+    /// Create a schema from field descriptors
+    pub fn new(fields: Vec<FieldDescriptor>, num_records: usize) -> Self {
+        Self { fields, num_records }
+    }
+
+    /// Add a field to the schema
+    pub fn add_field(&mut self, field: FieldDescriptor) {
+        self.fields.push(field);
+    }
+}
+
+/// Descriptor for a single field in the dataset
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct FieldDescriptor {
+    /// Field name
+    pub name: String,
+
+    /// Data type
+    pub dtype: DataType,
+
+    /// Physical units (if known)
+    pub unit: Option<String>,
+
+    /// Human-readable description
+    pub description: Option<String>,
+
+    /// Minimum value (for numeric types)
+    pub min_value: Option<f64>,
+
+    /// Maximum value (for numeric types)
+    pub max_value: Option<f64>,
+}
+
+impl FieldDescriptor {
+    /// Create a new field descriptor
+    pub fn new(name: impl Into<String>, dtype: DataType) -> Self {
+        Self {
+            name: name.into(),
+            dtype,
+            unit: None,
+            description: None,
+            min_value: None,
+            max_value: None,
+        }
+    }
+
+    /// Set the unit
+    pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = Some(unit.into());
+        self
+    }
+
+    /// Set the description
+    pub fn with_description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+
+    /// Set the value range
+    pub fn with_range(mut self, min: f64, max: f64) -> Self {
+        self.min_value = Some(min);
+        self.max_value = Some(max);
+        self
+    }
+}
+
+/// Data type for a field
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum DataType {
+    /// 32-bit floating point
+    Float32,
+    /// 64-bit floating point
+    Float64,
+    /// 32-bit signed integer
+    Int32,
+    /// 64-bit signed integer
+    Int64,
+    /// Boolean
+    Bool,
+    /// UTF-8 string
+    String,
+    /// Unknown or unsupported type
+    Unknown,
+}
+
+impl DataType {
+    /// Size in bytes for fixed-width types
+    pub fn byte_size(&self) -> Option<usize> {
+        match self {
+            DataType::Float32 => Some(4),
+            DataType::Float64 => Some(8),
+            DataType::Int32 => Some(4),
+            DataType::Int64 => Some(8),
+            DataType::Bool => Some(1),
+            DataType::String | DataType::Unknown => None,
+        }
+    }
+
+    /// Check if this is a numeric type
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self,
+            DataType::Float32 | DataType::Float64 | DataType::Int32 | DataType::Int64
+        )
+    }
+}
+
+/// Additional metadata for a dataset
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct DatasetMetadata {
+    /// Arbitrary key-value pairs
+    pub attributes: HashMap<String, String>,
+
+    /// Creation timestamp (Unix milliseconds)
+    pub created_at: Option<i64>,
+
+    /// Last modified timestamp
+    pub modified_at: Option<i64>,
+}
+
+/// Academic provenance for a dataset
+///
+/// Links the dataset to publications in imbib for proper citation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct DataProvenance {
+    /// imbib publication IDs for papers that produced this data
+    pub source_publication_ids: Vec<String>,
+
+    /// DOIs for data repositories (Zenodo, Figshare, etc.)
+    pub data_dois: Vec<String>,
+
+    /// When the provenance was established
+    pub created_at: Option<String>,
+
+    /// Notes about data origin
+    pub notes: Option<String>,
+}
+
+impl DataProvenance {
+    /// Add a source publication
+    pub fn add_publication(&mut self, publication_id: impl Into<String>) {
+        self.source_publication_ids.push(publication_id.into());
+    }
+
+    /// Add a data DOI
+    pub fn add_data_doi(&mut self, doi: impl Into<String>) {
+        self.data_dois.push(doi.into());
+    }
+
+    /// Check if provenance is established
+    pub fn has_provenance(&self) -> bool {
+        !self.source_publication_ids.is_empty() || !self.data_dois.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dataset_creation() {
+        let source = DatasetSource::Csv {
+            path: "/data/test.csv".to_string(),
+            delimiter: Some(','),
+        };
+        let dataset = Dataset::new("Test Dataset", source);
+
+        assert_eq!(dataset.name, "Test Dataset");
+        assert!(!dataset.id.is_empty());
+    }
+
+    #[test]
+    fn test_field_descriptor() {
+        let field = FieldDescriptor::new("mass", DataType::Float64)
+            .with_unit("solar masses")
+            .with_range(1e10, 1e15);
+
+        assert_eq!(field.name, "mass");
+        assert_eq!(field.dtype, DataType::Float64);
+        assert_eq!(field.unit, Some("solar masses".to_string()));
+        assert_eq!(field.min_value, Some(1e10));
+    }
+
+    #[test]
+    fn test_data_type_properties() {
+        assert!(DataType::Float64.is_numeric());
+        assert!(DataType::Int32.is_numeric());
+        assert!(!DataType::String.is_numeric());
+
+        assert_eq!(DataType::Float64.byte_size(), Some(8));
+        assert_eq!(DataType::String.byte_size(), None);
+    }
+
+    #[test]
+    fn test_provenance() {
+        let mut provenance = DataProvenance::default();
+        assert!(!provenance.has_provenance());
+
+        provenance.add_publication("pub_123");
+        assert!(provenance.has_provenance());
+    }
+}

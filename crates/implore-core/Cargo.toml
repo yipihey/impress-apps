@@ -1,0 +1,32 @@
+[package]
+name = "implore-core"
+description = "Core visualization engine for implore - scientific data visualization"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+# Workspace crates
+impress-domain = { workspace = true }
+impress-collab = { workspace = true }
+
+# Serialization and error handling
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# URL handling for automation
+url = { workspace = true }
+urlencoding = { workspace = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]
