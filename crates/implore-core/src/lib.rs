@@ -21,19 +21,25 @@
 
 pub mod automation;
 pub mod axis;
+pub mod camera;
 pub mod colormap;
 pub mod dataset;
+pub mod export;
+pub mod render;
 pub mod session;
 pub mod spatial;
 pub mod view;
 
 pub use automation::*;
 pub use axis::*;
+pub use camera::*;
 pub use colormap::*;
 pub use dataset::*;
 pub use session::*;
 pub use spatial::*;
 pub use view::*;
+
+// render module exports GPU-specific types, access via render:: prefix
 
 // Setup UniFFI when the feature is enabled
 #[cfg(feature = "uniffi")]
