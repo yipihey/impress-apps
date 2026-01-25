@@ -1,0 +1,83 @@
+name: imprint
+options:
+  bundleIdPrefix: com.imbib
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    PRODUCT_NAME: imprint
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  ImprintCore:
+    path: Packages/ImprintCore
+
+targets:
+  imprint:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Shared
+        excludes:
+          - "**/*.xcassets"
+      - path: macOS
+        excludes:
+          - "**/*.xcassets"
+    resources:
+      - path: Shared/Assets.xcassets
+      - path: macOS/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
+        INFOPLIST_FILE: macOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: macOS/imprint.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: ImprintCore
+    entitlements:
+      path: macOS/imprint.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
+
+  imprintTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: imprint
+
+schemes:
+  imprint:
+    build:
+      targets:
+        imprint: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - imprintTests
+    profile:
+      config: Release
+    archive:
+      config: Release

@@ -22,11 +22,13 @@
 pub mod automation;
 pub mod dataset;
 pub mod session;
+pub mod spatial;
 pub mod view;
 
 pub use automation::*;
 pub use dataset::*;
 pub use session::*;
+pub use spatial::*;
 pub use view::*;
 
 // Setup UniFFI when the feature is enabled

@@ -19,14 +19,23 @@ pub enum IoError {
     #[error("Invalid format: {0}")]
     InvalidFormat(String),
 
+    #[error("Unsupported format: {0}")]
+    UnsupportedFormat(String),
+
     #[error("Column not found: {0}")]
     ColumnNotFound(String),
+
+    #[error("Dataset not found: {0}")]
+    DatasetNotFound(String),
 
     #[error("Type mismatch: expected {expected}, got {actual}")]
     TypeMismatch { expected: String, actual: String },
 
     #[error("Out of bounds: index {index}, size {size}")]
     OutOfBounds { index: usize, size: usize },
+
+    #[error("Read failed: {0}")]
+    ReadFailed(String),
 
     #[error("I/O error: {0}")]
     Io(String),

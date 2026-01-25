@@ -9,7 +9,7 @@ repository.workspace = true
 [features]
 default = ["csv"]
 uniffi = ["dep:uniffi"]
-hdf5 = ["dep:hdf5"]
+hdf5 = ["dep:hdf5", "dep:ndarray"]
 fits = ["dep:fitsio"]
 parquet = ["dep:parquet"]
 csv = ["dep:csv"]
@@ -24,6 +24,9 @@ hdf5 = { workspace = true, optional = true }
 fitsio = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }
 csv = { workspace = true, optional = true }
+
+# N-dimensional array support for HDF5
+ndarray = { version = "0.15", optional = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }

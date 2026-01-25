@@ -1,0 +1,95 @@
+name: implore
+options:
+  bundleIdPrefix: com.impress.implore
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  developmentLanguage: en
+
+settings:
+  base:
+    PRODUCT_NAME: implore
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "5.9"
+    ENABLE_HARDENED_RUNTIME: YES
+    DEVELOPMENT_TEAM: ""  # Set your team ID
+
+packages:
+  ImploreCore:
+    path: Packages/ImploreCore
+
+targets:
+  implore:
+    type: application
+    platform: macOS
+    sources:
+      - path: Implore/Sources
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        INFOPLIST_FILE: Implore/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Implore/implore.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.implore
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(PROJECT_DIR)/../../Frameworks"
+    dependencies:
+      - package: ImploreCore
+    entitlements:
+      path: Implore/implore.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.network.client: true
+    preBuildScripts:
+      - name: Build Rust XCFramework
+        script: |
+          cd "${PROJECT_DIR}"
+          if [ "${CONFIGURATION}" = "Release" ]; then
+            ./build-rust.sh --release
+          else
+            ./build-rust.sh
+          fi
+        inputFiles: []
+        outputFiles:
+          - $(PROJECT_DIR)/Frameworks/ImploreCore.xcframework
+
+  imploreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        INFOPLIST_FILE: Tests/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.implore.tests
+    dependencies:
+      - target: implore
+
+schemes:
+  implore:
+    build:
+      targets:
+        implore: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - imploreTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
