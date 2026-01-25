@@ -11,6 +11,7 @@
 
 pub mod annotation;
 pub mod author;
+pub mod citation_reference;
 pub mod collection;
 pub mod enrichment;
 pub mod identifiers;
@@ -24,6 +25,7 @@ pub mod validation;
 
 pub use annotation::*;
 pub use author::*;
+pub use citation_reference::*;
 pub use collection::*;
 pub use enrichment::*;
 pub use identifiers::*;

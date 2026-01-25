@@ -24,7 +24,9 @@
 //! - **Mode B (SplitView)**: Traditional source editor with live preview
 //! - **Mode C (TextOnly)**: Full-screen source editor for focused writing
 
+pub mod automation;
 pub mod bibliography;
+pub mod citation_lookup;
 pub mod citations;
 pub mod collaboration;
 pub mod document;
@@ -35,7 +37,9 @@ pub mod selection;
 pub mod sourcemap;
 pub mod transaction;
 
+pub use automation::*;
 pub use bibliography::*;
+pub use citation_lookup::*;
 pub use citations::*;
 pub use collaboration::*;
 pub use document::*;

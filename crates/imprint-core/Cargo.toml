@@ -23,8 +23,14 @@ automerge = "0.5"
 
 # Serialization and error handling
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
+
+# URL handling for automation
+url = "2"
+urlencoding = "2"
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }
