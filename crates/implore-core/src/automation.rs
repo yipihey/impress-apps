@@ -69,6 +69,26 @@ pub enum ImploreCommand {
     /// `implore://sync?session=xyz`
     Sync(SyncCommand),
 
+    /// Generate data from a plugin
+    /// `implore://generate?plugin=noise-perlin-2d&resolution=512&frequency=8`
+    Generate(GenerateCommand),
+
+    /// List available generators
+    /// `implore://generators`
+    ListGenerators,
+
+    /// Sync a figure to an imprint document
+    /// `implore://sync-figure?figure=fig123&document=doc456`
+    SyncFigure(SyncFigureCommand),
+
+    /// Unlink a figure from an imprint document
+    /// `implore://unlink-figure?figure=fig123&document=doc456`
+    UnlinkFigure(UnlinkFigureCommand),
+
+    /// Open figure library
+    /// `implore://library`
+    OpenLibrary,
+
     /// Unknown command (for forward compatibility)
     Unknown(String),
 }
@@ -183,6 +203,39 @@ pub struct SyncCommand {
     pub session_id: String,
 }
 
+/// Generate data from a plugin
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateCommand {
+    /// Generator plugin ID (e.g., "noise-perlin-2d")
+    pub generator_id: String,
+
+    /// Parameters as key-value pairs
+    pub params: HashMap<String, String>,
+
+    /// Whether to auto-open in a new visualization
+    pub auto_open: bool,
+}
+
+/// Sync a figure to an imprint document
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncFigureCommand {
+    /// Figure ID
+    pub figure_id: String,
+
+    /// Target document ID
+    pub document_id: String,
+}
+
+/// Unlink a figure from an imprint document
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnlinkFigureCommand {
+    /// Figure ID
+    pub figure_id: String,
+
+    /// Document ID to unlink from
+    pub document_id: String,
+}
+
 impl ImploreCommand {
     /// Parse a command from a URL string
     pub fn parse(url_str: &str) -> AutomationResult<Self> {
@@ -208,6 +261,11 @@ impl ImploreCommand {
             "insert-figure" => Self::parse_insert_figure(params),
             "link-publication" => Self::parse_link_publication(params),
             "sync" => Self::parse_sync(params),
+            "generate" => Self::parse_generate(params),
+            "generators" => Ok(ImploreCommand::ListGenerators),
+            "sync-figure" => Self::parse_sync_figure(params),
+            "unlink-figure" => Self::parse_unlink_figure(params),
+            "library" => Ok(ImploreCommand::OpenLibrary),
             _ => Ok(ImploreCommand::Unknown(url_str.to_string())),
         }
     }
@@ -328,6 +386,58 @@ impl ImploreCommand {
 
         Ok(ImploreCommand::Sync(SyncCommand { session_id }))
     }
+
+    fn parse_generate(params: HashMap<String, String>) -> AutomationResult<Self> {
+        let generator_id = params
+            .get("plugin")
+            .ok_or_else(|| AutomationError::MissingParameter("plugin".to_string()))?
+            .clone();
+
+        // Extract all other params as generator params
+        let mut gen_params = params.clone();
+        gen_params.remove("plugin");
+        let auto_open = gen_params.remove("auto_open").map(|s| s == "true").unwrap_or(true);
+
+        Ok(ImploreCommand::Generate(GenerateCommand {
+            generator_id,
+            params: gen_params,
+            auto_open,
+        }))
+    }
+
+    fn parse_sync_figure(params: HashMap<String, String>) -> AutomationResult<Self> {
+        let figure_id = params
+            .get("figure")
+            .ok_or_else(|| AutomationError::MissingParameter("figure".to_string()))?
+            .clone();
+
+        let document_id = params
+            .get("document")
+            .ok_or_else(|| AutomationError::MissingParameter("document".to_string()))?
+            .clone();
+
+        Ok(ImploreCommand::SyncFigure(SyncFigureCommand {
+            figure_id,
+            document_id,
+        }))
+    }
+
+    fn parse_unlink_figure(params: HashMap<String, String>) -> AutomationResult<Self> {
+        let figure_id = params
+            .get("figure")
+            .ok_or_else(|| AutomationError::MissingParameter("figure".to_string()))?
+            .clone();
+
+        let document_id = params
+            .get("document")
+            .ok_or_else(|| AutomationError::MissingParameter("document".to_string()))?
+            .clone();
+
+        Ok(ImploreCommand::UnlinkFigure(UnlinkFigureCommand {
+            figure_id,
+            document_id,
+        }))
+    }
 }
 
 // URL builders for constructing URLs programmatically
@@ -395,6 +505,43 @@ pub fn build_link_publication_url(dataset_id: &str, publication_id: &str) -> Str
         urlencoding::encode(dataset_id),
         urlencoding::encode(publication_id)
     )
+}
+
+/// Build a generate URL
+pub fn build_generate_url(generator_id: &str, params: &HashMap<String, String>) -> String {
+    let mut url = format!("implore://generate?plugin={}", urlencoding::encode(generator_id));
+    for (key, value) in params {
+        url.push_str(&format!("&{}={}", urlencoding::encode(key), urlencoding::encode(value)));
+    }
+    url
+}
+
+/// Build a sync-figure URL
+pub fn build_sync_figure_url(figure_id: &str, document_id: &str) -> String {
+    format!(
+        "implore://sync-figure?figure={}&document={}",
+        urlencoding::encode(figure_id),
+        urlencoding::encode(document_id)
+    )
+}
+
+/// Build an unlink-figure URL
+pub fn build_unlink_figure_url(figure_id: &str, document_id: &str) -> String {
+    format!(
+        "implore://unlink-figure?figure={}&document={}",
+        urlencoding::encode(figure_id),
+        urlencoding::encode(document_id)
+    )
+}
+
+/// Build a list-generators URL
+pub fn build_list_generators_url() -> String {
+    "implore://generators".to_string()
+}
+
+/// Build an open-library URL
+pub fn build_open_library_url() -> String {
+    "implore://library".to_string()
 }
 
 #[cfg(test)]

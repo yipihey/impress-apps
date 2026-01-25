@@ -10,6 +10,7 @@
 //! - **RenderMode**: Science 2D, Box 3D, or Art shader modes
 //! - **Session**: Collaborative visualization session management
 //! - **Automation**: URL scheme handling for implore:// commands
+//! - **Plugin**: Data generation system with built-in noise, fractal, and statistical generators
 //!
 //! # Rendering Modes
 //!
@@ -27,9 +28,12 @@ pub mod dataset;
 pub mod error;
 pub mod export;
 pub mod input;
+pub mod library;
+pub mod plugin;
 pub mod render;
 pub mod session;
 pub mod spatial;
+pub mod sync;
 pub mod view;
 
 pub use automation::*;
@@ -37,8 +41,14 @@ pub use axis::*;
 pub use camera::*;
 pub use colormap::*;
 pub use dataset::*;
+pub use library::{FigureFolder, FigureLibrary, ImprintLink, LibraryFigure};
+pub use plugin::{
+    DataGenerator, GeneratedData, GeneratorCategory, GeneratorError, GeneratorMetadata,
+    GeneratorParams, GeneratorRegistry,
+};
 pub use session::*;
 pub use spatial::*;
+pub use sync::{FigureExportData, FigureSyncService, FigureUpdateNotification, SyncResult};
 pub use view::*;
 
 // render module exports GPU-specific types, access via render:: prefix
