@@ -79,8 +79,10 @@ pub enum QuoteStyle {
 }
 
 /// Options for controlling the import process
+///
+/// Note: This type is not exported via UniFFI due to complex nested types.
+/// Use the builder methods to construct options from FFI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ImportOptions {
     /// Output format
     pub output_format: NoteOutputFormat,

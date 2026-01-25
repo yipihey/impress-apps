@@ -19,7 +19,7 @@ set -e
 BUILD_TYPE="${1:-release}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-RUST_CRATE="$WORKSPACE_ROOT/../../academic-core/crates/imprint-core"
+RUST_CRATE="$WORKSPACE_ROOT/crates/imprint-core"
 OUTPUT_DIR="$SCRIPT_DIR/Packages/ImprintCore"
 FRAMEWORK_NAME="ImprintCoreFFI"
 
@@ -59,7 +59,7 @@ cargo build $CARGO_FLAGS --target x86_64-apple-darwin --features uniffi
 echo ""
 echo "=== Creating universal binary ==="
 
-TARGETS_DIR="$RUST_CRATE/target"
+TARGETS_DIR="$WORKSPACE_ROOT/target"
 AARCH64_LIB="$TARGETS_DIR/aarch64-apple-darwin/$BUILD_DIR/libimprint_core.a"
 X86_64_LIB="$TARGETS_DIR/x86_64-apple-darwin/$BUILD_DIR/libimprint_core.a"
 UNIVERSAL_DIR="$TARGETS_DIR/universal-macos-$BUILD_DIR"
