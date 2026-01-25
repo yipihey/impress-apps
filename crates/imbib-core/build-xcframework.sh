@@ -15,7 +15,9 @@ echo "Using MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 echo "Using IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
 
 # Output directories
-BUILD_DIR="$SCRIPT_DIR/target"
+# When in a workspace, cargo builds to the workspace root target directory
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BUILD_DIR="$WORKSPACE_ROOT/target"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
 XCFRAMEWORK_NAME="ImbibCore"
 

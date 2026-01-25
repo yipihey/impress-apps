@@ -1,10 +1,18 @@
-name: UI Tests
+name: imbib - UI Tests
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'apps/imbib/**'
+      - 'crates/imbib-core/**'
+      - '.github/workflows/imbib-tests.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'apps/imbib/**'
+      - 'crates/imbib-core/**'
+      - '.github/workflows/imbib-tests.yml'
 
 jobs:
   ui-tests:
@@ -30,15 +38,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib-core/target
+            target
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-ios14-
 
       - name: Build Rust xcframework
-        working-directory: imbib-core
+        working-directory: crates/imbib-core
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
@@ -48,15 +56,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib/build/SourcePackages
-            PublicationManagerCore/.build
+            apps/imbib/imbib/build/SourcePackages
+            apps/imbib/PublicationManagerCore/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
       - name: Build for Testing
+        working-directory: apps/imbib/imbib
         run: |
-          cd imbib
           xcodebuild build-for-testing \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -64,8 +72,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run UI Tests
+        working-directory: apps/imbib/imbib
         run: |
-          cd imbib
           xcodebuild test-without-building \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -80,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ui-test-results
-          path: TestResults.xcresult
+          path: apps/imbib/TestResults.xcresult
           if-no-files-found: warn
 
       - name: Upload Snapshots (on failure)
@@ -88,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: failed-snapshots
-          path: imbib/imbibUITests/Snapshots/__Snapshots__/
+          path: apps/imbib/imbib/imbibUITests/Snapshots/__Snapshots__/
           if-no-files-found: ignore
 
   accessibility-tests:
@@ -111,15 +119,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib-core/target
+            target
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-ios14-
 
       - name: Build Rust xcframework
-        working-directory: imbib-core
+        working-directory: crates/imbib-core
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
@@ -129,15 +137,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib/build/SourcePackages
-            PublicationManagerCore/.build
+            apps/imbib/imbib/build/SourcePackages
+            apps/imbib/PublicationManagerCore/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
       - name: Build for Testing
+        working-directory: apps/imbib/imbib
         run: |
-          cd imbib
           xcodebuild build-for-testing \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -145,8 +153,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run Accessibility Tests
+        working-directory: apps/imbib/imbib
         run: |
-          cd imbib
           xcodebuild test-without-building \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -160,7 +168,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: accessibility-test-results
-          path: AccessibilityTestResults.xcresult
+          path: apps/imbib/AccessibilityTestResults.xcresult
           if-no-files-found: warn
 
   integration-tests:
@@ -185,15 +193,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib-core/target
+            target
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-ios14-
 
       - name: Build Rust xcframework
-        working-directory: imbib-core
+        working-directory: crates/imbib-core
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
@@ -203,15 +211,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            imbib/build/SourcePackages
-            PublicationManagerCore/.build
+            apps/imbib/imbib/build/SourcePackages
+            apps/imbib/PublicationManagerCore/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
       - name: Build for Testing
+        working-directory: apps/imbib/imbib
         run: |
-          cd imbib
           xcodebuild build-for-testing \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -219,10 +227,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run Integration Tests
+        working-directory: apps/imbib/imbib
         env:
           ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
         run: |
-          cd imbib
           xcodebuild test-without-building \
             -scheme imbib \
             -destination 'platform=macOS' \
@@ -236,5 +244,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: IntegrationTestResults.xcresult
+          path: apps/imbib/IntegrationTestResults.xcresult
           if-no-files-found: warn

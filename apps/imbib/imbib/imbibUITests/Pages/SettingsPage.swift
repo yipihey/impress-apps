@@ -50,6 +50,16 @@ struct SettingsPage {
         window.toolbars.buttons["Shortcuts"]
     }
 
+    /// Advanced tab button
+    var advancedTab: XCUIElement {
+        window.toolbars.buttons["Advanced"]
+    }
+
+    /// The tab view container
+    var tabView: XCUIElement {
+        window.tabGroups.firstMatch
+    }
+
     // MARK: - Open/Close
 
     /// Open settings window using Cmd+,
@@ -90,6 +100,11 @@ struct SettingsPage {
     /// Select the Shortcuts tab
     func selectShortcutsTab() {
         shortcutsTab.click()
+    }
+
+    /// Select the Advanced tab
+    func selectAdvancedTab() {
+        advancedTab.click()
     }
 
     // MARK: - General Settings

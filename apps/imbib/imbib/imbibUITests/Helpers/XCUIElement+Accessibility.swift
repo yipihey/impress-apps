@@ -57,8 +57,11 @@ enum AccessibilityID {
     // MARK: - Sidebar
 
     enum Sidebar {
+        static let container = "sidebar.container"
         static let inbox = "sidebar.inbox"
         static let allPapers = "sidebar.allPapers"
+        static let allPublications = "sidebar.allPublications"
+        static let searchSources = "sidebar.searchSources"
         static let recentlyAdded = "sidebar.recentlyAdded"
         static let recentlyRead = "sidebar.recentlyRead"
         static let unread = "sidebar.unread"
@@ -72,8 +75,11 @@ enum AccessibilityID {
         static let refreshButton = "sidebar.refreshButton"
 
         static func libraryRow(_ id: String) -> String { "sidebar.library.\(id)" }
+        static func library(_ id: String) -> String { "sidebar.library.\(id)" }
         static func folderRow(_ id: String) -> String { "sidebar.folder.\(id)" }
         static func smartCollectionRow(_ id: String) -> String { "sidebar.smartCollection.\(id)" }
+        static func collection(_ id: String) -> String { "sidebar.collection.\(id)" }
+        static func smartSearch(_ id: String) -> String { "sidebar.smartSearch.\(id)" }
         static func sourceRow(_ id: String) -> String { "sidebar.source.\(id)" }
         static func feedRow(_ id: String) -> String { "sidebar.feed.\(id)" }
     }
@@ -97,6 +103,9 @@ enum AccessibilityID {
     // MARK: - Detail View
 
     enum Detail {
+        static let container = "detail.container"
+        static let emptyState = "detail.emptyState"
+
         enum Tabs {
             static let info = "detail.tabs.info"
             static let pdf = "detail.tabs.pdf"
@@ -104,6 +113,15 @@ enum AccessibilityID {
             static let bibtex = "detail.tabs.bibtex"
             static let references = "detail.tabs.references"
             static let annotations = "detail.tabs.annotations"
+        }
+
+        // Alternative naming for Tab (used by some tests)
+        enum Tab {
+            static let pdf = "detail.tab.pdf"
+            static let bibtex = "detail.tab.bibtex"
+            static let notes = "detail.tab.notes"
+            static let info = "detail.tab.info"
+            static let related = "detail.tab.related"
         }
 
         enum Info {
@@ -123,6 +141,27 @@ enum AccessibilityID {
             static let openPDFButton = "detail.info.openPDFButton"
             static let downloadPDFButton = "detail.info.downloadPDFButton"
             static let keywordsField = "detail.info.keywordsField"
+        }
+
+        // Alternative naming for Field (used by some tests)
+        enum Field {
+            static let title = "detail.field.title"
+            static let authors = "detail.field.authors"
+            static let year = "detail.field.year"
+            static let journal = "detail.field.journal"
+            static let abstract = "detail.field.abstract"
+            static let doi = "detail.field.doi"
+            static let citeKey = "detail.field.citeKey"
+        }
+
+        // Action buttons
+        enum Action {
+            static let openPDF = "detail.action.openPDF"
+            static let downloadPDF = "detail.action.downloadPDF"
+            static let copyDOI = "detail.action.copyDOI"
+            static let openURL = "detail.action.openURL"
+            static let edit = "detail.action.edit"
+            static let delete = "detail.action.delete"
         }
 
         enum PDF {
@@ -166,6 +205,7 @@ enum AccessibilityID {
     // MARK: - Settings
 
     enum Settings {
+        static let container = "settings.container"
         static let tabView = "settings.tabView"
         static let closeButton = "settings.closeButton"
         static let doneButton = "settings.doneButton"
@@ -182,6 +222,14 @@ enum AccessibilityID {
             static let recommendations = "settings.tabs.recommendations"
             static let shortcuts = "settings.tabs.shortcuts"
             static let advanced = "settings.tabs.advanced"
+        }
+
+        // Alternative naming for Tab (used by some tests)
+        enum Tab {
+            static let general = "settings.tab.general"
+            static let sources = "settings.tab.sources"
+            static let appearance = "settings.tab.appearance"
+            static let shortcuts = "settings.tab.shortcuts"
         }
 
         enum General {
@@ -261,14 +309,22 @@ enum AccessibilityID {
     // MARK: - Toolbar
 
     enum Toolbar {
+        static let container = "toolbar.container"
+        static let globalSearch = "toolbar.globalSearch"
         static let addButton = "toolbar.addButton"
+        static let addPublication = "toolbar.addPublication"
+        static let importBibTeX = "toolbar.importBibTeX"
         static let removeButton = "toolbar.removeButton"
         static let searchButton = "toolbar.searchButton"
         static let sortMenu = "toolbar.sortMenu"
+        static let filterMenu = "toolbar.filterMenu"
         static let viewModeButton = "toolbar.viewModeButton"
         static let shareButton = "toolbar.shareButton"
         static let syncButton = "toolbar.syncButton"
+        static let refresh = "toolbar.refresh"
         static let settingsButton = "toolbar.settingsButton"
+        static let toggleSidebar = "toolbar.toggleSidebar"
+        static let toggleDetail = "toolbar.toggleDetail"
     }
 
     // MARK: - Dialog
@@ -290,5 +346,78 @@ enum AccessibilityID {
             static let createButton = "dialog.library.createButton"
             static let cancelButton = "dialog.library.cancelButton"
         }
+    }
+
+    // MARK: - Publication List
+
+    enum PublicationList {
+        static let container = "publicationList.container"
+        static let searchField = "publicationList.searchField"
+        static let emptyState = "publicationList.emptyState"
+
+        static func row(_ citeKey: String) -> String {
+            "publication.row.\(citeKey)"
+        }
+
+        static func rowTitle(_ citeKey: String) -> String {
+            "publication.row.\(citeKey).title"
+        }
+
+        static func rowAuthors(_ citeKey: String) -> String {
+            "publication.row.\(citeKey).authors"
+        }
+    }
+
+    // MARK: - Global Search
+
+    enum GlobalSearch {
+        static let container = "globalSearch.container"
+        static let field = "globalSearch.field"
+        static let results = "globalSearch.results"
+        static let clearButton = "globalSearch.clearButton"
+        static let closeButton = "globalSearch.closeButton"
+
+        static func result(_ index: Int) -> String {
+            "globalSearch.result.\(index)"
+        }
+    }
+
+    // MARK: - PDF Viewer
+
+    enum PDFViewer {
+        static let container = "pdfViewer.container"
+        static let document = "pdfViewer.document"
+        static let pageIndicator = "pdfViewer.pageIndicator"
+        static let zoomSlider = "pdfViewer.zoomSlider"
+        static let searchField = "pdfViewer.searchField"
+
+        enum Annotation {
+            static let highlight = "pdfViewer.annotation.highlight"
+            static let underline = "pdfViewer.annotation.underline"
+            static let strikethrough = "pdfViewer.annotation.strikethrough"
+            static let note = "pdfViewer.annotation.note"
+            static let colorPicker = "pdfViewer.annotation.colorPicker"
+        }
+    }
+
+    // MARK: - Sheets & Dialogs
+
+    enum Sheet {
+        static let importProgress = "sheet.importProgress"
+        static let exportOptions = "sheet.exportOptions"
+        static let libraryCreation = "sheet.libraryCreation"
+        static let collectionCreation = "sheet.collectionCreation"
+        static let smartSearchCreation = "sheet.smartSearchCreation"
+        static let triagePicker = "sheet.triagePicker"
+    }
+
+    // MARK: - Inbox / Triage
+
+    enum Inbox {
+        static let container = "inbox.container"
+        static let keepButton = "inbox.keepButton"
+        static let dismissButton = "inbox.dismissButton"
+        static let starButton = "inbox.starButton"
+        static let unreadCount = "inbox.unreadCount"
     }
 }
