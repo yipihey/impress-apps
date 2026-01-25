@@ -20,12 +20,16 @@
 //! - **ArtShader**: Custom shader rendering for artistic visualizations
 
 pub mod automation;
+pub mod axis;
+pub mod colormap;
 pub mod dataset;
 pub mod session;
 pub mod spatial;
 pub mod view;
 
 pub use automation::*;
+pub use axis::*;
+pub use colormap::*;
 pub use dataset::*;
 pub use session::*;
 pub use spatial::*;
