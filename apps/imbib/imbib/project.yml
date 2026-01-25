@@ -1,0 +1,390 @@
+name: imbib
+options:
+  bundleIdPrefix: com.imbib
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: QG3MEYVHMS
+    CODE_SIGN_STYLE: Automatic
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
+      STRIP_INSTALLED_PRODUCT: YES
+      COPY_PHASE_STRIP: YES
+
+packages:
+  PublicationManagerCore:
+    path: ../PublicationManagerCore
+
+targets:
+  # macOS App
+  imbib:
+    type: application
+    platform: macOS
+    sources:
+      - path: imbib
+        excludes:
+          - "**/*.entitlements"
+          - "**/ShareExtension/**"
+    dependencies:
+      - package: PublicationManagerCore
+      - target: imbib-ShareExtension
+        embed: true
+      - target: imbib-SafariExtension
+        embed: true
+    info:
+      path: imbib/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.app
+            CFBundleURLSchemes:
+              - imbib
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Publication ID
+            UTTypeIdentifier: com.imbib.publication-id
+            UTTypeTagSpecification: {}
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app
+        PRODUCT_NAME: imbib
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: imbib/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_KEY_CFBundleDisplayName: imbib
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026"
+        CODE_SIGN_ENTITLEMENTS: imbib/Resources/imbib.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: imbib/Resources/imbib.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
+
+  # iOS App
+  imbib-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: imbib-iOS
+        excludes:
+          - "**/ShareExtension/**"
+      - path: imbib/Resources/Assets.xcassets
+      - path: imbib/Resources/DefaultLibrarySet.json
+    dependencies:
+      - package: PublicationManagerCore
+      - target: imbib-iOS-ShareExtension
+        embed: true
+      - target: imbib-iOS-SafariExtension
+        embed: true
+    info:
+      path: imbib-iOS/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.app
+            CFBundleURLSchemes:
+              - imbib
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - remote-notification
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Publication ID
+            UTTypeIdentifier: com.imbib.publication-id
+            UTTypeTagSpecification: {}
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
+        PRODUCT_NAME: imbib
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: imbib-iOS/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        CODE_SIGN_ENTITLEMENTS: imbib-iOS/Resources/imbib-iOS.entitlements
+    entitlements:
+      path: imbib-iOS/Resources/imbib-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
+        aps-environment: development
+
+  # macOS Share Extension
+  imbib-ShareExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ShareExtension
+        excludes:
+          - "**/*.entitlements"
+      - path: imbib/Resources/Assets.xcassets
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ShareExtension
+        PRODUCT_NAME: imbib-ShareExtension
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # iOS Share Extension
+  imbib-iOS-ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: imbib-iOS/ShareExtension
+        excludes:
+          - "**/*.entitlements"
+      - path: imbib/Resources/Assets.xcassets
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
+        PRODUCT_NAME: imbib-iOS-ShareExtension
+        INFOPLIST_FILE: imbib-iOS/ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbib-iOS/ShareExtension/ShareExtension.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: imbib-iOS/ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # macOS Safari Extension
+  imbib-SafariExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: imbibSafariExtension/SafariWebExtensionHandler.swift
+      - path: imbibSafariExtension/manifest.json
+        buildPhase: resources
+      - path: imbibSafariExtension/background.js
+        buildPhase: resources
+      - path: imbibSafariExtension/_locales
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/content
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/images
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/popup
+        type: folder
+        buildPhase: resources
+    dependencies: []
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.safari-extension
+        PRODUCT_NAME: imbib Safari Extension
+        INFOPLIST_FILE: imbibSafariExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension.entitlements
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+        OTHER_LDFLAGS: "-framework SafariServices"
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: imbibSafariExtension/imbibSafariExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # iOS Safari Extension
+  imbib-iOS-SafariExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: imbibSafariExtension/SafariWebExtensionHandler.swift
+      - path: imbibSafariExtension/manifest.json
+        buildPhase: resources
+      - path: imbibSafariExtension/background.js
+        buildPhase: resources
+      - path: imbibSafariExtension/_locales
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/content
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/images
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/popup
+        type: folder
+        buildPhase: resources
+    dependencies: []
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
+        PRODUCT_NAME: imbib Safari Extension
+        INFOPLIST_FILE: imbibSafariExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        OTHER_LDFLAGS: "-framework SafariServices"
+    entitlements:
+      path: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # macOS Tests
+  imbibTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: imbibTests
+        optional: true
+    dependencies:
+      - target: imbib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  imbibUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: imbibUITests
+        optional: true
+    dependencies:
+      - target: imbib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  imbib:
+    build:
+      targets:
+        imbib: all
+        imbibTests: [test]
+        imbibUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - imbibTests
+        - imbibUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  # Development scheme: Reset to first-run state on launch
+  imbib-FirstRun:
+    build:
+      targets:
+        imbib: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "--reset-to-first-run": true
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  # Development scheme: Edit default library set configuration
+  imbib-EditDefaultSet:
+    build:
+      targets:
+        imbib: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "--edit-default-set": true
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  imbib-iOS:
+    build:
+      targets:
+        imbib-iOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

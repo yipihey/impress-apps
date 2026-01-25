@@ -1,0 +1,75 @@
+{
+  "result": {
+    "hits": {
+      "@total": "150",
+      "@computed": "150",
+      "@sent": "3",
+      "hit": [
+        {
+          "@score": "8",
+          "@id": "conf/vldb/CoddR70",
+          "info": {
+            "authors": {
+              "author": [
+                {"@pid": "c/EFCodd", "text": "Edgar F. Codd"}
+              ]
+            },
+            "title": "A Relational Model of Data for Large Shared Data Banks.",
+            "venue": "Communications of the ACM",
+            "year": "1970",
+            "type": "Journal Articles",
+            "key": "journals/cacm/Codd70",
+            "doi": "10.1145/362384.362685",
+            "ee": "https://doi.org/10.1145/362384.362685",
+            "url": "https://dblp.org/rec/journals/cacm/Codd70"
+          }
+        },
+        {
+          "@score": "7",
+          "@id": "conf/sigmod/StonebreakerR86",
+          "info": {
+            "authors": {
+              "author": [
+                {"@pid": "s/MichaelStonebraker", "text": "Michael Stonebraker"},
+                {"@pid": "r/LawrenceARowe", "text": "Lawrence A. Rowe"}
+              ]
+            },
+            "title": "The Design of POSTGRES.",
+            "venue": "SIGMOD Conference",
+            "year": "1986",
+            "type": "Conference and Workshop Papers",
+            "key": "conf/sigmod/StonebreakerR86",
+            "doi": "10.1145/16894.16888",
+            "ee": "https://doi.org/10.1145/16894.16888",
+            "url": "https://dblp.org/rec/conf/sigmod/StonebreakerR86"
+          }
+        },
+        {
+          "@score": "6",
+          "@id": "journals/tods/LamportS19",
+          "info": {
+            "authors": {
+              "author": [
+                {"@pid": "l/LeslieLamport", "text": "Leslie Lamport"}
+              ]
+            },
+            "title": "Time, Clocks, and the Ordering of Events in a Distributed System.",
+            "venue": "Communications of the ACM",
+            "year": "1978",
+            "type": "Journal Articles",
+            "key": "journals/cacm/Lamport78",
+            "doi": "10.1145/359545.359563",
+            "ee": "https://doi.org/10.1145/359545.359563",
+            "url": "https://dblp.org/rec/journals/cacm/Lamport78"
+          }
+        }
+      ]
+    },
+    "query": "database",
+    "status": {
+      "@code": "200",
+      "text": "OK"
+    },
+    "time": {"@unit": "msec", "text": "23"}
+  }
+}

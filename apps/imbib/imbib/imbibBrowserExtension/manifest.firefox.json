@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "imbib",
+  "version": "1.0.0",
+  "description": "Import references to imbib from academic websites",
+  "default_locale": "en",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "imbib@imbib.app",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "48": "images/icon-48.png",
+    "96": "images/icon-96.png",
+    "128": "images/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "images/icon-48.png",
+      "32": "images/icon-48.png",
+      "48": "images/icon-48.png"
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://ui.adsabs.harvard.edu/*",
+        "*://arxiv.org/*",
+        "*://doi.org/*",
+        "*://dx.doi.org/*",
+        "*://pubmed.ncbi.nlm.nih.gov/*",
+        "*://*.nih.gov/pmc/*",
+        "*://openalex.org/*"
+      ],
+      "js": ["content/main.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*/*"],
+      "js": ["content/main.js"],
+      "run_at": "document_idle",
+      "exclude_matches": [
+        "*://ui.adsabs.harvard.edu/*",
+        "*://arxiv.org/*",
+        "*://doi.org/*",
+        "*://dx.doi.org/*",
+        "*://pubmed.ncbi.nlm.nih.gov/*",
+        "*://*.nih.gov/pmc/*",
+        "*://openalex.org/*"
+      ]
+    }
+  ],
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://ui.adsabs.harvard.edu/*",
+    "*://arxiv.org/*",
+    "*://doi.org/*",
+    "*://dx.doi.org/*",
+    "*://pubmed.ncbi.nlm.nih.gov/*",
+    "*://*.nih.gov/*",
+    "*://openalex.org/*"
+  ]
+}

@@ -1,0 +1,240 @@
+name: UI Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ui-tests:
+    name: UI Tests
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib-core/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-ios14-
+
+      - name: Build Rust xcframework
+        working-directory: imbib-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib/build/SourcePackages
+            PublicationManagerCore/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build for Testing
+        run: |
+          cd imbib
+          xcodebuild build-for-testing \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run UI Tests
+        run: |
+          cd imbib
+          xcodebuild test-without-building \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -testPlan UITests \
+            -resultBundlePath ../TestResults.xcresult \
+            -parallel-testing-enabled YES \
+            CODE_SIGNING_ALLOWED=NO || true
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: TestResults.xcresult
+          if-no-files-found: warn
+
+      - name: Upload Snapshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-snapshots
+          path: imbib/imbibUITests/Snapshots/__Snapshots__/
+          if-no-files-found: ignore
+
+  accessibility-tests:
+    name: Accessibility Tests
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib-core/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-ios14-
+
+      - name: Build Rust xcframework
+        working-directory: imbib-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib/build/SourcePackages
+            PublicationManagerCore/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build for Testing
+        run: |
+          cd imbib
+          xcodebuild build-for-testing \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run Accessibility Tests
+        run: |
+          cd imbib
+          xcodebuild test-without-building \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -testPlan AccessibilityTests \
+            -resultBundlePath ../AccessibilityTestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO || true
+
+      - name: Upload Accessibility Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-test-results
+          path: AccessibilityTestResults.xcresult
+          if-no-files-found: warn
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: macos-14
+    # Run less frequently - on schedule or release tags
+    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib-core/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-ios14-${{ hashFiles('imbib-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-ios14-
+
+      - name: Build Rust xcframework
+        working-directory: imbib-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            imbib/build/SourcePackages
+            PublicationManagerCore/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build for Testing
+        run: |
+          cd imbib
+          xcodebuild build-for-testing \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run Integration Tests
+        env:
+          ADS_API_KEY: ${{ secrets.ADS_API_KEY }}
+        run: |
+          cd imbib
+          xcodebuild test-without-building \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -testPlan IntegrationTests \
+            -resultBundlePath ../IntegrationTestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO || true
+
+      - name: Upload Integration Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: IntegrationTestResults.xcresult
+          if-no-files-found: warn

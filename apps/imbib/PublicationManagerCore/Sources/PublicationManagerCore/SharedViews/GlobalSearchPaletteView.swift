@@ -1,0 +1,469 @@
+//
+//  GlobalSearchPaletteView.swift
+//  PublicationManagerCore
+//
+//  Command palette UI for global search.
+//
+
+import SwiftUI
+
+// MARK: - Global Search Palette View
+
+/// A command palette overlay for global search.
+///
+/// Displays a centered modal with:
+/// - Auto-focused search field
+/// - Scrollable results list (max ~10 visible)
+/// - Keyboard navigation (arrow keys, Enter, Escape)
+/// - Match type badges (Text, Similar, Both)
+/// - Search scope indicator (iOS)
+public struct GlobalSearchPaletteView: View {
+
+    // MARK: - Bindings
+
+    @Binding var isPresented: Bool
+
+    /// Callback when a publication is selected
+    var onSelect: (UUID) -> Void
+
+    /// Callback for PDF search - triggered when context is PDF
+    var onPDFSearch: ((String) -> Void)?
+
+    // MARK: - Environment
+
+    @Environment(\.searchContext) private var searchContext
+
+    // MARK: - State
+
+    @State private var viewModel = GlobalSearchViewModel()
+    @FocusState private var isSearchFieldFocused: Bool
+
+    // MARK: - Body
+
+    public init(
+        isPresented: Binding<Bool>,
+        onSelect: @escaping (UUID) -> Void,
+        onPDFSearch: ((String) -> Void)? = nil
+    ) {
+        self._isPresented = isPresented
+        self.onSelect = onSelect
+        self.onPDFSearch = onPDFSearch
+    }
+
+    public var body: some View {
+        ZStack {
+            // Dimmed background
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    dismiss()
+                }
+
+            // Palette container
+            VStack(spacing: 0) {
+                // Search scope indicator (shows when not in global context)
+                if !viewModel.effectiveContext.isGlobal {
+                    scopeIndicator
+                }
+
+                // Search field
+                searchField
+
+                Divider()
+
+                // Results or empty state
+                if viewModel.isSearching {
+                    loadingView
+                } else if viewModel.results.isEmpty {
+                    if viewModel.query.isEmpty {
+                        emptyPromptView
+                    } else {
+                        noResultsView
+                    }
+                } else {
+                    resultsList
+                }
+            }
+            .frame(width: paletteWidth, height: paletteHeight)
+            .background(paletteBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+            // Keyboard handlers at container level so they work regardless of content
+            .onKeyPress(.upArrow) {
+                viewModel.selectPrevious()
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                viewModel.selectNext()
+                return .handled
+            }
+            .onKeyPress(.return) {
+                selectCurrentResult()
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                dismiss()
+                return .handled
+            }
+        }
+        .onAppear {
+            // Set the search context from environment
+            viewModel.setContext(searchContext)
+
+            // Delay focus slightly to ensure the view is fully rendered
+            // Only focus if the view is actually being presented
+            if isPresented {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isSearchFieldFocused = true
+                }
+            }
+        }
+        .onChange(of: searchContext) { _, newContext in
+            viewModel.setContext(newContext)
+        }
+    }
+
+    // MARK: - Search Field
+
+    private var searchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.title3)
+
+            TextField(searchPlaceholder, text: $viewModel.query)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused($isSearchFieldFocused)
+                .onSubmit {
+                    handleSearchSubmit()
+                }
+                .onChange(of: viewModel.query) { _, _ in
+                    // Don't auto-search for PDF context (requires explicit submit)
+                    if !viewModel.effectiveContext.isPDFSearch {
+                        viewModel.search()
+                    }
+                }
+
+            if !viewModel.query.isEmpty {
+                Button {
+                    viewModel.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            #if os(iOS)
+            // Explicit close button for iOS
+            Button {
+                dismiss()
+            } label: {
+                Text("Cancel")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            #endif
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    // MARK: - Results List
+
+    private var resultsList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, result in
+                        resultRow(result: result, index: index)
+                    }
+                }
+            }
+            .onChange(of: viewModel.selectedIndex) { _, newIndex in
+                if let result = viewModel.results[safe: newIndex] {
+                    proxy.scrollTo(result.id, anchor: .center)
+                }
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func resultRow(result: GlobalSearchResult, index: Int) -> some View {
+        let isSelected = index == viewModel.selectedIndex
+
+        return Button {
+            onSelect(result.id)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Title
+                    Text(result.title.isEmpty ? result.citeKey : result.title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .foregroundStyle(isSelected ? .white : .primary)
+
+                    // Authors and year
+                    HStack(spacing: 8) {
+                        Text(result.authors)
+                            .lineLimit(1)
+
+                        if let year = result.year {
+                            Text("(\(year))")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
+
+                    // Library/collection info
+                    if !result.libraryNames.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder")
+                                .font(.caption2)
+                            Text(result.libraryNames.joined(separator: ", "))
+                                .lineLimit(1)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(isSelected ? .white.opacity(0.6) : .secondary.opacity(0.7))
+                    }
+
+                    // Snippet (if available)
+                    if let snippet = result.snippet, !snippet.isEmpty {
+                        Text(snippet)
+                            .font(.caption2)
+                            .foregroundStyle(isSelected ? .white.opacity(0.7) : .secondary)
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer()
+
+                // Match type badge
+                matchTypeBadge(result.matchType, isSelected: isSelected)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(isSelected ? Color.accentColor : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(result.id)
+    }
+
+    private func matchTypeBadge(_ matchType: GlobalSearchMatchType, isSelected: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: matchType.iconName)
+                .font(.caption2)
+            Text(matchType.label)
+                .font(.caption2)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(badgeBackground(for: matchType, isSelected: isSelected))
+        .foregroundStyle(isSelected ? .white : badgeForegroundColor(for: matchType))
+        .clipShape(Capsule())
+    }
+
+    private func badgeBackground(for matchType: GlobalSearchMatchType, isSelected: Bool) -> some ShapeStyle {
+        if isSelected {
+            return AnyShapeStyle(Color.white.opacity(0.2))
+        }
+
+        switch matchType {
+        case .fulltext:
+            return AnyShapeStyle(Color.blue.opacity(0.15))
+        case .semantic:
+            return AnyShapeStyle(Color.purple.opacity(0.15))
+        case .both:
+            return AnyShapeStyle(Color.orange.opacity(0.15))
+        }
+    }
+
+    private func badgeForegroundColor(for matchType: GlobalSearchMatchType) -> Color {
+        switch matchType {
+        case .fulltext:
+            return .blue
+        case .semantic:
+            return .purple
+        case .both:
+            return .orange
+        }
+    }
+
+    // MARK: - Empty States
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Searching...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyPromptView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: viewModel.effectiveContext.iconName)
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(emptyPromptText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Use keywords or describe what you're looking for")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyPromptText: String {
+        switch viewModel.effectiveContext {
+        case .global:
+            return "Search across all your papers"
+        case .library(_, let name):
+            return "Search in \(name)"
+        case .collection(_, let name):
+            return "Search in \(name)"
+        case .smartSearch(_, let name):
+            return "Search in \(name)"
+        case .publication(_, _):
+            return "Search in this paper"
+        case .pdf(_, _):
+            return "Search in PDF"
+        }
+    }
+
+    // MARK: - Scope Indicator
+
+    private var scopeIndicator: some View {
+        HStack(spacing: 8) {
+            Image(systemName: viewModel.effectiveContext.iconName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("Searching \(viewModel.effectiveContext.scopeDescription)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            Button {
+                viewModel.toggleGlobalOverride()
+            } label: {
+                Text("Search All")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.1))
+    }
+
+    private var noResultsView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("No results found")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Try different keywords or a broader search")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Helpers
+
+    private func dismiss() {
+        isPresented = false
+        // Don't clear the search - keep query and results for next Cmd+K
+        // User can clear explicitly with the X button in the search field
+    }
+
+    private func selectCurrentResult() {
+        if let result = viewModel.selectedResult {
+            onSelect(result.id)
+            dismiss()
+        }
+    }
+
+    private func handleSearchSubmit() {
+        // For PDF context, trigger PDF search callback
+        if viewModel.effectiveContext.isPDFSearch {
+            if let callback = onPDFSearch, !viewModel.query.isEmpty {
+                callback(viewModel.query)
+                dismiss()
+            }
+        } else {
+            // Normal behavior - select current result
+            selectCurrentResult()
+        }
+    }
+
+    private var searchPlaceholder: String {
+        switch viewModel.effectiveContext {
+        case .pdf:
+            return "Search in PDF..."
+        case .publication:
+            return "Search in paper..."
+        case .library(_, let name):
+            return "Search in \(name)..."
+        case .collection(_, let name):
+            return "Search in \(name)..."
+        default:
+            return "Search papers..."
+        }
+    }
+
+    // MARK: - Layout Constants
+
+    private var paletteWidth: CGFloat {
+        #if os(macOS)
+        return 700
+        #else
+        return UIScreen.main.bounds.width - 40
+        #endif
+    }
+
+    private var paletteHeight: CGFloat {
+        #if os(macOS)
+        return 600
+        #else
+        return UIScreen.main.bounds.height * 0.7
+        #endif
+    }
+
+    private var paletteBackground: some ShapeStyle {
+        #if os(macOS)
+        return AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+        #else
+        return AnyShapeStyle(Color(.systemBackground))
+        #endif
+    }
+}
+
+// MARK: - Array Safe Subscript
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    GlobalSearchPaletteView(
+        isPresented: .constant(true),
+        onSelect: { _ in }
+    )
+}

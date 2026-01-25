@@ -1,0 +1,50 @@
+{
+  "responseHeader": {
+    "status": 0,
+    "QTime": 45,
+    "params": {
+      "q": "supernova",
+      "fl": "bibcode,title,author,year,abstract,doi,pub,pubdate,identifier",
+      "rows": "50"
+    }
+  },
+  "response": {
+    "numFound": 85000,
+    "start": 0,
+    "docs": [
+      {
+        "bibcode": "2024ApJ...123..456H",
+        "title": ["The Physics of Core-Collapse Supernovae"],
+        "author": ["Harrison, S. M.", "Chen, L.", "Williams, R. J."],
+        "year": "2024",
+        "abstract": "We present a comprehensive review of core-collapse supernova physics, including the explosion mechanism, nucleosynthesis, and remnant formation. New 3D simulations reveal the critical role of neutrino-driven convection.",
+        "doi": ["10.3847/1538-4357/ad1234"],
+        "pub": "The Astrophysical Journal",
+        "pubdate": "2024-01-00",
+        "identifier": ["2024ApJ...123..456H", "arXiv:2312.04567"]
+      },
+      {
+        "bibcode": "2023MNRAS.520.1234B",
+        "title": ["Type Ia Supernova Cosmology: A Review"],
+        "author": ["Baker, E. T.", "Rodriguez, M.", "Kim, J. H.", "Singh, A."],
+        "year": "2023",
+        "abstract": "Type Ia supernovae remain the premier standard candles for cosmology. This review covers standardization techniques, systematic uncertainties, and implications for dark energy measurements.",
+        "doi": ["10.1093/mnras/stad123"],
+        "pub": "Monthly Notices of the Royal Astronomical Society",
+        "pubdate": "2023-06-00",
+        "identifier": ["2023MNRAS.520.1234B"]
+      },
+      {
+        "bibcode": "2022A&A...665A.100M",
+        "title": ["Supernova Remnant Evolution in Different Environments"],
+        "author": ["Mueller, K.", "Thompson, D. W."],
+        "year": "2022",
+        "abstract": "We study supernova remnant evolution across diverse interstellar medium conditions. Hydrodynamic simulations reveal significant morphological differences based on ambient density and magnetic field strength.",
+        "doi": ["10.1051/0004-6361/202243456"],
+        "pub": "Astronomy and Astrophysics",
+        "pubdate": "2022-09-00",
+        "identifier": ["2022A&A...665A.100M", "arXiv:2207.08901"]
+      }
+    ]
+  }
+}

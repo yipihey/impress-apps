@@ -1,0 +1,35 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Build outputs
+build/
+
+# Jekyll
+docs/_site/
+docs/.jekyll-cache/
+
+# Large binary files (rebuild with ./build-xcframework.sh)
+imbib-core/frameworks/**/*.a
+imbib-core/frameworks/ios-sim-universal/
+imbib-core/frameworks/macos-universal/

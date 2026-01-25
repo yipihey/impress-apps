@@ -1,0 +1,10 @@
+{
+  "extension_name": {
+    "message": "imbib",
+    "description": "Name of the extension"
+  },
+  "extension_description": {
+    "message": "Import references to imbib from academic websites",
+    "description": "Description of the extension"
+  }
+}

@@ -1,0 +1,16 @@
+TY  - JOUR
+AU  - Codd, Edgar F.
+TI  - A Relational Model of Data for Large Shared Data Banks
+JF  - Communications of the ACM
+PY  - 1970
+VL  - 13
+IS  - 6
+SP  - 377
+EP  - 387
+DO  - 10.1145/362384.362685
+AB  - A relational model of data is proposed as a basis for protecting users of formatted data systems from the potentially disruptive changes in data representation caused by growth in the data base and changes in traffic.
+KW  - relational model
+KW  - database
+KW  - data model
+ID  - Codd1970
+ER  -

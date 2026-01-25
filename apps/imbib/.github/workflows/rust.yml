@@ -1,0 +1,126 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'imbib-core/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'imbib-core/**'
+      - '.github/workflows/rust.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: imbib-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            imbib-core/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('imbib-core/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: imbib-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            imbib-core/target/
+          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('imbib-core/Cargo.lock') }}
+
+      - name: Build for iOS device
+        run: cargo build --release --target aarch64-apple-ios
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+
+      - name: Build for iOS simulator
+        run: cargo build --release --target aarch64-apple-ios-sim
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+
+  generate-bindings:
+    name: Generate Swift Bindings
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: imbib-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            imbib-core/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('imbib-core/Cargo.lock') }}
+
+      - name: Build library
+        run: cargo build --release
+
+      - name: Generate Swift bindings
+        run: |
+          mkdir -p generated
+          cargo run --release --bin uniffi-bindgen generate \
+            --library target/release/libimbib_core.dylib \
+            --language swift \
+            --out-dir generated
+
+      - name: Upload Swift bindings
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-bindings
+          path: imbib-core/generated/

@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "documents": [
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "category": "gettingStarted",
+      "filename": "getting-started.md",
+      "keywords": ["install", "setup", "library", "import", "first", "begin", "create"],
+      "summary": "Set up imbib and import your first papers.",
+      "sortOrder": 0,
+      "isDeveloperDoc": false
+    },
+    {
+      "id": "features",
+      "title": "Features Overview",
+      "category": "features",
+      "filename": "features.md",
+      "keywords": ["feature", "capability", "function", "search", "library", "sync", "pdf"],
+      "summary": "Explore imbib's key features and capabilities.",
+      "sortOrder": 0,
+      "isDeveloperDoc": false
+    },
+    {
+      "id": "keyboard-shortcuts",
+      "title": "Keyboard Shortcuts",
+      "category": "keyboardShortcuts",
+      "filename": "keyboard-shortcuts.md",
+      "keywords": ["shortcut", "hotkey", "keybinding", "keyboard", "command", "key"],
+      "summary": "Quick reference for all keyboard shortcuts.",
+      "sortOrder": 0,
+      "isDeveloperDoc": false
+    },
+    {
+      "id": "faq",
+      "title": "Frequently Asked Questions",
+      "category": "faq",
+      "filename": "faq.md",
+      "keywords": ["question", "help", "problem", "issue", "how to", "why", "troubleshoot"],
+      "summary": "Answers to common questions about imbib.",
+      "sortOrder": 0,
+      "isDeveloperDoc": false
+    },
+    {
+      "id": "automation",
+      "title": "Automation & Integration",
+      "category": "automation",
+      "filename": "automation.md",
+      "keywords": ["automate", "script", "url scheme", "shortcuts", "siri", "api", "integrate"],
+      "summary": "Automate imbib with URL schemes and Shortcuts.",
+      "sortOrder": 0,
+      "isDeveloperDoc": false
+    },
+    {
+      "id": "share-extension",
+      "title": "Browser Extension",
+      "category": "automation",
+      "filename": "share-extension.md",
+      "keywords": ["browser", "safari", "extension", "share", "import", "web", "capture"],
+      "summary": "Import papers directly from your web browser.",
+      "sortOrder": 1,
+      "isDeveloperDoc": false
+    }
+  ]
+}

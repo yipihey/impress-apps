@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <link href="http://arxiv.org/api/query?search_query=all:quantum&amp;start=0&amp;max_results=3" rel="self" type="application/atom+xml"/>
+  <title type="html">ArXiv Query: search_query=all:quantum&amp;start=0&amp;max_results=3</title>
+  <id>http://arxiv.org/api/query</id>
+  <updated>2024-01-15T00:00:00-05:00</updated>
+  <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">100</opensearch:totalResults>
+  <opensearch:startIndex xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">0</opensearch:startIndex>
+  <opensearch:itemsPerPage xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">3</opensearch:itemsPerPage>
+
+  <entry>
+    <id>http://arxiv.org/abs/2401.12345v1</id>
+    <updated>2024-01-15T18:00:00Z</updated>
+    <published>2024-01-15T18:00:00Z</published>
+    <title>Quantum Computing: A Comprehensive Survey of Recent Advances</title>
+    <summary>We present a comprehensive survey of recent advances in quantum computing, covering quantum algorithms, error correction, and hardware implementations. Our analysis reveals significant progress in achieving quantum advantage for specific computational tasks.</summary>
+    <author>
+      <name>Alice Chen</name>
+    </author>
+    <author>
+      <name>Bob Smith</name>
+    </author>
+    <author>
+      <name>Carol Johnson</name>
+    </author>
+    <arxiv:doi xmlns:arxiv="http://arxiv.org/schemas/atom">10.1234/arxiv.2401.12345</arxiv:doi>
+    <link href="http://arxiv.org/abs/2401.12345v1" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2401.12345v1" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CC" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+
+  <entry>
+    <id>http://arxiv.org/abs/2401.11111v2</id>
+    <updated>2024-01-14T12:00:00Z</updated>
+    <published>2024-01-10T10:00:00Z</published>
+    <title>Error Mitigation in Near-Term Quantum Devices</title>
+    <summary>This paper introduces novel error mitigation techniques for near-term quantum computers. We demonstrate improvements in fidelity for variational quantum algorithms through a combination of zero-noise extrapolation and probabilistic error cancellation.</summary>
+    <author>
+      <name>David Lee</name>
+    </author>
+    <author>
+      <name>Emily Wang</name>
+    </author>
+    <link href="http://arxiv.org/abs/2401.11111v2" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2401.11111v2" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+
+  <entry>
+    <id>http://arxiv.org/abs/2312.99999v1</id>
+    <updated>2023-12-28T09:00:00Z</updated>
+    <published>2023-12-28T09:00:00Z</published>
+    <title>Quantum Machine Learning: Foundations and Applications</title>
+    <summary>We review the foundations of quantum machine learning, examining how quantum computers can accelerate classical machine learning algorithms. Applications in drug discovery, optimization, and pattern recognition are discussed.</summary>
+    <author>
+      <name>Frank Zhang</name>
+    </author>
+    <link href="http://arxiv.org/abs/2312.99999v1" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2312.99999v1" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+
+</feed>

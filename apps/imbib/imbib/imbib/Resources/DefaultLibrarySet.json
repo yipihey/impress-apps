@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "libraries": [
+    {
+      "name": "My Library",
+      "isDefault": true,
+      "collections": [
+        { "name": "To Read" },
+        { "name": "Favorites" },
+        { "name": "Work in Progress" }
+      ]
+    }
+  ],
+  "inboxFeeds": [
+    {
+      "name": "arXiv Astrophysics",
+      "query": "cat:astro-ph.*",
+      "sourceIDs": ["arxiv"],
+      "refreshIntervalSeconds": 21600,
+      "maxResults": 100
+    }
+  ]
+}

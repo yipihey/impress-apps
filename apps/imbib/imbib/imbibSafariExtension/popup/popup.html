@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <div class="header-content">
+                <img src="../images/icon-48.png" alt="imbib" class="logo">
+                <h1>imbib</h1>
+            </div>
+        </header>
+
+        <main>
+            <!-- Loading State -->
+            <div id="loading" class="state">
+                <div class="spinner"></div>
+                <p>Detecting references...</p>
+            </div>
+
+            <!-- No Content State -->
+            <div id="no-content" class="state hidden">
+                <div class="empty-state">
+                    <svg class="icon-large" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <p>No bibliographic data found on this page.</p>
+                    <p class="hint">Visit an academic site like arXiv, ADS, or a journal page.</p>
+                </div>
+            </div>
+
+            <!-- Search Page State -->
+            <div id="search-page" class="state hidden">
+                <div class="search-page-content">
+                    <svg class="icon-large" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    <p id="search-page-message">This is a search results page.</p>
+
+                    <!-- Smart Search Creation (shown when query is extractable) -->
+                    <div id="smart-search-section" class="smart-search-section hidden">
+                        <div class="search-query-preview">
+                            <span class="label">Query:</span>
+                            <code id="search-query-text"></code>
+                        </div>
+                        <button id="create-smart-search-btn" class="button primary">
+                            <span class="button-text">Create Smart Search</span>
+                            <div class="button-spinner hidden"></div>
+                        </button>
+                        <p class="hint">Will appear in Exploration section</p>
+                    </div>
+
+                    <!-- Fallback hint (shown when no query extractable) -->
+                    <p id="search-page-hint" class="hint">Click on a paper to import it.</p>
+                </div>
+            </div>
+
+            <!-- Item Found State -->
+            <div id="item-found" class="state hidden">
+                <div class="item-preview">
+                    <h2 id="item-title" class="title"></h2>
+                    <p id="item-authors" class="authors"></p>
+                    <p id="item-meta" class="meta"></p>
+                    <div id="identifiers" class="identifiers"></div>
+                </div>
+
+                <div id="already-saved" class="notice success hidden">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span>Already in library</span>
+                </div>
+
+                <div class="actions">
+                    <select id="library-select" class="select">
+                        <option value="">Default library</option>
+                    </select>
+                    <button id="import-btn" class="button primary">
+                        <span class="button-text">Import</span>
+                        <div class="button-spinner hidden"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Success State -->
+            <div id="success" class="state hidden">
+                <div class="success-state">
+                    <svg class="icon-large success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <p>Added to library!</p>
+                </div>
+            </div>
+
+            <!-- Error State -->
+            <div id="error" class="state hidden">
+                <div class="error-state">
+                    <svg class="icon-large error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                    <p id="error-message">An error occurred</p>
+                    <button id="retry-btn" class="button secondary">Try Again</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="popup.js" type="module"></script>
+</body>
+</html>

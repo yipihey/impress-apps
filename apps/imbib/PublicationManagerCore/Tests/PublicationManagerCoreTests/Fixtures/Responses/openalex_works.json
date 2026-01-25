@@ -1,0 +1,201 @@
+{
+  "meta": {
+    "count": 3500,
+    "db_response_time_ms": 42,
+    "page": 1,
+    "per_page": 25
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W2741809807",
+      "doi": "https://doi.org/10.1038/nature14539",
+      "title": "Deep learning",
+      "publication_year": 2015,
+      "publication_date": "2015-05-28",
+      "host_venue": {
+        "id": "https://openalex.org/V49863116",
+        "display_name": "Nature"
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5003442464",
+            "display_name": "Yann LeCun",
+            "orcid": "https://orcid.org/0000-0002-8002-4165"
+          }
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5088297786",
+            "display_name": "Yoshua Bengio",
+            "orcid": "https://orcid.org/0000-0002-8263-2604"
+          }
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5030684607",
+            "display_name": "Geoffrey E. Hinton",
+            "orcid": null
+          }
+        }
+      ],
+      "cited_by_count": 45000,
+      "abstract_inverted_index": {
+        "Deep": [0],
+        "learning": [1, 15, 42],
+        "allows": [2],
+        "computational": [3],
+        "models": [4],
+        "that": [5, 20],
+        "are": [6],
+        "composed": [7],
+        "of": [8, 25],
+        "multiple": [9],
+        "processing": [10],
+        "layers": [11],
+        "to": [12, 30],
+        "learn": [13],
+        "representations": [14]
+      }
+    },
+    {
+      "id": "https://openalex.org/W2963403868",
+      "doi": "https://doi.org/10.1145/3065386",
+      "title": "ImageNet classification with deep convolutional neural networks",
+      "publication_year": 2017,
+      "publication_date": "2017-05-24",
+      "host_venue": {
+        "id": "https://openalex.org/V51667116",
+        "display_name": "Communications of the ACM"
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://dl.acm.org/doi/pdf/10.1145/3065386"
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5076749646",
+            "display_name": "Alex Krizhevsky",
+            "orcid": null
+          }
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5011274986",
+            "display_name": "Ilya Sutskever",
+            "orcid": null
+          }
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5030684607",
+            "display_name": "Geoffrey E. Hinton",
+            "orcid": null
+          }
+        }
+      ],
+      "cited_by_count": 110000,
+      "abstract_inverted_index": {
+        "We": [0],
+        "trained": [1],
+        "a": [2, 15],
+        "large": [3],
+        "deep": [4],
+        "convolutional": [5],
+        "neural": [6],
+        "network": [7],
+        "to": [8],
+        "classify": [9],
+        "the": [10, 20],
+        "1.2": [11],
+        "million": [12],
+        "high-resolution": [13],
+        "images": [14]
+      }
+    },
+    {
+      "id": "https://openalex.org/W1951678823",
+      "doi": "https://doi.org/10.1109/5.726791",
+      "title": "Gradient-based learning applied to document recognition",
+      "publication_year": 1998,
+      "publication_date": "1998-11-01",
+      "host_venue": {
+        "id": "https://openalex.org/V141671127",
+        "display_name": "Proceedings of the IEEE"
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "bronze",
+        "oa_url": "http://yann.lecun.com/exdb/publis/pdf/lecun-01a.pdf"
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5003442464",
+            "display_name": "Yann LeCun",
+            "orcid": "https://orcid.org/0000-0002-8002-4165"
+          }
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5052614527",
+            "display_name": "Leon Bottou",
+            "orcid": null
+          }
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5088297786",
+            "display_name": "Yoshua Bengio",
+            "orcid": "https://orcid.org/0000-0002-8263-2604"
+          }
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5066038814",
+            "display_name": "Patrick Haffner",
+            "orcid": null
+          }
+        }
+      ],
+      "cited_by_count": 35000,
+      "abstract_inverted_index": {
+        "Multilayer": [0],
+        "neural": [1, 20],
+        "networks": [2],
+        "trained": [3],
+        "with": [4],
+        "the": [5, 15],
+        "back-propagation": [6],
+        "algorithm": [7],
+        "constitute": [8],
+        "best": [9],
+        "example": [10],
+        "of": [11],
+        "a": [12],
+        "successful": [13],
+        "gradient": [14]
+      }
+    }
+  ]
+}

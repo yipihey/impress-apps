@@ -1,0 +1,59 @@
+{
+  "status": "ok",
+  "message-type": "work-list",
+  "message-version": "1.0.0",
+  "message": {
+    "facets": {},
+    "total-results": 250,
+    "items": [
+      {
+        "DOI": "10.1038/s41586-023-06221-2",
+        "title": ["Deep learning for protein structure prediction"],
+        "author": [
+          {"given": "John", "family": "Jumper", "sequence": "first"},
+          {"given": "Richard", "family": "Evans", "sequence": "additional"},
+          {"given": "Alexander", "family": "Pritzel", "sequence": "additional"}
+        ],
+        "published-print": {"date-parts": [[2023, 7, 15]]},
+        "container-title": ["Nature"],
+        "abstract": "<jats:p>We present AlphaFold2, a deep learning system that predicts protein structures with atomic accuracy. This work represents a major breakthrough in computational biology.</jats:p>",
+        "type": "journal-article",
+        "link": [
+          {"URL": "https://www.nature.com/articles/s41586-023-06221-2.pdf", "content-type": "application/pdf"}
+        ]
+      },
+      {
+        "DOI": "10.1126/science.abc4321",
+        "title": ["Scaling laws for neural language models"],
+        "author": [
+          {"given": "Jared", "family": "Kaplan", "sequence": "first"},
+          {"given": "Sam", "family": "McCandlish", "sequence": "additional"}
+        ],
+        "published-online": {"date-parts": [[2023, 5, 20]]},
+        "container-title": ["Science"],
+        "abstract": "<jats:p>We investigate the scaling properties of language model performance. We find predictable power-law relationships between model size, data, and compute.</jats:p>",
+        "type": "journal-article",
+        "link": []
+      },
+      {
+        "DOI": "10.1145/3580305.3599571",
+        "title": ["Efficient transformers: A survey"],
+        "author": [
+          {"given": "Yi", "family": "Tay", "sequence": "first"},
+          {"given": "Mostafa", "family": "Dehghani", "sequence": "additional"},
+          {"given": "Dara", "family": "Bahri", "sequence": "additional"},
+          {"given": "Donald", "family": "Metzler", "sequence": "additional"}
+        ],
+        "published-print": {"date-parts": [[2022, 11, 1]]},
+        "container-title": ["ACM Computing Surveys"],
+        "abstract": "<jats:p>We survey efficient transformer architectures, categorizing approaches by their mechanism for reducing computational complexity from quadratic to linear or sublinear.</jats:p>",
+        "type": "journal-article",
+        "link": [
+          {"URL": "https://dl.acm.org/doi/pdf/10.1145/3580305.3599571", "content-type": "application/pdf"}
+        ]
+      }
+    ],
+    "items-per-page": 50,
+    "query": {"start-index": 0, "search-terms": "machine learning"}
+  }
+}
