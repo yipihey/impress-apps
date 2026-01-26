@@ -230,37 +230,7 @@ public struct RustDeduplicationScorer: DeduplicationScoring, Sendable {
     // MARK: - Private Helpers
 
     private func convertToRustEntry(_ entry: BibTeXEntry) -> ImbibRustCore.BibTeXEntry {
-        let rustType: ImbibRustCore.BibTeXEntryType
-        switch entry.entryType.lowercased() {
-        case "article": rustType = .article
-        case "book": rustType = .book
-        case "booklet": rustType = .booklet
-        case "inbook": rustType = .inBook
-        case "incollection": rustType = .inCollection
-        case "inproceedings", "conference": rustType = .inProceedings
-        case "manual": rustType = .manual
-        case "mastersthesis": rustType = .mastersThesis
-        case "misc": rustType = .misc
-        case "phdthesis": rustType = .phdThesis
-        case "proceedings": rustType = .proceedings
-        case "techreport": rustType = .techReport
-        case "unpublished": rustType = .unpublished
-        case "online": rustType = .online
-        case "software": rustType = .software
-        case "dataset": rustType = .dataset
-        default: rustType = .unknown
-        }
-
-        let fields = entry.fields.map { key, value in
-            ImbibRustCore.BibTeXField(key: key, value: value)
-        }
-
-        return ImbibRustCore.BibTeXEntry(
-            citeKey: entry.citeKey,
-            entryType: rustType,
-            fields: fields,
-            rawBibtex: entry.rawBibTeX
-        )
+        BibTeXEntryConversions.toRust(entry)
     }
 }
 

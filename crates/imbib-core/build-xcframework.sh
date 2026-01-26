@@ -34,26 +34,26 @@ echo "=== Building imbib-core Rust library ==="
 echo "Installing Rust targets..."
 rustup target add $MACOS_TARGET $MACOS_X86_TARGET $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
 
-# Build for all targets
+# Build for all targets with native feature (uniffi + native dependencies)
 echo ""
 echo "Building for macOS (arm64)..."
-cargo build --release --target $MACOS_TARGET
+cargo build --release --target $MACOS_TARGET --features native
 
 echo ""
 echo "Building for macOS (x86_64)..."
-cargo build --release --target $MACOS_X86_TARGET
+cargo build --release --target $MACOS_X86_TARGET --features native
 
 echo ""
 echo "Building for iOS (arm64)..."
-cargo build --release --target $IOS_TARGET
+cargo build --release --target $IOS_TARGET --features native
 
 echo ""
 echo "Building for iOS Simulator (arm64)..."
-cargo build --release --target $IOS_SIM_TARGET
+cargo build --release --target $IOS_SIM_TARGET --features native
 
 echo ""
 echo "Building for iOS Simulator (x86_64)..."
-cargo build --release --target $IOS_SIM_X86_TARGET
+cargo build --release --target $IOS_SIM_X86_TARGET --features native
 
 # Create framework directory structure
 echo ""
@@ -83,7 +83,7 @@ lipo -create \
 # Generate Swift bindings
 echo ""
 echo "Generating Swift bindings..."
-cargo run --bin uniffi-bindgen generate \
+cargo run --features native --bin uniffi-bindgen generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/libimbib_core.dylib" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"

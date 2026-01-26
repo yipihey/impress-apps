@@ -127,61 +127,10 @@ public enum UnifiedFormatConverter {
 extension UnifiedFormatConverter {
 
     static func convertToRustBibTeX(_ entry: BibTeXEntry) -> ImbibRustCore.BibTeXEntry {
-        let rustType: ImbibRustCore.BibTeXEntryType
-        switch entry.entryType.lowercased() {
-        case "article": rustType = .article
-        case "book": rustType = .book
-        case "booklet": rustType = .booklet
-        case "inbook": rustType = .inBook
-        case "incollection": rustType = .inCollection
-        case "inproceedings", "conference": rustType = .inProceedings
-        case "manual": rustType = .manual
-        case "mastersthesis": rustType = .mastersThesis
-        case "misc": rustType = .misc
-        case "phdthesis": rustType = .phdThesis
-        case "proceedings": rustType = .proceedings
-        case "techreport": rustType = .techReport
-        case "unpublished": rustType = .unpublished
-        case "online": rustType = .online
-        case "software": rustType = .software
-        case "dataset": rustType = .dataset
-        default: rustType = .unknown
-        }
-
-        let fields = entry.fields.map { key, value in
-            ImbibRustCore.BibTeXField(key: key, value: value)
-        }
-
-        return ImbibRustCore.BibTeXEntry(
-            citeKey: entry.citeKey,
-            entryType: rustType,
-            fields: fields,
-            rawBibtex: entry.rawBibTeX
-        )
+        BibTeXEntryConversions.toRust(entry)
     }
 
     static func convertFromRustRIS(_ rustEntry: ImbibRustCore.RisEntry) -> RISEntry {
-        let swiftType = convertRISType(rustEntry.entryType)
-        let swiftTags = rustEntry.tags.compactMap { tag -> RISTagValue? in
-            guard let risTag = RISTag.from(tag.tag) else { return nil }
-            return RISTagValue(tag: risTag, value: tag.value)
-        }
-        return RISEntry(type: swiftType, tags: swiftTags, rawRIS: rustEntry.rawRis)
-    }
-
-    static func convertRISType(_ rustType: ImbibRustCore.RisType) -> RISReferenceType {
-        switch rustType {
-        case .jour: return .JOUR
-        case .book: return .BOOK
-        case .chap: return .CHAP
-        case .conf: return .CONF
-        case .thes: return .THES
-        case .rprt: return .RPRT
-        case .unpb: return .UNPB
-        case .gen: return .GEN
-        case .elec: return .ELEC
-        case .news: return .NEWS
-        default: return .GEN
-        }
+        RISEntryConversions.fromRust(rustEntry)
     }
 }

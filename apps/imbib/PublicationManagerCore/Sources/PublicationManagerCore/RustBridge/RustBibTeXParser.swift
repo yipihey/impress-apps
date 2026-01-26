@@ -74,48 +74,7 @@ public struct RustBibTeXParser: BibTeXParsing, Sendable {
 
     /// Convert a Rust BibTeXEntry to a Swift BibTeXEntry
     private func convertEntry(_ rustEntry: ImbibRustCore.BibTeXEntry, rawContent: String) -> PublicationManagerCore.BibTeXEntry {
-        // Convert fields from array of BibTeXField to dictionary
-        var fields: [String: String] = [:]
-        for field in rustEntry.fields {
-            var value = field.value
-            if decodeLaTeX {
-                value = LaTeXDecoder.decode(value)
-            }
-            fields[field.key.lowercased()] = value
-        }
-
-        // Convert entry type
-        let entryType = convertEntryType(rustEntry.entryType)
-
-        return BibTeXEntry(
-            citeKey: rustEntry.citeKey,
-            entryType: entryType,
-            fields: fields,
-            rawBibTeX: rustEntry.rawBibtex
-        )
-    }
-
-    /// Convert Rust entry type enum to string
-    private func convertEntryType(_ rustType: ImbibRustCore.BibTeXEntryType) -> String {
-        switch rustType {
-        case .article: return "article"
-        case .book: return "book"
-        case .booklet: return "booklet"
-        case .inBook: return "inbook"
-        case .inCollection: return "incollection"
-        case .inProceedings: return "inproceedings"
-        case .manual: return "manual"
-        case .mastersThesis: return "mastersthesis"
-        case .misc: return "misc"
-        case .phdThesis: return "phdthesis"
-        case .proceedings: return "proceedings"
-        case .techReport: return "techreport"
-        case .unpublished: return "unpublished"
-        case .online: return "online"
-        case .software: return "software"
-        case .dataset: return "dataset"
-        case .unknown: return "misc"
-        }
+        BibTeXEntryConversions.fromRust(rustEntry, decodeLaTeX: decodeLaTeX)
     }
 
     // MARK: - Crossref Resolution

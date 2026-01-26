@@ -1,0 +1,6 @@
+[bindings.swift]
+# Proc-macro based bindings - no external UDL scaffolding needed
+
+[bindings]
+# Use proc-macro based bindings without external UDL files
+# This config file exists for consistency with other crates and future extensibility

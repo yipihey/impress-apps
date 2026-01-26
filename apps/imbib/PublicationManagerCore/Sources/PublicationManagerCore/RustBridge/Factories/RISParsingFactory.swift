@@ -1,8 +1,8 @@
 //
-//  RISParsingProtocol.swift
+//  RISParsingFactory.swift
 //  PublicationManagerCore
 //
-//  Protocol abstraction for RIS parsing backends.
+//  Protocol and factory for RIS parsing backends.
 //  Allows switching between Swift and Rust implementations.
 //
 

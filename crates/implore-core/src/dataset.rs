@@ -115,7 +115,7 @@ impl Dataset {
     }
 
     /// Number of records in the dataset
-    pub fn num_records(&self) -> usize {
+    pub fn num_records(&self) -> u64 {
         self.schema.num_records
     }
 
@@ -141,10 +141,10 @@ pub enum DatasetSource {
         extension: u32,
     },
 
-    /// CSV file with optional delimiter
+    /// CSV file with optional delimiter (as a single-character string for FFI compatibility)
     Csv {
         path: String,
-        delimiter: Option<char>,
+        delimiter: Option<String>,
     },
 
     /// Parquet file
@@ -214,12 +214,12 @@ pub struct DataSchema {
     pub fields: Vec<FieldDescriptor>,
 
     /// Number of records
-    pub num_records: usize,
+    pub num_records: u64,
 }
 
 impl DataSchema {
     /// Create a schema from field descriptors
-    pub fn new(fields: Vec<FieldDescriptor>, num_records: usize) -> Self {
+    pub fn new(fields: Vec<FieldDescriptor>, num_records: u64) -> Self {
         Self { fields, num_records }
     }
 
@@ -385,7 +385,7 @@ mod tests {
     fn test_dataset_creation() {
         let source = DatasetSource::Csv {
             path: "/data/test.csv".to_string(),
-            delimiter: Some(','),
+            delimiter: Some(",".to_string()),
         };
         let dataset = Dataset::new("Test Dataset", source);
 

@@ -1,11 +1,13 @@
 //
 //  BibTeXBenchmark.swift
-//  PublicationManagerCore
+//  PublicationManagerCoreTests
 //
-//  Benchmark utilities for comparing parser performance.
+//  Benchmark utilities for comparing BibTeX parser performance.
+//  Use with XCTest performance tests or standalone profiling.
 //
 
 import Foundation
+@testable import PublicationManagerCore
 
 // MARK: - Benchmark Utilities
 

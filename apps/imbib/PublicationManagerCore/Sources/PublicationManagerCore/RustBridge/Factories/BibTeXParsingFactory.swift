@@ -1,8 +1,8 @@
 //
-//  BibTeXParsingProtocol.swift
+//  BibTeXParsingFactory.swift
 //  PublicationManagerCore
 //
-//  Protocol abstraction for BibTeX parsing backends.
+//  Protocol and factory for BibTeX parsing backends.
 //  Allows switching between Swift and Rust implementations.
 //
 

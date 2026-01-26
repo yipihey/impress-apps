@@ -1,9 +1,9 @@
 //
-//  RustSearchIndex.swift
+//  RustSearchIndexSession.swift
 //  PublicationManagerCore
 //
-//  Search index backed by the Rust imbib-core library (Tantivy).
-//  Provides full-text search for publications.
+//  Actor-based search index backed by the Rust imbib-core library (Tantivy).
+//  Provides full-text search for publications with thread-safe access.
 //
 
 import Foundation
@@ -106,31 +106,54 @@ public struct SearchIndexInput: Sendable {
     }
 }
 
-// MARK: - Rust Search Index
+// MARK: - Search Index Error
 
-/// Full-text search index backed by Rust/Tantivy
-public final class RustSearchIndex: @unchecked Sendable {
-    private let handleId: UInt64
+/// Errors that can occur when using the search index
+public enum SearchIndexError: Error, LocalizedError {
+    case notInitialized
+    case initializationFailed(String)
+    case operationFailed(String)
 
-    /// Create a search index at the given path
+    public var errorDescription: String? {
+        switch self {
+        case .notInitialized:
+            return "Search index not initialized"
+        case .initializationFailed(let reason):
+            return "Failed to initialize search index: \(reason)"
+        case .operationFailed(let reason):
+            return "Search index operation failed: \(reason)"
+        }
+    }
+}
+
+// MARK: - Rust Search Index Session (Actor-based)
+
+/// Actor-based full-text search index backed by Rust/Tantivy.
+/// Provides thread-safe access to the search index.
+public actor RustSearchIndexSession {
+    private var handleId: UInt64?
+
+    /// Create a search index session (uninitialized)
+    public init() {}
+
+    /// Initialize with a path on disk
     /// - Parameter path: Directory path for the index
     /// - Throws: SearchIndexError if creation fails
-    public init(path: URL) throws {
-        self.handleId = try searchIndexCreate(path: path.path)
-    }
-
-    /// Create an in-memory search index (for testing)
-    /// - Throws: SearchIndexError if creation fails
-    public init(inMemory: Bool = true) throws {
-        self.handleId = try searchIndexCreateInMemory()
-    }
-
-    deinit {
+    public func initialize(path: URL) async throws {
         do {
-            try searchIndexClose(handleId: handleId)
+            self.handleId = try searchIndexCreate(path: path.path)
         } catch {
-            // Log but don't throw in deinit
-            print("Warning: Failed to close search index: \(error)")
+            throw SearchIndexError.initializationFailed("\(error)")
+        }
+    }
+
+    /// Initialize with an in-memory index (for testing)
+    /// - Throws: SearchIndexError if creation fails
+    public func initializeInMemory() async throws {
+        do {
+            self.handleId = try searchIndexCreateInMemory()
+        } catch {
+            throw SearchIndexError.initializationFailed("\(error)")
         }
     }
 
@@ -139,8 +162,15 @@ public final class RustSearchIndex: @unchecked Sendable {
     ///   - input: The publication data to index
     ///   - fullText: Optional full text content (e.g., from PDF)
     /// - Throws: SearchIndexError if indexing fails
-    public func add(_ input: SearchIndexInput, fullText: String? = nil) throws {
-        try searchIndexAdd(handleId: handleId, publication: input.toPublication(), fullText: fullText)
+    public func add(_ input: SearchIndexInput, fullText: String? = nil) async throws {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            try searchIndexAdd(handleId: id, publication: input.toPublication(), fullText: fullText)
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
     }
 
     /// Add a publication to the index using the Rust Publication type
@@ -148,21 +178,42 @@ public final class RustSearchIndex: @unchecked Sendable {
     ///   - publication: The publication to index
     ///   - fullText: Optional full text content (e.g., from PDF)
     /// - Throws: SearchIndexError if indexing fails
-    public func add(_ publication: ImbibRustCore.Publication, fullText: String? = nil) throws {
-        try searchIndexAdd(handleId: handleId, publication: publication, fullText: fullText)
+    public func add(_ publication: ImbibRustCore.Publication, fullText: String? = nil) async throws {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            try searchIndexAdd(handleId: id, publication: publication, fullText: fullText)
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
     }
 
     /// Delete a publication from the index
     /// - Parameter publicationId: The ID of the publication to remove
     /// - Throws: SearchIndexError if deletion fails
-    public func delete(publicationId: String) throws {
-        try searchIndexDelete(handleId: handleId, publicationId: publicationId)
+    public func delete(publicationId: String) async throws {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            try searchIndexDelete(handleId: id, publicationId: publicationId)
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
     }
 
     /// Commit pending changes to the index
     /// - Throws: SearchIndexError if commit fails
-    public func commit() throws {
-        try searchIndexCommit(handleId: handleId)
+    public func commit() async throws {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            try searchIndexCommit(handleId: id)
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
     }
 
     /// Search the index
@@ -176,14 +227,47 @@ public final class RustSearchIndex: @unchecked Sendable {
         query: String,
         limit: Int = 20,
         libraryId: String? = nil
-    ) throws -> [RustSearchHit] {
-        let hits = try searchIndexSearch(
-            handleId: handleId,
-            query: query,
-            limit: UInt32(limit),
-            libraryId: libraryId
-        )
-        return hits.map { RustSearchHit(from: $0) }
+    ) async throws -> [RustSearchHit] {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            let hits = try searchIndexSearch(
+                handleId: id,
+                query: query,
+                limit: UInt32(limit),
+                libraryId: libraryId
+            )
+            return hits.map { RustSearchHit(from: $0) }
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
+    }
+
+    /// Close the index and release resources
+    public func close() async {
+        guard let id = handleId else { return }
+        do {
+            try searchIndexClose(handleId: id)
+        } catch {
+            print("Warning: Failed to close search index: \(error)")
+        }
+        handleId = nil
+    }
+
+    /// Check if the index is initialized
+    public var isInitialized: Bool {
+        handleId != nil
+    }
+
+    deinit {
+        if let id = handleId {
+            do {
+                try searchIndexClose(handleId: id)
+            } catch {
+                print("Warning: Failed to close search index in deinit: \(error)")
+            }
+        }
     }
 
     /// Get the number of active index handles (for debugging)
@@ -232,3 +316,9 @@ public struct RustSearchHit: Sendable {
 public enum RustSearchIndexInfo {
     public static var isAvailable: Bool { true }
 }
+
+// MARK: - Legacy Type Alias
+
+/// Type alias for backwards compatibility
+@available(*, deprecated, renamed: "RustSearchIndexSession")
+public typealias RustSearchIndex = RustSearchIndexSession
