@@ -1,4 +1,5 @@
 import SwiftUI
+import ImprintCore
 
 /// Main content view for an imprint document
 struct ContentView: View {
@@ -9,26 +10,41 @@ struct ContentView: View {
     @State private var pdfData: Data?
     @State private var isCompiling = false
     @State private var compilationError: String?
+    @State private var compilationWarnings: [String] = []
+    @State private var debugStatus: String = "idle"
+    @State private var debugHistory: String = ""
+
+    /// Shared Typst renderer instance
+    private let renderer = TypstRenderer()
 
     var body: some View {
         NavigationSplitView {
             // Sidebar: Document outline
             DocumentOutlineView(source: document.source)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+                .accessibilityIdentifier("sidebar.outline")
         } detail: {
             // Main editor area
             editorView
+                .accessibilityIdentifier("content.editorArea")
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 // Edit mode picker
                 Picker("Mode", selection: $appState.editMode) {
-                    Image(systemName: "doc.richtext").tag(EditMode.directPdf)
-                    Image(systemName: "rectangle.split.2x1").tag(EditMode.splitView)
-                    Image(systemName: "doc.text").tag(EditMode.textOnly)
+                    Image(systemName: "doc.richtext")
+                        .tag(EditMode.directPdf)
+                        .accessibilityIdentifier("toolbar.mode.directPdf")
+                    Image(systemName: "rectangle.split.2x1")
+                        .tag(EditMode.splitView)
+                        .accessibilityIdentifier("toolbar.mode.splitView")
+                    Image(systemName: "doc.text")
+                        .tag(EditMode.textOnly)
+                        .accessibilityIdentifier("toolbar.mode.textOnly")
                 }
                 .pickerStyle(.segmented)
                 .help("Edit Mode (Tab to cycle)")
+                .accessibilityIdentifier("toolbar.editModePicker")
 
                 Spacer()
 
@@ -45,6 +61,7 @@ struct ContentView: View {
                 }
                 .help("Compile (Cmd+B)")
                 .keyboardShortcut("B", modifiers: [.command])
+                .accessibilityIdentifier("toolbar.compileButton")
 
                 // Citation button
                 Button {
@@ -53,6 +70,7 @@ struct ContentView: View {
                     Image(systemName: "quote.opening")
                 }
                 .help("Insert Citation (Cmd+Shift+K)")
+                .accessibilityIdentifier("toolbar.citationButton")
 
                 // Share button
                 Button {
@@ -61,6 +79,24 @@ struct ContentView: View {
                     Image(systemName: "person.2")
                 }
                 .help("Share Document")
+                .accessibilityIdentifier("toolbar.shareButton")
+
+                // Debug status (only in debug builds)
+                #if DEBUG
+                Text("pdf=\(pdfData?.count ?? 0)b")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("debug.pdfSize")
+                Text(debugHistory)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("debug.history")
+                Text("err=\(compilationError?.prefix(100) ?? "none")")
+                    .font(.caption2)
+                    .foregroundColor(.red)
+                    .lineLimit(3)
+                    .accessibilityIdentifier("debug.error")
+                #endif
             }
         }
         .sheet(isPresented: $appState.showingCitationPicker) {
@@ -112,43 +148,66 @@ struct ContentView: View {
 
     // MARK: - Compilation
 
+    private func log(_ message: String) {
+        // Use NSLog to ensure it appears in Console.app and system logs
+        NSLog("[ContentView] %@", message)
+    }
+
     private func compile() async {
+        log("compile() started")
+        debugHistory = ""
+        debugStatus = "1:started"
+        debugHistory += "1 "
         isCompiling = true
         compilationError = nil
+        compilationWarnings = []
+
+        // Get source before any async work
+        let sourceText = document.source
+        debugStatus = "2:src=\(sourceText.count)ch"
+        debugHistory += "2:\(sourceText.count) "
+        log("Source text length: \(sourceText.count)")
 
         do {
-            // TODO: Call Rust renderer via ImprintCore
-            // For now, just simulate compilation
-            try await Task.sleep(nanoseconds: 500_000_000)
+            log("Creating RenderOptions")
+            debugStatus = "3:options"
+            debugHistory += "3 "
+            let options = RenderOptions(
+                pageSize: .a4,
+                isDraft: false
+            )
 
-            // Placeholder PDF data
-            pdfData = createPlaceholderPDF()
+            debugStatus = "4:rendering"
+            debugHistory += "4 "
+            log("Calling renderer.render()")
+            let output = try await renderer.render(sourceText, options: options)
+            debugStatus = "5:done,ok=\(output.isSuccess),sz=\(output.pdfData.count)"
+            debugHistory += "5:\(output.pdfData.count) "
+            log("renderer.render() completed, success: \(output.isSuccess), size: \(output.pdfData.count)")
+
+            if output.isSuccess {
+                pdfData = output.pdfData
+                compilationWarnings = output.warnings
+                debugStatus = "6:set,\(output.pdfData.count)b"
+                debugHistory += "6:ok "
+                log("PDF data set, size: \(output.pdfData.count)")
+            } else {
+                compilationError = output.errors.joined(separator: "\n")
+                debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
+                debugHistory += "E "
+                log("Compilation errors: \(output.errors)")
+            }
         } catch {
             compilationError = error.localizedDescription
+            debugStatus = "X:\(error)"
+            debugHistory += "X:\(error) "
+            log("Exception: \(error)")
         }
 
         isCompiling = false
-    }
-
-    private func createPlaceholderPDF() -> Data {
-        // Create a minimal placeholder PDF
-        let pdfContent = """
-        %PDF-1.4
-        1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-        2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
-        3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >> endobj
-        xref
-        0 4
-        0000000000 65535 f
-        0000000009 00000 n
-        0000000058 00000 n
-        0000000115 00000 n
-        trailer << /Size 4 /Root 1 0 R >>
-        startxref
-        193
-        %%EOF
-        """
-        return pdfContent.data(using: .utf8) ?? Data()
+        debugStatus = "F:pdf=\(pdfData?.count ?? 0)"
+        debugHistory += "F:\(pdfData?.count ?? 0)"
+        log("compile() finished")
     }
 }
 

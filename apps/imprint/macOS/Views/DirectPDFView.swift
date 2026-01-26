@@ -21,7 +21,9 @@ struct DirectPDFView: View {
             )
             .overlay(alignment: .topTrailing) {
                 modeIndicator
+                    .accessibilityIdentifier("directPdf.modeIndicator")
             }
+            .accessibilityIdentifier("directPdf.container")
         } else {
             emptyState
         }

@@ -3,21 +3,32 @@ import SwiftUI
 /// Main content view with split visualization and controls
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @StateObject private var generatorViewModel = GeneratorViewModel()
+    @StateObject private var libraryManager = LibraryManager.shared
 
     var body: some View {
         NavigationSplitView {
-            SidebarView()
+            FigureSidebarView()
+                .environmentObject(generatorViewModel)
+                .environmentObject(libraryManager)
+                .accessibilityIdentifier("sidebar.container")
         } detail: {
             if let session = appState.currentSession {
                 VisualizationView(session: session)
+                    .accessibilityIdentifier("visualization.container")
+            } else if generatorViewModel.generatedData != nil {
+                GeneratedDataView(viewModel: generatorViewModel)
+                    .accessibilityIdentifier("generatedData.container")
             } else {
                 WelcomeView()
+                    .accessibilityIdentifier("welcome.container")
             }
         }
         .navigationTitle(appState.currentSession?.name ?? "implore")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 RenderModePicker()
+                    .accessibilityIdentifier("toolbar.renderModePicker")
             }
         }
         .sheet(isPresented: $appState.showingSelectionGrammar) {
@@ -42,7 +53,64 @@ struct ContentView: View {
     }
 }
 
-/// Sidebar with dataset info and controls
+/// Sidebar view with mode picker and collapsible sections
+struct FigureSidebarView: View {
+    @State private var sidebarMode: SidebarMode = .library
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Mode picker
+            Picker("Mode", selection: $sidebarMode) {
+                ForEach(SidebarMode.allCases, id: \.self) { mode in
+                    Label(mode.title, systemImage: mode.icon)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            // Content based on mode
+            switch sidebarMode {
+            case .library:
+                FigureLibrarySection()
+            case .generators:
+                GeneratorBrowserSection()
+            case .diagnostics:
+                DiagnosticsSection()
+            }
+        }
+        .frame(minWidth: 240)
+        .accessibilityIdentifier("sidebar.figureSidebar")
+    }
+}
+
+/// Sidebar modes
+enum SidebarMode: String, CaseIterable {
+    case library
+    case generators
+    case diagnostics
+
+    var title: String {
+        switch self {
+        case .library: return "Library"
+        case .generators: return "Generate"
+        case .diagnostics: return "Analyze"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .library: return "photo.on.rectangle"
+        case .generators: return "waveform"
+        case .diagnostics: return "chart.bar"
+        }
+    }
+}
+
+/// Legacy sidebar with dataset info and controls (kept for reference)
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
 
@@ -71,10 +139,12 @@ struct SidebarView: View {
             Section("Selection") {
                 Text("0 points selected")
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("sidebar.selectionCount")
 
                 Button("Edit Selection...") {
                     appState.showSelectionGrammar()
                 }
+                .accessibilityIdentifier("sidebar.editSelectionButton")
             }
 
             Section("Statistics") {
@@ -88,6 +158,61 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .frame(minWidth: 200)
+    }
+}
+
+/// Placeholder view for generated data visualization
+struct GeneratedDataView: View {
+    @ObservedObject var viewModel: GeneratorViewModel
+
+    var body: some View {
+        VStack {
+            if let summary = viewModel.dataSummary {
+                VStack(spacing: 16) {
+                    Image(systemName: "chart.dots.scatter")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.secondary)
+
+                    Text("Generated Data")
+                        .font(.title)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Points:")
+                            Spacer()
+                            Text(summary.formattedPointCount)
+                                .fontWeight(.medium)
+                        }
+                        HStack {
+                            Text("Columns:")
+                            Spacer()
+                            Text("\(summary.columnCount)")
+                                .fontWeight(.medium)
+                        }
+                        HStack {
+                            Text("Fields:")
+                            Spacer()
+                            Text(summary.columnNames.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+
+                    Text("Visualization coming soon...")
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+            } else {
+                ContentUnavailableView(
+                    "No Data",
+                    systemImage: "waveform.slash",
+                    description: Text("Generate data using the sidebar")
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -118,6 +243,7 @@ struct WelcomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .accessibilityIdentifier("welcome.openButton")
             }
             .padding(.top, 20)
 
@@ -171,7 +297,7 @@ struct RenderModePicker: View {
             }
         }
         .pickerStyle(.segmented)
-        .frame(width: 280)
+        .frame(width: 380)
     }
 }
 
@@ -189,11 +315,13 @@ struct SelectionGrammarSheet: View {
             TextField("Enter selection expression", text: $expression)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
+                .accessibilityIdentifier("selectionGrammar.expressionField")
 
             if let error = errorMessage {
                 Text(error)
                     .foregroundStyle(.red)
                     .font(.caption)
+                    .accessibilityIdentifier("selectionGrammar.errorMessage")
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -219,6 +347,7 @@ struct SelectionGrammarSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.escape)
+                .accessibilityIdentifier("selectionGrammar.cancelButton")
 
                 Spacer()
 
@@ -227,10 +356,12 @@ struct SelectionGrammarSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return)
+                .accessibilityIdentifier("selectionGrammar.applyButton")
             }
         }
         .padding()
         .frame(width: 400)
+        .accessibilityIdentifier("selectionGrammar.container")
     }
 
     private func applySelection() {

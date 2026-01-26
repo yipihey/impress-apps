@@ -8,23 +8,28 @@ struct SettingsView: View {
                 .tabItem {
                     Label("General", systemImage: "gear")
                 }
+                .accessibilityIdentifier("settings.tabs.general")
 
             EditorSettingsView()
                 .tabItem {
                     Label("Editor", systemImage: "doc.text")
                 }
+                .accessibilityIdentifier("settings.tabs.editor")
 
             ExportSettingsView()
                 .tabItem {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
+                .accessibilityIdentifier("settings.tabs.export")
 
             AccountSettingsView()
                 .tabItem {
                     Label("Account", systemImage: "person.circle")
                 }
+                .accessibilityIdentifier("settings.tabs.account")
         }
         .frame(width: 500, height: 400)
+        .accessibilityIdentifier("settings.container")
     }
 }
 

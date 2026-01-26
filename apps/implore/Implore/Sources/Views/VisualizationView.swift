@@ -7,29 +7,49 @@ struct VisualizationView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Metal rendering view
-                MetalVisualizationView(session: session, renderMode: appState.renderMode)
-
-                // Overlay UI
-                VStack {
-                    Spacer()
-
-                    HStack {
-                        // Marginals panel (ECDF/PCDF)
-                        MarginalsPanel()
-                            .frame(width: 200, height: 150)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-
-                        Spacer()
-
-                        // Status bar
-                        StatusBar(session: session)
+        VStack(spacing: 0) {
+            // Metal rendering view - takes available space
+            #if DEBUG
+            // Use placeholder for UI testing to avoid Metal/accessibility conflicts
+            if CommandLine.arguments.contains("--ui-testing") {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .overlay {
+                        VStack {
+                            Image(systemName: "chart.dots.scatter")
+                                .font(.system(size: 60))
+                            Text("Visualization Placeholder")
+                                .font(.title2)
+                            Text(session.name)
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.secondary)
                     }
-                    .padding()
-                }
+                    .accessibilityIdentifier("visualization.metalView")
+            } else {
+                MetalVisualizationView(session: session, renderMode: appState.renderMode)
+                    .accessibilityIdentifier("visualization.metalView")
             }
+            #else
+            MetalVisualizationView(session: session, renderMode: appState.renderMode)
+                .accessibilityIdentifier("visualization.metalView")
+            #endif
+
+            // Bottom bar with marginals and status
+            HStack {
+                // Marginals panel (ECDF/PCDF)
+                MarginalsPanel()
+                    .frame(width: 200, height: 100)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityIdentifier("visualization.marginalsPanel")
+
+                Spacer()
+
+                // Status bar
+                StatusBar(session: session)
+            }
+            .padding()
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 }
@@ -116,24 +136,21 @@ struct MarginalsPanel: View {
 /// Status bar showing current state
 struct StatusBar: View {
     let session: VisualizationSession
+    @EnvironmentObject var appState: AppState
+
+    private var statusString: String {
+        "\(session.pointCount) points | Mode: \(appState.renderMode.rawValue) | Selection: none"
+    }
 
     var body: some View {
-        HStack(spacing: 16) {
-            Text("0 points")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("Mode: Science 2D")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("Selection: none")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
+        // Use Text with the full status to ensure it's accessible
+        Text(statusString)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityIdentifier("visualization.statusBar")
     }
 }
 

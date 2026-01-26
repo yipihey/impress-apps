@@ -8,23 +8,28 @@ struct SettingsView: View {
                 .tabItem {
                     Label("General", systemImage: "gear")
                 }
+                .accessibilityIdentifier("settings.tabs.general")
 
             RenderingSettingsView()
                 .tabItem {
                     Label("Rendering", systemImage: "paintbrush")
                 }
+                .accessibilityIdentifier("settings.tabs.rendering")
 
             ColormapSettingsView()
                 .tabItem {
                     Label("Colormaps", systemImage: "paintpalette")
                 }
+                .accessibilityIdentifier("settings.tabs.colormaps")
 
             KeyboardSettingsView()
                 .tabItem {
                     Label("Keyboard", systemImage: "keyboard")
                 }
+                .accessibilityIdentifier("settings.tabs.keyboard")
         }
         .frame(width: 500, height: 400)
+        .accessibilityIdentifier("settings.container")
     }
 }
 
@@ -143,6 +148,7 @@ struct KeyboardSettingsView: View {
                 KeyboardShortcutRow(action: "Science 2D", shortcut: "1")
                 KeyboardShortcutRow(action: "Box 3D", shortcut: "2")
                 KeyboardShortcutRow(action: "Art Shader", shortcut: "3")
+                KeyboardShortcutRow(action: "Histogram 1D", shortcut: "4")
                 KeyboardShortcutRow(action: "Cycle mode", shortcut: "Tab")
             }
         }

@@ -17,6 +17,8 @@ pub enum RenderMode {
     Box3D,
     /// Custom shader rendering for artistic visualizations
     ArtShader,
+    /// 1D histogram with KDE overlay and statistics
+    Histogram1D,
 }
 
 impl RenderMode {
@@ -25,16 +27,18 @@ impl RenderMode {
         match self {
             RenderMode::Science2D => RenderMode::Box3D,
             RenderMode::Box3D => RenderMode::ArtShader,
-            RenderMode::ArtShader => RenderMode::Science2D,
+            RenderMode::ArtShader => RenderMode::Histogram1D,
+            RenderMode::Histogram1D => RenderMode::Science2D,
         }
     }
 
     /// Cycle to previous render mode (Shift+Tab)
     pub fn cycle_reverse(&self) -> Self {
         match self {
-            RenderMode::Science2D => RenderMode::ArtShader,
+            RenderMode::Science2D => RenderMode::Histogram1D,
             RenderMode::Box3D => RenderMode::Science2D,
             RenderMode::ArtShader => RenderMode::Box3D,
+            RenderMode::Histogram1D => RenderMode::ArtShader,
         }
     }
 
@@ -44,6 +48,7 @@ impl RenderMode {
             RenderMode::Science2D => "Science 2D",
             RenderMode::Box3D => "Box 3D",
             RenderMode::ArtShader => "Art Shader",
+            RenderMode::Histogram1D => "Histogram 1D",
         }
     }
 
@@ -53,6 +58,7 @@ impl RenderMode {
             RenderMode::Science2D => "2D",
             RenderMode::Box3D => "3D",
             RenderMode::ArtShader => "Art",
+            RenderMode::Histogram1D => "1D",
         }
     }
 }
@@ -171,6 +177,62 @@ impl Default for ArtShaderConfig {
     }
 }
 
+/// Configuration for Histogram1D mode
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Histogram1DConfig {
+    /// Field to histogram
+    pub field: String,
+    /// Number of bins (None = auto via Freedman-Diaconis rule)
+    pub num_bins: Option<u32>,
+    /// Log scale for X axis (field values)
+    pub log_scale_x: bool,
+    /// Log scale for Y axis (counts)
+    pub log_scale_y: bool,
+    /// Show KDE overlay
+    pub show_kde: bool,
+    /// KDE bandwidth (None = auto Scott's rule)
+    pub kde_bandwidth: Option<f64>,
+    /// Show statistics panel (mean, median, std dev, percentiles)
+    pub show_statistics: bool,
+    /// Secondary field for color-coding bars
+    pub color_field: Option<String>,
+    /// Bin edge mode
+    pub bin_edges: BinEdgeMode,
+}
+
+/// Bin edge computation mode
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BinEdgeMode {
+    /// Evenly spaced bins
+    Linear,
+    /// Log-spaced bins (for log-scale data)
+    Logarithmic,
+    /// Custom bin edges
+    Custom(Vec<f64>),
+}
+
+impl Default for BinEdgeMode {
+    fn default() -> Self {
+        BinEdgeMode::Linear
+    }
+}
+
+impl Default for Histogram1DConfig {
+    fn default() -> Self {
+        Self {
+            field: "x".to_string(),
+            num_bins: None,
+            log_scale_x: false,
+            log_scale_y: false,
+            show_kde: true,
+            kde_bandwidth: None,
+            show_statistics: true,
+            color_field: None,
+            bin_edges: BinEdgeMode::default(),
+        }
+    }
+}
+
 /// Complete render configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RenderConfig {
@@ -182,6 +244,8 @@ pub struct RenderConfig {
     pub box_3d: Box3DConfig,
     /// Art shader settings
     pub art_shader: ArtShaderConfig,
+    /// Histogram 1D settings
+    pub histogram_1d: Histogram1DConfig,
     /// Colormap configuration
     pub colormap: ColormapConfig,
     /// Base point size
@@ -201,6 +265,7 @@ impl Default for RenderConfig {
             science_2d: Science2DConfig::default(),
             box_3d: Box3DConfig::default(),
             art_shader: ArtShaderConfig::default(),
+            histogram_1d: Histogram1DConfig::default(),
             colormap: ColormapConfig::default(),
             point_size: 4.0,
             point_size_range: (1.0, 20.0),
@@ -537,14 +602,25 @@ mod tests {
         let mode = RenderMode::Science2D;
         assert_eq!(mode.cycle(), RenderMode::Box3D);
         assert_eq!(mode.cycle().cycle(), RenderMode::ArtShader);
-        assert_eq!(mode.cycle().cycle().cycle(), RenderMode::Science2D);
+        assert_eq!(mode.cycle().cycle().cycle(), RenderMode::Histogram1D);
+        assert_eq!(mode.cycle().cycle().cycle().cycle(), RenderMode::Science2D);
     }
 
     #[test]
     fn test_render_mode_cycle_reverse() {
         let mode = RenderMode::Science2D;
-        assert_eq!(mode.cycle_reverse(), RenderMode::ArtShader);
-        assert_eq!(mode.cycle_reverse().cycle_reverse(), RenderMode::Box3D);
+        assert_eq!(mode.cycle_reverse(), RenderMode::Histogram1D);
+        assert_eq!(mode.cycle_reverse().cycle_reverse(), RenderMode::ArtShader);
+        assert_eq!(mode.cycle_reverse().cycle_reverse().cycle_reverse(), RenderMode::Box3D);
+    }
+
+    #[test]
+    fn test_histogram_1d_config_default() {
+        let config = Histogram1DConfig::default();
+        assert_eq!(config.field, "x");
+        assert!(config.num_bins.is_none());
+        assert!(config.show_kde);
+        assert!(config.show_statistics);
     }
 
     #[test]

@@ -23,6 +23,8 @@ settings:
 packages:
   ImprintCore:
     path: Packages/ImprintCore
+  ImpressTestKit:
+    path: ../../packages/ImpressTestKit
 
 targets:
   imprint:
@@ -65,6 +67,25 @@ targets:
       - path: Tests
     dependencies:
       - target: imprint
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.tests
+        PRODUCT_MODULE_NAME: imprintTests
+        GENERATE_INFOPLIST_FILE: YES
+
+  imprintUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: imprintUITests
+    dependencies:
+      - target: imprint
+      - package: ImpressTestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.uitests
+        PRODUCT_MODULE_NAME: imprintUITests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   imprint:
@@ -77,6 +98,7 @@ schemes:
       config: Debug
       targets:
         - imprintTests
+        - imprintUITests
     profile:
       config: Release
     archive:

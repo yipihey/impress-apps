@@ -19,8 +19,11 @@ struct CitationPickerView: View {
                 Text("Insert Citation")
                     .font(.headline)
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button(action: { dismiss() }) {
+                    Text("Cancel")
+                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("citationPicker.cancelButton")
             }
             .padding()
 
@@ -34,6 +37,7 @@ struct CitationPickerView: View {
                 TextField("Search papers...", text: $searchQuery)
                     .textFieldStyle(.plain)
                     .onSubmit { search() }
+                    .accessibilityIdentifier("citationPicker.searchField")
 
                 if isSearching {
                     ProgressView()
@@ -56,6 +60,7 @@ struct CitationPickerView: View {
                         .tag(result)
                 }
                 .listStyle(.plain)
+                .accessibilityIdentifier("citationPicker.resultsList")
             }
 
             Divider()
@@ -74,15 +79,17 @@ struct CitationPickerView: View {
 
                 Spacer()
 
-                Button("Insert") {
-                    insertCitation()
+                Button(action: { insertCitation() }) {
+                    Text("Insert")
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(selectedCitation == nil)
+                .accessibilityIdentifier("citationPicker.insertButton")
             }
             .padding()
         }
         .frame(width: 500, height: 400)
+        .accessibilityIdentifier("citationPicker.container")
         .onChange(of: searchQuery) { _, newValue in
             if newValue.count >= 2 {
                 search()

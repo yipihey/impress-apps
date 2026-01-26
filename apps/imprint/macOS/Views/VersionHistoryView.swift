@@ -14,13 +14,16 @@ struct VersionHistoryView: View {
             // Timeline sidebar
             timelineSidebar
                 .frame(width: 280)
+                .accessibilityIdentifier("versionHistory.timeline")
 
             Divider()
 
             // Preview area
             previewArea
+                .accessibilityIdentifier("versionHistory.preview")
         }
         .frame(width: 900, height: 600)
+        .accessibilityIdentifier("versionHistory.container")
         .onAppear {
             loadSnapshots()
         }
@@ -58,6 +61,7 @@ struct VersionHistoryView: View {
                     showingDiff = true
                 }
                 .disabled(selectedSnapshot == nil)
+                .accessibilityIdentifier("versionHistory.compareButton")
 
                 Spacer()
 
@@ -65,6 +69,7 @@ struct VersionHistoryView: View {
                     restoreSnapshot()
                 }
                 .disabled(selectedSnapshot == nil)
+                .accessibilityIdentifier("versionHistory.restoreButton")
             }
             .padding()
         }

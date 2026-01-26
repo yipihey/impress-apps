@@ -15,11 +15,16 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     SWIFT_VERSION: "5.9"
     ENABLE_HARDENED_RUNTIME: YES
-    DEVELOPMENT_TEAM: ""  # Set your team ID
+    DEVELOPMENT_TEAM: QG3MEYVHMS
+    CODE_SIGN_STYLE: Automatic
 
 packages:
+  ImploreRustCore:
+    path: ImploreRustCore
   ImploreCore:
     path: Packages/ImploreCore
+  ImpressTestKit:
+    path: ../../packages/ImpressTestKit
 
 targets:
   implore:
@@ -43,50 +48,48 @@ targets:
           - "$(PROJECT_DIR)/../../Frameworks"
     dependencies:
       - package: ImploreCore
+    info:
+      path: Implore/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: implore
+            CFBundleURLSchemes:
+              - implore
     entitlements:
       path: Implore/implore.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.network.client: true
-    preBuildScripts:
-      - name: Build Rust XCFramework
-        script: |
-          cd "${PROJECT_DIR}"
-          if [ "${CONFIGURATION}" = "Release" ]; then
-            ./build-rust.sh --release
-          else
-            ./build-rust.sh
-          fi
-        inputFiles: []
-        outputFiles:
-          - $(PROJECT_DIR)/Frameworks/ImploreCore.xcframework
+        com.apple.security.application-groups:
+          - group.com.impress.shared
 
-  imploreTests:
-    type: bundle.unit-test
+  imploreUITests:
+    type: bundle.ui-testing
     platform: macOS
     sources:
-      - path: Tests
-        excludes:
-          - "**/.DS_Store"
-    settings:
-      base:
-        INFOPLIST_FILE: Tests/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.impress.implore.tests
+      - path: imploreUITests
     dependencies:
       - target: implore
+      - package: ImpressTestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.implore.uitests
+        PRODUCT_MODULE_NAME: imploreUITests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   implore:
     build:
       targets:
         implore: all
+        imploreUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - imploreTests
+        - imploreUITests
     profile:
       config: Release
     analyze:

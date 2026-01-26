@@ -9,8 +9,10 @@ struct DocumentOutlineView: View {
     var body: some View {
         List(outlineItems) { item in
             OutlineRow(item: item)
+                .accessibilityIdentifier("outline.item.\(item.lineNumber)")
         }
         .listStyle(.sidebar)
+        .accessibilityIdentifier("outline.container")
         .onAppear {
             parseOutline()
         }

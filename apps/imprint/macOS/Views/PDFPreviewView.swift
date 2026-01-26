@@ -10,6 +10,7 @@ struct PDFPreviewView: View {
         ZStack {
             if let pdfData = pdfData {
                 PDFKitView(data: pdfData)
+                    .accessibilityIdentifier("pdfPreview.document")
             } else {
                 emptyState
             }
@@ -19,6 +20,7 @@ struct PDFPreviewView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .accessibilityIdentifier("pdfPreview.container")
     }
 
     private var emptyState: some View {
@@ -61,6 +63,7 @@ struct PDFKitView: NSViewRepresentable {
         pdfView.displayMode = .singlePageContinuous
         pdfView.displaysPageBreaks = true
         pdfView.backgroundColor = .windowBackgroundColor
+        pdfView.setAccessibilityIdentifier("pdfPreview.document")
         return pdfView
     }
 

@@ -12,6 +12,7 @@ struct SourceEditorView: View {
             cursorPosition: $cursorPosition
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("sourceEditor.container")
     }
 }
 
@@ -44,6 +45,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Configure for code editing
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
+
+        // Accessibility
+        textView.setAccessibilityIdentifier("sourceEditor.textView")
 
         // Set up text container
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
