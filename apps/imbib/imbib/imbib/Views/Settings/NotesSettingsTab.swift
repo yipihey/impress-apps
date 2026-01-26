@@ -16,6 +16,8 @@ struct NotesSettingsTab: View {
     @State private var settings = QuickAnnotationSettings.defaults
     @State private var isLoading = true
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
+    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
+    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
 
     // Notes position options
     private let notesPositionOptions: [(value: String, label: String)] = [
@@ -40,6 +42,8 @@ struct NotesSettingsTab: View {
             }
 
             notesPanelSection
+
+            editingModeSection
         }
         .formStyle(.grouped)
         .padding()
@@ -96,6 +100,24 @@ struct NotesSettingsTab: View {
             Text("Choose where the notes panel appears relative to the PDF viewer.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Editing Mode Section
+
+    private var editingModeSection: some View {
+        Section("Editing Mode") {
+            Toggle("Helix-style modal editing", isOn: $helixModeEnabled)
+                .accessibilityIdentifier("settings.notes.helixMode")
+
+            if helixModeEnabled {
+                Toggle("Show mode indicator", isOn: $helixShowModeIndicator)
+                    .accessibilityIdentifier("settings.notes.helixModeIndicator")
+
+                Text("Use hjkl for movement, i/Escape for insert/normal mode")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

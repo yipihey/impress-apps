@@ -1,17 +1,30 @@
 import SwiftUI
 import AppKit
+import ImpressModalEditing
 
 /// Typst source code editor with syntax highlighting
 struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
 
+    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
+    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+
+    @StateObject private var helixState = HelixState()
+
     var body: some View {
         TypstEditorRepresentable(
             source: $source,
-            cursorPosition: $cursorPosition
+            cursorPosition: $cursorPosition,
+            helixState: helixState,
+            helixEnabled: helixModeEnabled
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .helixModeIndicator(
+            state: helixState,
+            position: .bottomLeft,
+            isVisible: helixModeEnabled && helixShowModeIndicator
+        )
         .accessibilityIdentifier("sourceEditor.container")
     }
 }
@@ -20,6 +33,8 @@ struct SourceEditorView: View {
 struct TypstEditorRepresentable: NSViewRepresentable {
     @Binding var source: String
     @Binding var cursorPosition: Int
+    let helixState: HelixState
+    let helixEnabled: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -56,6 +71,12 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
 
+        // Set up Helix adaptor
+        let adaptor = NSTextViewHelixAdaptor(textView: textView, helixState: helixState)
+        adaptor.isEnabled = helixEnabled
+        textView.helixAdaptor = adaptor
+        context.coordinator.helixAdaptor = adaptor
+
         scrollView.documentView = textView
         context.coordinator.textView = textView
 
@@ -68,6 +89,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? TypstTextView else { return }
+
+        // Update Helix enabled state
+        context.coordinator.helixAdaptor?.isEnabled = helixEnabled
 
         // Update text if changed externally
         if textView.string != source {
@@ -141,6 +165,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TypstEditorRepresentable
         weak var textView: NSTextView?
+        var helixAdaptor: NSTextViewHelixAdaptor?
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
@@ -165,8 +190,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     }
 }
 
-/// Custom NSTextView subclass for Typst editing
-class TypstTextView: NSTextView {
+/// Custom NSTextView subclass for Typst editing with Helix support
+class TypstTextView: HelixTextView {
     // Line numbers could be added here
     // Auto-completion could be added here
 }

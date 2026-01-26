@@ -11,6 +11,7 @@ import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
+import ImpressModalEditing
 #endif
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "unifieddetail")
@@ -2905,6 +2906,13 @@ struct NotesPanel: View {
     @State private var freeformNotes: String = ""
     @State private var saveTask: Task<Void, Never>?
 
+    // Helix mode settings
+    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
+    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+    #if os(macOS)
+    @StateObject private var helixState = HelixState()
+    #endif
+
     private let minSize: CGFloat = 80
     private let maxSize: CGFloat = 2000  // Allow up to 100% of view (effectively unlimited)
     private let headerSize: CGFloat = 28
@@ -3180,6 +3188,34 @@ struct NotesPanel: View {
                             .cornerRadius(4)
 
                         // Text editor with theme background
+                        #if os(macOS)
+                        if helixModeEnabled {
+                            HelixNotesTextEditor(
+                                text: $freeformNotes,
+                                helixState: helixState,
+                                font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+                                onChange: { scheduleSave() }
+                            )
+                            .frame(minHeight: 80)
+                            .helixModeIndicator(
+                                state: helixState,
+                                position: .bottomRight,
+                                isVisible: helixShowModeIndicator,
+                                padding: 8
+                            )
+                        } else {
+                            TextEditor(text: $freeformNotes)
+                                .font(.system(size: 13, design: .monospaced))
+                                .frame(minHeight: 80)
+                                .scrollContentBackground(.hidden)
+                                .padding(6)
+                                .background(theme.contentBackground)
+                                .focused($isFreeformNotesFocused)
+                                .onChange(of: freeformNotes) { _, _ in
+                                    scheduleSave()
+                                }
+                        }
+                        #else
                         TextEditor(text: $freeformNotes)
                             .font(.system(size: 13, design: .monospaced))
                             .frame(minHeight: 80)
@@ -3190,6 +3226,7 @@ struct NotesPanel: View {
                             .onChange(of: freeformNotes) { _, _ in
                                 scheduleSave()
                             }
+                        #endif
                     }
                     .cornerRadius(4)
                     .overlay(
@@ -3480,6 +3517,99 @@ private struct FileDropTargetModifier: ViewModifier {
 }
 
 // MARK: - Preview
+
+// MARK: - Helix Notes Text Editor (macOS)
+
+#if os(macOS)
+/// NSViewRepresentable wrapper for HelixTextView for use in the notes panel.
+struct HelixNotesTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let helixState: HelixState
+    let font: NSFont
+    let onChange: () -> Void
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = HelixTextView()
+        textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.font = font
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .textColor
+        textView.insertionPointColor = .textColor
+
+        // Configure for code editing
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+
+        // Set up text container
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+
+        // Set up Helix adaptor
+        let adaptor = NSTextViewHelixAdaptor(textView: textView, helixState: helixState)
+        textView.helixAdaptor = adaptor
+        context.coordinator.helixAdaptor = adaptor
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+
+        // Set initial text
+        textView.string = text
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? HelixTextView else { return }
+
+        // Update text if changed externally
+        if textView.string != text {
+            let selectedRange = textView.selectedRange()
+            textView.string = text
+
+            // Restore selection
+            if selectedRange.location <= text.count {
+                textView.setSelectedRange(selectedRange)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: HelixNotesTextEditor
+        weak var textView: NSTextView?
+        var helixAdaptor: NSTextViewHelixAdaptor?
+
+        init(_ parent: HelixNotesTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            parent.onChange()
+        }
+    }
+}
+#endif
 
 #Preview {
     // Create a sample CDPublication for preview

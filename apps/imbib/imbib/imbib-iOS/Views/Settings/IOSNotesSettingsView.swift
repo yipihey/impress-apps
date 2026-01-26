@@ -17,11 +17,16 @@ struct IOSNotesSettingsView: View {
     @State private var isLoading = true
     @State private var editingField: QuickAnnotationField?
 
+    // Helix mode settings
+    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
+    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+
     // MARK: - Body
 
     var body: some View {
         List {
             quickAnnotationsSection
+            editingModeSection
             resetSection
         }
         .navigationTitle("Notes")
@@ -69,6 +74,24 @@ struct IOSNotesSettingsView: View {
             Text("Quick Annotations")
         } footer: {
             Text("Customize the quick annotation fields shown in the notes panel. Tap to edit, swipe to delete, or drag to reorder.")
+        }
+    }
+
+    // MARK: - Editing Mode Section
+
+    private var editingModeSection: some View {
+        Section {
+            Toggle("Helix-style modal editing", isOn: $helixModeEnabled)
+
+            if helixModeEnabled {
+                Toggle("Show mode indicator", isOn: $helixShowModeIndicator)
+
+                Text("Use hjkl for movement with hardware keyboard. Double-tap to show command bar for touch input.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Editing Mode")
         }
     }
 

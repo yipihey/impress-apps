@@ -95,7 +95,9 @@ public actor FullTextSearchService {
             do {
                 // Create parent directory if needed (Rust will create the index dir)
                 try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-                searchIndex = try RustSearchIndex(path: path)
+                let index = RustSearchIndex()
+                try await index.initialize(path: path)
+                searchIndex = index
             } catch {
                 // If opening fails (e.g., corrupted/empty directory), delete and retry
                 let errorDesc = String(describing: error)
@@ -106,7 +108,9 @@ public actor FullTextSearchService {
                     try? FileManager.default.removeItem(at: path)
 
                     // Let Rust create the directory and index from scratch
-                    searchIndex = try RustSearchIndex(path: path)
+                    let index = RustSearchIndex()
+                    try await index.initialize(path: path)
+                    searchIndex = index
                     Logger.search.infoCapture("Fresh index created after deleting corrupted directory", category: "search")
                 } else {
                     throw error
@@ -146,7 +150,7 @@ public actor FullTextSearchService {
         }
 
         do {
-            let hits = try index.search(
+            let hits = try await index.search(
                 query: query,
                 limit: limit,
                 libraryId: libraryId?.uuidString
@@ -194,7 +198,7 @@ public actor FullTextSearchService {
         }
 
         do {
-            try index.commit()
+            try await index.commit()
             Logger.search.infoCapture("Search index rebuilt with \(indexedCount) publications", category: "search")
         } catch {
             Logger.search.error("Failed to commit index: \(error.localizedDescription)")
@@ -210,7 +214,7 @@ public actor FullTextSearchService {
         await indexPublication(publication, using: index)
 
         do {
-            try index.commit()
+            try await index.commit()
         } catch {
             Logger.search.error("Failed to commit after indexing: \(error.localizedDescription)")
         }
@@ -223,8 +227,8 @@ public actor FullTextSearchService {
         guard let index = searchIndex else { return }
 
         do {
-            try index.delete(publicationId: id.uuidString)
-            try index.commit()
+            try await index.delete(publicationId: id.uuidString)
+            try await index.commit()
         } catch {
             Logger.search.error("Failed to remove from index: \(error.localizedDescription)")
         }
@@ -241,7 +245,7 @@ public actor FullTextSearchService {
         }
 
         do {
-            try index.commit()
+            try await index.commit()
             Logger.search.debug("Batch indexed \(publications.count) publications")
         } catch {
             Logger.search.error("Failed to commit batch index: \(error.localizedDescription)")
@@ -281,7 +285,7 @@ public actor FullTextSearchService {
         await indexPublication(publication, using: index, fullText: pdfText)
 
         do {
-            try index.commit()
+            try await index.commit()
         } catch {
             Logger.search.error("Failed to commit after indexing with PDF: \(error.localizedDescription)")
         }
@@ -343,7 +347,7 @@ public actor FullTextSearchService {
         }
 
         do {
-            try index.add(input, fullText: fullText)
+            try await index.add(input, fullText: fullText)
         } catch {
             Logger.search.error("Failed to index publication \(input.citeKey): \(error.localizedDescription)")
         }

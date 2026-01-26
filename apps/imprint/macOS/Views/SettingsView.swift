@@ -67,6 +67,8 @@ struct EditorSettingsView: View {
     @AppStorage("showLineNumbers") private var showLineNumbers = true
     @AppStorage("highlightCurrentLine") private var highlightCurrentLine = true
     @AppStorage("wrapLines") private var wrapLines = true
+    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
+    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
 
     var body: some View {
         Form {
@@ -85,6 +87,20 @@ struct EditorSettingsView: View {
                 Toggle("Show line numbers", isOn: $showLineNumbers)
                 Toggle("Highlight current line", isOn: $highlightCurrentLine)
                 Toggle("Wrap long lines", isOn: $wrapLines)
+            }
+
+            Section("Editing Mode") {
+                Toggle("Helix-style modal editing", isOn: $helixModeEnabled)
+                    .accessibilityIdentifier("settings.editor.helixMode")
+
+                if helixModeEnabled {
+                    Toggle("Show mode indicator", isOn: $helixShowModeIndicator)
+                        .accessibilityIdentifier("settings.editor.helixModeIndicator")
+
+                    Text("Use hjkl for movement, i/Escape for insert/normal mode")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
