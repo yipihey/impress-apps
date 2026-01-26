@@ -143,6 +143,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## Documentation
 
 - [imbib docs](apps/imbib/docs/) - User guides and 22 ADRs
+- [imprint ADRs](crates/imprint-core/docs/adr/) - 7 architecture decisions
+- [implore ADRs](crates/implore-core/docs/adr/) - 6 architecture decisions
 - [impel ADRs](crates/impel-core/docs/adr/) - 9 architecture decisions
 
 ## License
