@@ -36,10 +36,11 @@ pub mod annotations;
 pub mod pdf;
 
 // Re-export main types for convenience
+// Re-export types (not functions that are wrapped for FFI)
 pub use bibtex::{
-    bdsk_file_create_fields, bdsk_file_decode, bdsk_file_encode, bdsk_file_extract_all,
     BibTeXEntry, BibTeXEntryType, BibTeXField, BibTeXParseError, BibTeXParseResult, ParseError,
 };
+pub use error::FfiError;
 pub use deduplication::{DeduplicationMatch, DuplicateGroup};
 pub use domain::{
     Author, AuthorStats, Collection, EnrichmentCapability, EnrichmentData, EnrichmentPriority,
@@ -101,14 +102,14 @@ pub fn hello_from_rust() -> String {
 
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn bibtex_parse(input: String) -> Result<BibTeXParseResult, ParseError> {
-    bibtex::parse(input)
+pub fn bibtex_parse(input: String) -> Result<BibTeXParseResult, FfiError> {
+    bibtex::parse(input).map_err(FfiError::from)
 }
 
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn bibtex_parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
-    bibtex::parse_entry(input)
+pub fn bibtex_parse_entry(input: String) -> Result<BibTeXEntry, FfiError> {
+    bibtex::parse_entry(input).map_err(FfiError::from)
 }
 
 #[cfg(feature = "native")]
@@ -127,8 +128,8 @@ pub fn bibtex_format_entries(entries: Vec<BibTeXEntry>) -> String {
 
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn ris_parse(input: String) -> Result<Vec<RISEntry>, ParseError> {
-    ris::parse(input)
+pub fn ris_parse(input: String) -> Result<Vec<RISEntry>, FfiError> {
+    ris::parse(input).map_err(FfiError::from)
 }
 
 #[cfg(feature = "native")]
@@ -235,6 +236,245 @@ pub struct PdfThumbnail {
     pub height: u32,
     /// Total page count in the PDF
     pub page_count: u32,
+}
+
+// ===== BibTeX FFI Functions (without prefix for compatibility) =====
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn parse(input: String) -> Result<BibTeXParseResult, FfiError> {
+    bibtex::parse(input).map_err(FfiError::from)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn parse_entry(input: String) -> Result<BibTeXEntry, FfiError> {
+    bibtex::parse_entry(input).map_err(FfiError::from)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn decode_latex(input: String) -> String {
+    bibtex::decode_latex(input)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn expand_journal_macro(value: String) -> String {
+    bibtex::expand_journal_macro(value)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn get_all_journal_macro_names() -> Vec<String> {
+    bibtex::get_all_journal_macro_names()
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn is_journal_macro(value: String) -> bool {
+    bibtex::is_journal_macro(value)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn bdsk_file_create_fields(paths: Vec<String>) -> std::collections::HashMap<String, String> {
+    impress_bibtex::bdsk_file_create_fields(paths)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn bdsk_file_decode(value: String) -> Option<String> {
+    impress_bibtex::bdsk_file_decode(value)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn bdsk_file_encode(relative_path: String) -> Option<String> {
+    impress_bibtex::bdsk_file_encode(relative_path)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn bdsk_file_extract_all(fields: std::collections::HashMap<String, String>) -> Vec<String> {
+    impress_bibtex::bdsk_file_extract_all(fields)
+}
+
+// ===== Identifier FFI Functions =====
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn generate_cite_key(author: Option<String>, year: Option<String>, title: Option<String>) -> String {
+    identifiers::generate_cite_key(author, year, title)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn generate_unique_cite_key(
+    author: Option<String>,
+    year: Option<String>,
+    title: Option<String>,
+    existing_keys: Vec<String>,
+) -> String {
+    identifiers::generate_unique_cite_key(author, year, title, existing_keys)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn make_cite_key_unique(base: String, existing_keys: Vec<String>) -> String {
+    identifiers::make_cite_key_unique(base, existing_keys)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn sanitize_cite_key(key: String) -> String {
+    identifiers::sanitize_cite_key(key)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_all(text: String) -> Vec<ExtractedIdentifier> {
+    identifiers::extract_all(text)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_arxiv_ids(text: String) -> Vec<String> {
+    identifiers::extract_arxiv_ids(text)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_dois(text: String) -> Vec<String> {
+    identifiers::extract_dois(text)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_isbns(text: String) -> Vec<String> {
+    identifiers::extract_isbns(text)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn can_resolve_to_source(
+    identifiers: std::collections::HashMap<String, String>,
+    source: identifiers::EnrichmentSource,
+) -> bool {
+    identifiers::can_resolve_to_source(identifiers, source)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn enrichment_source_display_name(source: identifiers::EnrichmentSource) -> String {
+    identifiers::enrichment_source_display_name(source)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn identifier_display_name(id_type: identifiers::IdentifierType) -> String {
+    identifiers::identifier_display_name(id_type)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn identifier_url(id_type: identifiers::IdentifierType, value: String) -> Option<String> {
+    identifiers::identifier_url(id_type, value)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn identifier_url_prefix(id_type: identifiers::IdentifierType) -> Option<String> {
+    identifiers::identifier_url_prefix(id_type)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn preferred_identifier_for_source(
+    identifiers: std::collections::HashMap<String, String>,
+    source: identifiers::EnrichmentSource,
+) -> Option<identifiers::PreferredIdentifier> {
+    identifiers::preferred_identifier_for_source(identifiers, source)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn resolve_arxiv_to_semantic_scholar(arxiv_id: String) -> String {
+    identifiers::resolve_arxiv_to_semantic_scholar(arxiv_id)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn resolve_doi_to_semantic_scholar(doi: String) -> String {
+    identifiers::resolve_doi_to_semantic_scholar(doi)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn resolve_pmid_to_semantic_scholar(pmid: String) -> String {
+    identifiers::resolve_pmid_to_semantic_scholar(pmid)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn supported_identifiers_for_source(source: identifiers::EnrichmentSource) -> Vec<String> {
+    identifiers::supported_identifiers_for_source(source)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn is_valid_arxiv_id(arxiv_id: String) -> bool {
+    identifiers::is_valid_arxiv_id(arxiv_id)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn is_valid_doi(doi: String) -> bool {
+    identifiers::is_valid_doi(doi)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn is_valid_isbn(isbn: String) -> bool {
+    identifiers::is_valid_isbn(isbn)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn normalize_doi(doi: String) -> String {
+    identifiers::normalize_doi(doi)
+}
+
+// ===== Domain FFI Functions =====
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn enrichment_capability_display_name(capability: EnrichmentCapability) -> String {
+    capability.display_name().to_string()
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn enrichment_data_is_stale(data: EnrichmentData, threshold_days: i32) -> bool {
+    data.is_stale(threshold_days)
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn enrichment_priority_display_name(priority: EnrichmentPriority) -> String {
+    priority.display_name().to_string()
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn open_access_status_display_name(status: OpenAccessStatus) -> String {
+    status.display_name().to_string()
+}
+
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn parse_author_string(input: String) -> Vec<Author> {
+    impress_domain::parse_author_string(input)
 }
 
 #[cfg(test)]

@@ -244,6 +244,9 @@ public final class AttachmentManager: ObservableObject {
 
         persistenceController.save()
 
+        // Signal File Provider about the new file
+        FileProviderDomainManager.shared.signalChange()
+
         Logger.files.infoCapture("Created linked file: \(linkedFile.id) (\(linkedFile.formattedFileSize))", category: "files")
         return linkedFile
     }
@@ -413,6 +416,9 @@ public final class AttachmentManager: ObservableObject {
         }
 
         persistenceController.save()
+
+        // Signal File Provider about the new file
+        FileProviderDomainManager.shared.signalChange()
 
         Logger.files.infoCapture("Created linked file: \(linkedFile.id) (\(linkedFile.formattedFileSize))", category: "files")
         return linkedFile
@@ -588,6 +594,9 @@ public final class AttachmentManager: ObservableObject {
         let context = persistenceController.viewContext
         context.delete(linkedFile)
         persistenceController.save()
+
+        // Signal File Provider about the deletion
+        FileProviderDomainManager.shared.signalChange()
     }
 
     /// Verify file integrity using SHA256.

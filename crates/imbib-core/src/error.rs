@@ -1,5 +1,7 @@
 //! FFI error types
 
+use crate::bibtex::ParseError;
+
 /// FFI-safe error type for parsing operations
 #[derive(uniffi::Error, Debug, Clone)]
 #[uniffi(flat_error)]
@@ -20,5 +22,11 @@ impl std::error::Error for FfiError {}
 impl From<String> for FfiError {
     fn from(s: String) -> Self {
         FfiError::ParseError { message: s }
+    }
+}
+
+impl From<ParseError> for FfiError {
+    fn from(e: ParseError) -> Self {
+        FfiError::ParseError { message: e.to_string() }
     }
 }

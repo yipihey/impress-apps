@@ -15,6 +15,8 @@ settings:
     DEVELOPMENT_TEAM: QG3MEYVHMS
     CODE_SIGN_STYLE: Automatic
     DEAD_CODE_STRIPPING: YES
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "20260125.2"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -42,6 +44,8 @@ targets:
       - target: imbib-ShareExtension
         embed: true
       - target: imbib-SafariExtension
+        embed: true
+      - target: imbib-FileProvider
         embed: true
     info:
       path: imbib/Resources/Info.plist
@@ -92,6 +96,7 @@ targets:
       - path: imbib-iOS
         excludes:
           - "**/ShareExtension/**"
+          - "**/FileProvider/**"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
     dependencies:
@@ -100,9 +105,13 @@ targets:
         embed: true
       - target: imbib-iOS-SafariExtension
         embed: true
+      - target: imbib-iOS-FileProvider
+        embed: true
     info:
       path: imbib-iOS/Resources/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLName: com.imbib.app
             CFBundleURLSchemes:
@@ -285,6 +294,60 @@ targets:
         OTHER_LDFLAGS: "-framework SafariServices"
     entitlements:
       path: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # macOS File Provider Extension
+  imbib-FileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FileProvider
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.fileprovider
+        PRODUCT_NAME: imbib-FileProvider
+        INFOPLIST_FILE: FileProvider/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: FileProvider/FileProvider.entitlements
+        SKIP_INSTALL: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+    entitlements:
+      path: FileProvider/FileProvider.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # iOS File Provider Extension
+  imbib-iOS-FileProvider:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: imbib-iOS/FileProvider
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
+        PRODUCT_NAME: imbib-iOS-FileProvider
+        INFOPLIST_FILE: imbib-iOS/FileProvider/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbib-iOS/FileProvider/FileProvider.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    entitlements:
+      path: imbib-iOS/FileProvider/FileProvider.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.app

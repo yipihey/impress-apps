@@ -59,6 +59,14 @@ struct imbibApp: App {
 
         // Register built-in sources and start enrichment
         Task {
+            // Register File Provider domain
+            do {
+                try await FileProviderDomainManager.shared.registerDomain()
+                appLogger.info("File Provider domain registered")
+            } catch {
+                appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
+            }
+
             // Initialize full-text search index
             await FullTextSearchService.shared.initialize()
             appLogger.info("Full-text search index initialized")

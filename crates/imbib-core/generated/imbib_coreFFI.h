@@ -251,9 +251,71 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_ADD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_ADD
+int8_t uniffi_imbib_core_fn_func_ann_index_add(uint64_t handle_id, RustBuffer publication_id, RustBuffer embedding, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_ADD_BATCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_ADD_BATCH
+int8_t uniffi_imbib_core_fn_func_ann_index_add_batch(uint64_t handle_id, RustBuffer items, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CLOSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CLOSE
+int8_t uniffi_imbib_core_fn_func_ann_index_close(uint64_t handle_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CREATE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CREATE
+uint64_t uniffi_imbib_core_fn_func_ann_index_create(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CREATE_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_CREATE_WITH_CONFIG
+uint64_t uniffi_imbib_core_fn_func_ann_index_create_with_config(uint32_t max_connections, uint32_t capacity, uint32_t max_layer, uint32_t ef_construction, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_HANDLE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_HANDLE_COUNT
+uint32_t uniffi_imbib_core_fn_func_ann_index_handle_count(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_SEARCH
+RustBuffer uniffi_imbib_core_fn_func_ann_index_search(uint64_t handle_id, RustBuffer query, uint32_t top_k, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ANN_INDEX_SIZE
+uint32_t uniffi_imbib_core_fn_func_ann_index_size(uint64_t handle_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_AUTHORS_OVERLAP
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_AUTHORS_OVERLAP
 int8_t uniffi_imbib_core_fn_func_authors_overlap(RustBuffer authors1, RustBuffer authors2, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_CREATE_FIELDS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_CREATE_FIELDS
+RustBuffer uniffi_imbib_core_fn_func_bdsk_file_create_fields(RustBuffer paths, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_DECODE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_DECODE
+RustBuffer uniffi_imbib_core_fn_func_bdsk_file_decode(RustBuffer value, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_ENCODE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_ENCODE
+RustBuffer uniffi_imbib_core_fn_func_bdsk_file_encode(RustBuffer relative_path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_EXTRACT_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BDSK_FILE_EXTRACT_ALL
+RustBuffer uniffi_imbib_core_fn_func_bdsk_file_extract_all(RustBuffer fields, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BIBTEX_FORMAT_ENTRIES
@@ -276,9 +338,162 @@ RustBuffer uniffi_imbib_core_fn_func_bibtex_parse(RustBuffer input, RustCallStat
 RustBuffer uniffi_imbib_core_fn_func_bibtex_parse_entry(RustBuffer input, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_API_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_API_QUERY
+RustBuffer uniffi_imbib_core_fn_func_build_api_query(RustBuffer user_query, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_ARXIV_AUTHOR_CATEGORY_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_ARXIV_AUTHOR_CATEGORY_QUERY
+RustBuffer uniffi_imbib_core_fn_func_build_arxiv_author_category_query(RustBuffer author, RustBuffer categories, int8_t _include_cross_listed, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_CLASSIC_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_CLASSIC_QUERY
+RustBuffer uniffi_imbib_core_fn_func_build_classic_query(RustBuffer authors, RustBuffer objects, RustBuffer title_words, RustBuffer title_logic, RustBuffer abstract_words, RustBuffer abstract_logic, RustBuffer year_from, RustBuffer year_to, RustBuffer database, int8_t refereed_only, int8_t articles_only, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_INSERT_CITATION_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_INSERT_CITATION_URL
+RustBuffer uniffi_imbib_core_fn_func_build_insert_citation_url(RustBuffer cite_key, RustBuffer document_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_LOOKUP_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_LOOKUP_URL
+RustBuffer uniffi_imbib_core_fn_func_build_lookup_url(RustBuffer doi, RustBuffer arxiv_id, RustBuffer title, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_OPEN_MANUSCRIPT_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_OPEN_MANUSCRIPT_URL
+RustBuffer uniffi_imbib_core_fn_func_build_open_manuscript_url(RustBuffer manuscript_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_OPEN_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_OPEN_URL
+RustBuffer uniffi_imbib_core_fn_func_build_open_url(RustBuffer doi, RustBuffer arxiv_id, RustBuffer cite_key, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_PAPER_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_PAPER_QUERY
+RustBuffer uniffi_imbib_core_fn_func_build_paper_query(RustBuffer bibcode, RustBuffer doi, RustBuffer arxiv_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_SEARCH_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_SEARCH_URL
+RustBuffer uniffi_imbib_core_fn_func_build_search_url(RustBuffer query, RustBuffer source, RustBuffer max_results, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_SYNC_BIBLIOGRAPHY_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_BUILD_SYNC_BIBLIOGRAPHY_URL
+RustBuffer uniffi_imbib_core_fn_func_build_sync_bibliography_url(RustBuffer document_id, RustBuffer action, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CALCULATE_PUBLICATION_SIMILARITY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CALCULATE_PUBLICATION_SIMILARITY
+RustBuffer uniffi_imbib_core_fn_func_calculate_publication_similarity(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CALCULATE_SIMILARITY
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CALCULATE_SIMILARITY
 RustBuffer uniffi_imbib_core_fn_func_calculate_similarity(RustBuffer entry1, RustBuffer entry2, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CAN_RESOLVE_TO_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_CAN_RESOLVE_TO_SOURCE
+int8_t uniffi_imbib_core_fn_func_can_resolve_to_source(RustBuffer identifiers, RustBuffer source, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DECODE_HTML_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DECODE_HTML_ENTITIES
+RustBuffer uniffi_imbib_core_fn_func_decode_html_entities(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DECODE_LATEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DECODE_LATEX
+RustBuffer uniffi_imbib_core_fn_func_decode_latex(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEDUPLICATE_SEARCH_RESULTS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEDUPLICATE_SEARCH_RESULTS
+RustBuffer uniffi_imbib_core_fn_func_deduplicate_search_results(RustBuffer results, RustBuffer config, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_DEDUPLICATION_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_DEDUPLICATION_CONFIG
+RustBuffer uniffi_imbib_core_fn_func_default_deduplication_config(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_EXPORT_OPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_EXPORT_OPTIONS
+RustBuffer uniffi_imbib_core_fn_func_default_export_options(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_FILENAME_OPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DEFAULT_FILENAME_OPTIONS
+RustBuffer uniffi_imbib_core_fn_func_default_filename_options(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DESERIALIZE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DESERIALIZE_ANNOTATIONS
+RustBuffer uniffi_imbib_core_fn_func_deserialize_annotations(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DETECT_CONFLICT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DETECT_CONFLICT
+RustBuffer uniffi_imbib_core_fn_func_detect_conflict(RustBuffer local, RustBuffer remote, RustBuffer base, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DETECT_FORMAT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_DETECT_FORMAT
+RustBuffer uniffi_imbib_core_fn_func_detect_format(RustBuffer content, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_CAPABILITY_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_CAPABILITY_DISPLAY_NAME
+RustBuffer uniffi_imbib_core_fn_func_enrichment_capability_display_name(RustBuffer capability, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_DATA_IS_STALE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_DATA_IS_STALE
+int8_t uniffi_imbib_core_fn_func_enrichment_data_is_stale(RustBuffer data, int32_t threshold_days, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_PRIORITY_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_PRIORITY_DISPLAY_NAME
+RustBuffer uniffi_imbib_core_fn_func_enrichment_priority_display_name(RustBuffer priority, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_SOURCE_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_ENRICHMENT_SOURCE_DISPLAY_NAME
+RustBuffer uniffi_imbib_core_fn_func_enrichment_source_display_name(RustBuffer source, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPAND_JOURNAL_MACRO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPAND_JOURNAL_MACRO
+RustBuffer uniffi_imbib_core_fn_func_expand_journal_macro(RustBuffer value, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_BIBTEX
+RustBuffer uniffi_imbib_core_fn_func_export_bibtex(RustBuffer publication, RustBuffer options, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_BIBTEX_MULTIPLE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_BIBTEX_MULTIPLE
+RustBuffer uniffi_imbib_core_fn_func_export_bibtex_multiple(RustBuffer publications, RustBuffer options, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_RIS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_RIS
+RustBuffer uniffi_imbib_core_fn_func_export_ris(RustBuffer publication, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_RIS_MULTIPLE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXPORT_RIS_MULTIPLE
+RustBuffer uniffi_imbib_core_fn_func_export_ris_multiple(RustBuffer publications, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_ALL
@@ -296,9 +511,39 @@ RustBuffer uniffi_imbib_core_fn_func_extract_arxiv_ids(RustBuffer text, RustCall
 RustBuffer uniffi_imbib_core_fn_func_extract_dois(RustBuffer text, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_FIRST_AUTHOR_LAST_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_FIRST_AUTHOR_LAST_NAME
+RustBuffer uniffi_imbib_core_fn_func_extract_first_author_last_name(RustBuffer author_field, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_FIRST_MEANINGFUL_WORD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_FIRST_MEANINGFUL_WORD
+RustBuffer uniffi_imbib_core_fn_func_extract_first_meaningful_word(RustBuffer title, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_ISBNS
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_ISBNS
 RustBuffer uniffi_imbib_core_fn_func_extract_isbns(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_SNIPPET
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_SNIPPET
+RustBuffer uniffi_imbib_core_fn_func_extract_snippet(RustBuffer text, RustBuffer query_terms, uint32_t context_chars, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_SURNAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_EXTRACT_SURNAME
+RustBuffer uniffi_imbib_core_fn_func_extract_surname(RustBuffer author, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_FIND_DUPLICATES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_FIND_DUPLICATES
+RustBuffer uniffi_imbib_core_fn_func_find_duplicates(RustBuffer publications, double threshold, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_FUZZY_MATCH_RESULTS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_FUZZY_MATCH_RESULTS
+RustBuffer uniffi_imbib_core_fn_func_fuzzy_match_results(RustBuffer a, RustBuffer b, double title_threshold, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_CITE_KEY
@@ -306,10 +551,86 @@ RustBuffer uniffi_imbib_core_fn_func_extract_isbns(RustBuffer text, RustCallStat
 RustBuffer uniffi_imbib_core_fn_func_generate_cite_key(RustBuffer author, RustBuffer year, RustBuffer title, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_PDF_FILENAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_PDF_FILENAME
+RustBuffer uniffi_imbib_core_fn_func_generate_pdf_filename(RustBuffer publication, RustBuffer options, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_PDF_FILENAME_FROM_METADATA
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_PDF_FILENAME_FROM_METADATA
+RustBuffer uniffi_imbib_core_fn_func_generate_pdf_filename_from_metadata(RustBuffer title, RustBuffer authors, RustBuffer year, RustBuffer options, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_UNIQUE_CITE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GENERATE_UNIQUE_CITE_KEY
+RustBuffer uniffi_imbib_core_fn_func_generate_unique_cite_key(RustBuffer author, RustBuffer year, RustBuffer title, RustBuffer existing_keys, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GET_ALL_JOURNAL_MACRO_NAMES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_GET_ALL_JOURNAL_MACRO_NAMES
+RustBuffer uniffi_imbib_core_fn_func_get_all_journal_macro_names(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_HELLO_FROM_RUST
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_HELLO_FROM_RUST
 RustBuffer uniffi_imbib_core_fn_func_hello_from_rust(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_HIGHLIGHT_TERMS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_HIGHLIGHT_TERMS
+RustBuffer uniffi_imbib_core_fn_func_highlight_terms(RustBuffer text, RustBuffer query_terms, RustBuffer highlight_start, RustBuffer highlight_end, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_DISPLAY_NAME
+RustBuffer uniffi_imbib_core_fn_func_identifier_display_name(RustBuffer id_type, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_URL
+RustBuffer uniffi_imbib_core_fn_func_identifier_url(RustBuffer id_type, RustBuffer value, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_URL_PREFIX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IDENTIFIER_URL_PREFIX
+RustBuffer uniffi_imbib_core_fn_func_identifier_url_prefix(RustBuffer id_type, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_AUTO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_AUTO
+RustBuffer uniffi_imbib_core_fn_func_import_auto(RustBuffer content, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_BIBTEX
+RustBuffer uniffi_imbib_core_fn_func_import_bibtex(RustBuffer content, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_RIS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IMPORT_RIS
+RustBuffer uniffi_imbib_core_fn_func_import_ris(RustBuffer content, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_CLASSIC_FORM_EMPTY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_CLASSIC_FORM_EMPTY
+int8_t uniffi_imbib_core_fn_func_is_classic_form_empty(RustBuffer authors, RustBuffer objects, RustBuffer title_words, RustBuffer abstract_words, RustBuffer year_from, RustBuffer year_to, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_JOURNAL_MACRO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_JOURNAL_MACRO
+int8_t uniffi_imbib_core_fn_func_is_journal_macro(RustBuffer value, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_PAPER_FORM_EMPTY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_PAPER_FORM_EMPTY
+int8_t uniffi_imbib_core_fn_func_is_paper_form_empty(RustBuffer bibcode, RustBuffer doi, RustBuffer arxiv_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_VALID
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_VALID
+int8_t uniffi_imbib_core_fn_func_is_valid(RustBuffer publication, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_IS_VALID_ARXIV_ID
@@ -327,9 +648,29 @@ int8_t uniffi_imbib_core_fn_func_is_valid_doi(RustBuffer doi, RustCallStatus *_N
 int8_t uniffi_imbib_core_fn_func_is_valid_isbn(RustBuffer isbn, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR
-#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR
-RustBuffer uniffi_imbib_core_fn_func_normalize_author(RustBuffer author, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MAKE_CITE_KEY_UNIQUE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MAKE_CITE_KEY_UNIQUE
+RustBuffer uniffi_imbib_core_fn_func_make_cite_key_unique(RustBuffer base, RustBuffer existing_keys, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MERGE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MERGE_ANNOTATIONS
+RustBuffer uniffi_imbib_core_fn_func_merge_annotations(RustBuffer local, RustBuffer remote, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MERGE_PUBLICATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_MERGE_PUBLICATIONS
+RustBuffer uniffi_imbib_core_fn_func_merge_publications(RustBuffer local, RustBuffer remote, RustBuffer strategy, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR_EXPORT
+RustBuffer uniffi_imbib_core_fn_func_normalize_author_export(RustBuffer author, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_AUTHOR_NAME
+RustBuffer uniffi_imbib_core_fn_func_normalize_author_name(RustBuffer name, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_DOI
@@ -337,9 +678,164 @@ RustBuffer uniffi_imbib_core_fn_func_normalize_author(RustBuffer author, RustCal
 RustBuffer uniffi_imbib_core_fn_func_normalize_doi(RustBuffer doi, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_TITLE
-#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_TITLE
-RustBuffer uniffi_imbib_core_fn_func_normalize_title(RustBuffer title, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_TITLE_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_NORMALIZE_TITLE_EXPORT
+RustBuffer uniffi_imbib_core_fn_func_normalize_title_export(RustBuffer title, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_OPEN_ACCESS_STATUS_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_OPEN_ACCESS_STATUS_DISPLAY_NAME
+RustBuffer uniffi_imbib_core_fn_func_open_access_status_display_name(RustBuffer status, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE
+RustBuffer uniffi_imbib_core_fn_func_parse(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_BIBTEX_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_BIBTEX_EXPORT
+RustBuffer uniffi_imbib_core_fn_func_parse_ads_bibtex_export(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_PAPER_STUBS_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_PAPER_STUBS_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_ads_paper_stubs_response(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_SEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ADS_SEARCH_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_ads_search_response(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ARXIV_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ARXIV_QUERY
+RustBuffer uniffi_imbib_core_fn_func_parse_arxiv_query(RustBuffer query, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ATOM_FEED
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ATOM_FEED
+RustBuffer uniffi_imbib_core_fn_func_parse_atom_feed(RustBuffer xml, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_AUTHOR_STRING
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_AUTHOR_STRING
+RustBuffer uniffi_imbib_core_fn_func_parse_author_string(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CLASSIC_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CLASSIC_QUERY
+RustBuffer uniffi_imbib_core_fn_func_parse_classic_query(RustBuffer query, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CROSSREF_SEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CROSSREF_SEARCH_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_crossref_search_response(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CROSSREF_WORK_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_CROSSREF_WORK_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_crossref_work_response(RustBuffer json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_ENTRY
+RustBuffer uniffi_imbib_core_fn_func_parse_entry(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_MATHML
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_MATHML
+RustBuffer uniffi_imbib_core_fn_func_parse_mathml(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PAPER_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PAPER_QUERY
+RustBuffer uniffi_imbib_core_fn_func_parse_paper_query(RustBuffer query, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PUBMED_EFETCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PUBMED_EFETCH_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_pubmed_efetch_response(RustBuffer xml, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PUBMED_ESEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_PUBMED_ESEARCH_RESPONSE
+RustBuffer uniffi_imbib_core_fn_func_parse_pubmed_esearch_response(RustBuffer xml, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_URL_COMMAND
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PARSE_URL_COMMAND
+RustBuffer uniffi_imbib_core_fn_func_parse_url_command(RustBuffer url_string, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_EXTRACT_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_EXTRACT_TEXT
+RustBuffer uniffi_imbib_core_fn_func_pdf_extract_text(RustBuffer pdf_bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GENERATE_THUMBNAIL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GENERATE_THUMBNAIL
+RustBuffer uniffi_imbib_core_fn_func_pdf_generate_thumbnail(RustBuffer pdf_bytes, RustBuffer config, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GET_PAGE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GET_PAGE_COUNT
+uint32_t uniffi_imbib_core_fn_func_pdf_get_page_count(RustBuffer pdf_bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GET_PAGE_DIMENSIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_GET_PAGE_DIMENSIONS
+RustBuffer uniffi_imbib_core_fn_func_pdf_get_page_dimensions(RustBuffer pdf_bytes, uint32_t page_number, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PDF_SEARCH
+RustBuffer uniffi_imbib_core_fn_func_pdf_search(RustBuffer pdf_bytes, RustBuffer query, uint32_t max_results, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PREFERRED_IDENTIFIER_FOR_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PREFERRED_IDENTIFIER_FOR_SOURCE
+RustBuffer uniffi_imbib_core_fn_func_preferred_identifier_for_source(RustBuffer identifiers, RustBuffer source, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PREPROCESS_SCIENTIFIC_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PREPROCESS_SCIENTIFIC_TEXT
+RustBuffer uniffi_imbib_core_fn_func_preprocess_scientific_text(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_FROM_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_FROM_BIBTEX
+RustBuffer uniffi_imbib_core_fn_func_publication_from_bibtex(RustBuffer entry, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_TO_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_TO_BIBTEX
+RustBuffer uniffi_imbib_core_fn_func_publication_to_bibtex(RustBuffer publication, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_TO_BIBTEX_STRING
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_PUBLICATION_TO_BIBTEX_STRING
+RustBuffer uniffi_imbib_core_fn_func_publication_to_bibtex_string(RustBuffer publication, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_REPLACE_GREEK_LETTERS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_REPLACE_GREEK_LETTERS
+RustBuffer uniffi_imbib_core_fn_func_replace_greek_letters(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_ARXIV_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_ARXIV_TO_SEMANTIC_SCHOLAR
+RustBuffer uniffi_imbib_core_fn_func_resolve_arxiv_to_semantic_scholar(RustBuffer arxiv_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_DOI_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_DOI_TO_SEMANTIC_SCHOLAR
+RustBuffer uniffi_imbib_core_fn_func_resolve_doi_to_semantic_scholar(RustBuffer doi, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_PMID_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RESOLVE_PMID_TO_SEMANTIC_SCHOLAR
+RustBuffer uniffi_imbib_core_fn_func_resolve_pmid_to_semantic_scholar(RustBuffer pmid, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_RIS_FORMAT_ENTRY
@@ -362,9 +858,91 @@ RustBuffer uniffi_imbib_core_fn_func_ris_parse(RustBuffer input, RustCallStatus 
 RustBuffer uniffi_imbib_core_fn_func_ris_to_bibtex(RustBuffer entry, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SANITIZE_CITE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SANITIZE_CITE_KEY
+RustBuffer uniffi_imbib_core_fn_func_sanitize_cite_key(RustBuffer key, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_ADD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_ADD
+void uniffi_imbib_core_fn_func_search_index_add(uint64_t handle_id, RustBuffer publication, RustBuffer full_text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CLOSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CLOSE
+void uniffi_imbib_core_fn_func_search_index_close(uint64_t handle_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_COMMIT
+void uniffi_imbib_core_fn_func_search_index_commit(uint64_t handle_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CREATE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CREATE
+uint64_t uniffi_imbib_core_fn_func_search_index_create(RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CREATE_IN_MEMORY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_CREATE_IN_MEMORY
+uint64_t uniffi_imbib_core_fn_func_search_index_create_in_memory(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_DELETE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_DELETE
+void uniffi_imbib_core_fn_func_search_index_delete(uint64_t handle_id, RustBuffer publication_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_HANDLE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_HANDLE_COUNT
+uint32_t uniffi_imbib_core_fn_func_search_index_handle_count(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SEARCH_INDEX_SEARCH
+RustBuffer uniffi_imbib_core_fn_func_search_index_search(uint64_t handle_id, RustBuffer query, uint32_t limit, RustBuffer library_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SERIALIZE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SERIALIZE_ANNOTATIONS
+RustBuffer uniffi_imbib_core_fn_func_serialize_annotations(RustBuffer annotations, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SHARES_IDENTIFIER
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SHARES_IDENTIFIER
+int8_t uniffi_imbib_core_fn_func_shares_identifier(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SPLIT_AUTHORS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SPLIT_AUTHORS
+RustBuffer uniffi_imbib_core_fn_func_split_authors(RustBuffer author_field, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_STRIP_FONT_COMMANDS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_STRIP_FONT_COMMANDS
+RustBuffer uniffi_imbib_core_fn_func_strip_font_commands(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_STRIP_STANDALONE_BRACES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_STRIP_STANDALONE_BRACES
+RustBuffer uniffi_imbib_core_fn_func_strip_standalone_braces(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SUPPORTED_IDENTIFIERS_FOR_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_SUPPORTED_IDENTIFIERS_FOR_SOURCE
+RustBuffer uniffi_imbib_core_fn_func_supported_identifiers_for_source(RustBuffer source, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_TITLES_MATCH
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_TITLES_MATCH
 int8_t uniffi_imbib_core_fn_func_titles_match(RustBuffer title1, RustBuffer title2, double threshold, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_VALIDATE_PUBLICATION
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_VALIDATE_PUBLICATION
+RustBuffer uniffi_imbib_core_fn_func_validate_publication(RustBuffer publication, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_FN_FUNC_VERSION
@@ -653,9 +1231,81 @@ void ffi_imbib_core_rust_future_free_void(uint64_t handle
 void ffi_imbib_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_ADD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_ADD
+uint16_t uniffi_imbib_core_checksum_func_ann_index_add(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_ADD_BATCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_ADD_BATCH
+uint16_t uniffi_imbib_core_checksum_func_ann_index_add_batch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CLOSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CLOSE
+uint16_t uniffi_imbib_core_checksum_func_ann_index_close(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CREATE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CREATE
+uint16_t uniffi_imbib_core_checksum_func_ann_index_create(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CREATE_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_CREATE_WITH_CONFIG
+uint16_t uniffi_imbib_core_checksum_func_ann_index_create_with_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_HANDLE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_HANDLE_COUNT
+uint16_t uniffi_imbib_core_checksum_func_ann_index_handle_count(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_SEARCH
+uint16_t uniffi_imbib_core_checksum_func_ann_index_search(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ANN_INDEX_SIZE
+uint16_t uniffi_imbib_core_checksum_func_ann_index_size(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_AUTHORS_OVERLAP
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_AUTHORS_OVERLAP
 uint16_t uniffi_imbib_core_checksum_func_authors_overlap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_CREATE_FIELDS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_CREATE_FIELDS
+uint16_t uniffi_imbib_core_checksum_func_bdsk_file_create_fields(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_DECODE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_DECODE
+uint16_t uniffi_imbib_core_checksum_func_bdsk_file_decode(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_ENCODE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_ENCODE
+uint16_t uniffi_imbib_core_checksum_func_bdsk_file_encode(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_EXTRACT_ALL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BDSK_FILE_EXTRACT_ALL
+uint16_t uniffi_imbib_core_checksum_func_bdsk_file_extract_all(void
     
 );
 #endif
@@ -683,9 +1333,189 @@ uint16_t uniffi_imbib_core_checksum_func_bibtex_parse_entry(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_API_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_API_QUERY
+uint16_t uniffi_imbib_core_checksum_func_build_api_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_ARXIV_AUTHOR_CATEGORY_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_ARXIV_AUTHOR_CATEGORY_QUERY
+uint16_t uniffi_imbib_core_checksum_func_build_arxiv_author_category_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_CLASSIC_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_CLASSIC_QUERY
+uint16_t uniffi_imbib_core_checksum_func_build_classic_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_INSERT_CITATION_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_INSERT_CITATION_URL
+uint16_t uniffi_imbib_core_checksum_func_build_insert_citation_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_LOOKUP_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_LOOKUP_URL
+uint16_t uniffi_imbib_core_checksum_func_build_lookup_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_OPEN_MANUSCRIPT_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_OPEN_MANUSCRIPT_URL
+uint16_t uniffi_imbib_core_checksum_func_build_open_manuscript_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_OPEN_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_OPEN_URL
+uint16_t uniffi_imbib_core_checksum_func_build_open_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_PAPER_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_PAPER_QUERY
+uint16_t uniffi_imbib_core_checksum_func_build_paper_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_SEARCH_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_SEARCH_URL
+uint16_t uniffi_imbib_core_checksum_func_build_search_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_SYNC_BIBLIOGRAPHY_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_BUILD_SYNC_BIBLIOGRAPHY_URL
+uint16_t uniffi_imbib_core_checksum_func_build_sync_bibliography_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CALCULATE_PUBLICATION_SIMILARITY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CALCULATE_PUBLICATION_SIMILARITY
+uint16_t uniffi_imbib_core_checksum_func_calculate_publication_similarity(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CALCULATE_SIMILARITY
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CALCULATE_SIMILARITY
 uint16_t uniffi_imbib_core_checksum_func_calculate_similarity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CAN_RESOLVE_TO_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_CAN_RESOLVE_TO_SOURCE
+uint16_t uniffi_imbib_core_checksum_func_can_resolve_to_source(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DECODE_HTML_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DECODE_HTML_ENTITIES
+uint16_t uniffi_imbib_core_checksum_func_decode_html_entities(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DECODE_LATEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DECODE_LATEX
+uint16_t uniffi_imbib_core_checksum_func_decode_latex(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEDUPLICATE_SEARCH_RESULTS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEDUPLICATE_SEARCH_RESULTS
+uint16_t uniffi_imbib_core_checksum_func_deduplicate_search_results(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_DEDUPLICATION_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_DEDUPLICATION_CONFIG
+uint16_t uniffi_imbib_core_checksum_func_default_deduplication_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_EXPORT_OPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_EXPORT_OPTIONS
+uint16_t uniffi_imbib_core_checksum_func_default_export_options(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_FILENAME_OPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DEFAULT_FILENAME_OPTIONS
+uint16_t uniffi_imbib_core_checksum_func_default_filename_options(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DESERIALIZE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DESERIALIZE_ANNOTATIONS
+uint16_t uniffi_imbib_core_checksum_func_deserialize_annotations(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DETECT_CONFLICT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DETECT_CONFLICT
+uint16_t uniffi_imbib_core_checksum_func_detect_conflict(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DETECT_FORMAT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_DETECT_FORMAT
+uint16_t uniffi_imbib_core_checksum_func_detect_format(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_CAPABILITY_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_CAPABILITY_DISPLAY_NAME
+uint16_t uniffi_imbib_core_checksum_func_enrichment_capability_display_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_DATA_IS_STALE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_DATA_IS_STALE
+uint16_t uniffi_imbib_core_checksum_func_enrichment_data_is_stale(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_PRIORITY_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_PRIORITY_DISPLAY_NAME
+uint16_t uniffi_imbib_core_checksum_func_enrichment_priority_display_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_SOURCE_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_ENRICHMENT_SOURCE_DISPLAY_NAME
+uint16_t uniffi_imbib_core_checksum_func_enrichment_source_display_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPAND_JOURNAL_MACRO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPAND_JOURNAL_MACRO
+uint16_t uniffi_imbib_core_checksum_func_expand_journal_macro(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_BIBTEX
+uint16_t uniffi_imbib_core_checksum_func_export_bibtex(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_BIBTEX_MULTIPLE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_BIBTEX_MULTIPLE
+uint16_t uniffi_imbib_core_checksum_func_export_bibtex_multiple(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_RIS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_RIS
+uint16_t uniffi_imbib_core_checksum_func_export_ris(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_RIS_MULTIPLE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXPORT_RIS_MULTIPLE
+uint16_t uniffi_imbib_core_checksum_func_export_ris_multiple(void
     
 );
 #endif
@@ -707,9 +1537,45 @@ uint16_t uniffi_imbib_core_checksum_func_extract_dois(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_FIRST_AUTHOR_LAST_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_FIRST_AUTHOR_LAST_NAME
+uint16_t uniffi_imbib_core_checksum_func_extract_first_author_last_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_FIRST_MEANINGFUL_WORD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_FIRST_MEANINGFUL_WORD
+uint16_t uniffi_imbib_core_checksum_func_extract_first_meaningful_word(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_ISBNS
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_ISBNS
 uint16_t uniffi_imbib_core_checksum_func_extract_isbns(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_SNIPPET
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_SNIPPET
+uint16_t uniffi_imbib_core_checksum_func_extract_snippet(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_SURNAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_EXTRACT_SURNAME
+uint16_t uniffi_imbib_core_checksum_func_extract_surname(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_FIND_DUPLICATES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_FIND_DUPLICATES
+uint16_t uniffi_imbib_core_checksum_func_find_duplicates(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_FUZZY_MATCH_RESULTS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_FUZZY_MATCH_RESULTS
+uint16_t uniffi_imbib_core_checksum_func_fuzzy_match_results(void
     
 );
 #endif
@@ -719,9 +1585,99 @@ uint16_t uniffi_imbib_core_checksum_func_generate_cite_key(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_PDF_FILENAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_PDF_FILENAME
+uint16_t uniffi_imbib_core_checksum_func_generate_pdf_filename(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_PDF_FILENAME_FROM_METADATA
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_PDF_FILENAME_FROM_METADATA
+uint16_t uniffi_imbib_core_checksum_func_generate_pdf_filename_from_metadata(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_UNIQUE_CITE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GENERATE_UNIQUE_CITE_KEY
+uint16_t uniffi_imbib_core_checksum_func_generate_unique_cite_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GET_ALL_JOURNAL_MACRO_NAMES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_GET_ALL_JOURNAL_MACRO_NAMES
+uint16_t uniffi_imbib_core_checksum_func_get_all_journal_macro_names(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_HELLO_FROM_RUST
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_HELLO_FROM_RUST
 uint16_t uniffi_imbib_core_checksum_func_hello_from_rust(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_HIGHLIGHT_TERMS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_HIGHLIGHT_TERMS
+uint16_t uniffi_imbib_core_checksum_func_highlight_terms(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_DISPLAY_NAME
+uint16_t uniffi_imbib_core_checksum_func_identifier_display_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_URL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_URL
+uint16_t uniffi_imbib_core_checksum_func_identifier_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_URL_PREFIX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IDENTIFIER_URL_PREFIX
+uint16_t uniffi_imbib_core_checksum_func_identifier_url_prefix(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_AUTO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_AUTO
+uint16_t uniffi_imbib_core_checksum_func_import_auto(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_BIBTEX
+uint16_t uniffi_imbib_core_checksum_func_import_bibtex(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_RIS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IMPORT_RIS
+uint16_t uniffi_imbib_core_checksum_func_import_ris(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_CLASSIC_FORM_EMPTY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_CLASSIC_FORM_EMPTY
+uint16_t uniffi_imbib_core_checksum_func_is_classic_form_empty(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_JOURNAL_MACRO
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_JOURNAL_MACRO
+uint16_t uniffi_imbib_core_checksum_func_is_journal_macro(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_PAPER_FORM_EMPTY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_PAPER_FORM_EMPTY
+uint16_t uniffi_imbib_core_checksum_func_is_paper_form_empty(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_VALID
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_IS_VALID
+uint16_t uniffi_imbib_core_checksum_func_is_valid(void
     
 );
 #endif
@@ -743,9 +1699,33 @@ uint16_t uniffi_imbib_core_checksum_func_is_valid_isbn(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR
-#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR
-uint16_t uniffi_imbib_core_checksum_func_normalize_author(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MAKE_CITE_KEY_UNIQUE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MAKE_CITE_KEY_UNIQUE
+uint16_t uniffi_imbib_core_checksum_func_make_cite_key_unique(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MERGE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MERGE_ANNOTATIONS
+uint16_t uniffi_imbib_core_checksum_func_merge_annotations(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MERGE_PUBLICATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_MERGE_PUBLICATIONS
+uint16_t uniffi_imbib_core_checksum_func_merge_publications(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR_EXPORT
+uint16_t uniffi_imbib_core_checksum_func_normalize_author_export(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_AUTHOR_NAME
+uint16_t uniffi_imbib_core_checksum_func_normalize_author_name(void
     
 );
 #endif
@@ -755,9 +1735,195 @@ uint16_t uniffi_imbib_core_checksum_func_normalize_doi(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_TITLE
-#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_TITLE
-uint16_t uniffi_imbib_core_checksum_func_normalize_title(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_TITLE_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_NORMALIZE_TITLE_EXPORT
+uint16_t uniffi_imbib_core_checksum_func_normalize_title_export(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_OPEN_ACCESS_STATUS_DISPLAY_NAME
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_OPEN_ACCESS_STATUS_DISPLAY_NAME
+uint16_t uniffi_imbib_core_checksum_func_open_access_status_display_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE
+uint16_t uniffi_imbib_core_checksum_func_parse(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_BIBTEX_EXPORT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_BIBTEX_EXPORT
+uint16_t uniffi_imbib_core_checksum_func_parse_ads_bibtex_export(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_PAPER_STUBS_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_PAPER_STUBS_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_ads_paper_stubs_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_SEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ADS_SEARCH_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_ads_search_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ARXIV_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ARXIV_QUERY
+uint16_t uniffi_imbib_core_checksum_func_parse_arxiv_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ATOM_FEED
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ATOM_FEED
+uint16_t uniffi_imbib_core_checksum_func_parse_atom_feed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_AUTHOR_STRING
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_AUTHOR_STRING
+uint16_t uniffi_imbib_core_checksum_func_parse_author_string(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CLASSIC_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CLASSIC_QUERY
+uint16_t uniffi_imbib_core_checksum_func_parse_classic_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CROSSREF_SEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CROSSREF_SEARCH_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_crossref_search_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CROSSREF_WORK_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_CROSSREF_WORK_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_crossref_work_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_ENTRY
+uint16_t uniffi_imbib_core_checksum_func_parse_entry(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_MATHML
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_MATHML
+uint16_t uniffi_imbib_core_checksum_func_parse_mathml(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PAPER_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PAPER_QUERY
+uint16_t uniffi_imbib_core_checksum_func_parse_paper_query(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PUBMED_EFETCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PUBMED_EFETCH_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_pubmed_efetch_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PUBMED_ESEARCH_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_PUBMED_ESEARCH_RESPONSE
+uint16_t uniffi_imbib_core_checksum_func_parse_pubmed_esearch_response(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_URL_COMMAND
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PARSE_URL_COMMAND
+uint16_t uniffi_imbib_core_checksum_func_parse_url_command(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_EXTRACT_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_EXTRACT_TEXT
+uint16_t uniffi_imbib_core_checksum_func_pdf_extract_text(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GENERATE_THUMBNAIL
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GENERATE_THUMBNAIL
+uint16_t uniffi_imbib_core_checksum_func_pdf_generate_thumbnail(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GET_PAGE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GET_PAGE_COUNT
+uint16_t uniffi_imbib_core_checksum_func_pdf_get_page_count(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GET_PAGE_DIMENSIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_GET_PAGE_DIMENSIONS
+uint16_t uniffi_imbib_core_checksum_func_pdf_get_page_dimensions(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PDF_SEARCH
+uint16_t uniffi_imbib_core_checksum_func_pdf_search(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PREFERRED_IDENTIFIER_FOR_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PREFERRED_IDENTIFIER_FOR_SOURCE
+uint16_t uniffi_imbib_core_checksum_func_preferred_identifier_for_source(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PREPROCESS_SCIENTIFIC_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PREPROCESS_SCIENTIFIC_TEXT
+uint16_t uniffi_imbib_core_checksum_func_preprocess_scientific_text(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_FROM_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_FROM_BIBTEX
+uint16_t uniffi_imbib_core_checksum_func_publication_from_bibtex(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_TO_BIBTEX
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_TO_BIBTEX
+uint16_t uniffi_imbib_core_checksum_func_publication_to_bibtex(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_TO_BIBTEX_STRING
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_PUBLICATION_TO_BIBTEX_STRING
+uint16_t uniffi_imbib_core_checksum_func_publication_to_bibtex_string(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_REPLACE_GREEK_LETTERS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_REPLACE_GREEK_LETTERS
+uint16_t uniffi_imbib_core_checksum_func_replace_greek_letters(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_ARXIV_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_ARXIV_TO_SEMANTIC_SCHOLAR
+uint16_t uniffi_imbib_core_checksum_func_resolve_arxiv_to_semantic_scholar(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_DOI_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_DOI_TO_SEMANTIC_SCHOLAR
+uint16_t uniffi_imbib_core_checksum_func_resolve_doi_to_semantic_scholar(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_PMID_TO_SEMANTIC_SCHOLAR
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_RESOLVE_PMID_TO_SEMANTIC_SCHOLAR
+uint16_t uniffi_imbib_core_checksum_func_resolve_pmid_to_semantic_scholar(void
     
 );
 #endif
@@ -785,9 +1951,105 @@ uint16_t uniffi_imbib_core_checksum_func_ris_to_bibtex(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SANITIZE_CITE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SANITIZE_CITE_KEY
+uint16_t uniffi_imbib_core_checksum_func_sanitize_cite_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_ADD
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_ADD
+uint16_t uniffi_imbib_core_checksum_func_search_index_add(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CLOSE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CLOSE
+uint16_t uniffi_imbib_core_checksum_func_search_index_close(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_COMMIT
+uint16_t uniffi_imbib_core_checksum_func_search_index_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CREATE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CREATE
+uint16_t uniffi_imbib_core_checksum_func_search_index_create(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CREATE_IN_MEMORY
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_CREATE_IN_MEMORY
+uint16_t uniffi_imbib_core_checksum_func_search_index_create_in_memory(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_DELETE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_DELETE
+uint16_t uniffi_imbib_core_checksum_func_search_index_delete(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_HANDLE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_HANDLE_COUNT
+uint16_t uniffi_imbib_core_checksum_func_search_index_handle_count(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_SEARCH
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SEARCH_INDEX_SEARCH
+uint16_t uniffi_imbib_core_checksum_func_search_index_search(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SERIALIZE_ANNOTATIONS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SERIALIZE_ANNOTATIONS
+uint16_t uniffi_imbib_core_checksum_func_serialize_annotations(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SHARES_IDENTIFIER
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SHARES_IDENTIFIER
+uint16_t uniffi_imbib_core_checksum_func_shares_identifier(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SPLIT_AUTHORS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SPLIT_AUTHORS
+uint16_t uniffi_imbib_core_checksum_func_split_authors(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_STRIP_FONT_COMMANDS
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_STRIP_FONT_COMMANDS
+uint16_t uniffi_imbib_core_checksum_func_strip_font_commands(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_STRIP_STANDALONE_BRACES
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_STRIP_STANDALONE_BRACES
+uint16_t uniffi_imbib_core_checksum_func_strip_standalone_braces(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SUPPORTED_IDENTIFIERS_FOR_SOURCE
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_SUPPORTED_IDENTIFIERS_FOR_SOURCE
+uint16_t uniffi_imbib_core_checksum_func_supported_identifiers_for_source(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_TITLES_MATCH
 #define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_TITLES_MATCH
 uint16_t uniffi_imbib_core_checksum_func_titles_match(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_VALIDATE_PUBLICATION
+#define UNIFFI_FFIDEF_UNIFFI_IMBIB_CORE_CHECKSUM_FUNC_VALIDATE_PUBLICATION
+uint16_t uniffi_imbib_core_checksum_func_validate_publication(void
     
 );
 #endif
