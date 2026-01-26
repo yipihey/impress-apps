@@ -1,23 +1,27 @@
 import Foundation
 import Combine
 
-/// Shared settings manager for Helix modal editing across the Impress suite.
+/// Per-app settings manager for Helix modal editing.
 ///
-/// Uses App Group shared UserDefaults for cross-app synchronization on iOS/macOS.
-/// Falls back to standard UserDefaults if App Group is unavailable.
+/// Each app creates its own instance with a configurable key prefix, storing
+/// settings in local UserDefaults. This allows independent configuration per app.
+///
+/// Example usage:
+/// ```swift
+/// @StateObject private var helixSettings = HelixSettings(keyPrefix: "imprint.helix")
+/// ```
 @MainActor
 public final class HelixSettings: ObservableObject {
-    /// Shared singleton instance.
-    public static let shared = HelixSettings()
-
     /// The UserDefaults suite used for settings storage.
     private let defaults: UserDefaults
 
-    /// UserDefaults key for the Helix enabled setting.
-    private static let helixModeEnabledKey = "helixModeEnabled"
+    /// Key prefix for this instance's settings.
+    private let keyPrefix: String
 
-    /// App Group identifier for cross-app settings synchronization.
-    private static let appGroupIdentifier = "group.com.impress.shared"
+    /// UserDefaults key for the Helix enabled setting.
+    private var helixModeEnabledKey: String {
+        "\(keyPrefix).isEnabled"
+    }
 
     /// Whether Helix modal editing is enabled.
     ///
@@ -27,7 +31,7 @@ public final class HelixSettings: ObservableObject {
     /// Defaults to `true` for new installations.
     @Published public var isEnabled: Bool {
         didSet {
-            defaults.set(isEnabled, forKey: Self.helixModeEnabledKey)
+            defaults.set(isEnabled, forKey: helixModeEnabledKey)
         }
     }
 
@@ -36,17 +40,24 @@ public final class HelixSettings: ObservableObject {
         $isEnabled.eraseToAnyPublisher()
     }
 
-    private init() {
-        // Try to use App Group UserDefaults for cross-app sync, fall back to standard
-        self.defaults = UserDefaults(suiteName: Self.appGroupIdentifier) ?? .standard
+    /// Create a new HelixSettings instance.
+    ///
+    /// - Parameters:
+    ///   - keyPrefix: Prefix for UserDefaults keys (e.g., "imprint.helix", "implore.helix").
+    ///                Defaults to "helix" for backward compatibility.
+    ///   - defaults: UserDefaults instance to use. Defaults to `.standard`.
+    public init(keyPrefix: String = "helix", defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.keyPrefix = keyPrefix
 
+        let key = "\(keyPrefix).isEnabled"
         // Read initial value, defaulting to true (Helix enabled)
-        if defaults.object(forKey: Self.helixModeEnabledKey) != nil {
-            self.isEnabled = defaults.bool(forKey: Self.helixModeEnabledKey)
+        if defaults.object(forKey: key) != nil {
+            self.isEnabled = defaults.bool(forKey: key)
         } else {
             // First launch: default to enabled
             self.isEnabled = true
-            defaults.set(true, forKey: Self.helixModeEnabledKey)
+            defaults.set(true, forKey: key)
         }
     }
 

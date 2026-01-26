@@ -36,12 +36,24 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @AppStorage("autoLoadLastDataset") private var autoLoadLastDataset = true
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
+    @AppStorage("implore.helix.isEnabled") private var helixEnabled = true
 
     var body: some View {
         Form {
             Section("Startup") {
                 Toggle("Show welcome screen on launch", isOn: $showWelcomeOnLaunch)
                 Toggle("Auto-load last dataset", isOn: $autoLoadLastDataset)
+            }
+
+            Section("Editing") {
+                Toggle("Helix-style modal editing", isOn: $helixEnabled)
+                    .accessibilityIdentifier("settings.general.helixMode")
+
+                if helixEnabled {
+                    Text("Use hjkl for movement, i/Escape for insert/normal mode in selection grammar editor")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Files") {

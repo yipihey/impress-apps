@@ -313,7 +313,7 @@ struct SelectionGrammarSheet: View {
 
     #if os(macOS)
     @StateObject private var helixState = HelixState()
-    @ObservedObject private var helixSettings = HelixSettings.shared
+    @AppStorage("implore.helix.isEnabled") private var helixEnabled = true
     #endif
 
     var body: some View {
@@ -383,7 +383,7 @@ struct SelectionGrammarSheet: View {
         GrammarEditorRepresentable(
             expression: $expression,
             helixState: helixState,
-            helixEnabled: helixSettings.isEnabled
+            helixEnabled: helixEnabled
         )
         .frame(height: 60)
         .font(.system(.body, design: .monospaced))
@@ -394,7 +394,7 @@ struct SelectionGrammarSheet: View {
         .helixModeIndicator(
             state: helixState,
             position: .bottomRight,
-            isVisible: helixSettings.isEnabled,
+            isVisible: helixEnabled,
             padding: 4
         )
         .accessibilityIdentifier("selectionGrammar.expressionField")

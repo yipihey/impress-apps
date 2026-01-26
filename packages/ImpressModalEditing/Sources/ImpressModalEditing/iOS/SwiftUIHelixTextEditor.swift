@@ -7,7 +7,9 @@ import UIKit
 public struct HelixTextEditor: View {
     @Binding var text: String
     @ObservedObject var helixState: HelixState
-    @ObservedObject private var settings = HelixSettings.shared
+
+    /// Whether Helix mode is enabled (passed in by the app).
+    let isHelixEnabled: Bool
 
     /// Whether the command bar is visible (for touch input).
     @State private var showCommandBar: Bool = false
@@ -21,17 +23,19 @@ public struct HelixTextEditor: View {
     public init(
         text: Binding<String>,
         helixState: HelixState,
+        isHelixEnabled: Bool = true,
         showModeIndicator: Bool = true,
         indicatorPosition: HelixModeIndicatorPosition = .bottomLeft
     ) {
         self._text = text
         self.helixState = helixState
+        self.isHelixEnabled = isHelixEnabled
         self.showModeIndicator = showModeIndicator
         self.indicatorPosition = indicatorPosition
     }
 
     public var body: some View {
-        if settings.isEnabled {
+        if isHelixEnabled {
             helixEnabledEditor
         } else {
             // Standard TextEditor when Helix is disabled

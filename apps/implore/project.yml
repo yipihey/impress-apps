@@ -25,6 +25,8 @@ packages:
     path: Packages/ImploreCore
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
+  ImpressModalEditing:
+    path: ../../packages/ImpressModalEditing
 
 targets:
   implore:
@@ -48,6 +50,7 @@ targets:
           - "$(PROJECT_DIR)/../../Frameworks"
     dependencies:
       - package: ImploreCore
+      - package: ImpressModalEditing
     info:
       path: Implore/Info.plist
       properties:

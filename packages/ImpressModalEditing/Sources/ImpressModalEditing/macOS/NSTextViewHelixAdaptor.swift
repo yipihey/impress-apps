@@ -38,8 +38,8 @@ public final class NSTextViewHelixAdaptor: NSObject {
 
     /// Handle a key event. Returns true if the event was handled.
     public func handleKeyDown(_ event: NSEvent) -> Bool {
-        // Check both local and global settings - both must be enabled
-        guard isEnabled, HelixSettings.shared.isEnabled, let textView else { return false }
+        // Check the adaptor's enabled state - each app controls this independently
+        guard isEnabled, let textView else { return false }
 
         // Handle search mode input
         if helixState.isSearching {
