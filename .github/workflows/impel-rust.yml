@@ -1,0 +1,159 @@
+name: impel - Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/impel-core/**'
+      - 'crates/impel-tui/**'
+      - 'crates/impel-server/**'
+      - 'crates/impress-*/**'
+      - '.github/workflows/impel-rust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/impel-core/**'
+      - 'crates/impel-tui/**'
+      - 'crates/impel-server/**'
+      - 'crates/impress-*/**'
+      - '.github/workflows/impel-rust.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-core:
+    name: Test impel-core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt -p impel-core --check
+
+      - name: Clippy (default features)
+        run: cargo clippy -p impel-core -- -D warnings
+
+      - name: Clippy (with sqlite)
+        run: cargo clippy -p impel-core --features sqlite -- -D warnings
+
+      - name: Run tests
+        run: cargo test -p impel-core
+
+      - name: Run tests (with sqlite)
+        run: cargo test -p impel-core --features sqlite
+
+  test-tui:
+    name: Test impel-tui
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt -p impel-tui --check
+
+      - name: Clippy
+        run: cargo clippy -p impel-tui -- -D warnings
+
+      - name: Build
+        run: cargo build -p impel-tui
+
+  test-server:
+    name: Test impel-server
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt -p impel-server --check
+
+      - name: Clippy
+        run: cargo clippy -p impel-server -- -D warnings
+
+      - name: Build library
+        run: cargo build -p impel-server
+
+  generate-bindings:
+    name: Generate Swift Bindings
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build library with UniFFI
+        run: cargo build -p impel-core --release --features native
+
+      - name: Generate Swift bindings
+        run: |
+          mkdir -p crates/impel-core/generated
+          cargo run -p impel-core --release --features native --bin uniffi-bindgen generate \
+            --library target/release/libimpel_core.dylib \
+            --language swift \
+            --out-dir crates/impel-core/generated
+
+      - name: Upload Swift bindings
+        uses: actions/upload-artifact@v4
+        with:
+          name: impel-swift-bindings
+          path: crates/impel-core/generated/

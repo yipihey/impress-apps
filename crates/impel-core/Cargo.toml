@@ -1,0 +1,45 @@
+[package]
+name = "impel-core"
+description = "Core library for impel agent orchestration - event sourcing, thread management, and coordination"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+sqlite = ["dep:rusqlite"]
+native = ["uniffi", "sqlite"]
+
+[dependencies]
+# Workspace crates
+impress-domain = { workspace = true }
+impress-collab = { workspace = true }
+
+# Serialization and error handling
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+
+# Email message parsing
+mail-parser = { workspace = true }
+
+# Graph structures for thread relationships
+petgraph = { workspace = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+# SQLite persistence (optional)
+rusqlite = { workspace = true, optional = true }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["uniffi"]
