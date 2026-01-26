@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/icons/impress/impress_logo_128.png" alt="Impress Logo" width="128" height="128">
+</p>
+
 # impress
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
