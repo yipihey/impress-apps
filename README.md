@@ -3,87 +3,107 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
 
-A suite of academic productivity apps built on a shared Rust foundation.
+A suite of academic productivity apps built on a shared Rust foundation with native SwiftUI interfaces.
 
 ## Apps
 
 | App | Description | Status |
 |-----|-------------|--------|
-| [**imbib**](apps/imbib/) | Reference manager with PDF annotation | Production |
-| [**imprint**](apps/imprint/) | Collaborative academic writing (Typst) | Development |
-| [**implore**](apps/implore/) | Data visualization | Development |
-| [**impel**](apps/impel-tui/) | Agent orchestration TUI | Development |
+| [**imbib**](apps/imbib/) | Reference manager with PDF annotation and BibTeX sync | Production |
+| [**imprint**](apps/imprint/) | Collaborative academic writing with Typst rendering | Development |
+| [**implore**](apps/implore/) | Scientific data visualization (HDF5, FITS, Parquet) | Development |
+| [**impel**](apps/impel-tui/) | Agent orchestration for autonomous research workflows | Development |
 
 ## Architecture
 
+The suite follows a layered architecture: shared Rust crates provide core logic, wrapped via UniFFI for consumption by native SwiftUI apps. All apps share Helix-style modal editing via ImpressModalEditing.
+
 ```
 impress-apps/
-├── crates/                    # Shared Rust libraries
-│   ├── Foundation
-│   │   ├── impress-domain/    # Core types (Publication, Author, etc.)
-│   │   ├── impress-bibtex/    # BibTeX parsing and formatting
-│   │   ├── impress-identifiers/ # DOI, arXiv, ISBN extraction
-│   │   └── impress-collab/    # Collaboration infrastructure
+├── crates/                       # 14 Rust libraries
 │   │
-│   ├── App Cores
-│   │   ├── imbib-core/        # Reference manager logic
-│   │   ├── imprint-core/      # CRDT document engine
-│   │   ├── implore-core/      # Visualization engine
-│   │   ├── implore-stats/     # Statistical functions
-│   │   ├── implore-io/        # Data I/O (HDF5, FITS, Parquet)
-│   │   └── implore-selection/ # Selection grammar parser
+│   ├── Foundation                # Shared across all apps
+│   │   ├── impress-domain/       # Core types (Publication, Author, etc.)
+│   │   ├── impress-bibtex/       # BibTeX parsing with round-trip fidelity
+│   │   ├── impress-identifiers/  # DOI, arXiv, ISBN extraction
+│   │   └── impress-collab/       # Collaboration and permissions
 │   │
-│   └── Impel
-│       ├── impel-core/        # Agent orchestration
-│       ├── impel-helix/       # Modal editing
-│       └── impel-server/      # HTTP/WebSocket API
+│   ├── imbib                     # Reference management
+│   │   └── imbib-core/           # Library, search sources, PDF handling
+│   │
+│   ├── imprint                   # Collaborative writing
+│   │   └── imprint-core/         # CRDT document engine, Typst rendering
+│   │
+│   ├── implore                   # Data visualization
+│   │   ├── implore-core/         # Figure model, plugin system
+│   │   ├── implore-stats/        # Statistical functions
+│   │   ├── implore-io/           # HDF5, FITS, Parquet, CSV I/O
+│   │   └── implore-selection/    # Selection grammar parser
+│   │
+│   └── impel                     # Agent orchestration
+│       ├── impel-core/           # Thread DAG, event sourcing, 4-level hierarchy
+│       ├── impel-helix/          # Modal editing for TUI
+│       └── impel-server/         # HTTP/WebSocket API
 │
-├── apps/                      # Swift/SwiftUI applications
-│   ├── imbib/                 # Reference manager
-│   ├── imprint/               # Collaborative writing
-│   ├── implore/               # Data visualization
-│   └── impel-tui/             # Terminal UI for impel
+├── apps/                         # Native applications
+│   ├── imbib/                    # macOS/iOS reference manager
+│   ├── imprint/                  # macOS collaborative editor
+│   ├── implore/                  # macOS data visualization
+│   └── impel-tui/                # Cross-platform terminal UI
 │
-└── packages/                  # Shared Swift packages
-    ├── ImpressKit/            # UniFFI wrapper (planned)
-    ├── ImpressModalEditing/   # Helix-style editing
-    └── ImpressTestKit/        # Test utilities
+└── packages/                     # Shared Swift packages
+    ├── ImpressModalEditing/      # Helix-style editing for all apps
+    └── ImpressTestKit/           # Shared test utilities
 ```
 
 ## Crates
 
-### impress-domain
-Core domain types shared across all apps:
+### Foundation
+
+**impress-domain** - Core domain types shared across all apps:
 - `Publication`, `Author`, `Annotation`
 - `Manuscript`, `Collection`, `Tag`
 - `Library`, `LinkedFile`, `Identifiers`
 
-### impress-bibtex
-BibTeX parsing and formatting with round-trip fidelity:
-- Nom-based parser
+**impress-bibtex** - BibTeX parsing and formatting:
+- Nom-based parser with round-trip fidelity
 - LaTeX special character decoding
-- Journal macro expansion
-- BibDesk compatibility
+- Journal macro expansion, BibDesk compatibility
 
-### impress-identifiers
-Academic identifier handling:
+**impress-identifiers** - Academic identifier handling:
 - DOI, arXiv, ISBN extraction and validation
-- Cite key generation
-- URL resolution
+- Cite key generation, URL resolution
 
-### impress-collab
-Shared collaboration infrastructure:
+**impress-collab** - Collaboration infrastructure:
 - Permission model (View, Comment, Edit, Share, Admin)
-- Invitation system (email, secure links)
-- Presence tracking
+- Invitation system, presence tracking
 
 ### imprint-core
+
 CRDT-based collaborative document engine:
 - Automerge integration for conflict-free editing
 - Multi-cursor selection support
-- Source to PDF mapping for direct manipulation
-- LaTeX to Typst conversion
-- Typst rendering (optional feature)
+- Source-to-PDF mapping for direct manipulation
+- LaTeX-to-Typst conversion, Typst rendering
+
+### implore
+
+Scientific data visualization engine:
+- **implore-core**: Figure model with declarative specifications
+- **implore-stats**: Descriptive stats, distributions, correlation
+- **implore-io**: HDF5, FITS, Parquet, CSV readers
+- **implore-selection**: Grammar for data selection expressions
+
+### impel-core
+
+Agent orchestration for autonomous research workflows:
+- **4-level hierarchy**: Project > Program > Thread > Event
+- **Thread DAG**: Directed acyclic graph of conversation threads
+- **Event sourcing**: Append-only event log with SQLite persistence
+- **Temperature/attention model**: Priority-based agent scheduling
+- **Stigmergic coordination**: Agents communicate via shared state
+
+See [impel ADRs](crates/impel-core/docs/adr/) for architecture decisions.
 
 ## Building
 
@@ -96,13 +116,13 @@ cargo check
 # Run tests
 cargo test
 
-# Build with specific features
-cargo build -p imprint-core --features typst-render
+# Build impel TUI
+cargo build -p impel-tui --release
 ```
 
 ### Swift Apps
 
-See individual app READMEs for build instructions. In general:
+Each app uses XcodeGen. Example for imbib:
 
 ```bash
 cd apps/imbib/imbib
@@ -110,14 +130,16 @@ xcodegen generate
 open imbib.xcodeproj
 ```
 
+See individual app READMEs for detailed instructions.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## Documentation
 
-- [imbib documentation](apps/imbib/docs/) - User guides and ADRs
-- [impel ADRs](crates/impel-core/docs/adr/) - Architecture decisions
+- [imbib docs](apps/imbib/docs/) - User guides and 22 ADRs
+- [impel ADRs](crates/impel-core/docs/adr/) - 9 architecture decisions
 
 ## License
 
