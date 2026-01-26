@@ -14,17 +14,36 @@ public final class NSTextViewHelixAdaptor: NSObject {
     /// Whether Helix mode is enabled.
     @Published public var isEnabled: Bool = true
 
+    /// Current search query (persists for n/N navigation).
+    @Published public var currentSearchQuery: String = ""
+
+    /// Whether search is backward.
+    @Published public var searchBackward: Bool = false
+
     private var cancellables = Set<AnyCancellable>()
 
     public init(textView: NSTextView, helixState: HelixState) {
         self.textView = textView
         self.helixState = helixState
         super.init()
+
+        // Subscribe to search events
+        helixState.searchPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                self?.handleSearchEvent(event)
+            }
+            .store(in: &cancellables)
     }
 
     /// Handle a key event. Returns true if the event was handled.
     public func handleKeyDown(_ event: NSEvent) -> Bool {
         guard isEnabled, let textView else { return false }
+
+        // Handle search mode input
+        if helixState.isSearching {
+            return handleSearchInput(event)
+        }
 
         // In insert mode, only handle Escape
         if helixState.mode == .insert {
@@ -42,9 +61,54 @@ public final class NSTextViewHelixAdaptor: NSObject {
         }
 
         let modifiers = KeyModifiers(flags: event.modifierFlags)
-        let engine = NSTextViewHelixEngine(textView: textView)
+        let engine = NSTextViewHelixEngine(textView: textView, searchQuery: currentSearchQuery, searchBackward: searchBackward)
 
         return helixState.handleKey(char, modifiers: modifiers, textEngine: engine)
+    }
+
+    // MARK: - Search Handling
+
+    private func handleSearchInput(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 { // Escape
+            helixState.cancelSearch()
+            return true
+        }
+
+        if event.keyCode == 36 { // Return/Enter
+            currentSearchQuery = helixState.searchQuery
+            searchBackward = helixState.searchBackward
+            if let textView {
+                let engine = NSTextViewHelixEngine(textView: textView, searchQuery: currentSearchQuery, searchBackward: searchBackward)
+                helixState.executeSearch(textEngine: engine)
+            }
+            return true
+        }
+
+        if event.keyCode == 51 { // Backspace
+            if !helixState.searchQuery.isEmpty {
+                helixState.searchQuery.removeLast()
+            }
+            return true
+        }
+
+        // Regular character input
+        if let characters = event.characters, !characters.isEmpty {
+            helixState.searchQuery += characters
+        }
+        return true
+    }
+
+    private func handleSearchEvent(_ event: SearchEvent) {
+        switch event {
+        case .beginSearch:
+            // Search UI will be shown by the view
+            break
+        case .searchExecuted(let query, let backward):
+            currentSearchQuery = query
+            searchBackward = backward
+        case .searchCancelled:
+            break
+        }
     }
 }
 
@@ -52,9 +116,13 @@ public final class NSTextViewHelixAdaptor: NSObject {
 @MainActor
 public final class NSTextViewHelixEngine: HelixTextEngine {
     private let textView: NSTextView
+    private let searchQuery: String
+    private let searchBackward: Bool
 
-    public init(textView: NSTextView) {
+    public init(textView: NSTextView, searchQuery: String = "", searchBackward: Bool = false) {
         self.textView = textView
+        self.searchQuery = searchQuery
+        self.searchBackward = searchBackward
     }
 
     public var text: String {
@@ -172,6 +240,19 @@ public final class NSTextViewHelixEngine: HelixTextEngine {
         }
     }
 
+    public func moveWordEnd(count: Int, extendSelection: Bool) {
+        // Move to end of current/next word
+        // NSTextView doesn't have a direct moveToEndOfWord, so we implement it
+        for _ in 0..<count {
+            // Move word forward then back to get to end of word
+            if extendSelection {
+                textView.moveWordForwardAndModifySelection(nil)
+            } else {
+                textView.moveWordForward(nil)
+            }
+        }
+    }
+
     public func moveToLineStart(extendSelection: Bool) {
         if extendSelection {
             textView.moveToBeginningOfLineAndModifySelection(nil)
@@ -188,6 +269,24 @@ public final class NSTextViewHelixEngine: HelixTextEngine {
         }
     }
 
+    public func moveToLineFirstNonBlank(extendSelection: Bool) {
+        // Move to beginning, then skip whitespace
+        moveToLineStart(extendSelection: false)
+        let lineRange = (text as NSString).lineRange(for: selectedRange)
+        let lineText = (text as NSString).substring(with: lineRange)
+        var offset = 0
+        for char in lineText {
+            if char == " " || char == "\t" {
+                offset += 1
+            } else {
+                break
+            }
+        }
+        if offset > 0 {
+            moveCursor(to: lineRange.location + offset, extendSelection: extendSelection)
+        }
+    }
+
     public func moveToDocumentStart(extendSelection: Bool) {
         if extendSelection {
             textView.moveToBeginningOfDocumentAndModifySelection(nil)
@@ -201,6 +300,160 @@ public final class NSTextViewHelixEngine: HelixTextEngine {
             textView.moveToEndOfDocumentAndModifySelection(nil)
         } else {
             textView.moveToEndOfDocument(nil)
+        }
+    }
+
+    // MARK: - Search
+
+    public func searchNext(count: Int, extendSelection: Bool) {
+        guard !searchQuery.isEmpty else { return }
+
+        for _ in 0..<count {
+            let start = selectedRange.location + selectedRange.length
+            let searchRange = NSRange(location: start, length: text.count - start)
+
+            let range = (text as NSString).range(of: searchQuery, options: [], range: searchRange)
+            if range.location != NSNotFound {
+                if extendSelection {
+                    let anchor = selectedRange.location
+                    selectedRange = NSRange(location: anchor, length: range.location + range.length - anchor)
+                } else {
+                    selectedRange = range
+                }
+            } else {
+                // Wrap around to beginning
+                let wrapRange = NSRange(location: 0, length: start)
+                let wrapResult = (text as NSString).range(of: searchQuery, options: [], range: wrapRange)
+                if wrapResult.location != NSNotFound {
+                    selectedRange = wrapResult
+                }
+            }
+        }
+        textView.scrollRangeToVisible(selectedRange)
+    }
+
+    public func searchPrevious(count: Int, extendSelection: Bool) {
+        guard !searchQuery.isEmpty else { return }
+
+        for _ in 0..<count {
+            let searchRange = NSRange(location: 0, length: selectedRange.location)
+
+            let range = (text as NSString).range(of: searchQuery, options: .backwards, range: searchRange)
+            if range.location != NSNotFound {
+                if extendSelection {
+                    let end = selectedRange.location + selectedRange.length
+                    selectedRange = NSRange(location: range.location, length: end - range.location)
+                } else {
+                    selectedRange = range
+                }
+            } else {
+                // Wrap around to end
+                let wrapRange = NSRange(location: selectedRange.location, length: text.count - selectedRange.location)
+                let wrapResult = (text as NSString).range(of: searchQuery, options: .backwards, range: wrapRange)
+                if wrapResult.location != NSNotFound {
+                    selectedRange = wrapResult
+                }
+            }
+        }
+        textView.scrollRangeToVisible(selectedRange)
+    }
+
+    // MARK: - Line Operations
+
+    public func openLineBelow() {
+        moveToLineEnd(extendSelection: false)
+        textView.insertText("\n", replacementRange: textView.selectedRange())
+    }
+
+    public func openLineAbove() {
+        moveToLineStart(extendSelection: false)
+        let pos = selectedRange.location
+        textView.insertText("\n", replacementRange: NSRange(location: pos, length: 0))
+        selectedRange = NSRange(location: pos, length: 0)
+    }
+
+    public func moveAfterCursor() {
+        if selectedRange.location < text.count {
+            selectedRange = NSRange(location: selectedRange.location + 1, length: 0)
+        }
+    }
+
+    public func moveToEndForAppend() {
+        moveToLineEnd(extendSelection: false)
+    }
+
+    public func moveToLineStartForInsert() {
+        moveToLineFirstNonBlank(extendSelection: false)
+    }
+
+    public func joinLines() {
+        let lineRange = (text as NSString).lineRange(for: selectedRange)
+        let lineEnd = lineRange.location + lineRange.length
+
+        guard lineEnd <= text.count else { return }
+
+        // Find where next line's content starts (skip whitespace)
+        var contentStart = lineEnd
+        let textNS = text as NSString
+        while contentStart < textNS.length {
+            let char = textNS.character(at: contentStart)
+            if char != 0x20 && char != 0x09 && char != 0x0A { // space, tab, newline
+                break
+            }
+            contentStart += 1
+        }
+
+        // Replace newline and leading whitespace with a single space
+        if lineEnd > 0 {
+            let rangeToReplace = NSRange(location: lineEnd - 1, length: contentStart - lineEnd + 1)
+            textView.insertText(" ", replacementRange: rangeToReplace)
+        }
+    }
+
+    public func toggleCase() {
+        let range = selectedRange.length > 0 ? selectedRange : NSRange(location: selectedRange.location, length: 1)
+        guard let selectedText = text(in: range) else { return }
+
+        var toggled = ""
+        for char in selectedText {
+            if char.isUppercase {
+                toggled += char.lowercased()
+            } else if char.isLowercase {
+                toggled += char.uppercased()
+            } else {
+                toggled += String(char)
+            }
+        }
+
+        let cursorPos = selectedRange.location
+        textView.insertText(toggled, replacementRange: range)
+        // Move cursor to next character
+        selectedRange = NSRange(location: min(cursorPos + 1, text.count), length: 0)
+    }
+
+    public func indent() {
+        let lineRange = (text as NSString).lineRange(for: selectedRange)
+        textView.insertText("\t", replacementRange: NSRange(location: lineRange.location, length: 0))
+    }
+
+    public func dedent() {
+        let lineRange = (text as NSString).lineRange(for: selectedRange)
+        let lineText = (text as NSString).substring(with: lineRange)
+
+        if lineText.hasPrefix("\t") {
+            textView.insertText("", replacementRange: NSRange(location: lineRange.location, length: 1))
+        } else if lineText.hasPrefix("    ") {
+            textView.insertText("", replacementRange: NSRange(location: lineRange.location, length: 4))
+        } else if lineText.hasPrefix(" ") {
+            textView.insertText("", replacementRange: NSRange(location: lineRange.location, length: 1))
+        }
+    }
+
+    public func replaceCharacter(with char: Character) {
+        let range = NSRange(location: selectedRange.location, length: 1)
+        if range.location + range.length <= text.count {
+            textView.insertText(String(char), replacementRange: range)
+            selectedRange = NSRange(location: range.location, length: 0)
         }
     }
 }

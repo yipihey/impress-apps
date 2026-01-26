@@ -12,6 +12,19 @@ public enum HelixKeyResult: Sendable, Equatable {
     case pending
     /// The key was consumed but produced no command (e.g., invalid key in normal mode).
     case consumed
+    /// Need to enter search mode with a UI prompt.
+    case enterSearch(backward: Bool)
+    /// Waiting for character input (for f/t/r commands).
+    case awaitingCharacter
+}
+
+/// Type of pending operation that expects a character.
+public enum PendingCharacterOperation: Sendable, Equatable {
+    case findForward      // f
+    case findBackward     // F
+    case tillForward      // t
+    case tillBackward     // T
+    case replace          // r
 }
 
 /// Handles key events and translates them to Helix commands.
@@ -23,6 +36,12 @@ public final class HelixKeyHandler: ObservableObject {
     /// Current count prefix for repeated commands (e.g., "3j" for move down 3 lines).
     @Published public private(set) var countPrefix: Int?
 
+    /// Pending operation waiting for a character input (f, t, r commands).
+    @Published public private(set) var pendingCharOp: PendingCharacterOperation?
+
+    /// Last find character command for ; and , repeat.
+    @Published public private(set) var lastFindOp: (Character, PendingCharacterOperation)?
+
     public init() {}
 
     /// Handle a key event in the given mode.
@@ -33,6 +52,14 @@ public final class HelixKeyHandler: ObservableObject {
                 return .command(.enterNormalMode)
             }
             return .passThrough
+        }
+
+        // Handle pending character operation (f, t, r waiting for character)
+        if let op = pendingCharOp {
+            pendingCharOp = nil
+            let count = countPrefix ?? 1
+            countPrefix = nil
+            return handleCharacterInput(key, operation: op, count: count)
         }
 
         // Handle numeric prefix for count
@@ -58,9 +85,28 @@ public final class HelixKeyHandler: ObservableObject {
     public func reset() {
         pendingKey = nil
         countPrefix = nil
+        pendingCharOp = nil
     }
 
     // MARK: - Private
+
+    private func handleCharacterInput(_ char: Character, operation: PendingCharacterOperation, count: Int) -> HelixKeyResult {
+        // Store for repeat
+        lastFindOp = (char, operation)
+
+        switch operation {
+        case .findForward:
+            return .command(.findCharacter(char: char, count: count))
+        case .findBackward:
+            return .command(.findCharacterBackward(char: char, count: count))
+        case .tillForward:
+            return .command(.tillCharacter(char: char, count: count))
+        case .tillBackward:
+            return .command(.tillCharacterBackward(char: char, count: count))
+        case .replace:
+            return .command(.replaceCharacter(char: char))
+        }
+    }
 
     private func handleSingleKey(_ key: Character, count: Int, mode: HelixMode, modifiers: KeyModifiers) -> HelixKeyResult {
         switch key {
@@ -71,6 +117,20 @@ public final class HelixKeyHandler: ObservableObject {
             return .command(.enterNormalMode)
         case "v":
             return mode == .select ? .command(.enterNormalMode) : .command(.enterSelectMode)
+
+        // Insert mode variants
+        case "a":
+            return .command(.appendAfterCursor)
+        case "A":
+            return .command(.appendAtLineEnd)
+        case "I":
+            return .command(.insertAtLineStart)
+        case "o":
+            return .command(.openLineBelow)
+        case "O":
+            return .command(.openLineAbove)
+        case "s":
+            return .command(.substitute)
 
         // Movement
         case "h":
@@ -85,15 +145,56 @@ public final class HelixKeyHandler: ObservableObject {
             return .command(.wordForward(count: count))
         case "b":
             return .command(.wordBackward(count: count))
+        case "e":
+            return .command(.wordEnd(count: count))
         case "0":
             return .command(.lineStart)
+        case "^":
+            return .command(.lineFirstNonBlank)
         case "$":
             return .command(.lineEnd)
+
+        // Find character (await next character)
+        case "f":
+            pendingCharOp = .findForward
+            countPrefix = count > 1 ? count : nil
+            return .awaitingCharacter
+        case "F":
+            pendingCharOp = .findBackward
+            countPrefix = count > 1 ? count : nil
+            return .awaitingCharacter
+        case "t":
+            pendingCharOp = .tillForward
+            countPrefix = count > 1 ? count : nil
+            return .awaitingCharacter
+        case "T":
+            pendingCharOp = .tillBackward
+            countPrefix = count > 1 ? count : nil
+            return .awaitingCharacter
+
+        // Repeat find
+        case ";":
+            return .command(.repeatFind)
+        case ",":
+            return .command(.repeatFindReverse)
+
+        // Search
+        case "/":
+            return .enterSearch(backward: false)
+        case "?":
+            return .enterSearch(backward: true)
+        case "n":
+            return .command(.searchNext(count: count))
+        case "N":
+            return .command(.searchPrevious(count: count))
 
         // Multi-key sequences (start)
         case "g":
             pendingKey = "g"
             return .pending
+        case "r":
+            pendingCharOp = .replace
+            return .awaitingCharacter
 
         // Selection
         case "x":
@@ -112,6 +213,18 @@ public final class HelixKeyHandler: ObservableObject {
             return .command(.pasteBefore)
         case "c":
             return .commands([.delete, .enterInsertMode])
+        case "J":
+            return .command(.joinLines)
+        case "~":
+            return .command(.toggleCase)
+        case ">":
+            return .command(.indent)
+        case "<":
+            return .command(.dedent)
+
+        // Repeat
+        case ".":
+            return .command(.repeatLastChange)
 
         // Undo/Redo
         case "u":
@@ -132,6 +245,9 @@ public final class HelixKeyHandler: ObservableObject {
         switch (first, second) {
         case ("g", "g"):
             return .command(.documentStart)
+        case ("g", "e"):
+            // ge - go to end of previous word (backward word end)
+            return .command(.wordBackward(count: count))
         default:
             // Invalid sequence, consume both keys
             return .consumed
