@@ -1,0 +1,103 @@
+name: impel
+options:
+  bundleIdPrefix: com.impress
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    PRODUCT_NAME: impel
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  ImpelCore:
+    path: Packages/ImpelCore
+  ImpressTestKit:
+    path: ../../packages/ImpressTestKit
+
+targets:
+  impel:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Shared
+        excludes:
+          - "**/*.xcassets"
+      - path: macOS
+        excludes:
+          - "**/*.xcassets"
+    resources:
+      - path: Shared/Assets.xcassets
+      - path: macOS/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impel
+        INFOPLIST_FILE: macOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: macOS/impel.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: ImpelCore
+    entitlements:
+      path: macOS/impel.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+
+  impelTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: impel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impel.tests
+        PRODUCT_MODULE_NAME: impelTests
+        GENERATE_INFOPLIST_FILE: YES
+
+  impelUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: impelUITests
+    dependencies:
+      - target: impel
+      - package: ImpressTestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impel.uitests
+        PRODUCT_MODULE_NAME: impelUITests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  impel:
+    build:
+      targets:
+        impel: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - impelTests
+        - impelUITests
+    profile:
+      config: Release
+    archive:
+      config: Release

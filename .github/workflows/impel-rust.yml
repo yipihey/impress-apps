@@ -5,17 +5,17 @@ on:
     branches: [main]
     paths:
       - 'crates/impel-core/**'
-      - 'crates/impel-tui/**'
       - 'crates/impel-server/**'
       - 'crates/impress-*/**'
+      - 'apps/impel-tui/**'
       - '.github/workflows/impel-rust.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/impel-core/**'
-      - 'crates/impel-tui/**'
       - 'crates/impel-server/**'
       - 'crates/impress-*/**'
+      - 'apps/impel-tui/**'
       - '.github/workflows/impel-rust.yml'
 
 env:
