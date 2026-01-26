@@ -28,6 +28,8 @@ settings:
 packages:
   PublicationManagerCore:
     path: ../PublicationManagerCore
+  ImpressModalEditing:
+    path: ../../../packages/ImpressModalEditing
 
 targets:
   # macOS App
@@ -41,6 +43,7 @@ targets:
           - "**/ShareExtension/**"
     dependencies:
       - package: PublicationManagerCore
+      - package: ImpressModalEditing
       - target: imbib-ShareExtension
         embed: true
       - target: imbib-SafariExtension
@@ -101,6 +104,7 @@ targets:
       - path: imbib/Resources/DefaultLibrarySet.json
     dependencies:
       - package: PublicationManagerCore
+      - package: ImpressModalEditing
       - target: imbib-iOS-ShareExtension
         embed: true
       - target: imbib-iOS-SafariExtension
