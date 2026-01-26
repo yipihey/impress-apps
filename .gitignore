@@ -33,7 +33,26 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcshareddata/
+
+# XcodeGen generated projects (app-level)
+apps/*/*.xcodeproj/
+
+# UniFFI generated code and build artifacts
+**/generated/
+**/frameworks/
+**/*.xcframework/
+**/*RustCore/
+**/Packages/*/Tests/
 
 # Environment
 .env
 .env.local
+
+# Claude Code
+.claude/
+
+# Temp files
+*.txt.tmp
+apps/t.txt
