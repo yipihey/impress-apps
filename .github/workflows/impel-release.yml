@@ -1,0 +1,118 @@
+name: impel - Build and Release
+
+on:
+  push:
+    tags:
+      - 'impel-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.2.1)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: impel-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: impel-macos-x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: impel-linux-x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build impel-tui
+        run: |
+          cargo build --release --package impel-tui --target ${{ matrix.target }}
+
+      - name: Package binary (Unix)
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/impel dist/
+          cd dist
+          tar -czvf ${{ matrix.artifact }}.tar.gz impel
+          rm impel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/tags/impel-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/impel-}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*.tar.gz
+          draft: false
+          prerelease: true
+          name: "impel ${{ steps.version.outputs.version }}"
+          body: |
+            ## impel ${{ steps.version.outputs.version }}
+
+            Terminal UI for agent orchestration.
+
+            ### Downloads
+
+            - **macOS (Apple Silicon)**: impel-macos-arm64.tar.gz
+            - **macOS (Intel)**: impel-macos-x64.tar.gz
+            - **Linux (x64)**: impel-linux-x64.tar.gz
+
+            ### Installation
+
+            ```bash
+            # Extract and install
+            tar -xzf impel-<platform>.tar.gz
+            chmod +x impel
+            sudo mv impel /usr/local/bin/
+            ```
+
+            For changelog, see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/apps/impel-tui/CHANGELOG.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
