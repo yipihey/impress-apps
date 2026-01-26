@@ -1,0 +1,17 @@
+[bindings.swift]
+# Skip generating bindings for external crate types
+# The types from impress_bibtex, impress_identifiers, and impress_domain are handled separately
+
+[bindings]
+# Use proc-macro based bindings without external UDL files
+
+# Map external types from dependent crates
+[bindings.swift.external_packages.impress_bibtex]
+# Don't generate separate module, include inline
+crate_name = "impress_bibtex"
+
+[bindings.swift.external_packages.impress_identifiers]
+crate_name = "impress_identifiers"
+
+[bindings.swift.external_packages.impress_domain]
+crate_name = "impress_domain"

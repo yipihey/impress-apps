@@ -10,6 +10,9 @@
 //! - **Persistence**: SQLite-based storage for events, threads, agents, and messages
 //! - **Coordination**: Stigmergic coordination via shared state and temperature-based attention
 //! - **Integrations**: Adapters for imbib (references), imprint (documents), implore (data/viz)
+//! - **Project**: Collection of related threads working toward shared deliverables
+//! - **Program**: Collection of related projects (highest level of organization)
+//! - **Config**: System-wide configuration for temperature, agents, and timing
 //!
 //! # Architecture
 //!
@@ -18,8 +21,16 @@
 //! - Current state is projected from the event log
 //! - Temperature-based attention gradients prioritize work
 //! - Human intervention points are minimized but impactful
+//!
+//! # Four-Level Hierarchy
+//!
+//! ```text
+//! Program → Project → Thread → Event
+//!   L1        L2        L3       L4
+//! ```
 
 pub mod agent;
+pub mod config;
 pub mod coordination;
 pub mod error;
 pub mod escalation;
@@ -27,16 +38,21 @@ pub mod event;
 pub mod integrations;
 pub mod message;
 pub mod persistence;
+pub mod program;
+pub mod project;
 pub mod thread;
 
 pub use agent::{Agent, AgentRegistry, AgentStatus, AgentType};
+pub use config::{ImpelConfig, TemperatureConfig, AgentConfig, EscalationConfig, TimingConfig};
 pub use coordination::{Command, CoordinationState};
 pub use error::{ImpelError, Result};
 pub use escalation::{Escalation, EscalationCategory, EscalationPriority, EscalationStatus};
 pub use event::{Event, EventId, EventStore, Projection};
 pub use message::{Attachment, MessageBody, MessageEnvelope, MessageId};
 pub use persistence::{Repository, Schema};
-pub use thread::{Temperature, Thread, ThreadId, ThreadState};
+pub use program::{Program, ProgramId, ProgramStatus, ProgramRegistry};
+pub use project::{Project, ProjectId, ProjectStatus, ProjectRelation, Deliverable, DeliverableKind};
+pub use thread::{Temperature, TemperatureCoefficients, Thread, ThreadId, ThreadState};
 
 // Setup UniFFI when the feature is enabled
 #[cfg(feature = "uniffi")]

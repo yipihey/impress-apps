@@ -29,8 +29,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.reference</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

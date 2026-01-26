@@ -8,5 +8,5 @@ mod temperature;
 mod thread;
 
 pub use state::ThreadState;
-pub use temperature::Temperature;
+pub use temperature::{Temperature, TemperatureCoefficients};
 pub use thread::{Thread, ThreadId, ThreadMetadata};
