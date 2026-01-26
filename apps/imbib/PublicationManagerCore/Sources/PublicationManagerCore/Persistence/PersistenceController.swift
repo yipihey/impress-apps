@@ -110,8 +110,11 @@ public final class PersistenceController: @unchecked Sendable {
             Logger.persistence.warning("PENDING RESET DETECTED - deleting local store files")
             deleteLocalStoreFiles()
             CloudKitSyncSettingsStore.shared.pendingReset = false
-            print("[imbib] Pending reset complete - flag cleared")
-            Logger.persistence.warning("Pending reset complete - flag cleared")
+            // Re-enable CloudKit sync after reset - it was disabled during resetToFirstRun()
+            // to stop ongoing sync operations. Now that we have a fresh store, sync can resume.
+            CloudKitSyncSettingsStore.shared.isDisabledByUser = false
+            print("[imbib] Pending reset complete - flags cleared, CloudKit re-enabled")
+            Logger.persistence.warning("Pending reset complete - flags cleared, CloudKit re-enabled")
         }
 
         // UI Testing mode - use isolated storage
