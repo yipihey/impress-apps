@@ -7,6 +7,7 @@ import UIKit
 public struct HelixTextEditor: View {
     @Binding var text: String
     @ObservedObject var helixState: HelixState
+    @ObservedObject private var settings = HelixSettings.shared
 
     /// Whether the command bar is visible (for touch input).
     @State private var showCommandBar: Bool = false
@@ -30,6 +31,17 @@ public struct HelixTextEditor: View {
     }
 
     public var body: some View {
+        if settings.isEnabled {
+            helixEnabledEditor
+        } else {
+            // Standard TextEditor when Helix is disabled
+            TextEditor(text: $text)
+                .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var helixEnabledEditor: some View {
         VStack(spacing: 0) {
             TextEditor(text: $text)
                 .scrollContentBackground(.hidden)

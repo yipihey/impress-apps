@@ -1,4 +1,8 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+import ImpressModalEditing
+#endif
 
 /// Main content view with split visualization and controls
 struct ContentView: View {
@@ -301,21 +305,30 @@ struct RenderModePicker: View {
     }
 }
 
-/// Sheet for entering selection grammar
+/// Sheet for entering selection grammar with Helix modal editing support
 struct SelectionGrammarSheet: View {
     @Environment(\.dismiss) var dismiss
     @State private var expression: String = ""
     @State private var errorMessage: String?
+
+    #if os(macOS)
+    @StateObject private var helixState = HelixState()
+    @ObservedObject private var helixSettings = HelixSettings.shared
+    #endif
 
     var body: some View {
         VStack(spacing: 20) {
             Text("Selection Grammar")
                 .font(.headline)
 
+            #if os(macOS)
+            grammarEditor
+            #else
             TextField("Enter selection expression", text: $expression)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
                 .accessibilityIdentifier("selectionGrammar.expressionField")
+            #endif
 
             if let error = errorMessage {
                 Text(error)
@@ -364,11 +377,118 @@ struct SelectionGrammarSheet: View {
         .accessibilityIdentifier("selectionGrammar.container")
     }
 
+    #if os(macOS)
+    @ViewBuilder
+    private var grammarEditor: some View {
+        GrammarEditorRepresentable(
+            expression: $expression,
+            helixState: helixState,
+            helixEnabled: helixSettings.isEnabled
+        )
+        .frame(height: 60)
+        .font(.system(.body, design: .monospaced))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
+        .helixModeIndicator(
+            state: helixState,
+            position: .bottomRight,
+            isVisible: helixSettings.isEnabled,
+            padding: 4
+        )
+        .accessibilityIdentifier("selectionGrammar.expressionField")
+    }
+    #endif
+
     private func applySelection() {
         // Parse and apply selection grammar
         dismiss()
     }
 }
+
+#if os(macOS)
+/// NSTextView wrapper for grammar editing with Helix support
+struct GrammarEditorRepresentable: NSViewRepresentable {
+    @Binding var expression: String
+    let helixState: HelixState
+    let helixEnabled: Bool
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        let textView = HelixTextView()
+        textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .textColor
+        textView.insertionPointColor = .textColor
+
+        // Single-line behavior
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = true
+
+        // Set up Helix adaptor
+        let adaptor = NSTextViewHelixAdaptor(textView: textView, helixState: helixState)
+        adaptor.isEnabled = helixEnabled
+        textView.helixAdaptor = adaptor
+        context.coordinator.helixAdaptor = adaptor
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+
+        // Set initial text
+        textView.string = expression
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? HelixTextView else { return }
+
+        // Update Helix enabled state
+        context.coordinator.helixAdaptor?.isEnabled = helixEnabled
+
+        // Update text if changed externally
+        if textView.string != expression {
+            textView.string = expression
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(expression: $expression)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var expression: String
+        weak var textView: HelixTextView?
+        weak var helixAdaptor: NSTextViewHelixAdaptor?
+
+        init(expression: Binding<String>) {
+            self._expression = expression
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = textView else { return }
+            expression = textView.string
+        }
+    }
+}
+#endif
 
 #Preview {
     ContentView()

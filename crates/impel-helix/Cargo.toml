@@ -1,0 +1,10 @@
+[package]
+name = "impel-helix"
+description = "Helix-style modal editing for terminal text interfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+crossterm = { workspace = true }
