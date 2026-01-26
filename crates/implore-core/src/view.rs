@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::{ColorRgb, Vec2f, Vec3d, Vec3f, Vec4f};
+
 /// Current state of the visualization view
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -36,7 +38,7 @@ pub struct ViewState {
     pub show_grid: bool,
 
     /// Background color (RGB, 0-1)
-    pub background_color: [f32; 3],
+    pub background_color: ColorRgb,
 }
 
 impl Default for ViewState {
@@ -50,7 +52,7 @@ impl Default for ViewState {
             visible_layers: vec!["default".to_string()],
             show_axes: true,
             show_grid: true,
-            background_color: [0.1, 0.1, 0.1], // Dark gray
+            background_color: ColorRgb::dark_gray(),
         }
     }
 }
@@ -238,9 +240,9 @@ pub struct ShaderParameter {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ShaderValue {
     Float(f32),
-    Vec2([f32; 2]),
-    Vec3([f32; 3]),
-    Vec4([f32; 4]),
+    Vec2(Vec2f),
+    Vec3(Vec3f),
+    Vec4(Vec4f),
     Int(i32),
     Bool(bool),
 }
@@ -304,13 +306,13 @@ impl AxisScale {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Camera3D {
     /// Camera position in world space
-    pub position: [f32; 3],
+    pub position: Vec3f,
 
     /// Point the camera is looking at
-    pub target: [f32; 3],
+    pub target: Vec3f,
 
     /// Up vector
-    pub up: [f32; 3],
+    pub up: Vec3f,
 
     /// Field of view in degrees (for perspective)
     pub fov: f32,
@@ -331,9 +333,9 @@ pub struct Camera3D {
 impl Default for Camera3D {
     fn default() -> Self {
         Self {
-            position: [3.0, 3.0, 3.0],
-            target: [0.0, 0.0, 0.0],
-            up: [0.0, 1.0, 0.0],
+            position: Vec3f::new(3.0, 3.0, 3.0),
+            target: Vec3f::new(0.0, 0.0, 0.0),
+            up: Vec3f::new(0.0, 1.0, 0.0),
             fov: 45.0,
             near: 0.1,
             far: 1000.0,
@@ -348,30 +350,30 @@ impl Camera3D {
     pub fn look_at_origin(distance: f32) -> Self {
         let angle = std::f32::consts::PI / 4.0;
         Self {
-            position: [
+            position: Vec3f::new(
                 distance * angle.cos(),
                 distance * 0.5,
                 distance * angle.sin(),
-            ],
-            target: [0.0, 0.0, 0.0],
+            ),
+            target: Vec3f::new(0.0, 0.0, 0.0),
             ..Default::default()
         }
     }
 
     /// Get the view direction (normalized)
-    pub fn view_direction(&self) -> [f32; 3] {
-        let dx = self.target[0] - self.position[0];
-        let dy = self.target[1] - self.position[1];
-        let dz = self.target[2] - self.position[2];
+    pub fn view_direction(&self) -> Vec3f {
+        let dx = self.target.x - self.position.x;
+        let dy = self.target.y - self.position.y;
+        let dz = self.target.z - self.position.z;
         let len = (dx * dx + dy * dy + dz * dz).sqrt();
-        [dx / len, dy / len, dz / len]
+        Vec3f::new(dx / len, dy / len, dz / len)
     }
 
     /// Orbit around the target by the given angles (radians)
     pub fn orbit(&mut self, delta_phi: f32, delta_theta: f32) {
-        let dx = self.position[0] - self.target[0];
-        let dy = self.position[1] - self.target[1];
-        let dz = self.position[2] - self.target[2];
+        let dx = self.position.x - self.target.x;
+        let dy = self.position.y - self.target.y;
+        let dz = self.position.z - self.target.z;
 
         let radius = (dx * dx + dy * dy + dz * dz).sqrt();
         let mut theta = (dy / radius).acos();
@@ -380,37 +382,35 @@ impl Camera3D {
         phi += delta_phi;
         theta = (theta + delta_theta).clamp(0.01, std::f32::consts::PI - 0.01);
 
-        self.position[0] = self.target[0] + radius * theta.sin() * phi.cos();
-        self.position[1] = self.target[1] + radius * theta.cos();
-        self.position[2] = self.target[2] + radius * theta.sin() * phi.sin();
+        self.position.x = self.target.x + radius * theta.sin() * phi.cos();
+        self.position.y = self.target.y + radius * theta.cos();
+        self.position.z = self.target.z + radius * theta.sin() * phi.sin();
     }
 
     /// Zoom by adjusting distance to target
     pub fn zoom(&mut self, factor: f32) {
-        let dx = self.position[0] - self.target[0];
-        let dy = self.position[1] - self.target[1];
-        let dz = self.position[2] - self.target[2];
+        let dx = self.position.x - self.target.x;
+        let dy = self.position.y - self.target.y;
+        let dz = self.position.z - self.target.z;
 
-        self.position[0] = self.target[0] + dx * factor;
-        self.position[1] = self.target[1] + dy * factor;
-        self.position[2] = self.target[2] + dz * factor;
+        self.position.x = self.target.x + dx * factor;
+        self.position.y = self.target.y + dy * factor;
+        self.position.z = self.target.z + dz * factor;
     }
 
     /// Pan the camera and target together
     pub fn pan(&mut self, dx: f32, dy: f32) {
         // Get right and up vectors in view space
         let view = self.view_direction();
-        let right = [
-            self.up[1] * view[2] - self.up[2] * view[1],
-            self.up[2] * view[0] - self.up[0] * view[2],
-            self.up[0] * view[1] - self.up[1] * view[0],
-        ];
+        let right = self.up.cross(&view);
 
         // Move both position and target
-        for i in 0..3 {
-            self.position[i] += right[i] * dx + self.up[i] * dy;
-            self.target[i] += right[i] * dx + self.up[i] * dy;
-        }
+        self.position.x += right.x * dx + self.up.x * dy;
+        self.position.y += right.y * dx + self.up.y * dy;
+        self.position.z += right.z * dx + self.up.z * dy;
+        self.target.x += right.x * dx + self.up.x * dy;
+        self.target.y += right.y * dx + self.up.y * dy;
+        self.target.z += right.z * dx + self.up.z * dy;
     }
 
     /// Reset to default position
@@ -484,39 +484,56 @@ impl ColorMapping {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SelectionBounds {
     /// Minimum corner
-    pub min: [f64; 3],
+    pub min: Vec3d,
 
     /// Maximum corner
-    pub max: [f64; 3],
+    pub max: Vec3d,
 }
 
 impl SelectionBounds {
     /// Create new selection bounds
-    pub fn new(min: [f64; 3], max: [f64; 3]) -> Self {
+    pub fn new(min: Vec3d, max: Vec3d) -> Self {
         Self { min, max }
     }
 
+    /// Create from arrays (convenience method)
+    pub fn from_arrays(min: [f64; 3], max: [f64; 3]) -> Self {
+        Self {
+            min: Vec3d::from(min),
+            max: Vec3d::from(max),
+        }
+    }
+
     /// Check if a point is inside the bounds
-    pub fn contains(&self, point: &[f64; 3]) -> bool {
-        (0..3).all(|i| point[i] >= self.min[i] && point[i] <= self.max[i])
+    pub fn contains(&self, point: &Vec3d) -> bool {
+        point.x >= self.min.x && point.x <= self.max.x &&
+        point.y >= self.min.y && point.y <= self.max.y &&
+        point.z >= self.min.z && point.z <= self.max.z
+    }
+
+    /// Check if a point (as array) is inside the bounds
+    pub fn contains_array(&self, point: &[f64; 3]) -> bool {
+        point[0] >= self.min.x && point[0] <= self.max.x &&
+        point[1] >= self.min.y && point[1] <= self.max.y &&
+        point[2] >= self.min.z && point[2] <= self.max.z
     }
 
     /// Get the center of the bounds
-    pub fn center(&self) -> [f64; 3] {
-        [
-            (self.min[0] + self.max[0]) / 2.0,
-            (self.min[1] + self.max[1]) / 2.0,
-            (self.min[2] + self.max[2]) / 2.0,
-        ]
+    pub fn center(&self) -> Vec3d {
+        Vec3d::new(
+            (self.min.x + self.max.x) / 2.0,
+            (self.min.y + self.max.y) / 2.0,
+            (self.min.z + self.max.z) / 2.0,
+        )
     }
 
     /// Get the size of the bounds
-    pub fn size(&self) -> [f64; 3] {
-        [
-            self.max[0] - self.min[0],
-            self.max[1] - self.min[1],
-            self.max[2] - self.min[2],
-        ]
+    pub fn size(&self) -> Vec3d {
+        Vec3d::new(
+            self.max.x - self.min.x,
+            self.max.y - self.min.y,
+            self.max.z - self.min.z,
+        )
     }
 }
 
@@ -541,9 +558,9 @@ mod tests {
     fn test_camera_orbit() {
         let mut camera = Camera3D::look_at_origin(5.0);
         let initial_distance = {
-            let dx = camera.position[0] - camera.target[0];
-            let dy = camera.position[1] - camera.target[1];
-            let dz = camera.position[2] - camera.target[2];
+            let dx = camera.position.x - camera.target.x;
+            let dy = camera.position.y - camera.target.y;
+            let dz = camera.position.z - camera.target.z;
             (dx * dx + dy * dy + dz * dz).sqrt()
         };
 
@@ -551,9 +568,9 @@ mod tests {
 
         // Distance should remain the same
         let final_distance = {
-            let dx = camera.position[0] - camera.target[0];
-            let dy = camera.position[1] - camera.target[1];
-            let dz = camera.position[2] - camera.target[2];
+            let dx = camera.position.x - camera.target.x;
+            let dy = camera.position.y - camera.target.y;
+            let dz = camera.position.z - camera.target.z;
             (dx * dx + dy * dy + dz * dz).sqrt()
         };
 
@@ -569,8 +586,8 @@ mod tests {
 
     #[test]
     fn test_selection_bounds() {
-        let bounds = SelectionBounds::new([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
-        assert!(bounds.contains(&[0.5, 0.5, 0.5]));
-        assert!(!bounds.contains(&[1.5, 0.5, 0.5]));
+        let bounds = SelectionBounds::from_arrays([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        assert!(bounds.contains_array(&[0.5, 0.5, 0.5]));
+        assert!(!bounds.contains_array(&[1.5, 0.5, 0.5]));
     }
 }

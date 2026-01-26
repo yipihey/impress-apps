@@ -49,6 +49,7 @@ impl GeneratorRegistry {
         self.register(Box::new(generators::PerlinNoise2D::new()));
         self.register(Box::new(generators::SimplexNoise2D::new()));
         self.register(Box::new(generators::WorleyNoise2D::new()));
+        self.register(Box::new(generators::PowerSpectrumNoise::new()));
 
         // Fractal generators
         self.register(Box::new(generators::MandelbrotSet::new()));
@@ -61,6 +62,7 @@ impl GeneratorRegistry {
         // Function generators
         self.register(Box::new(generators::FunctionPlotter2D::new()));
         self.register(Box::new(generators::SineCosine::new()));
+        self.register(Box::new(generators::DualFunction::new()));
     }
 
     /// Register a generator with the registry.

@@ -10,11 +10,56 @@ import SwiftUI
 struct ImprintApp: App {
     @StateObject private var appState = AppState()
 
+    /// Whether running in UI testing mode
+    private static let isUITesting = CommandLine.arguments.contains("--ui-testing")
+
+    /// Whether to reset app state
+    private static let shouldResetState = CommandLine.arguments.contains("--reset-state")
+
+    /// Whether to load sample document
+    private static let useSampleDocument = CommandLine.arguments.contains("--sample-document")
+
+    init() {
+        // Configure app for testing if needed
+        if Self.isUITesting {
+            configureForUITesting()
+        }
+    }
+
+    private func configureForUITesting() {
+        // Reset user defaults if requested
+        if Self.shouldResetState {
+            if let bundleID = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleID)
+
+                // Also clear the Saved Application State to prevent window restoration
+                if let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
+                    let savedStateURL = libraryURL
+                        .appendingPathComponent("Saved Application State")
+                        .appendingPathComponent("\(bundleID).savedState")
+                    try? FileManager.default.removeItem(at: savedStateURL)
+                }
+            }
+        }
+
+        // Disable window restoration for testing
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+
+        // Disable animations for faster testing
+        UITestingSupport.disableAnimations()
+    }
+
     var body: some Scene {
         // Document-based app for .imprint files
-        DocumentGroup(newDocument: ImprintDocument()) { file in
+        DocumentGroup(newDocument: Self.createInitialDocument()) { file in
             ContentView(document: file.$document)
                 .environmentObject(appState)
+                .onAppear {
+                    // In UI testing mode, auto-create an untitled document if none open
+                    if Self.isUITesting {
+                        UITestingSupport.ensureDocumentOpen()
+                    }
+                }
         }
         .commands {
             // Edit menu additions
@@ -158,4 +203,75 @@ extension Notification.Name {
     static let exportBibliography = Notification.Name("exportBibliography")
     static let showVersionHistory = Notification.Name("showVersionHistory")
     static let shareDocument = Notification.Name("shareDocument")
+}
+
+// MARK: - UI Testing Support
+
+extension ImprintApp {
+    /// Create the initial document based on launch arguments
+    static func createInitialDocument() -> ImprintDocument {
+        if useSampleDocument {
+            return ImprintDocument.sampleDocument()
+        }
+        return ImprintDocument()
+    }
+}
+
+/// Helpers for UI testing mode
+enum UITestingSupport {
+    /// Disable animations for faster test execution
+    static func disableAnimations() {
+        #if os(macOS)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+        }
+        #endif
+    }
+
+    /// Ensure at least one document window is open for testing
+    static func ensureDocumentOpen() {
+        #if os(macOS)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // If no windows are open, create a new document
+            if NSApplication.shared.windows.filter({ $0.isVisible }).isEmpty {
+                NSDocumentController.shared.newDocument(nil)
+            }
+        }
+        #endif
+    }
+}
+
+// MARK: - Sample Document
+
+extension ImprintDocument {
+    /// Create a sample document for testing
+    static func sampleDocument() -> ImprintDocument {
+        var doc = ImprintDocument()
+        doc.source = """
+        = Sample Document
+
+        This is a sample document for UI testing.
+
+        == Introduction
+
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+        == Methods
+
+        The methodology involves several steps:
+
+        + First step
+        + Second step
+        + Third step
+
+        == Results
+
+        The equation $E = m c^2$ is fundamental to physics.
+
+        == Conclusion
+
+        In conclusion, this sample document demonstrates basic Typst features.
+        """
+        return doc
+    }
 }

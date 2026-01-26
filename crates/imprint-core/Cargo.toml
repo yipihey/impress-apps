@@ -14,6 +14,8 @@ default = []
 uniffi = ["dep:uniffi"]
 # Enable Typst rendering support (requires typst dependencies)
 typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
+# Full native build with both UniFFI and Typst
+native = ["uniffi", "typst-render"]
 
 [dependencies]
 # Workspace crates
@@ -42,5 +44,10 @@ uniffi = { workspace = true, optional = true }
 typst = { version = "0.14", optional = true }
 typst-pdf = { version = "0.14", optional = true }
 typst-svg = { version = "0.14", optional = true }
-typst-as-lib = { version = "0.15", optional = true }
+typst-as-lib = { version = "0.15", optional = true, features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
 comemo = { version = "0.4", optional = true }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["uniffi"]

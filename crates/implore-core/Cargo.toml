@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [features]
 default = []
 uniffi = ["dep:uniffi"]
@@ -27,6 +30,11 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
-uniffi = { workspace = true, optional = true }
+uniffi = { workspace = true, optional = true, features = ["bindgen"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["uniffi"]
 
 [dev-dependencies]

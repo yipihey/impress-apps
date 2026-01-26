@@ -610,14 +610,17 @@ impl SourceMap {
 
 #[cfg(feature = "typst-render")]
 impl SourceMap {
-    /// Build a source map from a Typst document.
+    /// Build a source map from a Typst PagedDocument.
     ///
     /// This extracts source location information from the compiled Typst
     /// document to build the bidirectional mapping.
-    pub fn from_typst_document(_doc: &typst::doc::Document) -> Self {
+    pub fn from_typst_document<T>(_doc: &T) -> Self {
         // This would iterate through the document's frames and elements,
         // extracting source spans and their rendered positions.
         // The implementation depends on Typst's internal API.
+        //
+        // In Typst 0.14+, the document type is typst::layout::PagedDocument
+        // but we use a generic here to avoid coupling to specific API versions.
 
         // Placeholder implementation
         Self::new()

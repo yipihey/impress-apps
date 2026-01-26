@@ -1,4 +1,5 @@
 import Foundation
+import ImprintRustCore
 
 /// ImprintCore provides Swift bindings to the imprint-core Rust library
 ///
@@ -237,40 +238,102 @@ public struct RenderOutput {
     public var isSuccess: Bool { errors.isEmpty }
 }
 
-/// Typst renderer (placeholder)
+/// Typst renderer using Rust backend when available
 public actor TypstRenderer {
     public init() {}
 
+    /// Check if native Typst rendering is available
+    public static var isNativeAvailable: Bool {
+        return ImprintRustCore.isTypstAvailable()
+    }
+
+    /// Get the Typst version string
+    public static var typstVersion: String {
+        return ImprintRustCore.getTypstVersion()
+    }
+
     public func render(_ source: String, options: RenderOptions = RenderOptions()) async throws -> RenderOutput {
-        // Placeholder: return minimal PDF
-        // In real implementation, call Rust via UniFFI
+        // Use real Typst renderer via Rust FFI
+        log("[ImprintCore] Using Rust Typst renderer")
+        return try await renderWithRust(source, options: options)
+    }
+
+    private func log(_ message: String) {
+        let logMessage = "[\(Date())] \(message)\n"
+        print(logMessage)
+        // Also write to file for debugging UI tests
+        let logFile = FileManager.default.temporaryDirectory.appendingPathComponent("imprint_debug.log")
+        if let data = logMessage.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logFile.path) {
+                if let handle = try? FileHandle(forWritingTo: logFile) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                try? data.write(to: logFile)
+            }
+        }
+    }
+
+    private func renderWithRust(_ source: String, options: RenderOptions) async throws -> RenderOutput {
+        log("[ImprintCore] renderWithRust called with source length: \(source.count)")
+
+        // Convert options to FFI types
+        let ffiPageSize: ImprintRustCore.FfiPageSize
+        switch options.pageSize {
+        case .a4: ffiPageSize = .a4
+        case .letter: ffiPageSize = .letter
+        case .a5: ffiPageSize = .a5
+        }
+
+        let compileOptions = ImprintRustCore.CompileOptions(
+            pageSize: ffiPageSize,
+            fontSize: 11.0,
+            marginTop: 72.0,
+            marginRight: 72.0,
+            marginBottom: 72.0,
+            marginLeft: 72.0
+        )
+
+        log("[ImprintCore] Calling Rust compileTypstToPdf on background thread...")
+
+        // Run the blocking Rust call on a background thread
+        let result = await Task.detached(priority: .userInitiated) {
+            return ImprintRustCore.compileTypstToPdf(source: source, options: compileOptions)
+        }.value
+
+        log("[ImprintCore] Rust compilation complete. Error: \(result.error ?? "none"), PDF size: \(result.pdfData?.count ?? 0)")
+
+        if let error = result.error {
+            log("[ImprintCore] Compilation error: \(error)")
+            return RenderOutput(
+                pdfData: Data(),
+                pageCount: 0,
+                warnings: result.warnings,
+                errors: [error]
+            )
+        }
+
+        guard let pdfData = result.pdfData else {
+            log("[ImprintCore] No PDF data returned")
+            return RenderOutput(
+                pdfData: Data(),
+                pageCount: 0,
+                warnings: result.warnings,
+                errors: ["No PDF data returned"]
+            )
+        }
+
+        log("[ImprintCore] PDF generated successfully, \(pdfData.count) bytes")
         return RenderOutput(
-            pdfData: createMinimalPDF(),
-            pageCount: 1,
-            warnings: [],
+            pdfData: pdfData,  // Already Data, no need to wrap
+            pageCount: Int(result.pageCount),
+            warnings: result.warnings,
             errors: []
         )
     }
 
-    private func createMinimalPDF() -> Data {
-        let content = """
-        %PDF-1.4
-        1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-        2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
-        3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >> endobj
-        xref
-        0 4
-        0000000000 65535 f
-        0000000009 00000 n
-        0000000058 00000 n
-        0000000115 00000 n
-        trailer << /Size 4 /Root 1 0 R >>
-        startxref
-        193
-        %%EOF
-        """
-        return content.data(using: .utf8) ?? Data()
-    }
 }
 
 // MARK: - LaTeX Conversion

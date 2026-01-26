@@ -14,11 +14,13 @@ let package = Package(
             targets: ["ImploreCore"]
         ),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(path: "../../ImploreRustCore")
+    ],
     targets: [
         .target(
             name: "ImploreCore",
-            dependencies: [],
+            dependencies: ["ImploreRustCore"],
             path: "Sources/ImploreCore",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")

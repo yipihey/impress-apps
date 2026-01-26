@@ -24,10 +24,12 @@
 //! let data = generator.generate(&params)?;
 //! ```
 
+pub mod ffi;
 pub mod generators;
 pub mod params;
 pub mod registry;
 
+pub use ffi::{GeneratedDataFfi, GeneratorErrorFfi, GeneratorRegistryHandle, MetadataEntry};
 pub use params::{GeneratorParams, ParameterConstraints, ParameterSpec, ParameterType, ParameterValue};
 pub use registry::GeneratorRegistry;
 

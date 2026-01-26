@@ -12,8 +12,10 @@ use impress_collab::{Permissions, PresenceInfo};
 use serde::{Deserialize, Serialize};
 
 /// A collaborative visualization session
+///
+/// Note: This struct is not exported via UniFFI due to dependency on types from impress_collab.
+/// Use the JSON serialization methods for FFI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct VisualizationSession {
     /// Unique session identifier
     pub id: String,
@@ -126,8 +128,9 @@ impl Default for VisualizationSession {
 }
 
 /// A participant in a visualization session
+///
+/// Note: This struct is not exported via UniFFI due to dependency on types from impress_collab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SessionParticipant {
     /// User identifier
     pub user_id: String,

@@ -9,6 +9,7 @@ use crate::dataset::DatasetSource;
 
 /// A library of figures organized by folders
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct FigureLibrary {
     /// Unique identifier for this library
     pub id: String,
@@ -31,6 +32,7 @@ pub struct FigureLibrary {
 
 /// A figure saved in the library
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct LibraryFigure {
     /// Unique identifier for this figure
     pub id: String,
@@ -68,6 +70,7 @@ pub struct LibraryFigure {
 
 /// Link to an imprint document
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ImprintLink {
     /// ID of the imprint document
     pub document_id: String,
@@ -87,6 +90,7 @@ pub struct ImprintLink {
 
 /// Folder for organizing figures
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct FigureFolder {
     /// Unique identifier
     pub id: String,

@@ -403,16 +403,20 @@ mod typst_impl {
 
     impl TypstRenderer for DefaultTypstRenderer {
         fn render(&self, source: &str, options: &RenderOptions) -> Result<RenderOutput, RenderError> {
-            use typst_as_lib::TypstEngine;
+            use typst_as_lib::{TypstEngine, typst_kit_options::TypstKitFontOptions};
 
             // Prepend the page setup preamble to the source
             let full_source = format!("{}\n{}", options.to_typst_preamble(), source);
 
             // Build the Typst engine with the source
-            // main_file accepts types implementing IntoSource, including &str
-            // build() returns TypstEngine directly (not a Result)
+            // Include embedded fonts for math and text rendering
             let engine = TypstEngine::builder()
                 .main_file(full_source.as_str())
+                .search_fonts_with(
+                    TypstKitFontOptions::default()
+                        .include_system_fonts(true)  // Use system fonts if available
+                        .include_embedded_fonts(true), // Use embedded fonts (Libertinus, New CM, DejaVu)
+                )
                 .build();
 
             // Compile the document - returns Warned<Result<Doc, TypstAsLibError>>

@@ -1,4 +1,5 @@
 import XCTest
+import ImprintCore
 @testable import imprint
 
 final class ImprintTests: XCTestCase {
@@ -39,5 +40,30 @@ final class ImprintTests: XCTestCase {
 
         mode.cycle()
         XCTAssertEqual(mode, .splitView)
+    }
+
+    func testTypstAvailable() throws {
+        // Verify Typst rendering is available via Rust FFI
+        let available = TypstRenderer.isNativeAvailable
+        XCTAssertTrue(available, "Typst should be available via Rust FFI")
+    }
+
+    func testTypstVersion() throws {
+        // Verify we can get the Typst version string
+        let version = TypstRenderer.typstVersion
+        XCTAssertFalse(version.isEmpty, "Typst version should not be empty")
+        print("Typst version: \(version)")
+    }
+
+    func testTypstCompileSimple() async throws {
+        // Test basic Typst compilation
+        let renderer = TypstRenderer()
+        let source = "= Hello World\n\nThis is a test document."
+
+        let output = try await renderer.render(source)
+
+        XCTAssertTrue(output.isSuccess, "Compilation should succeed: \(output.errors)")
+        XCTAssertFalse(output.pdfData.isEmpty, "PDF should have data")
+        XCTAssertTrue(output.pdfData.starts(with: [0x25, 0x50, 0x44, 0x46]), "PDF should start with %PDF header")
     }
 }

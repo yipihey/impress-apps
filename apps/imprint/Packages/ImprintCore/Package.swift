@@ -13,11 +13,15 @@ let package = Package(
             targets: ["ImprintCore"]
         ),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(path: "../../ImprintRustCore")
+    ],
     targets: [
         .target(
             name: "ImprintCore",
-            dependencies: [],
+            dependencies: [
+                .product(name: "ImprintRustCore", package: "ImprintRustCore")
+            ],
             path: "Sources/ImprintCore"
         ),
         .testTarget(
