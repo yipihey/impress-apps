@@ -381,4 +381,128 @@ mod tests {
         assert_eq!(stats.total_failed, 0);
         assert_eq!(stats.pending, 0);
     }
+
+    #[test]
+    fn test_clear_pending() {
+        let mut service = FigureSyncService::new();
+
+        // Queue multiple updates
+        for i in 0..5 {
+            service.queue_update(FigureUpdateNotification {
+                figure_id: format!("fig-{}", i),
+                session_id: "session-1".to_string(),
+                new_view_state: "{}".to_string(),
+                new_thumbnail: None,
+                exports: Vec::new(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        assert_eq!(service.pending_count(), 5);
+
+        service.clear_pending();
+        assert_eq!(service.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_on_figure_unlinked() {
+        let mut library = create_test_library();
+        let figure_id = library.figures[0].id.clone();
+
+        // Verify figure has a link initially
+        assert_eq!(library.figures[0].imprint_links.len(), 1);
+
+        // Unlink the figure
+        FigureSyncService::on_figure_unlinked(&mut library, &figure_id, "doc-1");
+
+        // Verify link was removed
+        let figure = library.get_figure(&figure_id).unwrap();
+        assert_eq!(figure.imprint_links.len(), 0);
+    }
+
+    #[test]
+    fn test_on_figure_modified_without_auto_update() {
+        let mut service = FigureSyncService::new();
+        let mut library = FigureLibrary::new("Test");
+
+        // Create figure WITHOUT auto-update link
+        let mut figure = LibraryFigure::new(
+            "Test Figure",
+            "session-1",
+            r#"{"zoom": 1.0}"#,
+            DatasetSource::InMemory {
+                format: "generated".to_string(),
+            },
+        );
+        // Link with auto_update = false
+        figure.imprint_links.push(crate::library::ImprintLink {
+            document_id: "doc-1".to_string(),
+            document_title: "Paper".to_string(),
+            figure_label: "fig:test".to_string(),
+            auto_update: false, // Not auto-updating
+            last_synced: None,
+        });
+        let figure_id = figure.id.clone();
+        library.add_figure(figure);
+
+        // Try to trigger update
+        service.on_figure_modified(&library, &figure_id, "session-1", r#"{"zoom": 2.0}"#, None);
+
+        // Should NOT queue an update since no auto-update links
+        assert_eq!(service.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_process_updates_nonexistent_figure() {
+        let mut service = FigureSyncService::new();
+        let mut library = FigureLibrary::new("Test");
+
+        // Queue update for figure that doesn't exist
+        service.queue_update(FigureUpdateNotification {
+            figure_id: "nonexistent".to_string(),
+            session_id: "session-1".to_string(),
+            new_view_state: "{}".to_string(),
+            new_thumbnail: None,
+            exports: Vec::new(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        });
+
+        // Process should handle gracefully
+        let processed = service.process_updates(&mut library);
+        assert_eq!(processed, 1); // Still counts as processed
+        assert_eq!(service.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_generate_insert_url() {
+        let library = create_test_library();
+        let figure = &library.figures[0];
+
+        let url = FigureSyncService::generate_insert_url(figure, "new-doc-id");
+        assert!(url.starts_with("imprint://insert-figure"));
+        assert!(url.contains("document_id=new-doc-id"));
+        assert!(url.contains(&format!("figure_id={}", urlencoding::encode(&figure.id))));
+    }
+
+    #[test]
+    fn test_stats_after_processing() {
+        let mut service = FigureSyncService::new();
+        let mut library = create_test_library();
+        let figure_id = library.figures[0].id.clone();
+
+        service.queue_update(FigureUpdateNotification {
+            figure_id,
+            session_id: "session-1".to_string(),
+            new_view_state: r#"{"zoom": 2.0}"#.to_string(),
+            new_thumbnail: None,
+            exports: Vec::new(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        });
+
+        service.process_updates(&mut library);
+
+        let stats = service.stats();
+        assert_eq!(stats.total_synced, 1);
+        assert!(stats.last_sync_at.is_some());
+    }
 }

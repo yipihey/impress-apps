@@ -12,6 +12,7 @@ crate-type = ["lib", "staticlib"]
 [features]
 default = []
 uniffi = ["dep:uniffi"]
+parallel = ["dep:rayon"]
 
 [dependencies]
 # Workspace crates
@@ -31,6 +32,9 @@ urlencoding = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true, features = ["bindgen"] }
+
+# Parallel processing (optional)
+rayon = { workspace = true, optional = true }
 
 [[bin]]
 name = "uniffi-bindgen"

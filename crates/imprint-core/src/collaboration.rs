@@ -279,4 +279,88 @@ mod tests {
         assert!(presence.online);
         assert_eq!(presence.peer_id, "peer1");
     }
+
+    #[test]
+    fn test_presence_set_cursor() {
+        let mut presence = Presence::new("peer1", "User 1");
+        assert_eq!(presence.cursor_position, None);
+
+        presence.set_cursor(100);
+        assert_eq!(presence.cursor_position, Some(100));
+        assert_eq!(presence.selection, None);
+    }
+
+    #[test]
+    fn test_presence_set_selection() {
+        let mut presence = Presence::new("peer1", "User 1");
+
+        presence.set_selection(50, 150);
+        assert_eq!(presence.cursor_position, Some(150)); // Cursor at end
+        assert_eq!(presence.selection, Some((50, 150)));
+    }
+
+    #[test]
+    fn test_presence_color_generation() {
+        let presence = Presence::new("peer1", "User 1");
+        // Color should be a valid hex color starting with #
+        assert!(presence.color.starts_with('#'));
+        assert_eq!(presence.color.len(), 7); // #RRGGBB format
+    }
+
+    #[test]
+    fn test_presence_last_active_updates() {
+        let mut presence = Presence::new("peer1", "User 1");
+        let initial_time = presence.last_active;
+
+        // Small delay to ensure time difference
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        presence.set_cursor(100);
+        assert!(presence.last_active >= initial_time);
+    }
+
+    #[test]
+    fn test_sync_session_multiple_peers() {
+        let doc = ImprintDocument::new();
+        let mut session = SyncSession::new(doc, "local");
+
+        session.connect("peer1");
+        session.connect("peer2");
+        session.connect("peer3");
+
+        let peers = session.connected_peers();
+        assert_eq!(peers.len(), 3);
+        assert!(peers.contains(&"peer1"));
+        assert!(peers.contains(&"peer2"));
+        assert!(peers.contains(&"peer3"));
+    }
+
+    #[test]
+    fn test_sync_session_update_presence() {
+        let doc = ImprintDocument::new();
+        let mut session = SyncSession::new(doc, "local");
+
+        let mut presence = Presence::new("peer1", "Alice");
+        presence.set_cursor(500);
+
+        session.update_presence(presence);
+
+        let retrieved = session.get_presence("peer1").unwrap();
+        assert_eq!(retrieved.display_name, "Alice");
+        assert_eq!(retrieved.cursor_position, Some(500));
+    }
+
+    #[test]
+    fn test_sync_session_online_presence() {
+        let doc = ImprintDocument::new();
+        let mut session = SyncSession::new(doc, "local");
+
+        session.connect("peer1");
+        session.connect("peer2");
+        session.disconnect("peer1");
+
+        let online: Vec<_> = session.online_presence().collect();
+        assert_eq!(online.len(), 1);
+        assert_eq!(online[0].peer_id, "peer2");
+    }
 }

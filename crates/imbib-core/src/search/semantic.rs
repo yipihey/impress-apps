@@ -72,12 +72,9 @@ impl SemanticSearch {
         if let Some(abstract_str) = abstract_text {
             text.push_str(". ");
             // Truncate abstract if too long (model has token limit)
-            let truncated = if abstract_str.len() > 1000 {
-                &abstract_str[..1000]
-            } else {
-                abstract_str
-            };
-            text.push_str(truncated);
+            // Use char boundary-safe truncation to avoid panics on non-ASCII text
+            let truncated: String = abstract_str.chars().take(1000).collect();
+            text.push_str(&truncated);
         }
 
         let embeddings = self
@@ -112,8 +109,9 @@ impl SemanticSearch {
                 }
                 if let Some(abs) = abstract_text {
                     text.push_str(". ");
-                    let truncated = if abs.len() > 1000 { &abs[..1000] } else { abs };
-                    text.push_str(truncated);
+                    // Use char boundary-safe truncation to avoid panics on non-ASCII text
+                    let truncated: String = abs.chars().take(1000).collect();
+                    text.push_str(&truncated);
                 }
                 text
             })

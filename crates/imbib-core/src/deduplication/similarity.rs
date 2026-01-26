@@ -351,22 +351,24 @@ fn pub_title_similarity(a: &str, b: &str) -> f64 {
 }
 
 /// Calculate author similarity for Publications
+///
+/// Uses lowercase comparison without allocating new strings by comparing
+/// case-insensitively.
 fn pub_author_similarity(a: &[Author], b: &[Author]) -> f64 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
 
-    let names_a: Vec<String> = a
+    // Count matches using case-insensitive comparison without allocating
+    let matches = a
         .iter()
-        .map(|auth| auth.family_name.to_lowercase())
-        .collect();
-    let names_b: Vec<String> = b
-        .iter()
-        .map(|auth| auth.family_name.to_lowercase())
-        .collect();
+        .filter(|auth_a| {
+            b.iter()
+                .any(|auth_b| auth_a.family_name.eq_ignore_ascii_case(&auth_b.family_name))
+        })
+        .count();
 
-    let matches = names_a.iter().filter(|n| names_b.contains(n)).count();
-    let total = names_a.len().max(names_b.len());
+    let total = a.len().max(b.len());
 
     matches as f64 / total as f64
 }

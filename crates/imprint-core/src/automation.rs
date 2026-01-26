@@ -926,4 +926,112 @@ mod tests {
             _ => panic!("Expected InsertCitation via 'cite' alias"),
         }
     }
+
+    #[test]
+    fn test_roundtrip_new_document() {
+        let original_title = Some("My Research Paper");
+        let original_template = Some("article");
+
+        let url = build_new_url(original_title, original_template);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::New(cmd)) => {
+                assert_eq!(cmd.title.as_deref(), original_title);
+                assert_eq!(cmd.template.as_deref(), original_template);
+            }
+            _ => panic!("Roundtrip failed for new document"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_export() {
+        let original_doc = "doc-123";
+        let original_format = "latex";
+        let original_dest = Some("/tmp/output.tex");
+
+        let url = build_export_url(original_doc, original_format, original_dest);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::Export(cmd)) => {
+                assert_eq!(cmd.document_id, original_doc);
+                assert_eq!(cmd.format, original_format);
+                assert_eq!(cmd.destination.as_deref(), original_dest);
+            }
+            _ => panic!("Roundtrip failed for export"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_share() {
+        let original_doc = "doc-456";
+        let original_action = ShareAction::Invite;
+        let original_email = Some("user@example.com");
+
+        let url = build_share_url(original_doc, original_action.clone(), original_email);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::Share(cmd)) => {
+                assert_eq!(cmd.document_id, original_doc);
+                assert_eq!(cmd.action, original_action);
+                assert_eq!(cmd.email.as_deref(), original_email);
+            }
+            _ => panic!("Roundtrip failed for share"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_compile() {
+        let original_doc = "doc-789";
+        let original_format = Some("pdf");
+        let original_draft = true;
+
+        let url = build_compile_url(original_doc, original_format, original_draft);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::Compile(cmd)) => {
+                assert_eq!(cmd.document_id, original_doc);
+                assert_eq!(cmd.format.as_deref(), original_format);
+                assert_eq!(cmd.draft, original_draft);
+            }
+            _ => panic!("Roundtrip failed for compile"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_import_notes() {
+        let original_doc = "doc-abc";
+        let original_pub = "pub-xyz";
+        let original_format = Some("quote");
+
+        let url = build_import_notes_url(original_doc, original_pub, original_format);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::ImportNotes(cmd)) => {
+                assert_eq!(cmd.document_id, original_doc);
+                assert_eq!(cmd.publication_id, original_pub);
+                assert_eq!(cmd.format.as_deref(), original_format);
+            }
+            _ => panic!("Roundtrip failed for import notes"),
+        }
+    }
+
+    #[test]
+    fn test_url_encoding_special_characters() {
+        // Test that special characters are properly encoded/decoded
+        let title_with_special = "Paper: A & B (2024)";
+        let url = build_new_url(Some(title_with_special), None);
+        let result = parse_url_command(&url);
+
+        match result.command {
+            Some(ImprintCommand::New(cmd)) => {
+                assert_eq!(cmd.title.as_deref(), Some(title_with_special));
+            }
+            _ => panic!("Special characters roundtrip failed"),
+        }
+    }
 }

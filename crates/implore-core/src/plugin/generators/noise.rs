@@ -1,8 +1,17 @@
 //! Noise generators for implore.
 //!
 //! Provides various noise algorithms for generating natural-looking patterns.
+//!
+//! # Parallel Processing
+//!
+//! When the `parallel` feature is enabled, noise generation uses rayon for
+//! parallel computation, significantly improving performance on multi-core
+//! systems for large resolutions (512x512 and above).
 
 use std::collections::HashMap;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 use crate::plugin::{
     BoundingBox, DataGenerator, DataSchema, DataType, FieldDescriptor, GeneratedData,
@@ -80,39 +89,44 @@ impl DataGenerator for PerlinNoise2D {
         let persistence = params.get_float_or("persistence", 0.5);
         let seed = params.get_int_or("seed", 42) as u64;
 
-        let capacity = res * res;
+        // Simple hash-based permutation table
+        let perm = generate_permutation(seed);
+
+        // Generate data - parallel when feature enabled
+        #[cfg(feature = "parallel")]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .into_par_iter()
+            .flat_map(|iy| {
+                (0..res).into_par_iter().map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
+                    let noise_value = fbm_perlin_2d(px, py, freq, octaves, persistence, &perm);
+                    (px, py, noise_value)
+                })
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .flat_map(|iy| {
+                (0..res).map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
+                    let noise_value = fbm_perlin_2d(px, py, freq, octaves, persistence, &perm);
+                    (px, py, noise_value)
+                })
+            })
+            .collect();
+
+        let capacity = data.len();
         let mut x_data = Vec::with_capacity(capacity);
         let mut y_data = Vec::with_capacity(capacity);
         let mut value_data = Vec::with_capacity(capacity);
 
-        // Simple hash-based permutation table
-        let perm = generate_permutation(seed);
-
-        for iy in 0..res {
-            for ix in 0..res {
-                let px = ix as f64 / res as f64;
-                let py = iy as f64 / res as f64;
-
-                // Fractal Brownian Motion (fBm)
-                let mut amplitude = 1.0;
-                let mut frequency = freq;
-                let mut noise_value = 0.0;
-                let mut max_amplitude = 0.0;
-
-                for _ in 0..octaves {
-                    noise_value += amplitude * perlin_2d(px * frequency, py * frequency, &perm);
-                    max_amplitude += amplitude;
-                    amplitude *= persistence;
-                    frequency *= 2.0;
-                }
-
-                // Normalize
-                noise_value /= max_amplitude;
-
-                x_data.push(px);
-                y_data.push(py);
-                value_data.push(noise_value);
-            }
+        for (px, py, v) in data {
+            x_data.push(px);
+            y_data.push(py);
+            value_data.push(v);
         }
 
         let mut columns = HashMap::new();
@@ -198,36 +212,43 @@ impl DataGenerator for SimplexNoise2D {
         let persistence = params.get_float_or("persistence", 0.5);
         let seed = params.get_int_or("seed", 42) as u64;
 
-        let capacity = res * res;
+        let perm = generate_permutation(seed);
+
+        // Generate data - parallel when feature enabled
+        #[cfg(feature = "parallel")]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .into_par_iter()
+            .flat_map(|iy| {
+                (0..res).into_par_iter().map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
+                    let noise_value = fbm_simplex_2d(px, py, freq, octaves, persistence, &perm);
+                    (px, py, noise_value)
+                })
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .flat_map(|iy| {
+                (0..res).map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
+                    let noise_value = fbm_simplex_2d(px, py, freq, octaves, persistence, &perm);
+                    (px, py, noise_value)
+                })
+            })
+            .collect();
+
+        let capacity = data.len();
         let mut x_data = Vec::with_capacity(capacity);
         let mut y_data = Vec::with_capacity(capacity);
         let mut value_data = Vec::with_capacity(capacity);
 
-        let perm = generate_permutation(seed);
-
-        for iy in 0..res {
-            for ix in 0..res {
-                let px = ix as f64 / res as f64;
-                let py = iy as f64 / res as f64;
-
-                let mut amplitude = 1.0;
-                let mut frequency = freq;
-                let mut noise_value = 0.0;
-                let mut max_amplitude = 0.0;
-
-                for _ in 0..octaves {
-                    noise_value += amplitude * simplex_2d(px * frequency, py * frequency, &perm);
-                    max_amplitude += amplitude;
-                    amplitude *= persistence;
-                    frequency *= 2.0;
-                }
-
-                noise_value /= max_amplitude;
-
-                x_data.push(px);
-                y_data.push(py);
-                value_data.push(noise_value);
-            }
+        for (px, py, v) in data {
+            x_data.push(px);
+            y_data.push(py);
+            value_data.push(v);
         }
 
         let mut columns = HashMap::new();
@@ -314,40 +335,68 @@ impl DataGenerator for WorleyNoise2D {
             }
         }
 
-        let capacity = res * res;
-        let mut x_data = Vec::with_capacity(capacity);
-        let mut y_data = Vec::with_capacity(capacity);
-        let mut value_data = Vec::with_capacity(capacity);
-
         let distance_fn: fn(f64, f64, f64, f64) -> f64 = match metric {
             "manhattan" => |x1, y1, x2, y2| (x2 - x1).abs() + (y2 - y1).abs(),
             "chebyshev" => |x1, y1, x2, y2| (x2 - x1).abs().max((y2 - y1).abs()),
             _ => |x1, y1, x2, y2| ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt(),
         };
 
-        for iy in 0..res {
-            for ix in 0..res {
-                let px = ix as f64 / res as f64;
-                let py = iy as f64 / res as f64;
+        let max_possible = match metric {
+            "euclidean" => (2.0_f64).sqrt() / freq as f64,
+            _ => 2.0 / freq as f64,
+        };
 
-                // Find minimum distance to any feature point
-                let mut min_dist = f64::MAX;
-                for &(fx, fy) in &feature_points {
-                    let dist = distance_fn(px, py, fx, fy);
-                    min_dist = min_dist.min(dist);
-                }
+        // Generate data - parallel when feature enabled
+        #[cfg(feature = "parallel")]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .into_par_iter()
+            .flat_map(|iy| {
+                let feature_points = &feature_points;
+                (0..res).into_par_iter().map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
 
-                // Normalize distance to [0, 1]
-                let max_possible = match metric {
-                    "euclidean" => (2.0_f64).sqrt() / freq as f64,
-                    _ => 2.0 / freq as f64,
-                };
-                let value = (min_dist / max_possible).min(1.0);
+                    let mut min_dist = f64::MAX;
+                    for &(fx, fy) in feature_points {
+                        let dist = distance_fn(px, py, fx, fy);
+                        min_dist = min_dist.min(dist);
+                    }
 
-                x_data.push(px);
-                y_data.push(py);
-                value_data.push(value);
-            }
+                    let value = (min_dist / max_possible).min(1.0);
+                    (px, py, value)
+                })
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let data: Vec<(f64, f64, f64)> = (0..res)
+            .flat_map(|iy| {
+                let feature_points = &feature_points;
+                (0..res).map(move |ix| {
+                    let px = ix as f64 / res as f64;
+                    let py = iy as f64 / res as f64;
+
+                    let mut min_dist = f64::MAX;
+                    for &(fx, fy) in feature_points {
+                        let dist = distance_fn(px, py, fx, fy);
+                        min_dist = min_dist.min(dist);
+                    }
+
+                    let value = (min_dist / max_possible).min(1.0);
+                    (px, py, value)
+                })
+            })
+            .collect();
+
+        let capacity = data.len();
+        let mut x_data = Vec::with_capacity(capacity);
+        let mut y_data = Vec::with_capacity(capacity);
+        let mut value_data = Vec::with_capacity(capacity);
+
+        for (px, py, v) in data {
+            x_data.push(px);
+            y_data.push(py);
+            value_data.push(v);
         }
 
         let mut columns = HashMap::new();
@@ -362,6 +411,54 @@ impl DataGenerator for WorleyNoise2D {
 }
 
 // Helper functions for noise generation
+
+/// Compute fractal Brownian motion using Perlin noise
+fn fbm_perlin_2d(
+    px: f64,
+    py: f64,
+    base_freq: f64,
+    octaves: usize,
+    persistence: f64,
+    perm: &[usize; 512],
+) -> f64 {
+    let mut amplitude = 1.0;
+    let mut frequency = base_freq;
+    let mut noise_value = 0.0;
+    let mut max_amplitude = 0.0;
+
+    for _ in 0..octaves {
+        noise_value += amplitude * perlin_2d(px * frequency, py * frequency, perm);
+        max_amplitude += amplitude;
+        amplitude *= persistence;
+        frequency *= 2.0;
+    }
+
+    noise_value / max_amplitude
+}
+
+/// Compute fractal Brownian motion using Simplex noise
+fn fbm_simplex_2d(
+    px: f64,
+    py: f64,
+    base_freq: f64,
+    octaves: usize,
+    persistence: f64,
+    perm: &[usize; 512],
+) -> f64 {
+    let mut amplitude = 1.0;
+    let mut frequency = base_freq;
+    let mut noise_value = 0.0;
+    let mut max_amplitude = 0.0;
+
+    for _ in 0..octaves {
+        noise_value += amplitude * simplex_2d(px * frequency, py * frequency, perm);
+        max_amplitude += amplitude;
+        amplitude *= persistence;
+        frequency *= 2.0;
+    }
+
+    noise_value / max_amplitude
+}
 
 /// Generate a permutation table from a seed
 fn generate_permutation(seed: u64) -> [usize; 512] {

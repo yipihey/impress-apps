@@ -175,13 +175,22 @@ impl BoundingBox {
     }
 }
 
-/// Schema describing the output fields of a generator
+/// Schema describing the output fields of a generator.
+///
+/// Note: This is distinct from `crate::dataset::DataSchema` which is for
+/// imported/loaded datasets and includes `num_records`. This type is used
+/// internally by generators to describe their output structure before
+/// the data is converted to a `Dataset`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DataSchema {
     pub fields: Vec<FieldDescriptor>,
 }
 
-/// Description of a single output field
+/// Description of a single output field from a generator.
+///
+/// Note: This is distinct from `crate::dataset::FieldDescriptor` which is for
+/// imported/loaded datasets and has UniFFI bindings. Generator output uses
+/// this simpler type internally before being converted to a Dataset.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldDescriptor {
     /// Field name (e.g., "x", "y", "value")
@@ -200,7 +209,11 @@ pub struct FieldDescriptor {
     pub description: Option<String>,
 }
 
-/// Data types for schema fields
+/// Data types for generator schema fields.
+///
+/// Note: This is a subset of `crate::dataset::DataType` which also includes
+/// `String` and `Unknown` variants for imported data. Generators only produce
+/// numeric and boolean outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataType {
     Float32,

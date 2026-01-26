@@ -200,13 +200,14 @@ impl ImprintDocument {
         // Initialize the document structure
         let content_id = doc
             .put_object(automerge::ROOT, "content", ObjType::Text)
-            .ok();
-        let _ = doc.put_object(automerge::ROOT, "citations", ObjType::List);
+            .expect("failed to create content object in new document");
+        doc.put_object(automerge::ROOT, "citations", ObjType::List)
+            .expect("failed to create citations list in new document");
 
         Self {
             doc,
             metadata: DocumentMetadata::default(),
-            content_id,
+            content_id: Some(content_id),
             selections: SelectionSet::new(),
             edit_mode: EditMode::default(),
             source_map: None,

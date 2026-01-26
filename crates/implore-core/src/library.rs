@@ -4,6 +4,7 @@
 //! and linking them to imprint documents for automatic updating.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::dataset::DatasetSource;
 
@@ -128,7 +129,10 @@ impl FigureLibrary {
         self.modified_at = chrono::Utc::now().to_rfc3339();
     }
 
-    /// Get a figure by ID
+    /// Get a figure by ID.
+    ///
+    /// Note: This is O(n) where n is the number of figures. For frequent lookups
+    /// on large libraries, consider building a local HashMap index.
     pub fn get_figure(&self, id: &str) -> Option<&LibraryFigure> {
         self.figures.iter().find(|f| f.id == id)
     }
@@ -191,16 +195,18 @@ impl FigureLibrary {
             .collect()
     }
 
-    /// Get all unique document IDs that have linked figures
+    /// Get all unique document IDs that have linked figures.
+    ///
+    /// Uses a HashSet internally to avoid duplicate collection and sorting.
     pub fn linked_documents(&self) -> Vec<String> {
-        let mut doc_ids: Vec<String> = self
+        let doc_ids: HashSet<String> = self
             .figures
             .iter()
             .flat_map(|f| f.imprint_links.iter().map(|l| l.document_id.clone()))
             .collect();
-        doc_ids.sort();
-        doc_ids.dedup();
-        doc_ids
+        let mut result: Vec<String> = doc_ids.into_iter().collect();
+        result.sort(); // Maintain deterministic order
+        result
     }
 
     /// Search figures by title or tags
