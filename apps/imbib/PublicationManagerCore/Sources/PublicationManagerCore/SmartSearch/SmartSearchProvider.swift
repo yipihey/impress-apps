@@ -204,19 +204,31 @@ public actor SmartSearchProvider {
             let existingPubs = limitedResults.compactMap { existingMap[$0.id] }
             let newResults = limitedResults.filter { existingMap[$0.id] == nil }
 
-            // For inbox feeds: only re-add existing papers that are still in the inbox
-            // This prevents dismissed papers from reappearing when the feed refreshes
+            // For inbox feeds: filter out papers that are already in inbox OR were explicitly dismissed
+            // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
+            // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
             let existingPubsToAdd: [CDPublication]
             if smartSearchEntity?.feedsToInbox == true {
-                let inboxLibrary = await MainActor.run { InboxManager.shared.inboxLibrary }
-                existingPubsToAdd = existingPubs.filter { pub in
-                    // Only re-add if paper is still in the inbox library
-                    guard let inboxLib = inboxLibrary else { return false }
-                    return pub.libraries?.contains(inboxLib) ?? false
+                existingPubsToAdd = await MainActor.run {
+                    let inboxLibrary = InboxManager.shared.inboxLibrary
+                    let inboxManager = InboxManager.shared
+                    return existingPubs.filter { pub in
+                        // Skip if already in inbox (no need to re-add)
+                        if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
+                            return false
+                        }
+                        // Skip if explicitly dismissed
+                        if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
+                            return false
+                        }
+                        // Paper exists in DB but not in inbox and not dismissed - add to inbox
+                        return true
+                    }
                 }
-                if existingPubs.count != existingPubsToAdd.count {
+                let skippedCount = existingPubs.count - existingPubsToAdd.count
+                if skippedCount > 0 {
                     Logger.smartSearch.debugCapture(
-                        "Filtered \(existingPubs.count - existingPubsToAdd.count) dismissed papers from feed refresh",
+                        "Skipped \(skippedCount) papers (already in inbox or dismissed)",
                         category: "smartsearch"
                     )
                 }

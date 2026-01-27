@@ -437,24 +437,45 @@ public actor GroupFeedRefreshService {
             category: "group-feed"
         )
 
-        // Filter existing papers to only those still in inbox
-        // This prevents dismissed papers from reappearing when the feed refreshes
-        let inboxLibrary = await MainActor.run { InboxManager.shared.inboxLibrary }
-        let existingPubsStillInInbox = existingPubs.filter { pub in
-            guard let inboxLib = inboxLibrary else { return false }
-            return pub.libraries?.contains(inboxLib) ?? false
+        // Filter existing papers: skip those already in inbox (no need to re-add) or explicitly dismissed
+        // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
+        // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
+        let existingPubsToAdd = await MainActor.run {
+            let inboxLibrary = InboxManager.shared.inboxLibrary
+            return existingPubs.filter { pub in
+                // Skip if already in inbox (no need to re-add)
+                if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
+                    return false
+                }
+                // Skip if explicitly dismissed
+                if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
+                    return false
+                }
+                // Paper exists in DB but not in inbox and not dismissed - add to inbox
+                return true
+            }
         }
 
-        if existingPubs.count != existingPubsStillInInbox.count {
+        let skippedCount = existingPubs.count - existingPubsToAdd.count
+        if skippedCount > 0 {
             Logger.inbox.debugCapture(
-                "Filtered \(existingPubs.count - existingPubsStillInInbox.count) dismissed papers from group feed refresh",
+                "Skipped \(skippedCount) papers (already in inbox or dismissed) from group feed refresh",
                 category: "group-feed"
             )
         }
 
         // Add filtered existing publications to the result collection (so they show in the feed view)
-        if !existingPubsStillInInbox.isEmpty, let collection = resultCollection {
-            await repository.addToCollection(existingPubsStillInInbox, collection: collection)
+        if !existingPubsToAdd.isEmpty, let collection = resultCollection {
+            await repository.addToCollection(existingPubsToAdd, collection: collection)
+        }
+
+        // Also add to inbox for papers not already there
+        if !existingPubsToAdd.isEmpty {
+            await MainActor.run {
+                for paper in existingPubsToAdd {
+                    inboxManager.addToInbox(paper)
+                }
+            }
         }
 
         // Create new publications and add to both Inbox and result collection
@@ -497,7 +518,7 @@ public actor GroupFeedRefreshService {
         }
 
         // Return total papers in the feed (filtered existing + new)
-        return existingPubsStillInInbox.count + newPaperIDs.count
+        return existingPubsToAdd.count + newPaperIDs.count
     }
 
     /// Process search results through the Inbox pipeline.
@@ -553,24 +574,45 @@ public actor GroupFeedRefreshService {
             category: "group-feed"
         )
 
-        // Filter existing papers to only those still in inbox
-        // This prevents dismissed papers from reappearing when the feed refreshes
-        let inboxLibrary = await MainActor.run { InboxManager.shared.inboxLibrary }
-        let existingPubsStillInInbox = existingPubs.filter { pub in
-            guard let inboxLib = inboxLibrary else { return false }
-            return pub.libraries?.contains(inboxLib) ?? false
+        // Filter existing papers: skip those already in inbox (no need to re-add) or explicitly dismissed
+        // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
+        // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
+        let existingPubsToAdd = await MainActor.run {
+            let inboxLibrary = InboxManager.shared.inboxLibrary
+            return existingPubs.filter { pub in
+                // Skip if already in inbox (no need to re-add)
+                if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
+                    return false
+                }
+                // Skip if explicitly dismissed
+                if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
+                    return false
+                }
+                // Paper exists in DB but not in inbox and not dismissed - add to inbox
+                return true
+            }
         }
 
-        if existingPubs.count != existingPubsStillInInbox.count {
+        let skippedCount = existingPubs.count - existingPubsToAdd.count
+        if skippedCount > 0 {
             Logger.inbox.debugCapture(
-                "Filtered \(existingPubs.count - existingPubsStillInInbox.count) dismissed papers from group feed refresh",
+                "Skipped \(skippedCount) papers (already in inbox or dismissed) from group feed refresh",
                 category: "group-feed"
             )
         }
 
         // Add filtered existing publications to the result collection (so they show in the feed view)
-        if !existingPubsStillInInbox.isEmpty, let collection = resultCollection {
-            await repository.addToCollection(existingPubsStillInInbox, collection: collection)
+        if !existingPubsToAdd.isEmpty, let collection = resultCollection {
+            await repository.addToCollection(existingPubsToAdd, collection: collection)
+        }
+
+        // Also add to inbox for papers not already there
+        if !existingPubsToAdd.isEmpty {
+            await MainActor.run {
+                for paper in existingPubsToAdd {
+                    inboxManager.addToInbox(paper)
+                }
+            }
         }
 
         // Create new publications and add to both Inbox and result collection
@@ -609,7 +651,7 @@ public actor GroupFeedRefreshService {
         }
 
         // Return total papers in the feed (filtered existing + new)
-        return existingPubsStillInInbox.count + newPapers.count
+        return existingPubsToAdd.count + newPapers.count
     }
 
     // MARK: - Author Matching
