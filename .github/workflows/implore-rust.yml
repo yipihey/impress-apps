@@ -85,13 +85,13 @@ jobs:
 
       - name: Build library
         working-directory: crates/implore-core
-        run: cargo build --release --features native
+        run: cargo build --release --features uniffi
 
       - name: Generate Swift bindings
         working-directory: crates/implore-core
         run: |
           mkdir -p generated
-          cargo run --release --features native --bin uniffi-bindgen generate \
+          cargo run --release --features uniffi --bin uniffi-bindgen generate \
             --library ../../target/release/libimplore_core.dylib \
             --language swift \
             --out-dir generated
