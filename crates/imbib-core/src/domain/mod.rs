@@ -3,52 +3,32 @@
 //! These are the canonical representations of all entities, shared across
 //! native apps (via UniFFI), web (via WASM), and server (native Rust).
 //!
-//! This module re-exports types from the `academic-domain` crate.
+//! This module defines types with UniFFI attributes for FFI export.
 
-// Re-export everything from academic-domain
-pub use impress_domain::{
-    Author, AuthorStats, Collection, EnrichmentCapability, EnrichmentData, EnrichmentPriority,
-    FileStorageType, Identifiers, Library, LinkedFile, OpenAccessStatus, PdfLink, PdfLinkType,
-    Publication, SearchResult, Source, Tag, ValidationError, ValidationSeverity,
+// Local modules with uniffi attributes
+mod author;
+mod collection;
+mod enrichment;
+mod identifiers;
+mod library;
+mod linked_file;
+mod publication;
+mod search_result;
+mod tag;
+mod validation;
+
+// Re-export all types from local modules
+pub use author::{parse_author_string, Author};
+pub use collection::Collection;
+pub use enrichment::{
+    AuthorStats, EnrichmentCapability, EnrichmentData, EnrichmentPriority, OpenAccessStatus,
 };
-
-// Re-export submodules for backwards compatibility
-pub mod author {
-    pub use impress_domain::author::*;
-}
-
-pub mod collection {
-    pub use impress_domain::collection::*;
-}
-
-pub mod enrichment {
-    pub use impress_domain::enrichment::*;
-}
-
-pub mod identifiers {
-    pub use impress_domain::identifiers::*;
-}
-
-pub mod library {
-    pub use impress_domain::library::*;
-}
-
-pub mod linked_file {
-    pub use impress_domain::linked_file::*;
-}
-
-pub mod publication {
-    pub use impress_domain::publication::*;
-}
-
-pub mod search_result {
-    pub use impress_domain::search_result::*;
-}
-
-pub mod tag {
-    pub use impress_domain::tag::*;
-}
-
-pub mod validation {
-    pub use impress_domain::validation::*;
-}
+pub use identifiers::Identifiers;
+pub use library::Library;
+pub use linked_file::{FileStorageType, LinkedFile};
+pub use publication::{
+    publication_from_bibtex, publication_to_bibtex, publication_to_bibtex_string, Publication,
+};
+pub use search_result::{PdfLink, PdfLinkType, SearchResult, Source};
+pub use tag::Tag;
+pub use validation::{is_valid, validate_publication, ValidationError, ValidationSeverity};

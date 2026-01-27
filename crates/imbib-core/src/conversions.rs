@@ -2,14 +2,12 @@
 //!
 //! This module provides imbib-specific conversions between:
 //! - Publication ↔ BibTeXEntry
-//! - Publication validation
 //!
-//! Note: We use standalone functions instead of From trait implementations
-//! because both Publication and BibTeXEntry are defined in external crates
-//! (Rust orphan rules).
+//! Note: The FFI-exported versions of these functions are in the domain modules
+//! (domain/publication.rs and domain/validation.rs).
 
-use impress_bibtex::{BibTeXEntry, BibTeXEntryType, BibTeXField};
-use impress_domain::{parse_author_string, Publication, ValidationError, ValidationSeverity};
+use crate::bibtex::{BibTeXEntry, BibTeXEntryType, BibTeXField};
+use crate::domain::{parse_author_string, Publication};
 
 // ===== BibTeXEntry → Publication =====
 
@@ -189,166 +187,27 @@ pub fn publication_to_bibtex_entry(pub_: &Publication) -> BibTeXEntry {
     }
 }
 
-// ===== FFI Functions =====
+// ===== Internal Functions for use within crate =====
 
 pub(crate) fn publication_from_bibtex_internal(entry: BibTeXEntry) -> Publication {
     bibtex_entry_to_publication(entry)
-}
-
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn publication_from_bibtex(entry: BibTeXEntry) -> Publication {
-    publication_from_bibtex_internal(entry)
 }
 
 pub(crate) fn publication_to_bibtex_internal(publication: &Publication) -> BibTeXEntry {
     publication_to_bibtex_entry(publication)
 }
 
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn publication_to_bibtex(publication: &Publication) -> BibTeXEntry {
-    publication_to_bibtex_internal(publication)
-}
-
 pub(crate) fn publication_to_bibtex_string_internal(publication: &Publication) -> String {
     let entry = publication_to_bibtex_entry(publication);
-    impress_bibtex::format_entry(entry)
+    crate::bibtex::format_entry(entry)
 }
 
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn publication_to_bibtex_string(publication: &Publication) -> String {
-    publication_to_bibtex_string_internal(publication)
-}
-
-// ===== Validation =====
-
-/// Validate a publication and return errors/warnings
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn validate_publication(publication: &Publication) -> Vec<ValidationError> {
-    let mut errors = Vec::new();
-
-    // Required fields
-    if publication.cite_key.is_empty() {
-        errors.push(ValidationError {
-            field: "cite_key".to_string(),
-            message: "Citation key is required".to_string(),
-            severity: ValidationSeverity::Error,
-        });
-    }
-
-    if publication.title.is_empty() {
-        errors.push(ValidationError {
-            field: "title".to_string(),
-            message: "Title is required".to_string(),
-            severity: ValidationSeverity::Error,
-        });
-    }
-
-    if publication.entry_type.is_empty() {
-        errors.push(ValidationError {
-            field: "entry_type".to_string(),
-            message: "Entry type is required".to_string(),
-            severity: ValidationSeverity::Error,
-        });
-    }
-
-    // Warnings for recommended fields
-    if publication.authors.is_empty() {
-        errors.push(ValidationError {
-            field: "authors".to_string(),
-            message: "Authors are recommended".to_string(),
-            severity: ValidationSeverity::Warning,
-        });
-    }
-
-    if publication.year.is_none() {
-        errors.push(ValidationError {
-            field: "year".to_string(),
-            message: "Year is recommended".to_string(),
-            severity: ValidationSeverity::Warning,
-        });
-    }
-
-    // Entry-type specific validation
-    let entry_type = publication.entry_type.to_lowercase();
-    match entry_type.as_str() {
-        "article" => {
-            if publication.journal.is_none() {
-                errors.push(ValidationError {
-                    field: "journal".to_string(),
-                    message: "Journal is required for article entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
-        }
-        "inproceedings" | "conference" => {
-            if publication.booktitle.is_none() {
-                errors.push(ValidationError {
-                    field: "booktitle".to_string(),
-                    message: "Booktitle is required for conference entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
-        }
-        "book" | "inbook" => {
-            if publication.publisher.is_none() {
-                errors.push(ValidationError {
-                    field: "publisher".to_string(),
-                    message: "Publisher is recommended for book entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
-        }
-        "phdthesis" | "mastersthesis" => {
-            if publication.school.is_none() {
-                errors.push(ValidationError {
-                    field: "school".to_string(),
-                    message: "School is required for thesis entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
-        }
-        _ => {}
-    }
-
-    // Identifier validation
-    if let Some(ref doi) = publication.identifiers.doi {
-        if !doi.starts_with("10.") {
-            errors.push(ValidationError {
-                field: "doi".to_string(),
-                message: "DOI should start with '10.'".to_string(),
-                severity: ValidationSeverity::Warning,
-            });
-        }
-    }
-
-    errors
-}
-
-pub(crate) fn validate_publication_internal(publication: &Publication) -> Vec<ValidationError> {
-    validate_publication(publication)
-}
-
-/// Check if a publication is valid (no errors)
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn is_valid(publication: &Publication) -> bool {
-    validate_publication(publication)
-        .iter()
-        .all(|e| !matches!(e.severity, ValidationSeverity::Error))
-}
-
-pub(crate) fn is_valid_internal(publication: &Publication) -> bool {
-    is_valid(publication)
-}
+// Note: FFI-exported versions of these functions are in domain/publication.rs and domain/validation.rs
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use impress_domain::Author;
+    use crate::domain::Author;
 
     #[test]
     fn test_bibtex_to_publication() {
@@ -394,46 +253,5 @@ mod tests {
         assert_eq!(entry.entry_type, BibTeXEntryType::Article);
         assert!(entry.fields.iter().any(|f| f.key == "title" && f.value == "A Great Paper"));
         assert!(entry.fields.iter().any(|f| f.key == "year" && f.value == "2024"));
-    }
-
-    #[test]
-    fn test_validate_empty_publication() {
-        let pub_ = Publication::new(String::new(), String::new(), String::new());
-        let errors = validate_publication(&pub_);
-        assert!(errors.iter().any(|e| e.field == "cite_key"));
-        assert!(errors.iter().any(|e| e.field == "title"));
-        assert!(errors.iter().any(|e| e.field == "entry_type"));
-    }
-
-    #[test]
-    fn test_validate_valid_publication() {
-        let mut pub_ = Publication::new(
-            "smith2024".to_string(),
-            "article".to_string(),
-            "A Great Paper".to_string(),
-        );
-        pub_.year = Some(2024);
-        pub_.authors.push(Author::new("Smith".to_string()));
-        pub_.journal = Some("Nature".to_string());
-
-        let errors = validate_publication(&pub_);
-        assert!(is_valid(&pub_));
-        // Should have no errors, only possible info/warnings
-        assert!(errors
-            .iter()
-            .all(|e| !matches!(e.severity, ValidationSeverity::Error)));
-    }
-
-    #[test]
-    fn test_is_valid() {
-        let valid = Publication::new(
-            "test2024".to_string(),
-            "article".to_string(),
-            "Test".to_string(),
-        );
-        assert!(is_valid(&valid));
-
-        let invalid = Publication::new(String::new(), String::new(), String::new());
-        assert!(!is_valid(&invalid));
     }
 }

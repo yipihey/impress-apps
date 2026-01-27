@@ -1,9 +1,7 @@
 //! Import pipelines for various formats
 
-#[cfg(feature = "native")]
-pub use crate::conversions::validate_publication;
 use crate::conversions::bibtex_entry_to_publication;
-pub use crate::domain::{Publication, ValidationSeverity};
+pub use crate::domain::{validate_publication, Publication, ValidationSeverity};
 use crate::ris::RISEntry;
 use thiserror::Error;
 

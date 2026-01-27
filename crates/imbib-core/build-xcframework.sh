@@ -122,10 +122,11 @@ for dir in "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"/*/Headers; do
     fi
 done
 
-# Copy Swift bindings to a convenient location
+# Copy the single generated Swift bindings file
 echo ""
 echo "Copying Swift bindings..."
-cp "$FRAMEWORK_DIR/generated/imbib_core.swift" "$FRAMEWORK_DIR/"
+cp "$FRAMEWORK_DIR/generated/imbib_core.swift" "$FRAMEWORK_DIR/imbib_core.swift"
+echo "  Copied imbib_core.swift"
 
 echo ""
 echo "=== Build complete! ==="

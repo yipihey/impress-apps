@@ -3268,6 +3268,72 @@ public func FfiConverterTypeImportResult_lower(_ value: ImportResult) -> RustBuf
 }
 
 
+public struct InsertCitationCommand {
+    public var citeKey: String
+    public var imprintDocumentId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(citeKey: String, imprintDocumentId: String?) {
+        self.citeKey = citeKey
+        self.imprintDocumentId = imprintDocumentId
+    }
+}
+
+
+
+extension InsertCitationCommand: Equatable, Hashable {
+    public static func ==(lhs: InsertCitationCommand, rhs: InsertCitationCommand) -> Bool {
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
+        if lhs.imprintDocumentId != rhs.imprintDocumentId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(citeKey)
+        hasher.combine(imprintDocumentId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInsertCitationCommand: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InsertCitationCommand {
+        return
+            try InsertCitationCommand(
+                citeKey: FfiConverterString.read(from: &buf), 
+                imprintDocumentId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: InsertCitationCommand, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.citeKey, into: &buf)
+        FfiConverterOptionString.write(value.imprintDocumentId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInsertCitationCommand_lift(_ buf: RustBuffer) throws -> InsertCitationCommand {
+    return try FfiConverterTypeInsertCitationCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInsertCitationCommand_lower(_ value: InsertCitationCommand) -> RustBuffer {
+    return FfiConverterTypeInsertCitationCommand.lower(value)
+}
+
+
 /**
  * A library (collection of publications, typically from a .bib file)
  */
@@ -3811,6 +3877,64 @@ public func FfiConverterTypeOpenCommand_lift(_ buf: RustBuffer) throws -> OpenCo
 #endif
 public func FfiConverterTypeOpenCommand_lower(_ value: OpenCommand) -> RustBuffer {
     return FfiConverterTypeOpenCommand.lower(value)
+}
+
+
+public struct OpenManuscriptCommand {
+    public var manuscriptId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(manuscriptId: String) {
+        self.manuscriptId = manuscriptId
+    }
+}
+
+
+
+extension OpenManuscriptCommand: Equatable, Hashable {
+    public static func ==(lhs: OpenManuscriptCommand, rhs: OpenManuscriptCommand) -> Bool {
+        if lhs.manuscriptId != rhs.manuscriptId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(manuscriptId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOpenManuscriptCommand: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OpenManuscriptCommand {
+        return
+            try OpenManuscriptCommand(
+                manuscriptId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OpenManuscriptCommand, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.manuscriptId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOpenManuscriptCommand_lift(_ buf: RustBuffer) throws -> OpenManuscriptCommand {
+    return try FfiConverterTypeOpenManuscriptCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOpenManuscriptCommand_lower(_ value: OpenManuscriptCommand) -> RustBuffer {
+    return FfiConverterTypeOpenManuscriptCommand.lower(value)
 }
 
 
@@ -6087,6 +6211,72 @@ public func FfiConverterTypeSearchResult_lower(_ value: SearchResult) -> RustBuf
 }
 
 
+public struct SyncBibliographyCommand {
+    public var imprintDocumentId: String
+    public var action: BibSyncAction
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(imprintDocumentId: String, action: BibSyncAction) {
+        self.imprintDocumentId = imprintDocumentId
+        self.action = action
+    }
+}
+
+
+
+extension SyncBibliographyCommand: Equatable, Hashable {
+    public static func ==(lhs: SyncBibliographyCommand, rhs: SyncBibliographyCommand) -> Bool {
+        if lhs.imprintDocumentId != rhs.imprintDocumentId {
+            return false
+        }
+        if lhs.action != rhs.action {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(imprintDocumentId)
+        hasher.combine(action)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncBibliographyCommand: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncBibliographyCommand {
+        return
+            try SyncBibliographyCommand(
+                imprintDocumentId: FfiConverterString.read(from: &buf), 
+                action: FfiConverterTypeBibSyncAction.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncBibliographyCommand, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.imprintDocumentId, into: &buf)
+        FfiConverterTypeBibSyncAction.write(value.action, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncBibliographyCommand_lift(_ buf: RustBuffer) throws -> SyncBibliographyCommand {
+    return try FfiConverterTypeSyncBibliographyCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncBibliographyCommand_lower(_ value: SyncBibliographyCommand) -> RustBuffer {
+    return FfiConverterTypeSyncBibliographyCommand.lower(value)
+}
+
+
 /**
  * A tag for organizing publications
  */
@@ -6797,6 +6987,21 @@ public enum AutomationCommand {
     case library(LibraryCommand
     )
     /**
+     * Insert a citation into an imprint document
+     */
+    case insertCitation(InsertCitationCommand
+    )
+    /**
+     * Open a manuscript in imprint
+     */
+    case openManuscript(OpenManuscriptCommand
+    )
+    /**
+     * Synchronize bibliography between apps
+     */
+    case syncBibliography(SyncBibliographyCommand
+    )
+    /**
      * Unknown command
      */
     case unknown(String
@@ -6832,7 +7037,16 @@ public struct FfiConverterTypeAutomationCommand: FfiConverterRustBuffer {
         case 6: return .library(try FfiConverterTypeLibraryCommand.read(from: &buf)
         )
         
-        case 7: return .unknown(try FfiConverterString.read(from: &buf)
+        case 7: return .insertCitation(try FfiConverterTypeInsertCitationCommand.read(from: &buf)
+        )
+        
+        case 8: return .openManuscript(try FfiConverterTypeOpenManuscriptCommand.read(from: &buf)
+        )
+        
+        case 9: return .syncBibliography(try FfiConverterTypeSyncBibliographyCommand.read(from: &buf)
+        )
+        
+        case 10: return .unknown(try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -6873,8 +7087,23 @@ public struct FfiConverterTypeAutomationCommand: FfiConverterRustBuffer {
             FfiConverterTypeLibraryCommand.write(v1, into: &buf)
             
         
-        case let .unknown(v1):
+        case let .insertCitation(v1):
             writeInt(&buf, Int32(7))
+            FfiConverterTypeInsertCitationCommand.write(v1, into: &buf)
+            
+        
+        case let .openManuscript(v1):
+            writeInt(&buf, Int32(8))
+            FfiConverterTypeOpenManuscriptCommand.write(v1, into: &buf)
+            
+        
+        case let .syncBibliography(v1):
+            writeInt(&buf, Int32(9))
+            FfiConverterTypeSyncBibliographyCommand.write(v1, into: &buf)
+            
+        
+        case let .unknown(v1):
+            writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -6899,6 +7128,89 @@ public func FfiConverterTypeAutomationCommand_lower(_ value: AutomationCommand) 
 
 
 extension AutomationCommand: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Bibliography synchronization action for cross-app communication
+ */
+
+public enum BibSyncAction {
+    
+    /**
+     * Export bibliography from imprint to imbib
+     */
+    case export
+    /**
+     * Import from imbib library to imprint
+     */
+    case `import`
+    /**
+     * Check for missing citations
+     */
+    case verify
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBibSyncAction: FfiConverterRustBuffer {
+    typealias SwiftType = BibSyncAction
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BibSyncAction {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .export
+        
+        case 2: return .`import`
+        
+        case 3: return .verify
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: BibSyncAction, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .export:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .`import`:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .verify:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBibSyncAction_lift(_ buf: RustBuffer) throws -> BibSyncAction {
+    return try FfiConverterTypeBibSyncAction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBibSyncAction_lower(_ value: BibSyncAction) -> RustBuffer {
+    return FfiConverterTypeBibSyncAction.lower(value)
+}
+
+
+
+extension BibSyncAction: Equatable, Hashable {}
 
 
 
@@ -10367,14 +10679,14 @@ public func bibtexFormatEntry(entry: BibTeXEntry) -> String {
  * These wrap the internal functions with prefixed names to avoid conflicts
  */
 public func bibtexParse(input: String)throws  -> BibTeXParseResult {
-    return try  FfiConverterTypeBibTeXParseResult.lift(try rustCallWithError(FfiConverterTypeParseError.lift) {
+    return try  FfiConverterTypeBibTeXParseResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
     uniffi_imbib_core_fn_func_bibtex_parse(
         FfiConverterString.lower(input),$0
     )
 })
 }
 public func bibtexParseEntry(input: String)throws  -> BibTeXEntry {
-    return try  FfiConverterTypeBibTeXEntry.lift(try rustCallWithError(FfiConverterTypeParseError.lift) {
+    return try  FfiConverterTypeBibTeXEntry.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
     uniffi_imbib_core_fn_func_bibtex_parse_entry(
         FfiConverterString.lower(input),$0
     )
@@ -10453,12 +10765,27 @@ public func buildClassicQuery(authors: String, objects: String, titleWords: Stri
     )
 })
 }
+public func buildInsertCitationUrl(citeKey: String, documentId: String?) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_build_insert_citation_url(
+        FfiConverterString.lower(citeKey),
+        FfiConverterOptionString.lower(documentId),$0
+    )
+})
+}
 public func buildLookupUrl(doi: String?, arxivId: String?, title: String?) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_build_lookup_url(
         FfiConverterOptionString.lower(doi),
         FfiConverterOptionString.lower(arxivId),
         FfiConverterOptionString.lower(title),$0
+    )
+})
+}
+public func buildOpenManuscriptUrl(manuscriptId: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_build_open_manuscript_url(
+        FfiConverterString.lower(manuscriptId),$0
     )
 })
 }
@@ -10497,6 +10824,14 @@ public func buildSearchUrl(query: String, source: String?, maxResults: Int32?) -
         FfiConverterString.lower(query),
         FfiConverterOptionString.lower(source),
         FfiConverterOptionInt32.lower(maxResults),$0
+    )
+})
+}
+public func buildSyncBibliographyUrl(documentId: String, action: BibSyncAction) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_build_sync_bibliography_url(
+        FfiConverterString.lower(documentId),
+        FfiConverterTypeBibSyncAction.lower(action),$0
     )
 })
 }
@@ -11321,7 +11656,7 @@ public func risFromBibtex(entry: BibTeXEntry) -> RisEntry {
 })
 }
 public func risParse(input: String)throws  -> [RisEntry] {
-    return try  FfiConverterSequenceTypeRISEntry.lift(try rustCallWithError(FfiConverterTypeParseError.lift) {
+    return try  FfiConverterSequenceTypeRISEntry.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
     uniffi_imbib_core_fn_func_ris_parse(
         FfiConverterString.lower(input),$0
     )
@@ -11570,10 +11905,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_bibtex_format_entry() != 22118) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_func_bibtex_parse() != 49839) {
+    if (uniffi_imbib_core_checksum_func_bibtex_parse() != 23563) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_func_bibtex_parse_entry() != 27696) {
+    if (uniffi_imbib_core_checksum_func_bibtex_parse_entry() != 35930) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_build_api_query() != 24123) {
@@ -11585,7 +11920,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_build_classic_query() != 51091) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_build_insert_citation_url() != 21142) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_build_lookup_url() != 43550) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_build_open_manuscript_url() != 9950) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_build_open_url() != 36804) {
@@ -11595,6 +11936,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_build_search_url() != 48) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_build_sync_bibliography_url() != 23107) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_calculate_publication_similarity() != 24378) {
@@ -11870,7 +12214,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_ris_from_bibtex() != 56357) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_func_ris_parse() != 57168) {
+    if (uniffi_imbib_core_checksum_func_ris_parse() != 19943) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_ris_to_bibtex() != 61743) {

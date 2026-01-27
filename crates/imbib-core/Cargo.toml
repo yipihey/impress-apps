@@ -12,7 +12,7 @@ name = "imbib_core"
 
 [features]
 default = []
-native = ["uniffi", "tokio", "reqwest", "hnsw_rs", "bincode", "impress-domain/uniffi", "impress-bibtex/uniffi", "impress-identifiers/uniffi"]
+native = ["uniffi", "tokio", "reqwest", "hnsw_rs", "bincode"]
 wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 embeddings = ["fastembed"]  # Optional: semantic search requires ~100MB model
 
