@@ -813,15 +813,15 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Note: Arrow key shortcuts are handled via .onKeyPress() in ContentView
+            // to allow text fields to capture them when focused
             Button("Next Paper") {
                 NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
             }
-            .keyboardShortcut(.downArrow, modifiers: [])
 
             Button("Previous Paper") {
                 NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
             }
-            .keyboardShortcut(.upArrow, modifiers: [])
 
             Button("First Paper") {
                 NotificationCenter.default.post(name: .navigateFirstPaper, object: nil)

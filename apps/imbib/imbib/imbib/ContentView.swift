@@ -1083,6 +1083,8 @@ struct CollectionListView: View {
         .navigationTitle(collection.name)
         .focusable()
         .focusEffectDisabled()
+        .onKeyPress(.downArrow) { handleDownArrowKey() }
+        .onKeyPress(.upArrow) { handleUpArrowKey() }
         .onKeyPress(.init("k")) { handleKeepKey() }
         .onKeyPress(.init("d")) { handleDismissKey() }
         .toolbar {
@@ -1254,18 +1256,52 @@ struct CollectionListView: View {
         }
     }
 
+    // MARK: - Keyboard Navigation Handlers
+
+    /// Check if an editable text field currently has keyboard focus
+    private func isTextFieldFocused() -> Bool {
+        #if os(macOS)
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+        // NSTextView is used by TextEditor, TextField, and other text controls
+        // Only consider it focused if it's editable (not just a display view)
+        if let textView = firstResponder as? NSTextView {
+            return textView.isEditable
+        }
+        return false
+        #else
+        return false  // iOS uses different focus management
+        #endif
+    }
+
+    /// Handle down arrow key - navigate to next paper (only when text field not focused)
+    private func handleDownArrowKey() -> KeyPress.Result {
+        guard !isTextFieldFocused() else { return .ignored }
+        NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
+        return .handled
+    }
+
+    /// Handle up arrow key - navigate to previous paper (only when text field not focused)
+    private func handleUpArrowKey() -> KeyPress.Result {
+        guard !isTextFieldFocused() else { return .ignored }
+        NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
+        return .handled
+    }
+
     // MARK: - Exploration Triage Handlers
 
     /// Handle 'K' key - keep selected to default library (exploration collections only)
     private func handleKeepKey() -> KeyPress.Result {
-        guard isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
         keepSelectedToLibrary()
         return .handled
     }
 
     /// Handle 'D' key - dismiss/remove from exploration collection
     private func handleDismissKey() -> KeyPress.Result {
-        guard isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
         removeSelectedFromExploration()
         return .handled
     }

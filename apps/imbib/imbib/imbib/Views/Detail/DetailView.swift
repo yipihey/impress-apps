@@ -3285,9 +3285,16 @@ struct NotesPanel: View {
             }
         }
         .onChange(of: isFreeformNotesFocused) { _, focused in
-            // Exit edit mode when focus is lost (clicked elsewhere)
-            // Use a delay to ensure the state transition is smooth and content renders properly
-            if !focused && !freeformNotes.isEmpty {
+            if focused {
+                // Enter edit mode when TextEditor gains focus
+                // This handles the case where user clicks directly on an empty TextEditor
+                // (which is shown due to freeformNotes.isEmpty) without going through enterEditMode()
+                if !isEditingFreeformNotes {
+                    isEditingFreeformNotes = true
+                }
+            } else if !freeformNotes.isEmpty {
+                // Exit edit mode when focus is lost (clicked elsewhere)
+                // Use a delay to ensure the state transition is smooth and content renders properly
                 // Delay the mode switch to allow SwiftUI to settle
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     // Only exit if still unfocused (user didn't click back)
