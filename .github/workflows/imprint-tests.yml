@@ -53,6 +53,11 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
 
+      - name: Copy xcframework to app location
+        run: |
+          mkdir -p apps/imprint/Frameworks
+          cp -R crates/imprint-core/frameworks/ImprintCore.xcframework apps/imprint/Frameworks/
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -130,6 +135,11 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
+
+      - name: Copy xcframework to app location
+        run: |
+          mkdir -p apps/imprint/Frameworks
+          cp -R crates/imprint-core/frameworks/ImprintCore.xcframework apps/imprint/Frameworks/
 
       - name: Install XcodeGen
         run: brew install xcodegen
