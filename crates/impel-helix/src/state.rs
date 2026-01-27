@@ -1,6 +1,25 @@
 //! Helix state machine for modal editing.
 
-use crate::{HelixCommand, HelixKeyHandler, HelixKeyResult, HelixMode, HelixTextEngine, KeyModifiers, PendingCharacterOperation};
+use crate::keymap::{KeyEvent, Keymap, KeymapResult, MappableCommand};
+use crate::motion::Motion;
+use crate::space::{build_space_mode_keymap, SpaceCommand};
+use crate::{
+    HelixCommand, HelixKeyHandler, HelixKeyResult, HelixMode, HelixTextEngine, KeyModifiers,
+    PendingCharacterOperation,
+};
+
+/// Result of handling a key that produced a space-mode command.
+#[derive(Debug, Clone)]
+pub enum KeyHandleResult {
+    /// Key was handled by the text engine or mode change.
+    Handled,
+    /// Key should be passed through (in insert mode).
+    PassThrough,
+    /// A space-mode command was produced for the application to handle.
+    SpaceCommand(SpaceCommand),
+    /// Space-mode menu is showing (for which-key UI).
+    SpaceModePending,
+}
 
 /// The central state machine for Helix-style modal editing.
 pub struct HelixState {
@@ -22,11 +41,20 @@ pub struct HelixState {
     register_content: String,
     /// Whether register content is linewise.
     register_linewise: bool,
+    /// Whether space-mode is active.
+    is_space_mode: bool,
+    /// Space-mode keymap for trie-based lookup.
+    space_keymap: Keymap,
+    /// Available keys in current space-mode menu (for which-key display).
+    space_mode_available_keys: Vec<(KeyEvent, String)>,
 }
 
 impl HelixState {
     /// Create a new Helix state machine.
     pub fn new() -> Self {
+        let mut space_keymap = Keymap::new();
+        space_keymap.normal = build_space_mode_keymap();
+
         Self {
             mode: HelixMode::Normal,
             key_handler: HelixKeyHandler::new(),
@@ -37,6 +65,9 @@ impl HelixState {
             last_inserted_text: String::new(),
             register_content: String::new(),
             register_linewise: false,
+            is_space_mode: false,
+            space_keymap,
+            space_mode_available_keys: Vec::new(),
         }
     }
 
@@ -101,6 +132,40 @@ impl HelixState {
         &self.register_content
     }
 
+    /// Whether space-mode is active.
+    pub fn is_space_mode(&self) -> bool {
+        self.is_space_mode
+    }
+
+    /// Enter space-mode.
+    pub fn enter_space_mode(&mut self) {
+        self.is_space_mode = true;
+        self.space_keymap.reset();
+        self.space_mode_available_keys = self.space_keymap.available_keys(&self.space_keymap.normal.clone());
+    }
+
+    /// Exit space-mode.
+    pub fn exit_space_mode(&mut self) {
+        self.is_space_mode = false;
+        self.space_keymap.reset();
+        self.space_mode_available_keys.clear();
+    }
+
+    /// Get available keys in current space-mode menu (for which-key display).
+    pub fn space_mode_available_keys(&self) -> &[(KeyEvent, String)] {
+        &self.space_mode_available_keys
+    }
+
+    /// Get the pending key sequence in space-mode.
+    pub fn space_mode_pending_keys(&self) -> &[KeyEvent] {
+        self.space_keymap.pending_keys()
+    }
+
+    /// Check if awaiting a motion (operator pending).
+    pub fn is_awaiting_motion(&self) -> bool {
+        self.key_handler.is_awaiting_motion()
+    }
+
     /// Yank text into the register.
     pub fn yank(&mut self, text: &str, linewise: bool) {
         self.register_content = text.to_string();
@@ -128,6 +193,9 @@ impl HelixState {
         self.key_handler.reset();
         self.is_searching = false;
         self.search_query.clear();
+        self.is_space_mode = false;
+        self.space_keymap.reset();
+        self.space_mode_available_keys.clear();
     }
 
     /// Enter search mode.
@@ -151,16 +219,22 @@ impl HelixState {
 
     /// Handle a key press and optionally execute on a text engine.
     ///
-    /// Returns `true` if the key was handled, `false` if it should be passed through.
-    pub fn handle_key<E: HelixTextEngine>(
+    /// Returns the result of handling the key.
+    pub fn handle_key_with_result<E: HelixTextEngine>(
         &mut self,
         key: char,
         modifiers: &KeyModifiers,
         mut text_engine: Option<&mut E>,
-    ) -> bool {
+    ) -> KeyHandleResult {
+        // Handle space-mode input
+        if self.is_space_mode {
+            return self.handle_space_mode_input(key, modifiers);
+        }
+
         // Handle search mode input
         if self.is_searching {
-            return self.handle_search_input(key, text_engine);
+            self.handle_search_input(key, text_engine);
+            return KeyHandleResult::Handled;
         }
 
         let result = self.key_handler.handle_key(key, self.mode, modifiers);
@@ -168,20 +242,77 @@ impl HelixState {
         match result {
             HelixKeyResult::Command(command) => {
                 self.execute_command(&command, text_engine);
-                true
+                KeyHandleResult::Handled
             }
             HelixKeyResult::Commands(commands) => {
                 for command in &commands {
                     self.execute_command(command, text_engine.as_deref_mut());
                 }
-                true
+                KeyHandleResult::Handled
             }
-            HelixKeyResult::PassThrough => false,
-            HelixKeyResult::Pending | HelixKeyResult::AwaitingCharacter => true,
-            HelixKeyResult::Consumed => true,
+            HelixKeyResult::PassThrough => KeyHandleResult::PassThrough,
+            HelixKeyResult::Pending | HelixKeyResult::AwaitingCharacter => KeyHandleResult::Handled,
+            HelixKeyResult::Consumed => KeyHandleResult::Handled,
             HelixKeyResult::EnterSearch { backward } => {
                 self.enter_search(backward);
-                true
+                KeyHandleResult::Handled
+            }
+            HelixKeyResult::EnterSpaceMode => {
+                self.enter_space_mode();
+                KeyHandleResult::SpaceModePending
+            }
+        }
+    }
+
+    /// Handle a key press and optionally execute on a text engine.
+    ///
+    /// Returns `true` if the key was handled, `false` if it should be passed through.
+    pub fn handle_key<E: HelixTextEngine>(
+        &mut self,
+        key: char,
+        modifiers: &KeyModifiers,
+        text_engine: Option<&mut E>,
+    ) -> bool {
+        match self.handle_key_with_result(key, modifiers, text_engine) {
+            KeyHandleResult::PassThrough => false,
+            _ => true,
+        }
+    }
+
+    /// Handle space-mode key input.
+    fn handle_space_mode_input(
+        &mut self,
+        key: char,
+        modifiers: &KeyModifiers,
+    ) -> KeyHandleResult {
+        let key_event = KeyEvent {
+            key,
+            shift: modifiers.shift,
+            ctrl: modifiers.control,
+            alt: modifiers.alt,
+        };
+
+        let keymap_result = self.space_keymap.lookup(key_event, &self.space_keymap.normal.clone());
+
+        match keymap_result {
+            KeymapResult::Matched(cmd) => {
+                self.exit_space_mode();
+                match cmd {
+                    MappableCommand::Space(space_cmd) => KeyHandleResult::SpaceCommand(space_cmd),
+                    MappableCommand::Helix(_cmd) => {
+                        // Could execute helix command here if needed
+                        KeyHandleResult::Handled
+                    }
+                    _ => KeyHandleResult::Handled,
+                }
+            }
+            KeymapResult::Pending(available) => {
+                self.space_mode_available_keys = available;
+                KeyHandleResult::SpaceModePending
+            }
+            KeymapResult::NotFound | KeymapResult::Cancelled => {
+                self.exit_space_mode();
+                KeyHandleResult::Handled
             }
         }
     }
@@ -449,8 +580,106 @@ impl HelixState {
             HelixCommand::Undo => engine.undo(),
             HelixCommand::Redo => engine.redo(),
 
+            // Operator + Motion commands
+            HelixCommand::DeleteMotion(motion) => {
+                self.execute_motion_delete(engine, motion);
+            }
+            HelixCommand::ChangeMotion(motion) => {
+                self.execute_motion_change(engine, motion);
+            }
+            HelixCommand::YankMotion(motion) => {
+                self.execute_motion_yank(engine, motion);
+            }
+            HelixCommand::IndentMotion(motion) => {
+                self.execute_motion_indent(engine, motion);
+            }
+            HelixCommand::DedentMotion(motion) => {
+                self.execute_motion_dedent(engine, motion);
+            }
+
+            // Operator + Text Object commands
+            HelixCommand::DeleteTextObject(text_object, modifier) => {
+                if let Some((start, end)) = engine.text_object_range(*text_object, *modifier) {
+                    engine.set_selection(start, end);
+                    engine.delete();
+                }
+            }
+            HelixCommand::ChangeTextObject(text_object, modifier) => {
+                if let Some((start, end)) = engine.text_object_range(*text_object, *modifier) {
+                    engine.set_selection(start, end);
+                    engine.delete();
+                    self.set_mode(HelixMode::Insert);
+                }
+            }
+            HelixCommand::YankTextObject(text_object, modifier) => {
+                if let Some((start, end)) = engine.text_object_range(*text_object, *modifier) {
+                    let text = engine.text()[start..end].to_string();
+                    self.yank(&text, false);
+                }
+            }
+
             // Mode changes and specials are handled in execute_command
             _ => {}
+        }
+    }
+
+    /// Execute delete with motion.
+    fn execute_motion_delete<E: HelixTextEngine>(&mut self, engine: &mut E, motion: &Motion) {
+        if let Some((start, end)) = engine.motion_range(motion) {
+            let is_linewise = motion.is_linewise();
+            let text = engine.text()[start..end].to_string();
+            self.yank(&text, is_linewise);
+            engine.set_selection(start, end);
+            engine.delete();
+        }
+    }
+
+    /// Execute change with motion.
+    fn execute_motion_change<E: HelixTextEngine>(&mut self, engine: &mut E, motion: &Motion) {
+        if let Some((start, end)) = engine.motion_range(motion) {
+            let is_linewise = motion.is_linewise();
+            let text = engine.text()[start..end].to_string();
+            self.yank(&text, is_linewise);
+            engine.set_selection(start, end);
+            engine.delete();
+            self.set_mode(HelixMode::Insert);
+        }
+    }
+
+    /// Execute yank with motion.
+    fn execute_motion_yank<E: HelixTextEngine>(&mut self, engine: &mut E, motion: &Motion) {
+        if let Some((start, end)) = engine.motion_range(motion) {
+            let is_linewise = motion.is_linewise();
+            let text = engine.text()[start..end].to_string();
+            self.yank(&text, is_linewise);
+        }
+    }
+
+    /// Execute indent with motion.
+    fn execute_motion_indent<E: HelixTextEngine>(&mut self, engine: &mut E, motion: &Motion) {
+        if let Some((start, end)) = engine.motion_range(motion) {
+            // For linewise motions, indent each line
+            let text = engine.text();
+            let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let _line_end = if motion.is_linewise() {
+                text[..end].rfind('\n').map(|i| i + 1).unwrap_or(end)
+            } else {
+                line_start
+            };
+
+            // Simple approach: indent from line_start
+            engine.set_cursor_position(line_start);
+            engine.indent();
+        }
+    }
+
+    /// Execute dedent with motion.
+    fn execute_motion_dedent<E: HelixTextEngine>(&mut self, engine: &mut E, motion: &Motion) {
+        if let Some((start, _end)) = engine.motion_range(motion) {
+            let text = engine.text();
+            let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            engine.set_cursor_position(line_start);
+            engine.dedent();
         }
     }
 }

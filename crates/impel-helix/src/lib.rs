@@ -1,8 +1,24 @@
 //! Helix-style modal editing for terminal text interfaces.
 //!
 //! This crate provides a Rust implementation of Helix-style modal editing,
-//! mirroring the ImpressModalEditing Swift package for cross-platform consistency
-//! across the Impress suite.
+//! designed for use in terminal applications and via UniFFI bindings in
+//! native Swift apps.
+//!
+//! # Features
+//!
+//! - **Modal editing**: Normal, Insert, and Select modes
+//! - **Operator + Motion**: Vim-style compositions like `dw`, `c$`, `y2j`
+//! - **Text Objects**: Inner/Around text objects like `diw`, `ci"`, `da(`
+//! - **Space-Mode**: Helix-style application command menu
+//! - **Trie-based Keymap**: Efficient multi-key sequences with which-key support
+//!
+//! # UniFFI Bindings
+//!
+//! Enable the `ffi` feature to generate Swift/Kotlin bindings:
+//!
+//! ```toml
+//! impel-helix = { version = "0.1", features = ["ffi"] }
+//! ```
 //!
 //! # Example
 //!
@@ -25,14 +41,31 @@
 //! }
 //! ```
 
-mod mode;
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
+
 mod command;
 mod key_handler;
+pub mod keymap;
+mod mode;
+pub mod motion;
+pub mod space;
 mod state;
-mod text_engine;
+pub mod text_engine;
+pub mod text_object;
 
-pub use mode::HelixMode;
+// Re-exports for FFI
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
 pub use command::HelixCommand;
-pub use key_handler::{HelixKeyHandler, HelixKeyResult, KeyModifiers, PendingCharacterOperation};
-pub use state::HelixState;
+pub use key_handler::{
+    HelixKeyHandler, HelixKeyResult, KeyModifiers, PendingCharacterOperation, PendingOperator,
+};
+pub use keymap::{KeyEvent, KeyTrie, KeyTrieNode, Keymap, KeymapResult, MappableCommand};
+pub use mode::HelixMode;
+pub use motion::Motion;
+pub use space::{build_space_mode_keymap, SpaceCommand};
+pub use state::{HelixState, KeyHandleResult};
 pub use text_engine::HelixTextEngine;
+pub use text_object::{TextObject, TextObjectModifier};

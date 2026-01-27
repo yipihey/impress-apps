@@ -8,3 +8,11 @@ repository.workspace = true
 
 [dependencies]
 crossterm = { workspace = true }
+uniffi = { workspace = true, optional = true }
+
+[features]
+default = []
+ffi = ["uniffi"]
+
+[build-dependencies]
+uniffi = { workspace = true, optional = true }

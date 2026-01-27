@@ -3,6 +3,9 @@
 //! This trait defines the interface that text implementations must provide
 //! for Helix commands to operate on.
 
+use crate::motion::Motion;
+use crate::text_object::{TextObject, TextObjectModifier};
+
 /// A trait for text engines that can be controlled by Helix commands.
 ///
 /// Implementations of this trait provide the actual text manipulation
@@ -669,6 +672,612 @@ pub trait HelixTextEngine {
     }
 
     // =========================================================================
+    // Motion and Text Object Range Calculation
+    // =========================================================================
+
+    /// Calculate the range affected by a motion.
+    ///
+    /// Returns `Some((start, end))` as byte offsets, or `None` if the motion
+    /// cannot be performed (e.g., already at document boundary).
+    fn motion_range(&self, motion: &Motion) -> Option<(usize, usize)> {
+        let pos = self.cursor_position();
+        let text = self.text();
+
+        match motion {
+            Motion::Left(count) => {
+                let new_pos = text[..pos]
+                    .char_indices()
+                    .rev()
+                    .take(*count)
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                Some((new_pos, pos))
+            }
+            Motion::Right(count) => {
+                let new_pos = text[pos..]
+                    .char_indices()
+                    .skip(1)
+                    .take(*count)
+                    .last()
+                    .map(|(i, _)| pos + i)
+                    .unwrap_or_else(|| text.len());
+                Some((pos, new_pos))
+            }
+            Motion::Up(count) => {
+                // Calculate line range for up motion
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let mut target_line_start = line_start;
+                for _ in 0..*count {
+                    if target_line_start == 0 {
+                        break;
+                    }
+                    let prev_line_end = target_line_start - 1;
+                    target_line_start = text[..prev_line_end]
+                        .rfind('\n')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                }
+                let line_end = text[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(text.len());
+                Some((target_line_start, line_end))
+            }
+            Motion::Down(count) => {
+                // Calculate line range for down motion
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let mut target_line_end = line_end;
+                for _ in 0..*count {
+                    if target_line_end >= text.len() {
+                        break;
+                    }
+                    target_line_end = text[target_line_end + 1..]
+                        .find('\n')
+                        .map(|i| target_line_end + 1 + i)
+                        .unwrap_or(text.len());
+                }
+                Some((line_start, (target_line_end + 1).min(text.len())))
+            }
+            Motion::WordForward(count) => {
+                let mut end = pos;
+                for _ in 0..*count {
+                    while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                    while end < text.len() && text[end..].starts_with(|c: char| !c.is_alphanumeric() && c != '_' && !c.is_whitespace()) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+                Some((pos, end))
+            }
+            Motion::WordBackward(count) => {
+                let mut start = pos;
+                for _ in 0..*count {
+                    while start > 0 {
+                        let prev_char = text[..start].chars().last();
+                        if let Some(c) = prev_char {
+                            if !c.is_whitespace() {
+                                break;
+                            }
+                            start -= c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                    while start > 0 {
+                        let prev_char = text[..start].chars().last();
+                        if let Some(c) = prev_char {
+                            if !c.is_alphanumeric() && c != '_' {
+                                break;
+                            }
+                            start -= c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Some((start, pos))
+            }
+            Motion::WordEnd(count) => {
+                let mut end = pos;
+                for _ in 0..*count {
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                    while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+                Some((pos, end))
+            }
+            Motion::WORDForward(count) => {
+                let mut end = pos;
+                for _ in 0..*count {
+                    while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+                Some((pos, end))
+            }
+            Motion::WORDBackward(count) => {
+                let mut start = pos;
+                for _ in 0..*count {
+                    while start > 0 {
+                        let prev_char = text[..start].chars().last();
+                        if let Some(c) = prev_char {
+                            if !c.is_whitespace() {
+                                break;
+                            }
+                            start -= c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                    while start > 0 {
+                        let prev_char = text[..start].chars().last();
+                        if let Some(c) = prev_char {
+                            if c.is_whitespace() {
+                                break;
+                            }
+                            start -= c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Some((start, pos))
+            }
+            Motion::WORDEnd(count) => {
+                let mut end = pos;
+                for _ in 0..*count {
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                    while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+                Some((pos, end))
+            }
+            Motion::LineStart | Motion::ToLineStart => {
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                Some((line_start, pos))
+            }
+            Motion::LineEnd | Motion::ToLineEnd => {
+                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                Some((pos, line_end))
+            }
+            Motion::LineFirstNonBlank => {
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let first_non_blank = text[line_start..]
+                    .char_indices()
+                    .find(|(_, c)| !c.is_whitespace())
+                    .map(|(i, _)| line_start + i)
+                    .unwrap_or(line_start);
+                Some((first_non_blank.min(pos), first_non_blank.max(pos)))
+            }
+            Motion::DocumentStart => Some((0, pos)),
+            Motion::DocumentEnd => Some((pos, text.len())),
+            Motion::GotoLine(line_num) => {
+                let mut line_start = 0;
+                for _ in 1..*line_num {
+                    if let Some(idx) = text[line_start..].find('\n') {
+                        line_start = line_start + idx + 1;
+                    } else {
+                        break;
+                    }
+                }
+                let line_end = text[line_start..].find('\n')
+                    .map(|i| line_start + i + 1)
+                    .unwrap_or(text.len());
+                Some((line_start, line_end))
+            }
+            Motion::Line => {
+                // Current line including newline
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let line_end = text[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(text.len());
+                Some((line_start, line_end))
+            }
+            Motion::ParagraphForward(count) => {
+                let mut end = pos;
+                let mut blank_count = 0;
+                for (i, c) in text[pos..].char_indices() {
+                    if c == '\n' {
+                        let next_pos = pos + i + 1;
+                        if next_pos < text.len() && text[next_pos..].starts_with('\n') {
+                            blank_count += 1;
+                            if blank_count >= *count {
+                                end = next_pos;
+                                break;
+                            }
+                        }
+                    }
+                    end = pos + i + c.len_utf8();
+                }
+                Some((pos, end))
+            }
+            Motion::ParagraphBackward(count) => {
+                let mut start = pos;
+                let mut blank_count = 0;
+                for (i, c) in text[..pos].char_indices().rev() {
+                    if c == '\n' && i > 0 && text[..i].ends_with('\n') {
+                        blank_count += 1;
+                        if blank_count >= *count {
+                            start = i;
+                            break;
+                        }
+                    }
+                    start = i;
+                }
+                Some((start, pos))
+            }
+            Motion::FindChar(char, count) => {
+                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let mut found_pos = None;
+                let mut found_count = 0;
+                for (i, c) in text[pos + 1..line_end].char_indices() {
+                    if c == *char {
+                        found_count += 1;
+                        if found_count == *count {
+                            found_pos = Some(pos + 1 + i);
+                            break;
+                        }
+                    }
+                }
+                found_pos.map(|end| (pos, end + 1)) // Inclusive
+            }
+            Motion::FindCharBackward(char, count) => {
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let mut found_pos = None;
+                let mut found_count = 0;
+                for (i, c) in text[line_start..pos].char_indices().rev() {
+                    if c == *char {
+                        found_count += 1;
+                        if found_count == *count {
+                            found_pos = Some(line_start + i);
+                            break;
+                        }
+                    }
+                }
+                found_pos.map(|start| (start, pos))
+            }
+            Motion::TillChar(char, count) => {
+                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let mut found_pos = None;
+                let mut found_count = 0;
+                for (i, c) in text[pos + 1..line_end].char_indices() {
+                    if c == *char {
+                        found_count += 1;
+                        if found_count == *count {
+                            found_pos = Some(pos + 1 + i);
+                            break;
+                        }
+                    }
+                }
+                found_pos.map(|end| (pos, end)) // Exclusive (till, not including)
+            }
+            Motion::TillCharBackward(char, count) => {
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let mut found_pos = None;
+                let mut found_count = 0;
+                for (i, c) in text[line_start..pos].char_indices().rev() {
+                    if c == *char {
+                        found_count += 1;
+                        if found_count == *count {
+                            found_pos = Some(line_start + i + c.len_utf8());
+                            break;
+                        }
+                    }
+                }
+                found_pos.map(|start| (start, pos))
+            }
+            Motion::MatchingBracket => {
+                // Find matching bracket
+                let current_char = text[pos..].chars().next()?;
+                let (open, close, forward) = match current_char {
+                    '(' => ('(', ')', true),
+                    ')' => ('(', ')', false),
+                    '[' => ('[', ']', true),
+                    ']' => ('[', ']', false),
+                    '{' => ('{', '}', true),
+                    '}' => ('{', '}', false),
+                    '<' => ('<', '>', true),
+                    '>' => ('<', '>', false),
+                    _ => return None,
+                };
+
+                let mut depth = 1;
+                if forward {
+                    for (i, c) in text[pos + 1..].char_indices() {
+                        if c == close {
+                            depth -= 1;
+                            if depth == 0 {
+                                return Some((pos, pos + 1 + i + 1));
+                            }
+                        } else if c == open {
+                            depth += 1;
+                        }
+                    }
+                } else {
+                    for (i, c) in text[..pos].char_indices().rev() {
+                        if c == open {
+                            depth -= 1;
+                            if depth == 0 {
+                                return Some((i, pos + 1));
+                            }
+                        } else if c == close {
+                            depth += 1;
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Calculate the range affected by a text object with modifier.
+    ///
+    /// Returns `Some((start, end))` as byte offsets, or `None` if the text object
+    /// is not found at the cursor position.
+    fn text_object_range(
+        &self,
+        text_object: TextObject,
+        modifier: TextObjectModifier,
+    ) -> Option<(usize, usize)> {
+        let pos = self.cursor_position();
+        let text = self.text();
+
+        match text_object {
+            TextObject::Word => {
+                // Find word boundaries
+                let mut start = pos;
+                let mut end = pos;
+
+                // Find word start
+                while start > 0 {
+                    let prev_char = text[..start].chars().last();
+                    if let Some(c) = prev_char {
+                        if !c.is_alphanumeric() && c != '_' {
+                            break;
+                        }
+                        start -= c.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Find word end
+                while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                    end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                }
+
+                if modifier == TextObjectModifier::Around {
+                    // Include trailing whitespace
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+
+                Some((start, end))
+            }
+            TextObject::WORD => {
+                // Find WORD boundaries (whitespace-delimited)
+                let mut start = pos;
+                let mut end = pos;
+
+                while start > 0 {
+                    let prev_char = text[..start].chars().last();
+                    if let Some(c) = prev_char {
+                        if c.is_whitespace() {
+                            break;
+                        }
+                        start -= c.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+
+                while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
+                    end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                }
+
+                if modifier == TextObjectModifier::Around {
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+
+                Some((start, end))
+            }
+            TextObject::DoubleQuote | TextObject::SingleQuote | TextObject::BacktickQuote => {
+                let quote = match text_object {
+                    TextObject::DoubleQuote => '"',
+                    TextObject::SingleQuote => '\'',
+                    TextObject::BacktickQuote => '`',
+                    _ => unreachable!(),
+                };
+
+                // Find quote boundaries on current line
+                let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line = &text[line_start..line_end];
+
+                // Find opening quote
+                let mut open_pos = None;
+                let mut in_quote = false;
+                let cursor_in_line = pos - line_start;
+
+                for (i, c) in line.char_indices() {
+                    if c == quote {
+                        if !in_quote {
+                            open_pos = Some(i);
+                            in_quote = true;
+                        } else {
+                            // Found closing quote
+                            if cursor_in_line >= open_pos.unwrap_or(0) && cursor_in_line <= i {
+                                let start = line_start + open_pos.unwrap();
+                                let end = line_start + i + 1;
+                                return if modifier == TextObjectModifier::Inner {
+                                    Some((start + 1, end - 1))
+                                } else {
+                                    Some((start, end))
+                                };
+                            }
+                            in_quote = false;
+                            open_pos = None;
+                        }
+                    }
+                }
+
+                None
+            }
+            TextObject::Parentheses | TextObject::SquareBrackets | TextObject::CurlyBraces | TextObject::AngleBrackets => {
+                let (open, close) = match text_object {
+                    TextObject::Parentheses => ('(', ')'),
+                    TextObject::SquareBrackets => ('[', ']'),
+                    TextObject::CurlyBraces => ('{', '}'),
+                    TextObject::AngleBrackets => ('<', '>'),
+                    _ => unreachable!(),
+                };
+
+                // Find matching pair
+                let mut open_pos = None;
+                let mut depth = 0;
+
+                // Search backward for opening
+                for (i, c) in text[..=pos.min(text.len().saturating_sub(1))].char_indices().rev() {
+                    if c == close {
+                        depth += 1;
+                    } else if c == open {
+                        if depth == 0 {
+                            open_pos = Some(i);
+                            break;
+                        }
+                        depth -= 1;
+                    }
+                }
+
+                let open_pos = open_pos?;
+
+                // Search forward for closing
+                depth = 1;
+                for (i, c) in text[open_pos + 1..].char_indices() {
+                    if c == open {
+                        depth += 1;
+                    } else if c == close {
+                        depth -= 1;
+                        if depth == 0 {
+                            let close_pos = open_pos + 1 + i;
+                            return if modifier == TextObjectModifier::Inner {
+                                Some((open_pos + 1, close_pos))
+                            } else {
+                                Some((open_pos, close_pos + 1))
+                            };
+                        }
+                    }
+                }
+
+                None
+            }
+            TextObject::Paragraph => {
+                // Find paragraph boundaries (blank lines)
+                let mut start = pos;
+                let mut end = pos;
+
+                // Find paragraph start (previous blank line or document start)
+                while start > 0 {
+                    let prev_newline = text[..start].rfind('\n');
+                    if let Some(nl) = prev_newline {
+                        if nl > 0 && text[..nl].ends_with('\n') {
+                            start = nl + 1;
+                            break;
+                        }
+                        start = nl;
+                    } else {
+                        start = 0;
+                        break;
+                    }
+                }
+
+                // Find paragraph end (next blank line or document end)
+                while end < text.len() {
+                    let next_newline = text[end..].find('\n');
+                    if let Some(nl) = next_newline {
+                        let nl_pos = end + nl;
+                        if nl_pos + 1 < text.len() && text[nl_pos + 1..].starts_with('\n') {
+                            end = nl_pos + 1;
+                            break;
+                        }
+                        end = nl_pos + 1;
+                    } else {
+                        end = text.len();
+                        break;
+                    }
+                }
+
+                if modifier == TextObjectModifier::Around {
+                    // Include trailing blank lines
+                    while end < text.len() && text[end..].starts_with('\n') {
+                        end += 1;
+                    }
+                }
+
+                Some((start, end))
+            }
+            TextObject::Sentence => {
+                // Simplified sentence detection
+                let sentence_ends = ['.', '!', '?'];
+                let mut start = pos;
+                let mut end = pos;
+
+                // Find sentence start
+                while start > 0 {
+                    let prev_char = text[..start].chars().last();
+                    if let Some(c) = prev_char {
+                        if sentence_ends.contains(&c) {
+                            break;
+                        }
+                        start -= c.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Skip whitespace at start
+                while start < text.len() && text[start..].starts_with(char::is_whitespace) {
+                    start += text[start..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                }
+
+                // Find sentence end
+                for (i, c) in text[pos..].char_indices() {
+                    if sentence_ends.contains(&c) {
+                        end = pos + i + 1;
+                        break;
+                    }
+                    end = pos + i + c.len_utf8();
+                }
+
+                if modifier == TextObjectModifier::Around {
+                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
+                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    }
+                }
+
+                Some((start, end))
+            }
+            // These require language awareness and are not implemented in the basic text engine
+            TextObject::Function | TextObject::Class | TextObject::Comment | TextObject::Argument => {
+                None
+            }
+        }
+    }
+
+    // =========================================================================
     // Undo/Redo (must be implemented by concrete types)
     // =========================================================================
 
@@ -677,6 +1286,39 @@ pub trait HelixTextEngine {
 
     /// Redo the last undone change.
     fn redo(&mut self);
+}
+
+/// A null text engine that does nothing.
+///
+/// Used when you want to track editor state without an actual text buffer.
+pub struct NullTextEngine;
+
+impl HelixTextEngine for NullTextEngine {
+    fn text(&self) -> &str {
+        ""
+    }
+
+    fn cursor_position(&self) -> usize {
+        0
+    }
+
+    fn set_cursor_position(&mut self, _position: usize) {}
+
+    fn selection(&self) -> (usize, usize) {
+        (0, 0)
+    }
+
+    fn set_selection(&mut self, _start: usize, _end: usize) {}
+
+    fn insert_text(&mut self, _text: &str) {}
+
+    fn delete(&mut self) {}
+
+    fn replace_selection(&mut self, _text: &str) {}
+
+    fn undo(&mut self) {}
+
+    fn redo(&mut self) {}
 }
 
 #[cfg(test)]

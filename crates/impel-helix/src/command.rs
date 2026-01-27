@@ -1,5 +1,8 @@
 //! Helix editing commands.
 
+use crate::motion::Motion;
+use crate::text_object::{TextObject, TextObjectModifier};
+
 /// A command that can be executed on text.
 ///
 /// These commands mirror the Swift `HelixCommand` enum for cross-platform consistency.
@@ -111,6 +114,26 @@ pub enum HelixCommand {
     /// Replace character under cursor.
     ReplaceCharacter { char: char },
 
+    // Operator + Motion combinations
+    /// Delete with motion (e.g., dw, d$, dd).
+    DeleteMotion(Motion),
+    /// Change with motion (e.g., cw, c$, cc).
+    ChangeMotion(Motion),
+    /// Yank with motion (e.g., yw, y$, yy).
+    YankMotion(Motion),
+    /// Indent with motion.
+    IndentMotion(Motion),
+    /// Dedent with motion.
+    DedentMotion(Motion),
+
+    // Operator + Text Object combinations
+    /// Delete text object (e.g., diw, da").
+    DeleteTextObject(TextObject, TextObjectModifier),
+    /// Change text object (e.g., ciw, ca").
+    ChangeTextObject(TextObject, TextObjectModifier),
+    /// Yank text object (e.g., yiw, ya").
+    YankTextObject(TextObject, TextObjectModifier),
+
     // Repeat and undo
     /// Repeat last change.
     RepeatLastChange,
@@ -162,7 +185,75 @@ impl HelixCommand {
                 | HelixCommand::Indent
                 | HelixCommand::Dedent
                 | HelixCommand::ReplaceCharacter { .. }
+                | HelixCommand::DeleteMotion(_)
+                | HelixCommand::ChangeMotion(_)
+                | HelixCommand::YankMotion(_)
+                | HelixCommand::IndentMotion(_)
+                | HelixCommand::DedentMotion(_)
+                | HelixCommand::DeleteTextObject(_, _)
+                | HelixCommand::ChangeTextObject(_, _)
+                | HelixCommand::YankTextObject(_, _)
         )
+    }
+
+    /// Returns a description for which-key display.
+    pub fn description(&self) -> &'static str {
+        match self {
+            HelixCommand::EnterInsertMode => "Insert mode",
+            HelixCommand::EnterNormalMode => "Normal mode",
+            HelixCommand::EnterSelectMode => "Select mode",
+            HelixCommand::EnterSearchMode { backward: false } => "Search forward",
+            HelixCommand::EnterSearchMode { backward: true } => "Search backward",
+            HelixCommand::MoveLeft { .. } => "Move left",
+            HelixCommand::MoveRight { .. } => "Move right",
+            HelixCommand::MoveUp { .. } => "Move up",
+            HelixCommand::MoveDown { .. } => "Move down",
+            HelixCommand::WordForward { .. } => "Word forward",
+            HelixCommand::WordBackward { .. } => "Word backward",
+            HelixCommand::WordEnd { .. } => "Word end",
+            HelixCommand::LineStart => "Line start",
+            HelixCommand::LineEnd => "Line end",
+            HelixCommand::LineFirstNonBlank => "First non-blank",
+            HelixCommand::DocumentStart => "Document start",
+            HelixCommand::DocumentEnd => "Document end",
+            HelixCommand::FindCharacter { .. } => "Find char",
+            HelixCommand::FindCharacterBackward { .. } => "Find char backward",
+            HelixCommand::TillCharacter { .. } => "Till char",
+            HelixCommand::TillCharacterBackward { .. } => "Till char backward",
+            HelixCommand::RepeatFind => "Repeat find",
+            HelixCommand::RepeatFindReverse => "Repeat find reverse",
+            HelixCommand::SearchNext { .. } => "Search next",
+            HelixCommand::SearchPrevious { .. } => "Search previous",
+            HelixCommand::SelectLine => "Select line",
+            HelixCommand::SelectAll => "Select all",
+            HelixCommand::AppendAfterCursor => "Append",
+            HelixCommand::AppendAtLineEnd => "Append at line end",
+            HelixCommand::InsertAtLineStart => "Insert at line start",
+            HelixCommand::OpenLineBelow => "Open line below",
+            HelixCommand::OpenLineAbove => "Open line above",
+            HelixCommand::Delete => "Delete",
+            HelixCommand::Yank => "Yank",
+            HelixCommand::PasteAfter => "Paste after",
+            HelixCommand::PasteBefore => "Paste before",
+            HelixCommand::Change => "Change",
+            HelixCommand::Substitute => "Substitute",
+            HelixCommand::JoinLines => "Join lines",
+            HelixCommand::ToggleCase => "Toggle case",
+            HelixCommand::Indent => "Indent",
+            HelixCommand::Dedent => "Dedent",
+            HelixCommand::ReplaceCharacter { .. } => "Replace char",
+            HelixCommand::DeleteMotion(_) => "Delete motion",
+            HelixCommand::ChangeMotion(_) => "Change motion",
+            HelixCommand::YankMotion(_) => "Yank motion",
+            HelixCommand::IndentMotion(_) => "Indent motion",
+            HelixCommand::DedentMotion(_) => "Dedent motion",
+            HelixCommand::DeleteTextObject(_, _) => "Delete text object",
+            HelixCommand::ChangeTextObject(_, _) => "Change text object",
+            HelixCommand::YankTextObject(_, _) => "Yank text object",
+            HelixCommand::RepeatLastChange => "Repeat",
+            HelixCommand::Undo => "Undo",
+            HelixCommand::Redo => "Redo",
+        }
     }
 }
 
@@ -194,5 +285,34 @@ mod tests {
 
         assert!(!HelixCommand::MoveLeft { count: 1 }.is_repeatable());
         assert!(!HelixCommand::EnterInsertMode.is_repeatable());
+    }
+
+    #[test]
+    fn test_motion_commands_repeatable() {
+        assert!(HelixCommand::DeleteMotion(Motion::WordForward(1)).is_repeatable());
+        assert!(HelixCommand::ChangeMotion(Motion::Line).is_repeatable());
+        assert!(HelixCommand::YankMotion(Motion::ToLineEnd).is_repeatable());
+    }
+
+    #[test]
+    fn test_text_object_commands_repeatable() {
+        assert!(
+            HelixCommand::DeleteTextObject(TextObject::Word, TextObjectModifier::Inner)
+                .is_repeatable()
+        );
+        assert!(
+            HelixCommand::ChangeTextObject(TextObject::DoubleQuote, TextObjectModifier::Around)
+                .is_repeatable()
+        );
+    }
+
+    #[test]
+    fn test_description() {
+        assert_eq!(HelixCommand::Delete.description(), "Delete");
+        assert_eq!(HelixCommand::EnterInsertMode.description(), "Insert mode");
+        assert_eq!(
+            HelixCommand::DeleteMotion(Motion::WordForward(1)).description(),
+            "Delete motion"
+        );
     }
 }
