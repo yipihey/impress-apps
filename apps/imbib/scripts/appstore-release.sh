@@ -651,7 +651,7 @@ if $BUILD_IOS; then
 fi
 
 if $BUILD_MACOS; then
-    ensure_version_exists "com.imbib.app" "$SHORT_VERSION" "MAC_OS" "macOS" || true
+    ensure_version_exists "com.imbib.app.ios" "$SHORT_VERSION" "MAC_OS" "macOS" || true
 fi
 
 step_end
