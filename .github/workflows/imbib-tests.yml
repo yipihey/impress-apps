@@ -52,6 +52,13 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/imbib/imbib
+        run: xcodegen generate
+
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -133,6 +140,13 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/imbib/imbib
+        run: xcodegen generate
+
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -206,6 +220,13 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
           IPHONEOS_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/imbib/imbib
+        run: xcodegen generate
 
       - name: Cache Swift packages
         uses: actions/cache@v4
