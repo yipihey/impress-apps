@@ -81,11 +81,12 @@ pub enum RenderError {
 }
 
 /// Page size presets for common document formats
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum PageSize {
     /// US Letter (8.5 x 11 inches)
     Letter,
     /// A4 (210 x 297 mm)
+    #[default]
     A4,
     /// A5 (148 x 210 mm)
     A5,
@@ -112,12 +113,6 @@ impl PageSize {
             PageSize::A5 => 595.28,    // 210mm in points
             PageSize::Custom { height, .. } => *height,
         }
-    }
-}
-
-impl Default for PageSize {
-    fn default() -> Self {
-        PageSize::A4
     }
 }
 

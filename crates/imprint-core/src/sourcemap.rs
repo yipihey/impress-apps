@@ -303,9 +303,10 @@ pub struct SourceMapEntry {
 }
 
 /// Type of content for cursor placement decisions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ContentType {
     /// Normal text content
+    #[default]
     Text,
     /// Heading (section, subsection, etc.)
     Heading,
@@ -325,12 +326,6 @@ pub enum ContentType {
     ParagraphBreak,
     /// Other content
     Other,
-}
-
-impl Default for ContentType {
-    fn default() -> Self {
-        ContentType::Text
-    }
 }
 
 /// Cursor position information after snapping to a valid location.

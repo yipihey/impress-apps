@@ -387,9 +387,7 @@ impl ImportedNote {
                 }
                 format!("#strike[{}]", self.escape_typst(&self.content))
             }
-            AnnotationType::FreeText => {
-                format!("{}", self.escape_typst(&self.content))
-            }
+            AnnotationType::FreeText => self.escape_typst(&self.content).to_string(),
             _ => {
                 // For other types, just output as text
                 self.escape_typst(&self.content)

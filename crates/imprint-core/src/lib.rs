@@ -214,6 +214,7 @@ pub fn hello_from_imprint() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
