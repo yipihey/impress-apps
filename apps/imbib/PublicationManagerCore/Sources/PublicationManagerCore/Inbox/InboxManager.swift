@@ -580,8 +580,8 @@ public final class InboxManager {
             orPredicates.append(NSPredicate(format: "doi == %@", doi))
         }
         if let arxivID = arxivID {
-            // Use arxivIDNormalized (arxivID is a computed property, not a Core Data attribute)
-            orPredicates.append(NSPredicate(format: "arxivIDNormalized == %@", arxivID))
+            // DismissedPaper has arxivID as a Core Data attribute (unlike Publication which has arxivIDNormalized)
+            orPredicates.append(NSPredicate(format: "arxivID == %@", arxivID))
         }
         if let bibcode = bibcode {
             orPredicates.append(NSPredicate(format: "bibcode == %@", bibcode))
