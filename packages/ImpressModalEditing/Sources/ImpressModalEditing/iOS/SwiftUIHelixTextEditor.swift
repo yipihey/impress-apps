@@ -104,7 +104,10 @@ public struct HelixTextEditor: View {
             return .handled
         case .passThrough:
             return .ignored
-        case .pending, .consumed:
+        case .pending, .consumed, .awaitingCharacter:
+            return .handled
+        case .enterSearch:
+            // Search mode not yet supported in iOS SwiftUI wrapper
             return .handled
         }
     }
