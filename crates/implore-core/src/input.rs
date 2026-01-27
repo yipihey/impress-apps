@@ -301,10 +301,7 @@ pub enum GestureEvent {
     },
 
     /// Two-finger pan
-    Pan {
-        delta_x: f32,
-        delta_y: f32,
-    },
+    Pan { delta_x: f32, delta_y: f32 },
 
     /// Swipe gesture
     Swipe {
@@ -396,7 +393,9 @@ impl InputState {
                 self.mouse_y = *y;
                 self.modifiers = *modifiers;
             }
-            MouseEvent::Scroll { x, y, modifiers, .. } => {
+            MouseEvent::Scroll {
+                x, y, modifiers, ..
+            } => {
                 self.mouse_x = *x;
                 self.mouse_y = *y;
                 self.modifiers = *modifiers;
@@ -431,7 +430,10 @@ impl InputState {
 
     /// Get mouse delta since last update
     pub fn mouse_delta(&self) -> (f32, f32) {
-        (self.mouse_x - self.prev_mouse_x, self.mouse_y - self.prev_mouse_y)
+        (
+            self.mouse_x - self.prev_mouse_x,
+            self.mouse_y - self.prev_mouse_y,
+        )
     }
 
     /// Check if dragging (button pressed + mouse moved)
@@ -532,12 +534,12 @@ pub fn default_shortcuts() -> Vec<Shortcut> {
         Shortcut::new(Key::M, Modifiers::new(), Command::ToggleMarginals),
         // Selection
         Shortcut::new(Key::A, Modifiers::new().with_meta(), Command::SelectAll),
+        Shortcut::new(Key::D, Modifiers::new().with_meta(), Command::SelectNone),
         Shortcut::new(
-            Key::D,
+            Key::I,
             Modifiers::new().with_meta(),
-            Command::SelectNone,
+            Command::InvertSelection,
         ),
-        Shortcut::new(Key::I, Modifiers::new().with_meta(), Command::InvertSelection),
         Shortcut::new(Key::Backspace, Modifiers::new(), Command::DeleteSelection),
         // Data
         Shortcut::new(Key::BracketLeft, Modifiers::new(), Command::PreviousField),

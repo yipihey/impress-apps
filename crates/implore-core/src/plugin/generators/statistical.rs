@@ -64,7 +64,8 @@ impl DataGenerator for GaussianClusters {
         DataSchema::new(vec![
             FieldDescriptor::new("x", DataType::Float64).with_description("X coordinate"),
             FieldDescriptor::new("y", DataType::Float64).with_description("Y coordinate"),
-            FieldDescriptor::new("z", DataType::Float64).with_description("Z coordinate (0 for 2D)"),
+            FieldDescriptor::new("z", DataType::Float64)
+                .with_description("Z coordinate (0 for 2D)"),
             FieldDescriptor::new("cluster", DataType::Float64)
                 .with_description("Cluster index (0-based)"),
         ])
@@ -129,7 +130,11 @@ impl DataGenerator for GaussianClusters {
         let extent = cluster_spread + 4.0 * std_dev;
         Ok(GeneratedData::new(columns)
             .with_bounds(BoundingBox::new(
-                [-extent, -extent, if dimensions == 3 { -extent } else { 0.0 }],
+                [
+                    -extent,
+                    -extent,
+                    if dimensions == 3 { -extent } else { 0.0 },
+                ],
                 [extent, extent, if dimensions == 3 { extent } else { 0.0 }],
             ))
             .with_metadata("generator", "gaussian-clusters")
@@ -186,8 +191,7 @@ impl DataGenerator for UniformRandom {
             FieldDescriptor::new("x", DataType::Float64),
             FieldDescriptor::new("y", DataType::Float64),
             FieldDescriptor::new("z", DataType::Float64),
-            FieldDescriptor::new("index", DataType::Float64)
-                .with_description("Point index"),
+            FieldDescriptor::new("index", DataType::Float64).with_description("Point index"),
         ])
     }
 
@@ -226,7 +230,10 @@ impl DataGenerator for UniformRandom {
         columns.insert("index".to_string(), index_data);
 
         Ok(GeneratedData::new(columns)
-            .with_bounds(BoundingBox::new([x_min, y_min, z_min], [x_max, y_max, z_max]))
+            .with_bounds(BoundingBox::new(
+                [x_min, y_min, z_min],
+                [x_max, y_max, z_max],
+            ))
             .with_metadata("generator", "uniform"))
     }
 }

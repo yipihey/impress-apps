@@ -5,9 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::{
-    generators, DataGenerator, GeneratorCategory, GeneratorMetadata,
-};
+use super::{generators, DataGenerator, GeneratorCategory, GeneratorMetadata};
 
 /// Registry of all available data generators.
 ///

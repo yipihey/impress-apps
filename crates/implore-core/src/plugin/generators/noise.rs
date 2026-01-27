@@ -274,7 +274,8 @@ impl WorleyNoise2D {
                 id: "noise-worley-2d".to_string(),
                 name: "Worley Noise (2D)".to_string(),
                 category: GeneratorCategory::Noise,
-                description: "Cellular noise based on distance to random feature points".to_string(),
+                description: "Cellular noise based on distance to random feature points"
+                    .to_string(),
                 icon: "circle.hexagongrid".to_string(),
                 parameters: vec![
                     ParameterSpec::int("resolution", "Resolution", 256)
@@ -285,7 +286,11 @@ impl WorleyNoise2D {
                     ParameterSpec::choice(
                         "distance_metric",
                         "Distance Metric",
-                        vec!["euclidean".to_string(), "manhattan".to_string(), "chebyshev".to_string()],
+                        vec![
+                            "euclidean".to_string(),
+                            "manhattan".to_string(),
+                            "chebyshev".to_string(),
+                        ],
                         "euclidean",
                     ),
                     ParameterSpec::int("seed", "Seed", 42),

@@ -243,9 +243,12 @@ impl GeneratorRegistryHandle {
         generator_id: String,
         params_json: String,
     ) -> Result<GeneratedDataFfi, GeneratorErrorFfi> {
-        let registry = self.registry.read().map_err(|e| GeneratorErrorFfi::LockError {
-            message: format!("Failed to acquire registry lock: {}", e),
-        })?;
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| GeneratorErrorFfi::LockError {
+                message: format!("Failed to acquire registry lock: {}", e),
+            })?;
 
         // Get the generator
         let generator = registry
@@ -281,9 +284,12 @@ impl GeneratorRegistryHandle {
 
     /// Get the default parameters for a generator as JSON.
     pub fn default_params_json(&self, generator_id: String) -> Result<String, GeneratorErrorFfi> {
-        let registry = self.registry.read().map_err(|e| GeneratorErrorFfi::LockError {
-            message: format!("Failed to acquire registry lock: {}", e),
-        })?;
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| GeneratorErrorFfi::LockError {
+                message: format!("Failed to acquire registry lock: {}", e),
+            })?;
 
         let generator = registry
             .get(&generator_id)

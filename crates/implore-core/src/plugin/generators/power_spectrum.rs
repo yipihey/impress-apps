@@ -91,8 +91,7 @@ impl DataGenerator for PowerSpectrumNoise {
                 FieldDescriptor::new("y", DataType::Float64)
                     .with_description("Y coordinate")
                     .with_range(0.0, 1.0),
-                FieldDescriptor::new("value", DataType::Float64)
-                    .with_description("Noise value"),
+                FieldDescriptor::new("value", DataType::Float64).with_description("Noise value"),
             ],
         }
     }
@@ -123,8 +122,16 @@ impl DataGenerator for PowerSpectrumNoise {
                 let idx = ky * n + kx;
 
                 // Compute frequency magnitude (distance from origin in frequency space)
-                let fx = if kx <= n / 2 { kx as f64 } else { (n - kx) as f64 };
-                let fy = if ky <= n / 2 { ky as f64 } else { (n - ky) as f64 };
+                let fx = if kx <= n / 2 {
+                    kx as f64
+                } else {
+                    (n - kx) as f64
+                };
+                let fy = if ky <= n / 2 {
+                    ky as f64
+                } else {
+                    (n - ky) as f64
+                };
                 let k = (fx * fx + fy * fy).sqrt();
 
                 // Compute amplitude from power spectrum
@@ -233,7 +240,10 @@ fn inverse_fft_2d(real: &[f64], imag: &[f64], n: usize) -> Vec<f64> {
     // 1D inverse FFT on each row
     for y in 0..n {
         let offset = y * n;
-        inverse_fft_1d(&mut work_real[offset..offset + n], &mut work_imag[offset..offset + n]);
+        inverse_fft_1d(
+            &mut work_real[offset..offset + n],
+            &mut work_imag[offset..offset + n],
+        );
     }
 
     // 1D inverse FFT on each column

@@ -97,9 +97,9 @@ impl PageSize {
     /// Get the width in points
     pub fn width_pt(&self) -> f64 {
         match self {
-            PageSize::Letter => 612.0,  // 8.5 * 72
-            PageSize::A4 => 595.28,     // 210mm in points
-            PageSize::A5 => 419.53,     // 148mm in points
+            PageSize::Letter => 612.0, // 8.5 * 72
+            PageSize::A4 => 595.28,    // 210mm in points
+            PageSize::A5 => 419.53,    // 148mm in points
             PageSize::Custom { width, .. } => *width,
         }
     }
@@ -107,9 +107,9 @@ impl PageSize {
     /// Get the height in points
     pub fn height_pt(&self) -> f64 {
         match self {
-            PageSize::Letter => 792.0,  // 11 * 72
-            PageSize::A4 => 841.89,     // 297mm in points
-            PageSize::A5 => 595.28,     // 210mm in points
+            PageSize::Letter => 792.0, // 11 * 72
+            PageSize::A4 => 841.89,    // 297mm in points
+            PageSize::A5 => 595.28,    // 210mm in points
             PageSize::Custom { height, .. } => *height,
         }
     }
@@ -402,8 +402,12 @@ mod typst_impl {
     }
 
     impl TypstRenderer for DefaultTypstRenderer {
-        fn render(&self, source: &str, options: &RenderOptions) -> Result<RenderOutput, RenderError> {
-            use typst_as_lib::{TypstEngine, typst_kit_options::TypstKitFontOptions};
+        fn render(
+            &self,
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<RenderOutput, RenderError> {
+            use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine};
 
             // Prepend the page setup preamble to the source
             let full_source = format!("{}\n{}", options.to_typst_preamble(), source);
@@ -414,7 +418,7 @@ mod typst_impl {
                 .main_file(full_source.as_str())
                 .search_fonts_with(
                     TypstKitFontOptions::default()
-                        .include_system_fonts(true)  // Use system fonts if available
+                        .include_system_fonts(true) // Use system fonts if available
                         .include_embedded_fonts(true), // Use embedded fonts (Libertinus, New CM, DejaVu)
                 )
                 .build();
@@ -530,7 +534,11 @@ mod stub_impl {
     }
 
     impl TypstRenderer for DefaultTypstRenderer {
-        fn render(&self, source: &str, options: &RenderOptions) -> Result<RenderOutput, RenderError> {
+        fn render(
+            &self,
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<RenderOutput, RenderError> {
             // Return a minimal valid PDF as a placeholder
             // This is a very minimal PDF that shows a message
             let placeholder_pdf = generate_placeholder_pdf(source, options);

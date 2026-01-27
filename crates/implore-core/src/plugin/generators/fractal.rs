@@ -223,8 +223,7 @@ impl DataGenerator for JuliaSet {
                 let zx = cx + (ix as f64 / res as f64 - 0.5) * scale;
                 let zy = cy + (iy as f64 / res as f64 - 0.5) * scale;
 
-                let (iterations, escaped, smooth) =
-                    julia_iterate(zx, zy, c_real, c_imag, max_iter);
+                let (iterations, escaped, smooth) = julia_iterate(zx, zy, c_real, c_imag, max_iter);
 
                 x_data.push(zx);
                 y_data.push(zy);
@@ -305,7 +304,13 @@ fn mandelbrot_iterate(c_real: f64, c_imag: f64, max_iter: u32) -> (u32, bool, f6
 }
 
 /// Iterate the Julia function z = z^2 + c with fixed c
-fn julia_iterate(z_real: f64, z_imag: f64, c_real: f64, c_imag: f64, max_iter: u32) -> (u32, bool, f64) {
+fn julia_iterate(
+    z_real: f64,
+    z_imag: f64,
+    c_real: f64,
+    c_imag: f64,
+    max_iter: u32,
+) -> (u32, bool, f64) {
     let mut zr = z_real;
     let mut zi = z_imag;
     let mut iter = 0u32;
@@ -394,6 +399,9 @@ mod tests {
         let range2 = x2.iter().cloned().fold(f64::MAX, f64::min)
             - x2.iter().cloned().fold(f64::MIN, f64::max);
 
-        assert!(range2.abs() < range1.abs(), "Zoomed data should have smaller range");
+        assert!(
+            range2.abs() < range1.abs(),
+            "Zoomed data should have smaller range"
+        );
     }
 }

@@ -361,12 +361,12 @@ impl GeneratorParams {
 
                 // Check constraints
                 if let Some(constraints) = &spec.constraints {
-                    constraints
-                        .validate(value)
-                        .map_err(|reason| GeneratorError::InvalidParameter {
+                    constraints.validate(value).map_err(|reason| {
+                        GeneratorError::InvalidParameter {
                             name: spec.name.clone(),
                             reason,
-                        })?;
+                        }
+                    })?;
                 }
             }
         }
@@ -387,11 +387,7 @@ impl GeneratorParams {
 
 impl ParameterSpec {
     /// Create a new float parameter spec
-    pub fn float(
-        name: impl Into<String>,
-        label: impl Into<String>,
-        default: f64,
-    ) -> Self {
+    pub fn float(name: impl Into<String>, label: impl Into<String>, default: f64) -> Self {
         Self {
             name: name.into(),
             label: label.into(),

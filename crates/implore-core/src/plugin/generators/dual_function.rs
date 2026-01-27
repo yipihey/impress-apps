@@ -265,7 +265,10 @@ impl DataGenerator for DualFunction {
         columns.insert("grad_y".to_string(), grad_ys);
 
         Ok(GeneratedData::new(columns)
-            .with_bounds(BoundingBox::new([x_min, y_min, z_min], [x_max, y_max, z_max]))
+            .with_bounds(BoundingBox::new(
+                [x_min, y_min, z_min],
+                [x_max, y_max, z_max],
+            ))
             .with_metadata("generator", "dual-function")
             .with_metadata("f1", f1_name)
             .with_metadata("f2", f2_name))
@@ -285,10 +288,7 @@ impl DataGenerator for DualFunction {
 
         let offset = time * 0.5;
         let mut animated_params = params.clone();
-        animated_params.set_vec(
-            "x_range",
-            vec![x_range.0 + offset, x_range.1 + offset],
-        );
+        animated_params.set_vec("x_range", vec![x_range.0 + offset, x_range.1 + offset]);
 
         self.generate(&animated_params)
     }
@@ -333,7 +333,11 @@ mod tests {
 
         for f in functions {
             let result = DualFunction::eval_f1(f, 1.0, 1.0);
-            assert!(result.is_finite(), "Function {} produced non-finite result", f);
+            assert!(
+                result.is_finite(),
+                "Function {} produced non-finite result",
+                f
+            );
         }
     }
 
@@ -354,7 +358,11 @@ mod tests {
 
         for f in functions {
             let result = DualFunction::eval_f2(f, 1.0, 1.0, 0.5, 0.1, 0.2);
-            assert!(result.is_finite(), "Function {} produced non-finite result", f);
+            assert!(
+                result.is_finite(),
+                "Function {} produced non-finite result",
+                f
+            );
         }
     }
 

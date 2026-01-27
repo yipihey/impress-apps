@@ -26,7 +26,10 @@ impl Vec2f {
 
 impl From<[f32; 2]> for Vec2f {
     fn from(arr: [f32; 2]) -> Self {
-        Self { x: arr[0], y: arr[1] }
+        Self {
+            x: arr[0],
+            y: arr[1],
+        }
     }
 }
 
@@ -85,7 +88,11 @@ impl Vec3f {
 
 impl From<[f32; 3]> for Vec3f {
     fn from(arr: [f32; 3]) -> Self {
-        Self { x: arr[0], y: arr[1], z: arr[2] }
+        Self {
+            x: arr[0],
+            y: arr[1],
+            z: arr[2],
+        }
     }
 }
 
@@ -117,7 +124,12 @@ impl Vec4f {
 
 impl From<[f32; 4]> for Vec4f {
     fn from(arr: [f32; 4]) -> Self {
-        Self { x: arr[0], y: arr[1], z: arr[2], w: arr[3] }
+        Self {
+            x: arr[0],
+            y: arr[1],
+            z: arr[2],
+            w: arr[3],
+        }
     }
 }
 
@@ -153,7 +165,11 @@ impl Vec3d {
 
 impl From<[f64; 3]> for Vec3d {
     fn from(arr: [f64; 3]) -> Self {
-        Self { x: arr[0], y: arr[1], z: arr[2] }
+        Self {
+            x: arr[0],
+            y: arr[1],
+            z: arr[2],
+        }
     }
 }
 
@@ -191,9 +207,27 @@ impl ColorRgb {
     }
 
     /// Common colors
-    pub fn black() -> Self { Self { r: 0.0, g: 0.0, b: 0.0 } }
-    pub fn white() -> Self { Self { r: 1.0, g: 1.0, b: 1.0 } }
-    pub fn dark_gray() -> Self { Self { r: 0.1, g: 0.1, b: 0.1 } }
+    pub fn black() -> Self {
+        Self {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        }
+    }
+    pub fn white() -> Self {
+        Self {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        }
+    }
+    pub fn dark_gray() -> Self {
+        Self {
+            r: 0.1,
+            g: 0.1,
+            b: 0.1,
+        }
+    }
 }
 
 impl Default for ColorRgb {
@@ -204,7 +238,11 @@ impl Default for ColorRgb {
 
 impl From<[f32; 3]> for ColorRgb {
     fn from(arr: [f32; 3]) -> Self {
-        Self { r: arr[0], g: arr[1], b: arr[2] }
+        Self {
+            r: arr[0],
+            g: arr[1],
+            b: arr[2],
+        }
     }
 }
 

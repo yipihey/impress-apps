@@ -294,9 +294,7 @@ impl AxisScale {
             AxisScale::Linear => value,
             AxisScale::Log10 => 10.0_f64.powf(value),
             AxisScale::Log2 => 2.0_f64.powf(value),
-            AxisScale::SymLog => {
-                value.signum() * (10.0_f64.powf(value.abs()) - 1.0)
-            }
+            AxisScale::SymLog => value.signum() * (10.0_f64.powf(value.abs()) - 1.0),
         }
     }
 }
@@ -506,16 +504,22 @@ impl SelectionBounds {
 
     /// Check if a point is inside the bounds
     pub fn contains(&self, point: &Vec3d) -> bool {
-        point.x >= self.min.x && point.x <= self.max.x &&
-        point.y >= self.min.y && point.y <= self.max.y &&
-        point.z >= self.min.z && point.z <= self.max.z
+        point.x >= self.min.x
+            && point.x <= self.max.x
+            && point.y >= self.min.y
+            && point.y <= self.max.y
+            && point.z >= self.min.z
+            && point.z <= self.max.z
     }
 
     /// Check if a point (as array) is inside the bounds
     pub fn contains_array(&self, point: &[f64; 3]) -> bool {
-        point[0] >= self.min.x && point[0] <= self.max.x &&
-        point[1] >= self.min.y && point[1] <= self.max.y &&
-        point[2] >= self.min.z && point[2] <= self.max.z
+        point[0] >= self.min.x
+            && point[0] <= self.max.x
+            && point[1] >= self.min.y
+            && point[1] <= self.max.y
+            && point[2] >= self.min.z
+            && point[2] <= self.max.z
     }
 
     /// Get the center of the bounds

@@ -317,18 +317,14 @@ impl ImportedNote {
         }
 
         let attribution = if options.add_citations {
-            self.citation_key
-                .as_ref()
-                .map(|key| {
-                    let page_part = if options.include_page_numbers {
-                        self.page
-                            .map(|p| format!(", p. {}", p))
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
-                    format!("@{}{}", key, page_part)
-                })
+            self.citation_key.as_ref().map(|key| {
+                let page_part = if options.include_page_numbers {
+                    self.page.map(|p| format!(", p. {}", p)).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                format!("@{}{}", key, page_part)
+            })
         } else {
             None
         };
@@ -341,25 +337,29 @@ impl ImportedNote {
                 match options.quote_style {
                     QuoteStyle::Block => {
                         if let Some(attr) = attribution {
-                            format!("#quote(attribution: [{}])[\n  {}\n]", attr, self.escape_typst(&self.content))
+                            format!(
+                                "#quote(attribution: [{}])[\n  {}\n]",
+                                attr,
+                                self.escape_typst(&self.content)
+                            )
                         } else {
                             format!("#quote[\n  {}\n]", self.escape_typst(&self.content))
                         }
                     }
                     QuoteStyle::Inline => {
-                        let cite = attribution
-                            .map(|a| format!(" {}", a))
-                            .unwrap_or_default();
-                        format!("\"{}\"{}",self.escape_typst(&self.content), cite)
+                        let cite = attribution.map(|a| format!(" {}", a)).unwrap_or_default();
+                        format!("\"{}\"{}", self.escape_typst(&self.content), cite)
                     }
                     QuoteStyle::MarginNote => {
                         format!("#margin-note[{}]", self.escape_typst(&self.content))
                     }
                     QuoteStyle::Footnote => {
-                        let cite = attribution
-                            .map(|a| format!(" {}", a))
-                            .unwrap_or_default();
-                        format!("#footnote[\"{}\"{}]", self.escape_typst(&self.content), cite)
+                        let cite = attribution.map(|a| format!(" {}", a)).unwrap_or_default();
+                        format!(
+                            "#footnote[\"{}\"{}]",
+                            self.escape_typst(&self.content),
+                            cite
+                        )
                     }
                 }
             }
@@ -439,12 +439,21 @@ impl NoteImporter {
         annotation: &Annotation,
         publication: &Publication,
     ) -> ImportResult<ImportedNote> {
-        Ok(ImportedNote::from_annotation_with_publication(annotation, publication))
+        Ok(ImportedNote::from_annotation_with_publication(
+            annotation,
+            publication,
+        ))
     }
 
     /// Import multiple annotations
-    pub fn import_annotations(&self, annotations: &[Annotation]) -> ImportResult<Vec<ImportedNote>> {
-        annotations.iter().map(|a| self.import_annotation(a)).collect()
+    pub fn import_annotations(
+        &self,
+        annotations: &[Annotation],
+    ) -> ImportResult<Vec<ImportedNote>> {
+        annotations
+            .iter()
+            .map(|a| self.import_annotation(a))
+            .collect()
     }
 
     /// Import multiple annotations with publication context
@@ -624,11 +633,7 @@ impl NoteImporter {
     ///
     /// This is a convenience method for inserting a single highlight as a quote
     /// with attribution.
-    pub fn format_as_typst_quote(
-        text: &str,
-        cite_key: &str,
-        page: Option<u32>,
-    ) -> String {
+    pub fn format_as_typst_quote(text: &str, cite_key: &str, page: Option<u32>) -> String {
         let attribution = match page {
             Some(p) => format!("@{}, p. {}", cite_key, p),
             None => format!("@{}", cite_key),
@@ -883,7 +888,9 @@ mod tests {
         let annotations = vec![sample_highlight(), sample_note()];
         let options = ImportOptions::default().with_types(vec![AnnotationType::Highlight]);
 
-        let result = importer.import_as_section(&annotations, Some(&options)).unwrap();
+        let result = importer
+            .import_as_section(&annotations, Some(&options))
+            .unwrap();
 
         assert!(result.contains("Important finding"));
         assert!(!result.contains("contradicts"));
@@ -920,10 +927,7 @@ mod tests {
         pub2.year = Some(2020);
         let annotations2 = vec![sample_note()];
 
-        let items = vec![
-            (pub1, annotations1),
-            (pub2, annotations2),
-        ];
+        let items = vec![(pub1, annotations1), (pub2, annotations2)];
 
         let result = batch_import(&items, &ImportOptions::typst());
 

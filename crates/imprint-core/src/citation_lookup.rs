@@ -39,12 +39,12 @@ use impress_domain::{
     Publication,
 };
 
-use crate::citations::{CitationProvider, CitationReference, CitationResult};
 use crate::bibliography::Bibliography;
+use crate::citations::{CitationProvider, CitationReference, CitationResult};
 
 // Re-export the cross-app citation reference for convenience
-pub use impress_domain::CitationReference as CrossAppCitation;
 pub use impress_domain::CitationBatch;
+pub use impress_domain::CitationReference as CrossAppCitation;
 
 /// Convert a Publication to a cross-app CitationReference
 ///
@@ -252,17 +252,15 @@ impl CitationProvider for LocalLibraryCitationProvider {
                 // Linear search for ISBN/PMID (less common)
                 self.by_key
                     .values()
-                    .find(|p| {
-                        match reference {
-                            CitationReference::Isbn(isbn) => {
-                                p.identifiers.isbn.as_ref().map(|i| i.to_lowercase())
-                                    == Some(isbn.to_lowercase())
-                            }
-                            CitationReference::PubMed(pmid) => {
-                                p.identifiers.pmid.as_ref() == Some(pmid)
-                            }
-                            _ => false,
+                    .find(|p| match reference {
+                        CitationReference::Isbn(isbn) => {
+                            p.identifiers.isbn.as_ref().map(|i| i.to_lowercase())
+                                == Some(isbn.to_lowercase())
                         }
+                        CitationReference::PubMed(pmid) => {
+                            p.identifiers.pmid.as_ref() == Some(pmid)
+                        }
+                        _ => false,
                     })
                     .map(|p| p.cite_key.clone())
             }

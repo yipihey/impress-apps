@@ -322,9 +322,15 @@ pub fn parse_imprint_url(url_string: String) -> ParseResult {
 
 fn parse_open_command(params: &HashMap<String, String>) -> ImprintCommand {
     ImprintCommand::Open(OpenDocumentCommand {
-        document_id: params.get("id").or_else(|| params.get("document_id")).cloned(),
+        document_id: params
+            .get("id")
+            .or_else(|| params.get("document_id"))
+            .cloned(),
         path: params.get("path").or_else(|| params.get("file")).cloned(),
-        edit_mode: params.get("mode").or_else(|| params.get("edit_mode")).cloned(),
+        edit_mode: params
+            .get("mode")
+            .or_else(|| params.get("edit_mode"))
+            .cloned(),
         position: params
             .get("position")
             .or_else(|| params.get("pos"))
@@ -737,8 +743,9 @@ mod tests {
 
     #[test]
     fn test_parse_insert_citation_url() {
-        let result =
-            parse_url_command("imprint://insert-citation?cite_key=Smith2024&document=abc&position=100");
+        let result = parse_url_command(
+            "imprint://insert-citation?cite_key=Smith2024&document=abc&position=100",
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(ImprintCommand::InsertCitation(cmd)) => {
@@ -752,7 +759,8 @@ mod tests {
 
     #[test]
     fn test_parse_export_url() {
-        let result = parse_url_command("imprint://export?document=doc1&format=latex&dest=/tmp/out.tex");
+        let result =
+            parse_url_command("imprint://export?document=doc1&format=latex&dest=/tmp/out.tex");
         assert!(result.error.is_none());
         match result.command {
             Some(ImprintCommand::Export(cmd)) => {
@@ -766,8 +774,9 @@ mod tests {
 
     #[test]
     fn test_parse_share_url() {
-        let result =
-            parse_url_command("imprint://share?document=doc1&action=invite&email=test@example.com&permission=edit");
+        let result = parse_url_command(
+            "imprint://share?document=doc1&action=invite&email=test@example.com&permission=edit",
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(ImprintCommand::Share(cmd)) => {
@@ -782,8 +791,9 @@ mod tests {
 
     #[test]
     fn test_parse_import_notes_url() {
-        let result =
-            parse_url_command("imprint://import-notes?document=doc1&publication_id=pub1&format=quote&type=highlight");
+        let result = parse_url_command(
+            "imprint://import-notes?document=doc1&publication_id=pub1&format=quote&type=highlight",
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(ImprintCommand::ImportNotes(cmd)) => {

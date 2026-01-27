@@ -130,10 +130,12 @@ impl DataGenerator for FunctionPlotter2D {
                 let z = self.evaluate(function, x, y) * scale;
 
                 // Numerical gradient
-                let grad_x = (self.evaluate(function, x + h, y) - self.evaluate(function, x - h, y))
+                let grad_x = (self.evaluate(function, x + h, y)
+                    - self.evaluate(function, x - h, y))
                     / (2.0 * h)
                     * scale;
-                let grad_y = (self.evaluate(function, x, y + h) - self.evaluate(function, x, y - h))
+                let grad_y = (self.evaluate(function, x, y + h)
+                    - self.evaluate(function, x, y - h))
                     / (2.0 * h)
                     * scale;
 
@@ -156,7 +158,10 @@ impl DataGenerator for FunctionPlotter2D {
         columns.insert("gradient_y".to_string(), grad_y_data);
 
         Ok(GeneratedData::new(columns)
-            .with_bounds(BoundingBox::new([x_min, y_min, z_min], [x_max, y_max, z_max]))
+            .with_bounds(BoundingBox::new(
+                [x_min, y_min, z_min],
+                [x_max, y_max, z_max],
+            ))
             .with_metadata("generator", "function-2d")
             .with_metadata("function", function.to_string()))
     }
@@ -231,8 +236,10 @@ impl DataGenerator for SineCosine {
     fn schema(&self) -> DataSchema {
         DataSchema::new(vec![
             FieldDescriptor::new("x", DataType::Float64).with_description("X coordinate"),
-            FieldDescriptor::new("sin", DataType::Float64).with_description("sin(freq * x + phase)"),
-            FieldDescriptor::new("cos", DataType::Float64).with_description("cos(freq * x + phase)"),
+            FieldDescriptor::new("sin", DataType::Float64)
+                .with_description("sin(freq * x + phase)"),
+            FieldDescriptor::new("cos", DataType::Float64)
+                .with_description("cos(freq * x + phase)"),
             FieldDescriptor::new("sum", DataType::Float64)
                 .with_description("sin + cos (interference)"),
             FieldDescriptor::new("product", DataType::Float64).with_description("sin * cos"),

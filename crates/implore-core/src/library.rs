@@ -154,7 +154,10 @@ impl FigureLibrary {
 
     /// Get all unfiled figures
     pub fn unfiled_figures(&self) -> Vec<&LibraryFigure> {
-        self.figures.iter().filter(|f| f.folder_id.is_none()).collect()
+        self.figures
+            .iter()
+            .filter(|f| f.folder_id.is_none())
+            .collect()
     }
 
     /// Get figures in a specific folder
@@ -216,7 +219,9 @@ impl FigureLibrary {
             .iter()
             .filter(|f| {
                 f.title.to_lowercase().contains(&query_lower)
-                    || f.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || f.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .collect()
     }
@@ -301,12 +306,19 @@ impl LibraryFigure {
 
     /// Get all auto-update links
     pub fn auto_update_links(&self) -> Vec<&ImprintLink> {
-        self.imprint_links.iter().filter(|l| l.auto_update).collect()
+        self.imprint_links
+            .iter()
+            .filter(|l| l.auto_update)
+            .collect()
     }
 
     /// Mark a link as synced
     pub fn mark_synced(&mut self, document_id: &str) {
-        if let Some(link) = self.imprint_links.iter_mut().find(|l| l.document_id == document_id) {
+        if let Some(link) = self
+            .imprint_links
+            .iter_mut()
+            .find(|l| l.document_id == document_id)
+        {
             link.last_synced = Some(chrono::Utc::now().to_rfc3339());
         }
     }

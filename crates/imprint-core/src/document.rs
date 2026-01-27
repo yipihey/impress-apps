@@ -105,7 +105,9 @@ impl EditMode {
     /// Cycle through modes: A (DirectPdf) -> B (SplitView) -> C (TextOnly) -> A
     pub fn cycle(&self) -> Self {
         match self {
-            EditMode::DirectPdf { cursor_source_pos, .. } => EditMode::SplitView {
+            EditMode::DirectPdf {
+                cursor_source_pos, ..
+            } => EditMode::SplitView {
                 source_scroll: *cursor_source_pos,
                 preview_page: 1,
             },
@@ -132,7 +134,9 @@ impl EditMode {
     /// Get the source scroll position (if applicable).
     pub fn source_scroll(&self) -> Option<usize> {
         match self {
-            EditMode::DirectPdf { cursor_source_pos, .. } => Some(*cursor_source_pos),
+            EditMode::DirectPdf {
+                cursor_source_pos, ..
+            } => Some(*cursor_source_pos),
             EditMode::SplitView { source_scroll, .. } => Some(*source_scroll),
             EditMode::TextOnly { source_scroll } => Some(*source_scroll),
         }

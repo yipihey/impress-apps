@@ -130,16 +130,10 @@ impl Dataset {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DatasetSource {
     /// HDF5 file with dataset path
-    Hdf5 {
-        path: String,
-        dataset_path: String,
-    },
+    Hdf5 { path: String, dataset_path: String },
 
     /// FITS file with extension number
-    Fits {
-        path: String,
-        extension: u32,
-    },
+    Fits { path: String, extension: u32 },
 
     /// CSV file with optional delimiter (as a single-character string for FFI compatibility)
     Csv {
@@ -148,14 +142,10 @@ pub enum DatasetSource {
     },
 
     /// Parquet file
-    Parquet {
-        path: String,
-    },
+    Parquet { path: String },
 
     /// In-memory data (for testing or generated data)
-    InMemory {
-        format: String,
-    },
+    InMemory { format: String },
 
     /// Plugin-generated data
     Generated {
@@ -220,7 +210,10 @@ pub struct DataSchema {
 impl DataSchema {
     /// Create a schema from field descriptors
     pub fn new(fields: Vec<FieldDescriptor>, num_records: u64) -> Self {
-        Self { fields, num_records }
+        Self {
+            fields,
+            num_records,
+        }
     }
 
     /// Add a field to the schema

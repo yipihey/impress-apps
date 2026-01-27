@@ -270,7 +270,7 @@ impl Default for RenderConfig {
             point_size: 4.0,
             point_size_range: (1.0, 20.0),
             background_color: [0.05, 0.05, 0.08, 1.0], // Dark blue-gray
-            selection_color: [1.0, 0.8, 0.0, 1.0],    // Gold
+            selection_color: [1.0, 0.8, 0.0, 1.0],     // Gold
         }
     }
 }
@@ -611,7 +611,10 @@ mod tests {
         let mode = RenderMode::Science2D;
         assert_eq!(mode.cycle_reverse(), RenderMode::Histogram1D);
         assert_eq!(mode.cycle_reverse().cycle_reverse(), RenderMode::ArtShader);
-        assert_eq!(mode.cycle_reverse().cycle_reverse().cycle_reverse(), RenderMode::Box3D);
+        assert_eq!(
+            mode.cycle_reverse().cycle_reverse().cycle_reverse(),
+            RenderMode::Box3D
+        );
     }
 
     #[test]

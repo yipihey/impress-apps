@@ -42,7 +42,6 @@ pub use axis::*;
 pub use camera::*;
 pub use colormap::*;
 pub use dataset::*;
-pub use types::*;
 pub use library::{FigureFolder, FigureLibrary, ImprintLink, LibraryFigure};
 pub use plugin::{
     DataGenerator, GeneratedData, GeneratedDataFfi, GeneratorCategory, GeneratorError,
@@ -53,6 +52,7 @@ pub use plugin::{
 pub use session::*;
 pub use spatial::*;
 pub use sync::{FigureExportData, FigureSyncService, FigureUpdateNotification, SyncResult};
+pub use types::*;
 pub use view::*;
 
 // render module exports GPU-specific types, access via render:: prefix

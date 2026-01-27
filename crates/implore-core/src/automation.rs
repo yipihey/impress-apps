@@ -239,8 +239,8 @@ pub struct UnlinkFigureCommand {
 impl ImploreCommand {
     /// Parse a command from a URL string
     pub fn parse(url_str: &str) -> AutomationResult<Self> {
-        let url = url::Url::parse(url_str)
-            .map_err(|e| AutomationError::InvalidUrl(e.to_string()))?;
+        let url =
+            url::Url::parse(url_str).map_err(|e| AutomationError::InvalidUrl(e.to_string()))?;
 
         if url.scheme() != "implore" {
             return Err(AutomationError::InvalidUrl(format!(
@@ -316,7 +316,12 @@ impl ImploreCommand {
             "svg" => FigureFormat::Svg,
             "eps" => FigureFormat::Eps,
             "typst" | "typ" => FigureFormat::Typst,
-            _ => return Err(AutomationError::InvalidValue(format!("Unknown format: {}", format_str))),
+            _ => {
+                return Err(AutomationError::InvalidValue(format!(
+                    "Unknown format: {}",
+                    format_str
+                )))
+            }
         };
 
         Ok(ImploreCommand::Export(ExportFigureCommand {
@@ -396,7 +401,10 @@ impl ImploreCommand {
         // Extract all other params as generator params
         let mut gen_params = params.clone();
         gen_params.remove("plugin");
-        let auto_open = gen_params.remove("auto_open").map(|s| s == "true").unwrap_or(true);
+        let auto_open = gen_params
+            .remove("auto_open")
+            .map(|s| s == "true")
+            .unwrap_or(true);
 
         Ok(ImploreCommand::Generate(GenerateCommand {
             generator_id,
@@ -443,11 +451,7 @@ impl ImploreCommand {
 // URL builders for constructing URLs programmatically
 
 /// Build an open URL
-pub fn build_open_url(
-    path: &str,
-    dataset_path: Option<&str>,
-    extension: Option<u32>,
-) -> String {
+pub fn build_open_url(path: &str, dataset_path: Option<&str>, extension: Option<u32>) -> String {
     let mut url = format!("implore://open?path={}", urlencoding::encode(path));
     if let Some(dp) = dataset_path {
         url.push_str(&format!("&dataset={}", urlencoding::encode(dp)));
@@ -471,7 +475,10 @@ pub fn build_export_url(format: FigureFormat, dpi: u32, width: u32, height: u32)
 
 /// Build a share URL
 pub fn build_share_url(session_id: &str, email: Option<&str>, permission: Option<&str>) -> String {
-    let mut url = format!("implore://share?session={}", urlencoding::encode(session_id));
+    let mut url = format!(
+        "implore://share?session={}",
+        urlencoding::encode(session_id)
+    );
     if let Some(e) = email {
         url.push_str(&format!("&email={}", urlencoding::encode(e)));
     }
@@ -509,9 +516,16 @@ pub fn build_link_publication_url(dataset_id: &str, publication_id: &str) -> Str
 
 /// Build a generate URL
 pub fn build_generate_url(generator_id: &str, params: &HashMap<String, String>) -> String {
-    let mut url = format!("implore://generate?plugin={}", urlencoding::encode(generator_id));
+    let mut url = format!(
+        "implore://generate?plugin={}",
+        urlencoding::encode(generator_id)
+    );
     for (key, value) in params {
-        url.push_str(&format!("&{}={}", urlencoding::encode(key), urlencoding::encode(value)));
+        url.push_str(&format!(
+            "&{}={}",
+            urlencoding::encode(key),
+            urlencoding::encode(value)
+        ));
     }
     url
 }

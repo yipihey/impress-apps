@@ -126,7 +126,9 @@ impl Default for CompileOptions {
 #[cfg(feature = "uniffi")]
 #[uniffi::export]
 pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileResult {
-    use crate::render::{DefaultTypstRenderer, OutputFormat, PageSize, RenderOptions, TypstRenderer};
+    use crate::render::{
+        DefaultTypstRenderer, OutputFormat, PageSize, RenderOptions, TypstRenderer,
+    };
 
     let page_size = match options.page_size {
         FFIPageSize::Letter => PageSize::Letter,
@@ -225,12 +227,23 @@ mod tests {
             println!("Compilation error: {}", error);
         }
 
-        assert!(result.error.is_none(), "Compilation should succeed: {:?}", result.error);
+        assert!(
+            result.error.is_none(),
+            "Compilation should succeed: {:?}",
+            result.error
+        );
         assert!(result.pdf_data.is_some(), "PDF data should be returned");
 
         let pdf_data = result.pdf_data.unwrap();
-        assert!(pdf_data.len() > 100, "PDF should have reasonable size, got {} bytes", pdf_data.len());
-        assert!(pdf_data.starts_with(b"%PDF"), "PDF should start with %PDF header");
+        assert!(
+            pdf_data.len() > 100,
+            "PDF should have reasonable size, got {} bytes",
+            pdf_data.len()
+        );
+        assert!(
+            pdf_data.starts_with(b"%PDF"),
+            "PDF should start with %PDF header"
+        );
     }
 
     #[test]
@@ -241,7 +254,11 @@ mod tests {
         let result = compile_typst_to_pdf(source.to_string(), options);
 
         // Empty source should still produce a valid (empty) PDF
-        assert!(result.error.is_none(), "Empty source should compile: {:?}", result.error);
+        assert!(
+            result.error.is_none(),
+            "Empty source should compile: {:?}",
+            result.error
+        );
     }
 
     #[test]
@@ -278,10 +295,18 @@ In conclusion, this sample document demonstrates basic Typst features."#;
             println!("Compilation error: {}", error);
         }
 
-        assert!(result.error.is_none(), "Sample document should compile: {:?}", result.error);
+        assert!(
+            result.error.is_none(),
+            "Sample document should compile: {:?}",
+            result.error
+        );
         assert!(result.pdf_data.is_some(), "PDF data should be returned");
 
         let pdf_data = result.pdf_data.unwrap();
-        assert!(pdf_data.len() > 100, "PDF should have reasonable size, got {} bytes", pdf_data.len());
+        assert!(
+            pdf_data.len() > 100,
+            "PDF should have reasonable size, got {} bytes",
+            pdf_data.len()
+        );
     }
 }

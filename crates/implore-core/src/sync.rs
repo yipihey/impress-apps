@@ -255,13 +255,14 @@ pub struct SyncStats {
 impl FigureSyncService {
     /// Get sync statistics
     pub fn stats(&self) -> SyncStats {
-        let (synced, failed) = self.recent_results.iter().fold((0u64, 0u64), |(s, f), r| {
-            match r {
+        let (synced, failed) = self
+            .recent_results
+            .iter()
+            .fold((0u64, 0u64), |(s, f), r| match r {
                 SyncResult::Success { .. } => (s + 1, f),
                 SyncResult::Failed { .. } => (s, f + 1),
                 SyncResult::NotLinked { .. } => (s, f),
-            }
-        });
+            });
 
         let last_sync = self
             .recent_results

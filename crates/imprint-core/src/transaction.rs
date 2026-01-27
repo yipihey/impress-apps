@@ -111,7 +111,13 @@ impl Operation {
     pub fn transform(&self, other: &Operation, priority: bool) -> Operation {
         match (self, other) {
             // Insert vs Insert
-            (Operation::Insert { pos, text }, Operation::Insert { pos: other_pos, text: other_text }) => {
+            (
+                Operation::Insert { pos, text },
+                Operation::Insert {
+                    pos: other_pos,
+                    text: other_text,
+                },
+            ) => {
                 if *pos < *other_pos || (*pos == *other_pos && priority) {
                     // Our insert is before or has priority, no change needed
                     self.clone()
@@ -145,7 +151,13 @@ impl Operation {
             }
 
             // Delete vs Insert
-            (Operation::Delete { range, deleted }, Operation::Insert { pos: insert_pos, text: insert_text }) => {
+            (
+                Operation::Delete { range, deleted },
+                Operation::Insert {
+                    pos: insert_pos,
+                    text: insert_text,
+                },
+            ) => {
                 if range.end <= *insert_pos {
                     // Delete is entirely before the insert, no change
                     self.clone()
@@ -170,7 +182,12 @@ impl Operation {
             }
 
             // Delete vs Delete
-            (Operation::Delete { range, deleted }, Operation::Delete { range: other_range, .. }) => {
+            (
+                Operation::Delete { range, deleted },
+                Operation::Delete {
+                    range: other_range, ..
+                },
+            ) => {
                 if range.end <= other_range.start {
                     // Our delete is entirely before, no change
                     self.clone()
@@ -193,11 +210,8 @@ impl Operation {
                     let shift = other_range.end - other_range.start;
                     let start_offset = other_range.start - range.start;
                     let end_offset = other_range.end - range.start;
-                    let new_deleted = format!(
-                        "{}{}",
-                        &deleted[..start_offset],
-                        &deleted[end_offset..]
-                    );
+                    let new_deleted =
+                        format!("{}{}", &deleted[..start_offset], &deleted[end_offset..]);
                     Operation::Delete {
                         range: range.start..(range.end - shift),
                         deleted: new_deleted,
@@ -211,8 +225,11 @@ impl Operation {
                     }
                 } else {
                     // Partial overlap: our delete starts after
-                    let new_start = range.start - (range.start - other_range.start).min(other_range.end - other_range.start);
-                    let new_end = new_start + (range.end - range.start) - (other_range.end.min(range.end) - range.start.max(other_range.start));
+                    let new_start = range.start
+                        - (range.start - other_range.start)
+                            .min(other_range.end - other_range.start);
+                    let new_end = new_start + (range.end - range.start)
+                        - (other_range.end.min(range.end) - range.start.max(other_range.start));
                     Operation::Delete {
                         range: new_start..new_end,
                         deleted: deleted.clone(), // Simplified - in practice might need adjustment
@@ -299,7 +316,8 @@ impl Transaction {
     /// The `deleted` parameter contains the text that will be deleted (for undo).
     pub fn delete(&mut self, range: Range<usize>, deleted: &str) -> &mut Self {
         if range.start < range.end {
-            self.operations.push(Operation::delete(range.clone(), deleted));
+            self.operations
+                .push(Operation::delete(range.clone(), deleted));
             // Update selection_after to account for the delete
             let len = range.end - range.start;
             self.selection_after = self.selection_after.map(|sel| {
@@ -378,7 +396,8 @@ impl Transaction {
         }
 
         // Transform selection_after against other's operations
-        let transformed_selection = transform_selection_set(&self.selection_after, &other.operations);
+        let transformed_selection =
+            transform_selection_set(&self.selection_after, &other.operations);
 
         Transaction {
             operations: transformed_ops,
@@ -646,7 +665,7 @@ mod tests {
         let sel = SelectionSet::single(Selection::cursor(0));
         let txn = TransactionBuilder::new(sel)
             .insert(0, "hello")
-            .insert(5, " world")  // Position is original, builder adjusts
+            .insert(5, " world") // Position is original, builder adjusts
             .build();
 
         // First insert at 0, second at adjusted position (0 + 5 = 5)

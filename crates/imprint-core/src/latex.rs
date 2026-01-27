@@ -206,7 +206,6 @@ const LATEX_TO_TYPST_MAPPINGS: &[LatexMapping] = &[
         explanation: "Typst uses '====' for paragraphs",
         confidence: Confidence::Equivalent,
     },
-
     // Text formatting
     LatexMapping {
         pattern: r"\textbf",
@@ -244,7 +243,6 @@ const LATEX_TO_TYPST_MAPPINGS: &[LatexMapping] = &[
         explanation: "#smallcaps[] for small caps",
         confidence: Confidence::Exact,
     },
-
     // Citations and references
     LatexMapping {
         pattern: r"\cite",
@@ -270,7 +268,6 @@ const LATEX_TO_TYPST_MAPPINGS: &[LatexMapping] = &[
         explanation: "#footnote[] for footnotes",
         confidence: Confidence::Exact,
     },
-
     // Math delimiters
     LatexMapping {
         pattern: r"\(",
@@ -296,7 +293,6 @@ const LATEX_TO_TYPST_MAPPINGS: &[LatexMapping] = &[
         explanation: "$ ... $ for display math",
         confidence: Confidence::Exact,
     },
-
     // Common math commands
     LatexMapping {
         pattern: r"\frac",
@@ -394,7 +390,6 @@ const LATEX_TO_TYPST_MAPPINGS: &[LatexMapping] = &[
         explanation: "omega for Greek letters",
         confidence: Confidence::Exact,
     },
-
     // Environments (approximations)
     LatexMapping {
         pattern: r"\begin{itemize}",
@@ -437,15 +432,12 @@ const TYPST_TO_LATEX_MAPPINGS: &[(&str, &str)] = &[
     ("= ", "\\section{"),
     ("== ", "\\subsection{"),
     ("=== ", "\\subsubsection{"),
-
     // Text formatting
     ("*", "\\textbf{"),
     ("_", "\\textit{"),
     ("`", "\\texttt{"),
-
     // Citations
     ("@", "\\cite{"),
-
     // Math
     ("$", "\\("),
     ("sqrt(", "\\sqrt{"),
@@ -453,7 +445,6 @@ const TYPST_TO_LATEX_MAPPINGS: &[(&str, &str)] = &[
     ("product", "\\prod"),
     ("integral", "\\int"),
     ("infinity", "\\infty"),
-
     // Greek letters
     ("alpha", "\\alpha"),
     ("beta", "\\beta"),
@@ -547,9 +538,9 @@ impl LatexConverter {
         // Remove overlapping suggestions (keep higher confidence)
         let mut filtered = Vec::new();
         for suggestion in suggestions {
-            let overlaps = filtered
-                .iter()
-                .any(|s: &ConversionSuggestion| ranges_overlap(&s.latex_range, &suggestion.latex_range));
+            let overlaps = filtered.iter().any(|s: &ConversionSuggestion| {
+                ranges_overlap(&s.latex_range, &suggestion.latex_range)
+            });
 
             if !overlaps {
                 filtered.push(suggestion);
@@ -593,8 +584,7 @@ impl LatexConverter {
                 } else {
                     // Other
                     format!("{}{}", mapping.replacement, arg)
-                }
-                ;
+                };
 
                 return (arg_end, latex_text.to_string(), typst_text);
             }
@@ -819,9 +809,7 @@ impl LatexConverter {
         }
 
         // Clean up some common issues
-        let result = result
-            .replace("\\n", "\n")
-            .replace("\n\n\n", "\n\n");
+        let result = result.replace("\\n", "\n").replace("\n\n\n", "\n\n");
 
         Ok(result)
     }
@@ -960,7 +948,9 @@ mod tests {
     #[test]
     fn test_typst_to_latex_heading() {
         let converter = LatexConverter::new();
-        let result = converter.typst_to_latex("= Introduction\n\nSome text.").unwrap();
+        let result = converter
+            .typst_to_latex("= Introduction\n\nSome text.")
+            .unwrap();
 
         assert!(result.contains("\\documentclass{article}"));
         assert!(result.contains("\\section{Introduction}"));
@@ -970,7 +960,9 @@ mod tests {
     #[test]
     fn test_typst_to_latex_formatting() {
         let converter = LatexConverter::new();
-        let result = converter.convert_typst_content("*bold* and _italic_").unwrap();
+        let result = converter
+            .convert_typst_content("*bold* and _italic_")
+            .unwrap();
 
         assert!(result.contains("\\textbf{bold}"));
         assert!(result.contains("\\textit{italic}"));
@@ -979,7 +971,9 @@ mod tests {
     #[test]
     fn test_typst_to_latex_citation() {
         let converter = LatexConverter::new();
-        let result = converter.convert_typst_content("See @smith2023 for details.").unwrap();
+        let result = converter
+            .convert_typst_content("See @smith2023 for details.")
+            .unwrap();
 
         assert!(result.contains("\\cite{smith2023}"));
     }

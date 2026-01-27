@@ -50,7 +50,10 @@ impl SourceSpan {
 
     /// Create a span representing a cursor position (zero-width).
     pub fn cursor(pos: usize) -> Self {
-        Self { start: pos, end: pos }
+        Self {
+            start: pos,
+            end: pos,
+        }
     }
 
     /// Get the length of the span.
@@ -141,7 +144,11 @@ impl RenderPosition {
 
 impl Default for RenderPosition {
     fn default() -> Self {
-        Self { page: 1, x: 0.0, y: 0.0 }
+        Self {
+            page: 1,
+            x: 0.0,
+            y: 0.0,
+        }
     }
 }
 
@@ -161,7 +168,12 @@ pub struct BoundingBox {
 impl BoundingBox {
     /// Create a new bounding box.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Create a bounding box from corner coordinates.
@@ -386,7 +398,8 @@ impl SourceMap {
         }
 
         // Insert entry maintaining sort order
-        let pos = self.entries
+        let pos = self
+            .entries
             .binary_search_by_key(&entry.source.start, |e| e.source.start)
             .unwrap_or_else(|i| i);
         self.entries.insert(pos, entry);
@@ -406,10 +419,7 @@ impl SourceMap {
 
             for region in &entry.regions {
                 self.page_count = self.page_count.max(region.page);
-                self.page_index
-                    .entry(region.page)
-                    .or_default()
-                    .push(idx);
+                self.page_index.entry(region.page).or_default().push(idx);
             }
         }
 
@@ -440,8 +450,12 @@ impl SourceMap {
 
         // Sort by page, then by y position
         regions.sort_by(|a, b| {
-            a.page.cmp(&b.page)
-                .then_with(|| a.bbox.y.partial_cmp(&b.bbox.y).unwrap_or(std::cmp::Ordering::Equal))
+            a.page.cmp(&b.page).then_with(|| {
+                a.bbox
+                    .y
+                    .partial_cmp(&b.bbox.y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         // Remove duplicates
@@ -534,7 +548,11 @@ impl SourceMap {
         let at_start = pos.x <= best_region_center.0;
 
         Some(CursorPosition {
-            source_offset: if at_start { entry.source.start } else { entry.source.end },
+            source_offset: if at_start {
+                entry.source.start
+            } else {
+                entry.source.end
+            },
             render_pos: RenderPosition::new(pos.page, best_region_center.0, best_region_center.1),
             content_type: entry.content_type,
             at_start,
@@ -548,9 +566,8 @@ impl SourceMap {
     /// marks the affected entries for recalculation.
     pub fn invalidate(&mut self, edit_range: Range<usize>) {
         // Remove entries that overlap with the edit range
-        self.entries.retain(|entry| {
-            !entry.source.overlaps(&SourceSpan::from(edit_range.clone()))
-        });
+        self.entries
+            .retain(|entry| !entry.source.overlaps(&SourceSpan::from(edit_range.clone())));
 
         // Shift entries after the edit
         let edit_len = edit_range.end - edit_range.start;
@@ -601,9 +618,7 @@ impl SourceMap {
 
         self.page_index
             .get(&page)
-            .map(|indices| {
-                indices.iter().map(|&i| &self.entries[i]).collect()
-            })
+            .map(|indices| indices.iter().map(|&i| &self.entries[i]).collect())
             .unwrap_or_default()
     }
 }
@@ -694,13 +709,19 @@ mod tests {
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(0, 10),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 72.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 72.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(10, 20),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 92.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 92.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
@@ -714,7 +735,10 @@ mod tests {
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(0, 10),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 72.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 72.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
@@ -729,7 +753,10 @@ mod tests {
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(0, 10),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 72.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 72.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
@@ -747,7 +774,10 @@ mod tests {
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(0, 10),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 72.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 72.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
@@ -763,13 +793,19 @@ mod tests {
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(0, 10),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 72.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 72.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
         map.add_entry(SourceMapEntry {
             source: SourceSpan::new(20, 30),
-            regions: vec![RenderRegion::new(1, BoundingBox::new(72.0, 92.0, 100.0, 20.0))],
+            regions: vec![RenderRegion::new(
+                1,
+                BoundingBox::new(72.0, 92.0, 100.0, 20.0),
+            )],
             content_type: ContentType::Text,
         });
 
@@ -779,6 +815,6 @@ mod tests {
         // First entry should be removed, second should be shifted
         assert_eq!(map.entries().len(), 1);
         assert_eq!(map.entries()[0].source.start, 10); // 20 - 10 = 10
-        assert_eq!(map.entries()[0].source.end, 20);   // 30 - 10 = 20
+        assert_eq!(map.entries()[0].source.end, 20); // 30 - 10 = 20
     }
 }
