@@ -76,12 +76,12 @@ jobs:
           key: ${{ runner.os }}-cargo-imprint-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build library
-        run: cargo build --release
+        run: cargo build --release --features native
 
       - name: Generate Swift bindings
         run: |
           mkdir -p generated
-          cargo run --release --bin uniffi-bindgen generate \
+          cargo run --release --features native --bin uniffi-bindgen generate \
             --library ../../target/release/libimprint_core.dylib \
             --language swift \
             --out-dir generated

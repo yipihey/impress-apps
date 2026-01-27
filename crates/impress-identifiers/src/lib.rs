@@ -1,3 +1,6 @@
+// Allow manual modulo checks since .is_multiple_of() is nightly-only
+#![allow(clippy::manual_is_multiple_of)]
+
 //! Identifier extraction and validation for academic publications
 //!
 //! This crate provides tools for working with academic publication identifiers:
