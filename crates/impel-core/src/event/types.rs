@@ -10,13 +10,22 @@ use crate::thread::{ThreadId, ThreadState};
 
 /// Unique identifier for an event
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct EventId(pub Uuid);
+pub struct EventId {
+    /// The underlying UUID value
+    pub value: Uuid,
+}
 
 impl EventId {
     /// Create a new random event ID
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self {
+            value: Uuid::new_v4(),
+        }
+    }
+
+    /// Create from a UUID
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self { value: uuid }
     }
 }
 
@@ -28,13 +37,12 @@ impl Default for EventId {
 
 impl std::fmt::Display for EventId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
 /// An event in the impel system
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Event {
     /// Unique event ID
     pub id: EventId,

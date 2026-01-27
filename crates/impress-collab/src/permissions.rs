@@ -41,9 +41,8 @@ impl<'de> Deserialize<'de> for Permissions {
         D: serde::Deserializer<'de>,
     {
         let bits = u32::deserialize(deserializer)?;
-        Permissions::from_bits(bits).ok_or_else(|| {
-            serde::de::Error::custom(format!("invalid permission bits: {}", bits))
-        })
+        Permissions::from_bits(bits)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid permission bits: {}", bits)))
     }
 }
 

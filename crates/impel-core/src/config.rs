@@ -9,7 +9,6 @@ use crate::thread::TemperatureCoefficients;
 
 /// System-wide configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ImpelConfig {
     /// Temperature calculation parameters
     pub temperature: TemperatureConfig,
@@ -34,7 +33,6 @@ impl Default for ImpelConfig {
 
 /// Temperature calculation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct TemperatureConfig {
     /// Coefficients for the temperature formula
     pub coefficients: TemperatureCoefficients,
@@ -65,7 +63,6 @@ impl Default for TemperatureConfig {
 
 /// Agent behavior configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct AgentConfig {
     /// Maximum concurrent agents per thread
     pub max_agents_per_thread: u32,
@@ -93,7 +90,6 @@ impl Default for AgentConfig {
 
 /// Escalation behavior configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct EscalationConfig {
     /// Auto-escalate after this many blocked cycles
     pub auto_escalate_after_cycles: u32,
@@ -121,7 +117,6 @@ impl Default for EscalationConfig {
 
 /// System timing configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct TimingConfig {
     /// Temperature recalculation interval in minutes
     pub temperature_recalc_minutes: u32,

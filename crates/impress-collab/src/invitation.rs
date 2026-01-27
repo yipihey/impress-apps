@@ -37,10 +37,11 @@ pub enum InvitationError {
 }
 
 /// Status of an invitation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InvitationStatus {
     /// Invitation is pending acceptance
+    #[default]
     Pending,
     /// Invitation has been accepted
     Accepted,
@@ -50,12 +51,6 @@ pub enum InvitationStatus {
     Expired,
     /// Invitation has been revoked by the sender
     Revoked,
-}
-
-impl Default for InvitationStatus {
-    fn default() -> Self {
-        InvitationStatus::Pending
-    }
 }
 
 /// An invitation to access a shared resource.

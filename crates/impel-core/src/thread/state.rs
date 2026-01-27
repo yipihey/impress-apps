@@ -10,10 +10,11 @@
 use serde::{Deserialize, Serialize};
 
 /// The state of a research thread
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ThreadState {
     /// Thread is newly created, not yet started
+    #[default]
     Embryo,
     /// Thread is actively being worked on
     Active,
@@ -106,12 +107,6 @@ impl ThreadState {
             ThreadState::Complete => "Successfully completed",
             ThreadState::Killed => "Terminated",
         }
-    }
-}
-
-impl Default for ThreadState {
-    fn default() -> Self {
-        ThreadState::Embryo
     }
 }
 

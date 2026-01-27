@@ -11,23 +11,29 @@ use crate::thread::ThreadId;
 
 /// Unique identifier for a project
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct ProjectId(pub Uuid);
+pub struct ProjectId {
+    /// The underlying UUID value
+    pub value: Uuid,
+}
 
 impl ProjectId {
     /// Create a new random project ID
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self {
+            value: Uuid::new_v4(),
+        }
     }
 
     /// Create a project ID from a UUID
     pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
+        Self { value: uuid }
     }
 
     /// Parse a project ID from a string
     pub fn parse(s: &str) -> Result<Self, uuid::Error> {
-        Ok(Self(Uuid::parse_str(s)?))
+        Ok(Self {
+            value: Uuid::parse_str(s)?,
+        })
     }
 }
 
@@ -39,7 +45,7 @@ impl Default for ProjectId {
 
 impl std::fmt::Display for ProjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
@@ -93,7 +99,6 @@ impl std::fmt::Display for ProjectStatus {
 
 /// Relationship between projects
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ProjectRelation {
     /// This project follows on from a predecessor
     FollowOn {
@@ -124,7 +129,6 @@ pub enum Inheritance {
 
 /// A deliverable produced by a project
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Deliverable {
     /// Unique identifier
     pub id: String,
@@ -199,7 +203,6 @@ pub enum DeliverableKind {
 
 /// A research project
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Project {
     /// Unique identifier
     pub id: ProjectId,

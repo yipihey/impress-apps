@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// Message body content
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct MessageBody {
     /// Plain text content
     pub text: String,
@@ -66,7 +65,6 @@ impl MessageBody {
 
 /// An attachment to a message
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Attachment {
     /// Filename
     pub filename: String,

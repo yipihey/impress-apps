@@ -253,7 +253,6 @@ impl Default for ImploreAdapter {
 
 /// Statistics about a dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct DataStatistics {
     /// Number of rows
     pub row_count: usize,
@@ -267,7 +266,6 @@ pub struct DataStatistics {
 
 /// Information about a data column
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ColumnInfo {
     /// Column name
     pub name: String,

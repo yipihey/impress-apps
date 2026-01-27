@@ -176,12 +176,14 @@ impl Repository {
             description: description.unwrap_or_default(),
             parent_id: parent_id_str
                 .and_then(|s| Uuid::parse_str(&s).ok())
-                .map(ThreadId),
+                .map(|uuid| ThreadId { value: uuid }),
             ..Default::default()
         };
 
         Ok(Thread {
-            id: ThreadId(Uuid::parse_str(&id_str).unwrap()),
+            id: ThreadId {
+                value: Uuid::parse_str(&id_str).unwrap(),
+            },
             state,
             temperature: Temperature::new(temperature_val),
             metadata,
@@ -297,7 +299,7 @@ impl Repository {
             status,
             current_thread: current_thread_str
                 .and_then(|s| Uuid::parse_str(&s).ok())
-                .map(ThreadId),
+                .map(|uuid| ThreadId { value: uuid }),
             auth_token,
             registered_at: DateTime::parse_from_rfc3339(&registered_at_str)
                 .unwrap()
@@ -428,7 +430,7 @@ impl Repository {
             description,
             thread_id: thread_id_str
                 .and_then(|s| Uuid::parse_str(&s).ok())
-                .map(ThreadId),
+                .map(|uuid| ThreadId { value: uuid }),
             created_by,
             created_at: DateTime::parse_from_rfc3339(&created_at_str)
                 .unwrap()

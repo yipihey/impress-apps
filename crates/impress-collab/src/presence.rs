@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Status indicating a user's current presence state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PresenceStatus {
     /// User is actively working on the resource
@@ -17,13 +17,8 @@ pub enum PresenceStatus {
     /// User is away from the application
     Away,
     /// User is offline
+    #[default]
     Offline,
-}
-
-impl Default for PresenceStatus {
-    fn default() -> Self {
-        PresenceStatus::Offline
-    }
 }
 
 impl PresenceStatus {
@@ -39,7 +34,7 @@ impl PresenceStatus {
 }
 
 /// A user's cursor position within a document or resource.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CursorPosition {
     /// The section or component ID where the cursor is located
     pub section_id: Option<String>,
@@ -114,19 +109,6 @@ impl CursorPosition {
         match (self.selection_start, self.selection_end) {
             (Some(start), Some(end)) => Some(end.saturating_sub(start)),
             _ => None,
-        }
-    }
-}
-
-impl Default for CursorPosition {
-    fn default() -> Self {
-        Self {
-            section_id: None,
-            line: None,
-            column: None,
-            selection_start: None,
-            selection_end: None,
-            context: None,
         }
     }
 }

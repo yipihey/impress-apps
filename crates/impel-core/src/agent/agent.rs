@@ -45,7 +45,6 @@ impl std::fmt::Display for AgentStatus {
 
 /// An agent in the impel system
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Agent {
     /// Unique identifier (typically agent-type-number, e.g., "research-1")
     pub id: String,

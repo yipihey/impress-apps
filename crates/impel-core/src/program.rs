@@ -13,23 +13,29 @@ use crate::project::{Project, ProjectId, ProjectStatus};
 
 /// Unique identifier for a program
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct ProgramId(pub Uuid);
+pub struct ProgramId {
+    /// The underlying UUID value
+    pub value: Uuid,
+}
 
 impl ProgramId {
     /// Create a new random program ID
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self {
+            value: Uuid::new_v4(),
+        }
     }
 
     /// Create a program ID from a UUID
     pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
+        Self { value: uuid }
     }
 
     /// Parse a program ID from a string
     pub fn parse(s: &str) -> Result<Self, uuid::Error> {
-        Ok(Self(Uuid::parse_str(s)?))
+        Ok(Self {
+            value: Uuid::parse_str(s)?,
+        })
     }
 }
 
@@ -41,7 +47,7 @@ impl Default for ProgramId {
 
 impl std::fmt::Display for ProgramId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
@@ -90,7 +96,6 @@ impl std::fmt::Display for ProgramStatus {
 
 /// Summary statistics for a program
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ProgramStats {
     /// Total number of projects
     pub project_count: usize,
@@ -110,7 +115,6 @@ pub struct ProgramStats {
 
 /// A research program (collection of projects)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Program {
     /// Unique identifier
     pub id: ProgramId,

@@ -10,24 +10,32 @@ use crate::thread::ThreadId;
 
 /// Unique identifier for a message (RFC 5322 Message-ID format)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct MessageId(pub String);
+pub struct MessageId {
+    /// The underlying string value
+    pub value: String,
+}
 
 impl MessageId {
     /// Create a new message ID
     pub fn new() -> Self {
         let uuid = Uuid::new_v4();
         let timestamp = Utc::now().timestamp();
-        Self(format!("<{}.{}@impel.local>", uuid, timestamp))
+        Self {
+            value: format!("<{}.{}@impel.local>", uuid, timestamp),
+        }
     }
 
     /// Parse a message ID from a string
     pub fn parse(s: &str) -> Result<Self> {
         let s = s.trim();
         if s.starts_with('<') && s.ends_with('>') {
-            Ok(Self(s.to_string()))
+            Ok(Self {
+                value: s.to_string(),
+            })
         } else if !s.contains('<') {
-            Ok(Self(format!("<{}>", s)))
+            Ok(Self {
+                value: format!("<{}>", s),
+            })
         } else {
             Err(MessageError::InvalidFormat(format!("Invalid message ID: {}", s)).into())
         }
@@ -35,7 +43,7 @@ impl MessageId {
 
     /// Get the raw ID without angle brackets
     pub fn raw(&self) -> &str {
-        self.0.trim_start_matches('<').trim_end_matches('>')
+        self.value.trim_start_matches('<').trim_end_matches('>')
     }
 }
 
@@ -47,13 +55,12 @@ impl Default for MessageId {
 
 impl std::fmt::Display for MessageId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
 /// Address in email format (local@domain)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Address {
     /// Display name (optional)
     pub name: Option<String>,
@@ -114,7 +121,6 @@ impl std::fmt::Display for Address {
 
 /// RFC 5322 message envelope with headers
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct MessageEnvelope {
     /// Unique message ID
     pub message_id: MessageId,
@@ -391,9 +397,9 @@ mod tests {
     #[test]
     fn test_message_id() {
         let id = MessageId::new();
-        assert!(id.0.starts_with('<'));
-        assert!(id.0.ends_with('>'));
-        assert!(id.0.contains("@impel.local"));
+        assert!(id.value.starts_with('<'));
+        assert!(id.value.ends_with('>'));
+        assert!(id.value.contains("@impel.local"));
     }
 
     #[test]

@@ -203,7 +203,7 @@ impl SqliteEventStore {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             rusqlite::params![
-                event.id.0.to_string(),
+                event.id.value.to_string(),
                 event.sequence,
                 event.timestamp.to_rfc3339(),
                 event.entity_id,
@@ -211,7 +211,7 @@ impl SqliteEventStore {
                 payload_json,
                 event.actor_id,
                 event.correlation_id,
-                event.causation_id.map(|id| id.0.to_string()),
+                event.causation_id.map(|id| id.value.to_string()),
             ],
         )?;
 
@@ -285,7 +285,9 @@ impl SqliteEventStore {
         };
 
         Ok(Event {
-            id: EventId(Uuid::parse_str(&id_str).unwrap()),
+            id: EventId {
+                value: Uuid::parse_str(&id_str).unwrap(),
+            },
             sequence,
             timestamp: DateTime::parse_from_rfc3339(&timestamp_str)
                 .unwrap()
@@ -295,7 +297,9 @@ impl SqliteEventStore {
             payload: serde_json::from_str(&payload_json).unwrap(),
             actor_id,
             correlation_id,
-            causation_id: causation_id_str.map(|s| EventId(Uuid::parse_str(&s).unwrap())),
+            causation_id: causation_id_str.map(|s| EventId {
+                value: Uuid::parse_str(&s).unwrap(),
+            }),
         })
     }
 

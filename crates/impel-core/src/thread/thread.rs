@@ -9,24 +9,28 @@ use crate::error::{Result, ThreadError};
 
 /// Unique identifier for a thread
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct ThreadId(pub Uuid);
+pub struct ThreadId {
+    /// The underlying UUID value
+    pub value: Uuid,
+}
 
 impl ThreadId {
     /// Create a new random thread ID
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self {
+            value: Uuid::new_v4(),
+        }
     }
 
     /// Create a thread ID from a UUID
     pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
+        Self { value: uuid }
     }
 
     /// Parse a thread ID from a string
     pub fn parse(s: &str) -> Result<Self> {
         Uuid::parse_str(s)
-            .map(Self)
+            .map(|uuid| Self { value: uuid })
             .map_err(|e| ThreadError::NotFound(e.to_string()).into())
     }
 }
@@ -39,13 +43,12 @@ impl Default for ThreadId {
 
 impl std::fmt::Display for ThreadId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
 /// Metadata for a thread
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ThreadMetadata {
     /// Human-readable title
     pub title: String,
@@ -61,22 +64,8 @@ pub struct ThreadMetadata {
     pub custom: std::collections::HashMap<String, String>,
 }
 
-impl Default for ThreadMetadata {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            description: String::new(),
-            tags: Vec::new(),
-            parent_id: None,
-            related_ids: Vec::new(),
-            custom: std::collections::HashMap::new(),
-        }
-    }
-}
-
 /// A research thread in the impel system
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Thread {
     /// Unique identifier
     pub id: ThreadId,

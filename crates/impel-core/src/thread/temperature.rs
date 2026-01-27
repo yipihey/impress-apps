@@ -43,7 +43,6 @@ impl Default for TemperatureCoefficients {
 
 /// Temperature value with decay tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Temperature {
     /// Current temperature value (0.0-1.0)
     value: f64,

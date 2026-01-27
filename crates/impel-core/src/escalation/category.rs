@@ -161,7 +161,6 @@ impl std::fmt::Display for EscalationStatus {
 
 /// An escalation request for human attention
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Escalation {
     /// Unique identifier
     pub id: String,

@@ -24,7 +24,6 @@ pub struct DocumentHandle {
 
 /// Status of a document
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct DocumentStatus {
     /// Document handle
     pub handle: DocumentHandle,
@@ -108,7 +107,6 @@ pub enum ExportFormat {
 
 /// An edit operation for a document
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct DocumentEdit {
     /// Position in the document
     pub position: usize,
