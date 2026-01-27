@@ -453,7 +453,7 @@ public struct BibImportEntry: Identifiable, Sendable {
 // MARK: - Drop Preview Data
 
 /// Data for displaying a drop preview sheet.
-public enum DropPreviewData: Identifiable, Sendable {
+public enum DropPreviewData: Identifiable, Sendable, Equatable {
     case pdfImport([PDFImportPreview])
     case bibImport(BibImportPreview)
 
@@ -464,5 +464,10 @@ public enum DropPreviewData: Identifiable, Sendable {
         case .bibImport(let preview):
             return "bib-\(preview.id.uuidString)"
         }
+    }
+
+    /// Equatable conformance based on ID comparison for onChange detection.
+    public static func == (lhs: DropPreviewData, rhs: DropPreviewData) -> Bool {
+        lhs.id == rhs.id
     }
 }

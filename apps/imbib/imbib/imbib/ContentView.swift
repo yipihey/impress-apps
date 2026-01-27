@@ -1077,6 +1077,12 @@ struct CollectionListView: View {
                 }
             }
         )
+        .onChange(of: dragDropCoordinator.pendingPreview) { _, newValue in
+            // Dismiss the sheet when pendingPreview becomes nil (import completed or cancelled)
+            if newValue == nil && showingDropPreview {
+                showingDropPreview = false
+            }
+        }
         .sheet(isPresented: $showingDropPreview) {
             collectionDropPreviewSheetContent
         }

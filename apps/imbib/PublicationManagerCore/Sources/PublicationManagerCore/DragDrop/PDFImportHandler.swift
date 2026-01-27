@@ -724,10 +724,10 @@ public final class PDFImportHandler: ObservableObject {
         if let arxivID {
             let normalizedID = IdentifierExtractor.normalizeArXivID(arxivID)
             let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            // Check multiple fields where arXiv might be stored
+            // Check the normalized arXiv ID field (arxivID is a computed property, not a Core Data attribute)
             request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: [
-                NSPredicate(format: "arxivID == %@", normalizedID),
-                NSPredicate(format: "arxivID == %@", arxivID),
+                NSPredicate(format: "arxivIDNormalized == %@", normalizedID),
+                NSPredicate(format: "arxivIDNormalized == %@", arxivID),
             ])
             request.fetchLimit = 1
 
