@@ -70,9 +70,24 @@ public final class ShareExtensionService: Sendable {
 
     // MARK: - Properties
 
-    /// UserDefaults instance for the app group
+    /// Cached UserDefaults instance for the app group (checked once at first access)
+    /// Using nonisolated(unsafe) since UserDefaults is thread-safe and we only write once
+    private nonisolated(unsafe) static var _cachedDefaults: UserDefaults?
+    private nonisolated(unsafe) static var _defaultsChecked = false
+
+    /// UserDefaults instance for the app group, cached after first access
     private var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: Self.appGroupIdentifier)
+        if !Self._defaultsChecked {
+            Self._defaultsChecked = true
+            Self._cachedDefaults = UserDefaults(suiteName: Self.appGroupIdentifier)
+            if Self._cachedDefaults == nil {
+                Logger.shareExtension.warningCapture(
+                    "App Group '\(Self.appGroupIdentifier)' not available - share extension features disabled",
+                    category: "shareext"
+                )
+            }
+        }
+        return Self._cachedDefaults
     }
 
     // MARK: - Initialization
@@ -149,7 +164,7 @@ public final class ShareExtensionService: Sendable {
     /// Called by the main app to retrieve queued items for processing.
     public func getPendingItems() -> [SharedItem] {
         guard let defaults = sharedDefaults else {
-            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults", category: "shareext")
+            // Warning already logged once when sharedDefaults was first accessed
             return []
         }
 
@@ -205,7 +220,7 @@ public final class ShareExtensionService: Sendable {
 
     private func saveItems(_ items: [SharedItem]) {
         guard let defaults = sharedDefaults else {
-            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults for saving", category: "shareext")
+            // Warning already logged once when sharedDefaults was first accessed
             return
         }
 
@@ -260,7 +275,7 @@ extension ShareExtensionService {
     /// - Parameter libraries: The current list of libraries
     public func updateAvailableLibraries(_ libraries: [SharedLibraryInfo]) {
         guard let defaults = sharedDefaults else {
-            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults for libraries", category: "shareext")
+            // Warning already logged once when sharedDefaults was first accessed
             return
         }
 
