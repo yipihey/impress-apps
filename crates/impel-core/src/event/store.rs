@@ -90,13 +90,20 @@ impl EventStore for InMemoryEventStore {
     }
 
     fn get(&self, id: &EventId) -> Option<&Event> {
-        self.index_by_id.get(id).and_then(|&idx| self.events.get(idx))
+        self.index_by_id
+            .get(id)
+            .and_then(|&idx| self.events.get(idx))
     }
 
     fn events_for_entity(&self, entity_id: &str, entity_type: EntityType) -> Vec<&Event> {
         self.index_by_entity
             .get(&(entity_id.to_string(), entity_type))
-            .map(|indices| indices.iter().filter_map(|&idx| self.events.get(idx)).collect())
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter_map(|&idx| self.events.get(idx))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -118,7 +125,12 @@ impl EventStore for InMemoryEventStore {
     fn events_by_correlation(&self, correlation_id: &str) -> Vec<&Event> {
         self.index_by_correlation
             .get(correlation_id)
-            .map(|indices| indices.iter().filter_map(|&idx| self.events.get(idx)).collect())
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter_map(|&idx| self.events.get(idx))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -207,7 +219,11 @@ impl SqliteEventStore {
     }
 
     /// Get all events for an entity from SQLite
-    pub fn events_for_entity(&self, entity_id: &str, entity_type: EntityType) -> Result<Vec<Event>> {
+    pub fn events_for_entity(
+        &self,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<Vec<Event>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id, sequence, timestamp, entity_id, entity_type, payload, actor_id, correlation_id, causation_id

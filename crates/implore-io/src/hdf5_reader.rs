@@ -8,7 +8,7 @@
 //! - Attribute extraction for metadata
 
 #[cfg(feature = "hdf5")]
-use hdf5::{File as Hdf5File, Dataset as Hdf5Dataset, types::TypeDescriptor};
+use hdf5::{types::TypeDescriptor, Dataset as Hdf5Dataset, File as Hdf5File};
 
 use crate::reader::{DataReader, IoError, IoResult};
 use crate::schema::{ColumnDescriptor, ColumnType, DataColumn, DataSchema, DataSlice};
@@ -76,7 +76,10 @@ impl Hdf5Reader {
         prefix: &str,
         datasets: &mut Vec<String>,
     ) -> IoResult<()> {
-        for name in group.member_names().map_err(|e| IoError::ReadFailed(e.to_string()))? {
+        for name in group
+            .member_names()
+            .map_err(|e| IoError::ReadFailed(e.to_string()))?
+        {
             let path = if prefix == "/" {
                 format!("/{}", name)
             } else {
@@ -98,7 +101,9 @@ impl Hdf5Reader {
         dataset_path: &str,
     ) -> IoResult<DataSchema> {
         let shape = dataset.shape();
-        let dtype = dataset.dtype().map_err(|e| IoError::InvalidFormat(e.to_string()))?;
+        let dtype = dataset
+            .dtype()
+            .map_err(|e| IoError::InvalidFormat(e.to_string()))?;
 
         // Handle different dataset shapes
         let (num_records, columns) = match shape.len() {
@@ -168,7 +173,10 @@ impl Hdf5Reader {
             .map_err(|e| IoError::DatasetNotFound(e.to_string()))?;
 
         let shape = dataset.shape();
-        let col_type = self.schema.columns.get(col_index)
+        let col_type = self
+            .schema
+            .columns
+            .get(col_index)
             .map(|c| c.dtype)
             .unwrap_or(ColumnType::Float64);
 

@@ -214,7 +214,7 @@ mod tests {
             key: "Unknown".to_string(),
             entry_type: "article".to_string(),
             title: String::new(), // Missing title
-            authors: Vec::new(), // Missing authors
+            authors: Vec::new(),  // Missing authors
             year: None,
             venue: None,
             doi: None,

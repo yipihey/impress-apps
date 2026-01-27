@@ -336,7 +336,9 @@ mod tests {
     fn test_deliverable_progress() {
         let mut deliverable = Deliverable::new(
             "Paper".to_string(),
-            DeliverableKind::ResearchPaper { page_target: Some(15) },
+            DeliverableKind::ResearchPaper {
+                page_target: Some(15),
+            },
         );
 
         assert!(!deliverable.is_complete());
@@ -350,13 +352,19 @@ mod tests {
 
         assert_eq!(project.overall_progress(), 0.0);
 
-        let mut d1 = Deliverable::new("Paper".to_string(), DeliverableKind::ResearchPaper { page_target: None });
+        let mut d1 = Deliverable::new(
+            "Paper".to_string(),
+            DeliverableKind::ResearchPaper { page_target: None },
+        );
         d1.set_progress(0.5);
 
-        let mut d2 = Deliverable::new("Code".to_string(), DeliverableKind::CodeRepository {
-            language: "Rust".to_string(),
-            test_coverage: Some(0.8),
-        });
+        let mut d2 = Deliverable::new(
+            "Code".to_string(),
+            DeliverableKind::CodeRepository {
+                language: "Rust".to_string(),
+                test_coverage: Some(0.8),
+            },
+        );
         d2.set_progress(1.0);
 
         project.add_deliverable(d1);

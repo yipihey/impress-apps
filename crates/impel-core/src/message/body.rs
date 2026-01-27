@@ -162,7 +162,8 @@ fn base64_encoder(output: &mut Vec<u8>) -> impl std::io::Write + '_ {
 
     impl std::io::Write for Base64Encoder<'_> {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            const ALPHABET: &[u8] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
             for chunk in buf.chunks(3) {
                 let b0 = chunk[0] as usize;
@@ -208,7 +209,10 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
         table
     };
 
-    let input: Vec<u8> = input.bytes().filter(|&b| b != b'\n' && b != b'\r').collect();
+    let input: Vec<u8> = input
+        .bytes()
+        .filter(|&b| b != b'\n' && b != b'\r')
+        .collect();
     if input.len() % 4 != 0 {
         return None;
     }
@@ -218,8 +222,16 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
     for chunk in input.chunks(4) {
         let a = DECODE_TABLE[chunk[0] as usize];
         let b = DECODE_TABLE[chunk[1] as usize];
-        let c = if chunk[2] == b'=' { 0 } else { DECODE_TABLE[chunk[2] as usize] };
-        let d = if chunk[3] == b'=' { 0 } else { DECODE_TABLE[chunk[3] as usize] };
+        let c = if chunk[2] == b'=' {
+            0
+        } else {
+            DECODE_TABLE[chunk[2] as usize]
+        };
+        let d = if chunk[3] == b'=' {
+            0
+        } else {
+            DECODE_TABLE[chunk[3] as usize]
+        };
 
         if a < 0 || b < 0 || (chunk[2] != b'=' && c < 0) || (chunk[3] != b'=' && d < 0) {
             return None;

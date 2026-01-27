@@ -300,10 +300,11 @@ mod tests {
             HelixCommand::DeleteTextObject(TextObject::Word, TextObjectModifier::Inner)
                 .is_repeatable()
         );
-        assert!(
-            HelixCommand::ChangeTextObject(TextObject::DoubleQuote, TextObjectModifier::Around)
-                .is_repeatable()
-        );
+        assert!(HelixCommand::ChangeTextObject(
+            TextObject::DoubleQuote,
+            TextObjectModifier::Around
+        )
+        .is_repeatable());
     }
 
     #[test]

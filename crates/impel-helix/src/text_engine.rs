@@ -149,7 +149,10 @@ pub trait HelixTextEngine {
             let col = pos - line_start;
 
             // Find end of current line
-            let mut line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+            let mut line_end = text[pos..]
+                .find('\n')
+                .map(|i| pos + i)
+                .unwrap_or(text.len());
 
             // Move down count lines
             let mut target_line_start = line_end + 1;
@@ -202,16 +205,33 @@ pub trait HelixTextEngine {
 
         for _ in 0..count {
             // Skip current word
-            while pos < text.len() && text[pos..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                pos += text[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+            while pos < text.len()
+                && text[pos..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
+                pos += text[pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(1);
             }
             // Skip non-word characters
-            while pos < text.len() && text[pos..].starts_with(|c: char| !c.is_alphanumeric() && c != '_' && !c.is_whitespace()) {
-                pos += text[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+            while pos < text.len()
+                && text[pos..]
+                    .starts_with(|c: char| !c.is_alphanumeric() && c != '_' && !c.is_whitespace())
+            {
+                pos += text[pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(1);
             }
             // Skip whitespace
             while pos < text.len() && text[pos..].starts_with(char::is_whitespace) {
-                pos += text[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                pos += text[pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(1);
             }
         }
 
@@ -269,11 +289,21 @@ pub trait HelixTextEngine {
         for _ in 0..count {
             // Skip whitespace
             while pos < text.len() && text[pos..].starts_with(char::is_whitespace) {
-                pos += text[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                pos += text[pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(1);
             }
             // Move to end of word
-            while pos < text.len() && text[pos..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                pos += text[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+            while pos < text.len()
+                && text[pos..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
+                pos += text[pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(1);
             }
         }
 
@@ -301,7 +331,10 @@ pub trait HelixTextEngine {
     fn move_to_line_end(&mut self, extend_selection: bool) {
         let pos = self.cursor_position();
         let text = self.text();
-        let new_pos = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+        let new_pos = text[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(text.len());
 
         if extend_selection {
             let (start, _) = self.selection();
@@ -315,7 +348,10 @@ pub trait HelixTextEngine {
         let pos = self.cursor_position();
         let text = self.text();
         let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+        let line_end = text[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(text.len());
 
         let new_pos = text[line_start..line_end]
             .char_indices()
@@ -357,7 +393,10 @@ pub trait HelixTextEngine {
     fn find_character(&mut self, char: char, count: usize, extend_selection: bool) {
         let pos = self.cursor_position();
         let text = self.text();
-        let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+        let line_end = text[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(text.len());
 
         let mut found_pos = None;
         let mut found_count = 0;
@@ -560,7 +599,10 @@ pub trait HelixTextEngine {
         if let Some(newline_pos) = line_end {
             // Find where next line's content starts
             let mut content_start = newline_pos + 1;
-            while content_start < text.len() && text[content_start..].starts_with(char::is_whitespace) && !text[content_start..].starts_with('\n') {
+            while content_start < text.len()
+                && text[content_start..].starts_with(char::is_whitespace)
+                && !text[content_start..].starts_with('\n')
+            {
                 content_start += 1;
             }
 
@@ -718,13 +760,19 @@ pub trait HelixTextEngine {
                         .map(|i| i + 1)
                         .unwrap_or(0);
                 }
-                let line_end = text[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i + 1)
+                    .unwrap_or(text.len());
                 Some((target_line_start, line_end))
             }
             Motion::Down(count) => {
                 // Calculate line range for down motion
                 let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i)
+                    .unwrap_or(text.len());
                 let mut target_line_end = line_end;
                 for _ in 0..*count {
                     if target_line_end >= text.len() {
@@ -740,14 +788,32 @@ pub trait HelixTextEngine {
             Motion::WordForward(count) => {
                 let mut end = pos;
                 for _ in 0..*count {
-                    while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
-                    while end < text.len() && text[end..].starts_with(|c: char| !c.is_alphanumeric() && c != '_' && !c.is_whitespace()) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(|c: char| {
+                            !c.is_alphanumeric() && c != '_' && !c.is_whitespace()
+                        })
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                     while end < text.len() && text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
                 Some((pos, end))
@@ -784,10 +850,20 @@ pub trait HelixTextEngine {
                 let mut end = pos;
                 for _ in 0..*count {
                     while end < text.len() && text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
-                    while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
                 Some((pos, end))
@@ -796,10 +872,18 @@ pub trait HelixTextEngine {
                 let mut end = pos;
                 for _ in 0..*count {
                     while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                     while end < text.len() && text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
                 Some((pos, end))
@@ -836,10 +920,18 @@ pub trait HelixTextEngine {
                 let mut end = pos;
                 for _ in 0..*count {
                     while end < text.len() && text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                     while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
                 Some((pos, end))
@@ -849,7 +941,10 @@ pub trait HelixTextEngine {
                 Some((line_start, pos))
             }
             Motion::LineEnd | Motion::ToLineEnd => {
-                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i)
+                    .unwrap_or(text.len());
                 Some((pos, line_end))
             }
             Motion::LineFirstNonBlank => {
@@ -872,7 +967,8 @@ pub trait HelixTextEngine {
                         break;
                     }
                 }
-                let line_end = text[line_start..].find('\n')
+                let line_end = text[line_start..]
+                    .find('\n')
                     .map(|i| line_start + i + 1)
                     .unwrap_or(text.len());
                 Some((line_start, line_end))
@@ -880,7 +976,10 @@ pub trait HelixTextEngine {
             Motion::Line => {
                 // Current line including newline
                 let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                let line_end = text[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i + 1)
+                    .unwrap_or(text.len());
                 Some((line_start, line_end))
             }
             Motion::ParagraphForward(count) => {
@@ -917,7 +1016,10 @@ pub trait HelixTextEngine {
                 Some((start, pos))
             }
             Motion::FindChar(char, count) => {
-                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i)
+                    .unwrap_or(text.len());
                 let mut found_pos = None;
                 let mut found_count = 0;
                 for (i, c) in text[pos + 1..line_end].char_indices() {
@@ -947,7 +1049,10 @@ pub trait HelixTextEngine {
                 found_pos.map(|start| (start, pos))
             }
             Motion::TillChar(char, count) => {
-                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i)
+                    .unwrap_or(text.len());
                 let mut found_pos = None;
                 let mut found_count = 0;
                 for (i, c) in text[pos + 1..line_end].char_indices() {
@@ -1052,14 +1157,27 @@ pub trait HelixTextEngine {
                 }
 
                 // Find word end
-                while end < text.len() && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                    end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                while end < text.len()
+                    && text[end..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                {
+                    end += text[end..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(1);
                 }
 
                 if modifier == TextObjectModifier::Around {
                     // Include trailing whitespace
-                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(char::is_whitespace)
+                        && !text[end..].starts_with('\n')
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
 
@@ -1083,12 +1201,23 @@ pub trait HelixTextEngine {
                 }
 
                 while end < text.len() && !text[end..].starts_with(char::is_whitespace) {
-                    end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    end += text[end..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(1);
                 }
 
                 if modifier == TextObjectModifier::Around {
-                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(char::is_whitespace)
+                        && !text[end..].starts_with('\n')
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
 
@@ -1104,7 +1233,10 @@ pub trait HelixTextEngine {
 
                 // Find quote boundaries on current line
                 let line_start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                let line_end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+                let line_end = text[pos..]
+                    .find('\n')
+                    .map(|i| pos + i)
+                    .unwrap_or(text.len());
                 let line = &text[line_start..line_end];
 
                 // Find opening quote
@@ -1136,7 +1268,10 @@ pub trait HelixTextEngine {
 
                 None
             }
-            TextObject::Parentheses | TextObject::SquareBrackets | TextObject::CurlyBraces | TextObject::AngleBrackets => {
+            TextObject::Parentheses
+            | TextObject::SquareBrackets
+            | TextObject::CurlyBraces
+            | TextObject::AngleBrackets => {
                 let (open, close) = match text_object {
                     TextObject::Parentheses => ('(', ')'),
                     TextObject::SquareBrackets => ('[', ']'),
@@ -1150,7 +1285,10 @@ pub trait HelixTextEngine {
                 let mut depth = 0;
 
                 // Search backward for opening
-                for (i, c) in text[..=pos.min(text.len().saturating_sub(1))].char_indices().rev() {
+                for (i, c) in text[..=pos.min(text.len().saturating_sub(1))]
+                    .char_indices()
+                    .rev()
+                {
                     if c == close {
                         depth += 1;
                     } else if c == open {
@@ -1250,7 +1388,11 @@ pub trait HelixTextEngine {
 
                 // Skip whitespace at start
                 while start < text.len() && text[start..].starts_with(char::is_whitespace) {
-                    start += text[start..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    start += text[start..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(1);
                 }
 
                 // Find sentence end
@@ -1263,17 +1405,25 @@ pub trait HelixTextEngine {
                 }
 
                 if modifier == TextObjectModifier::Around {
-                    while end < text.len() && text[end..].starts_with(char::is_whitespace) && !text[end..].starts_with('\n') {
-                        end += text[end..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    while end < text.len()
+                        && text[end..].starts_with(char::is_whitespace)
+                        && !text[end..].starts_with('\n')
+                    {
+                        end += text[end..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     }
                 }
 
                 Some((start, end))
             }
             // These require language awareness and are not implemented in the basic text engine
-            TextObject::Function | TextObject::Class | TextObject::Comment | TextObject::Argument => {
-                None
-            }
+            TextObject::Function
+            | TextObject::Class
+            | TextObject::Comment
+            | TextObject::Argument => None,
         }
     }
 
@@ -1387,7 +1537,11 @@ mod tests {
                 self.text.drain(start..end);
                 self.cursor = start;
             } else if self.cursor < self.text.len() {
-                let char_len = self.text[self.cursor..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                let char_len = self.text[self.cursor..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(0);
                 self.text.drain(self.cursor..self.cursor + char_len);
             }
             self.selection = (self.cursor, self.cursor);

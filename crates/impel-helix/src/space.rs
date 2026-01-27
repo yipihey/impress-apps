@@ -279,77 +279,209 @@ pub fn build_space_mode_keymap() -> KeyTrie {
 
     // File menu (Space f)
     let mut file = KeyTrie::with_name("file");
-    file.insert_command(KeyEvent::new('f'), MappableCommand::Space(SpaceCommand::FileOpen));
-    file.insert_command(KeyEvent::new('r'), MappableCommand::Space(SpaceCommand::FileRecent));
-    file.insert_command(KeyEvent::new('s'), MappableCommand::Space(SpaceCommand::FileSave));
-    file.insert_command(KeyEvent::shift('S'), MappableCommand::Space(SpaceCommand::FileSaveAs));
-    file.insert_command(KeyEvent::new('c'), MappableCommand::Space(SpaceCommand::FileClose));
-    file.insert_command(KeyEvent::shift('C'), MappableCommand::Space(SpaceCommand::FileCloseAll));
+    file.insert_command(
+        KeyEvent::new('f'),
+        MappableCommand::Space(SpaceCommand::FileOpen),
+    );
+    file.insert_command(
+        KeyEvent::new('r'),
+        MappableCommand::Space(SpaceCommand::FileRecent),
+    );
+    file.insert_command(
+        KeyEvent::new('s'),
+        MappableCommand::Space(SpaceCommand::FileSave),
+    );
+    file.insert_command(
+        KeyEvent::shift('S'),
+        MappableCommand::Space(SpaceCommand::FileSaveAs),
+    );
+    file.insert_command(
+        KeyEvent::new('c'),
+        MappableCommand::Space(SpaceCommand::FileClose),
+    );
+    file.insert_command(
+        KeyEvent::shift('C'),
+        MappableCommand::Space(SpaceCommand::FileCloseAll),
+    );
     space.insert_trie(KeyEvent::new('f'), file);
 
     // Buffer menu (Space b)
     let mut buffer = KeyTrie::with_name("buffer");
-    buffer.insert_command(KeyEvent::new('b'), MappableCommand::Space(SpaceCommand::BufferPicker));
-    buffer.insert_command(KeyEvent::new('n'), MappableCommand::Space(SpaceCommand::BufferNext));
-    buffer.insert_command(KeyEvent::new('p'), MappableCommand::Space(SpaceCommand::BufferPrev));
-    buffer.insert_command(KeyEvent::new('d'), MappableCommand::Space(SpaceCommand::BufferClose));
-    buffer.insert_command(KeyEvent::shift('D'), MappableCommand::Space(SpaceCommand::BufferCloseOthers));
-    buffer.insert_command(KeyEvent::new('r'), MappableCommand::Space(SpaceCommand::BufferRevert));
+    buffer.insert_command(
+        KeyEvent::new('b'),
+        MappableCommand::Space(SpaceCommand::BufferPicker),
+    );
+    buffer.insert_command(
+        KeyEvent::new('n'),
+        MappableCommand::Space(SpaceCommand::BufferNext),
+    );
+    buffer.insert_command(
+        KeyEvent::new('p'),
+        MappableCommand::Space(SpaceCommand::BufferPrev),
+    );
+    buffer.insert_command(
+        KeyEvent::new('d'),
+        MappableCommand::Space(SpaceCommand::BufferClose),
+    );
+    buffer.insert_command(
+        KeyEvent::shift('D'),
+        MappableCommand::Space(SpaceCommand::BufferCloseOthers),
+    );
+    buffer.insert_command(
+        KeyEvent::new('r'),
+        MappableCommand::Space(SpaceCommand::BufferRevert),
+    );
     space.insert_trie(KeyEvent::new('b'), buffer);
 
     // Window menu (Space w)
     let mut window = KeyTrie::with_name("window");
-    window.insert_command(KeyEvent::new('s'), MappableCommand::Space(SpaceCommand::WindowSplitHorizontal));
-    window.insert_command(KeyEvent::new('v'), MappableCommand::Space(SpaceCommand::WindowSplitVertical));
-    window.insert_command(KeyEvent::new('q'), MappableCommand::Space(SpaceCommand::WindowClose));
-    window.insert_command(KeyEvent::new('o'), MappableCommand::Space(SpaceCommand::WindowOnly));
-    window.insert_command(KeyEvent::new('h'), MappableCommand::Space(SpaceCommand::WindowFocusLeft));
-    window.insert_command(KeyEvent::new('j'), MappableCommand::Space(SpaceCommand::WindowFocusDown));
-    window.insert_command(KeyEvent::new('k'), MappableCommand::Space(SpaceCommand::WindowFocusUp));
-    window.insert_command(KeyEvent::new('l'), MappableCommand::Space(SpaceCommand::WindowFocusRight));
-    window.insert_command(KeyEvent::shift('H'), MappableCommand::Space(SpaceCommand::WindowSwapLeft));
-    window.insert_command(KeyEvent::shift('J'), MappableCommand::Space(SpaceCommand::WindowSwapDown));
-    window.insert_command(KeyEvent::shift('K'), MappableCommand::Space(SpaceCommand::WindowSwapUp));
-    window.insert_command(KeyEvent::shift('L'), MappableCommand::Space(SpaceCommand::WindowSwapRight));
+    window.insert_command(
+        KeyEvent::new('s'),
+        MappableCommand::Space(SpaceCommand::WindowSplitHorizontal),
+    );
+    window.insert_command(
+        KeyEvent::new('v'),
+        MappableCommand::Space(SpaceCommand::WindowSplitVertical),
+    );
+    window.insert_command(
+        KeyEvent::new('q'),
+        MappableCommand::Space(SpaceCommand::WindowClose),
+    );
+    window.insert_command(
+        KeyEvent::new('o'),
+        MappableCommand::Space(SpaceCommand::WindowOnly),
+    );
+    window.insert_command(
+        KeyEvent::new('h'),
+        MappableCommand::Space(SpaceCommand::WindowFocusLeft),
+    );
+    window.insert_command(
+        KeyEvent::new('j'),
+        MappableCommand::Space(SpaceCommand::WindowFocusDown),
+    );
+    window.insert_command(
+        KeyEvent::new('k'),
+        MappableCommand::Space(SpaceCommand::WindowFocusUp),
+    );
+    window.insert_command(
+        KeyEvent::new('l'),
+        MappableCommand::Space(SpaceCommand::WindowFocusRight),
+    );
+    window.insert_command(
+        KeyEvent::shift('H'),
+        MappableCommand::Space(SpaceCommand::WindowSwapLeft),
+    );
+    window.insert_command(
+        KeyEvent::shift('J'),
+        MappableCommand::Space(SpaceCommand::WindowSwapDown),
+    );
+    window.insert_command(
+        KeyEvent::shift('K'),
+        MappableCommand::Space(SpaceCommand::WindowSwapUp),
+    );
+    window.insert_command(
+        KeyEvent::shift('L'),
+        MappableCommand::Space(SpaceCommand::WindowSwapRight),
+    );
     space.insert_trie(KeyEvent::new('w'), window);
 
     // Search/Symbol menu (Space s)
     let mut search = KeyTrie::with_name("search");
-    search.insert_command(KeyEvent::new('s'), MappableCommand::Space(SpaceCommand::SymbolPicker));
-    search.insert_command(KeyEvent::shift('S'), MappableCommand::Space(SpaceCommand::WorkspaceSymbolPicker));
-    search.insert_command(KeyEvent::new('/'), MappableCommand::Space(SpaceCommand::GlobalSearch));
-    search.insert_command(KeyEvent::new('f'), MappableCommand::Space(SpaceCommand::SearchInFile));
+    search.insert_command(
+        KeyEvent::new('s'),
+        MappableCommand::Space(SpaceCommand::SymbolPicker),
+    );
+    search.insert_command(
+        KeyEvent::shift('S'),
+        MappableCommand::Space(SpaceCommand::WorkspaceSymbolPicker),
+    );
+    search.insert_command(
+        KeyEvent::new('/'),
+        MappableCommand::Space(SpaceCommand::GlobalSearch),
+    );
+    search.insert_command(
+        KeyEvent::new('f'),
+        MappableCommand::Space(SpaceCommand::SearchInFile),
+    );
     space.insert_trie(KeyEvent::new('s'), search);
 
     // Git menu (Space g)
     let mut git = KeyTrie::with_name("git");
-    git.insert_command(KeyEvent::new('g'), MappableCommand::Space(SpaceCommand::GitStatus));
-    git.insert_command(KeyEvent::new('d'), MappableCommand::Space(SpaceCommand::GitDiff));
-    git.insert_command(KeyEvent::new('b'), MappableCommand::Space(SpaceCommand::GitBlame));
-    git.insert_command(KeyEvent::new('l'), MappableCommand::Space(SpaceCommand::GitLog));
-    git.insert_command(KeyEvent::new('s'), MappableCommand::Space(SpaceCommand::GitStage));
-    git.insert_command(KeyEvent::new('u'), MappableCommand::Space(SpaceCommand::GitUnstage));
+    git.insert_command(
+        KeyEvent::new('g'),
+        MappableCommand::Space(SpaceCommand::GitStatus),
+    );
+    git.insert_command(
+        KeyEvent::new('d'),
+        MappableCommand::Space(SpaceCommand::GitDiff),
+    );
+    git.insert_command(
+        KeyEvent::new('b'),
+        MappableCommand::Space(SpaceCommand::GitBlame),
+    );
+    git.insert_command(
+        KeyEvent::new('l'),
+        MappableCommand::Space(SpaceCommand::GitLog),
+    );
+    git.insert_command(
+        KeyEvent::new('s'),
+        MappableCommand::Space(SpaceCommand::GitStage),
+    );
+    git.insert_command(
+        KeyEvent::new('u'),
+        MappableCommand::Space(SpaceCommand::GitUnstage),
+    );
     space.insert_trie(KeyEvent::new('g'), git);
 
     // Diagnostics menu (Space d)
     let mut diagnostics = KeyTrie::with_name("diagnostics");
-    diagnostics.insert_command(KeyEvent::new('d'), MappableCommand::Space(SpaceCommand::DiagnosticsList));
-    diagnostics.insert_command(KeyEvent::new('n'), MappableCommand::Space(SpaceCommand::DiagnosticNext));
-    diagnostics.insert_command(KeyEvent::new('p'), MappableCommand::Space(SpaceCommand::DiagnosticPrev));
+    diagnostics.insert_command(
+        KeyEvent::new('d'),
+        MappableCommand::Space(SpaceCommand::DiagnosticsList),
+    );
+    diagnostics.insert_command(
+        KeyEvent::new('n'),
+        MappableCommand::Space(SpaceCommand::DiagnosticNext),
+    );
+    diagnostics.insert_command(
+        KeyEvent::new('p'),
+        MappableCommand::Space(SpaceCommand::DiagnosticPrev),
+    );
     space.insert_trie(KeyEvent::new('d'), diagnostics);
 
     // Code menu (Space c)
     let mut code = KeyTrie::with_name("code");
-    code.insert_command(KeyEvent::new('a'), MappableCommand::Space(SpaceCommand::CodeAction));
-    code.insert_command(KeyEvent::new('r'), MappableCommand::Space(SpaceCommand::Rename));
-    code.insert_command(KeyEvent::new('f'), MappableCommand::Space(SpaceCommand::Format));
+    code.insert_command(
+        KeyEvent::new('a'),
+        MappableCommand::Space(SpaceCommand::CodeAction),
+    );
+    code.insert_command(
+        KeyEvent::new('r'),
+        MappableCommand::Space(SpaceCommand::Rename),
+    );
+    code.insert_command(
+        KeyEvent::new('f'),
+        MappableCommand::Space(SpaceCommand::Format),
+    );
     space.insert_trie(KeyEvent::new('c'), code);
 
     // Top-level shortcuts
-    space.insert_command(KeyEvent::new('?'), MappableCommand::Space(SpaceCommand::Help));
-    space.insert_command(KeyEvent::new(':'), MappableCommand::Space(SpaceCommand::CommandPalette));
-    space.insert_command(KeyEvent::new('e'), MappableCommand::Space(SpaceCommand::ToggleFileTree));
-    space.insert_command(KeyEvent::new('t'), MappableCommand::Space(SpaceCommand::ToggleTerminal));
+    space.insert_command(
+        KeyEvent::new('?'),
+        MappableCommand::Space(SpaceCommand::Help),
+    );
+    space.insert_command(
+        KeyEvent::new(':'),
+        MappableCommand::Space(SpaceCommand::CommandPalette),
+    );
+    space.insert_command(
+        KeyEvent::new('e'),
+        MappableCommand::Space(SpaceCommand::ToggleFileTree),
+    );
+    space.insert_command(
+        KeyEvent::new('t'),
+        MappableCommand::Space(SpaceCommand::ToggleTerminal),
+    );
 
     space
 }

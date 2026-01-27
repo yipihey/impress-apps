@@ -302,6 +302,9 @@ mod tests {
 
         assert!(result.is_ok());
         let fetch_result = result.unwrap();
-        assert_eq!(fetch_result.provenance.source_url, "https://example.com/data.csv");
+        assert_eq!(
+            fetch_result.provenance.source_url,
+            "https://example.com/data.csv"
+        );
     }
 }

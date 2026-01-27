@@ -374,11 +374,15 @@ impl HelixKeyHandler {
         }
 
         let command = match op {
-            PendingCharacterOperation::FindForward => HelixCommand::FindCharacter { char, count: 1 },
+            PendingCharacterOperation::FindForward => {
+                HelixCommand::FindCharacter { char, count: 1 }
+            }
             PendingCharacterOperation::FindBackward => {
                 HelixCommand::FindCharacterBackward { char, count: 1 }
             }
-            PendingCharacterOperation::TillForward => HelixCommand::TillCharacter { char, count: 1 },
+            PendingCharacterOperation::TillForward => {
+                HelixCommand::TillCharacter { char, count: 1 }
+            }
             PendingCharacterOperation::TillBackward => {
                 HelixCommand::TillCharacterBackward { char, count: 1 }
             }
@@ -618,7 +622,10 @@ mod tests {
         );
         assert_eq!(
             handler.handle_key('x', HelixMode::Normal, &mods),
-            HelixKeyResult::Command(HelixCommand::FindCharacter { char: 'x', count: 1 })
+            HelixKeyResult::Command(HelixCommand::FindCharacter {
+                char: 'x',
+                count: 1
+            })
         );
     }
 

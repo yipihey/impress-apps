@@ -141,7 +141,9 @@ impl HelixState {
     pub fn enter_space_mode(&mut self) {
         self.is_space_mode = true;
         self.space_keymap.reset();
-        self.space_mode_available_keys = self.space_keymap.available_keys(&self.space_keymap.normal.clone());
+        self.space_mode_available_keys = self
+            .space_keymap
+            .available_keys(&self.space_keymap.normal.clone());
     }
 
     /// Exit space-mode.
@@ -280,11 +282,7 @@ impl HelixState {
     }
 
     /// Handle space-mode key input.
-    fn handle_space_mode_input(
-        &mut self,
-        key: char,
-        modifiers: &KeyModifiers,
-    ) -> KeyHandleResult {
+    fn handle_space_mode_input(&mut self, key: char, modifiers: &KeyModifiers) -> KeyHandleResult {
         let key_event = KeyEvent {
             key,
             shift: modifiers.shift,
@@ -292,7 +290,9 @@ impl HelixState {
             alt: modifiers.alt,
         };
 
-        let keymap_result = self.space_keymap.lookup(key_event, &self.space_keymap.normal.clone());
+        let keymap_result = self
+            .space_keymap
+            .lookup(key_event, &self.space_keymap.normal.clone());
 
         match keymap_result {
             KeymapResult::Matched(cmd) => {

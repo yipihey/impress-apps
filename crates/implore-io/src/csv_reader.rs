@@ -48,7 +48,10 @@ impl CsvReader {
         })
     }
 
-    fn infer_schema(reader: &mut csv::Reader<BufReader<File>>, has_header: bool) -> IoResult<DataSchema> {
+    fn infer_schema(
+        reader: &mut csv::Reader<BufReader<File>>,
+        has_header: bool,
+    ) -> IoResult<DataSchema> {
         let headers = if has_header {
             reader
                 .headers()
@@ -185,7 +188,11 @@ fn infer_type(values: &[String]) -> ColumnType {
         return ColumnType::String;
     }
 
-    let non_empty: Vec<&str> = values.iter().map(|s| s.as_str()).filter(|s| !s.is_empty()).collect();
+    let non_empty: Vec<&str> = values
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .collect();
     if non_empty.is_empty() {
         return ColumnType::String;
     }
@@ -228,12 +235,12 @@ fn parse_column(values: &[String], dtype: ColumnType) -> DataColumn {
                 .map(|s| s.parse().unwrap_or(f64::NAN))
                 .collect(),
         ),
-        ColumnType::Int32 => DataColumn::Int32(
-            values.iter().map(|s| s.parse().unwrap_or(0)).collect(),
-        ),
-        ColumnType::Int64 => DataColumn::Int64(
-            values.iter().map(|s| s.parse().unwrap_or(0)).collect(),
-        ),
+        ColumnType::Int32 => {
+            DataColumn::Int32(values.iter().map(|s| s.parse().unwrap_or(0)).collect())
+        }
+        ColumnType::Int64 => {
+            DataColumn::Int64(values.iter().map(|s| s.parse().unwrap_or(0)).collect())
+        }
         ColumnType::Bool => DataColumn::Bool(
             values
                 .iter()

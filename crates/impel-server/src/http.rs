@@ -83,8 +83,7 @@ pub async fn claim_thread(
     Path(id): Path<String>,
     Json(request): Json<ClaimRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let thread_id = ThreadId::parse(&id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let thread_id = ThreadId::parse(&id).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let mut coord = state.coordination.write().await;
 
@@ -156,9 +155,7 @@ pub struct GetEventsQuery {
 }
 
 /// Get events
-pub async fn get_events(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn get_events(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let coord = state.coordination.read().await;
     let events: Vec<_> = coord
         .all_events()
@@ -197,9 +194,7 @@ pub async fn get_constitution() -> Json<serde_json::Value> {
 }
 
 /// Get system status
-pub async fn get_status(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let coord = state.coordination.read().await;
 
     let thread_count = coord.threads().count();

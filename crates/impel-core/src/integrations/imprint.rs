@@ -176,7 +176,10 @@ impl ImprintAdapter {
 
         let id = Uuid::new_v4().to_string();
         let filename = sanitize_filename(&request.title);
-        let path = format!("{}/{}/{}.typ", self.base_directory, request.directory, filename);
+        let path = format!(
+            "{}/{}/{}.typ",
+            self.base_directory, request.directory, filename
+        );
 
         Ok(DocumentHandle {
             id,
@@ -299,10 +302,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename() {
-        assert_eq!(
-            sanitize_filename("My Paper: A Study"),
-            "my-paper_-a-study"
-        );
+        assert_eq!(sanitize_filename("My Paper: A Study"), "my-paper_-a-study");
         assert_eq!(sanitize_filename("Test123"), "test123");
     }
 }

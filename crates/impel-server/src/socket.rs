@@ -62,12 +62,12 @@ async fn handle_unix_connection(
 }
 
 /// Handle a request from a Unix socket client
-async fn handle_request(
-    request: &serde_json::Value,
-    state: &Arc<AppState>,
-) -> serde_json::Value {
+async fn handle_request(request: &serde_json::Value, state: &Arc<AppState>) -> serde_json::Value {
     let method = request.get("method").and_then(|m| m.as_str());
-    let id = request.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let id = request
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     match method {
         Some("status") => {

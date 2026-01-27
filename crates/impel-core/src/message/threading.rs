@@ -140,11 +140,8 @@ impl MessageThread {
             .max()
             .unwrap_or(0);
 
-        let participants: std::collections::HashSet<_> = self
-            .messages
-            .values()
-            .map(|m| m.from.email())
-            .collect();
+        let participants: std::collections::HashSet<_> =
+            self.messages.values().map(|m| m.from.email()).collect();
 
         ThreadStats {
             total_messages: total,
@@ -264,7 +261,10 @@ mod tests {
         thread.add(msg2);
 
         let messages: Vec<_> = thread.messages.values().collect();
-        let msg2_ref = messages.iter().find(|m| m.subject == "Re: Level 0").unwrap();
+        let msg2_ref = messages
+            .iter()
+            .find(|m| m.subject == "Re: Level 0")
+            .unwrap();
         let msg3 = msg2_ref.reply(Address::agent("b"), MessageBody::new("Level 2".to_string()));
         thread.add(msg3);
 

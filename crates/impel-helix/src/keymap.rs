@@ -241,12 +241,8 @@ impl KeyTrie {
         let rest = &keys[1..];
 
         match self.map.get(first) {
-            Some(KeyTrieNode::Leaf(cmd)) if rest.is_empty() => {
-                Some(&self.map[first])
-            }
-            Some(KeyTrieNode::Node(sub_trie)) if rest.is_empty() => {
-                Some(&self.map[first])
-            }
+            Some(KeyTrieNode::Leaf(cmd)) if rest.is_empty() => Some(&self.map[first]),
+            Some(KeyTrieNode::Node(sub_trie)) if rest.is_empty() => Some(&self.map[first]),
             Some(KeyTrieNode::Node(sub_trie)) => sub_trie.traverse(rest),
             _ => None,
         }
@@ -471,10 +467,13 @@ mod tests {
             MappableCommand::Space(SpaceCommand::FileSave),
         );
 
-        keymap.normal.insert_trie(KeyEvent::new(' '), file_trie.clone());
         keymap
             .normal
-            .insert_command(KeyEvent::new('d'), MappableCommand::Helix(HelixCommand::Delete));
+            .insert_trie(KeyEvent::new(' '), file_trie.clone());
+        keymap.normal.insert_command(
+            KeyEvent::new('d'),
+            MappableCommand::Helix(HelixCommand::Delete),
+        );
 
         // Single key
         let result = keymap.lookup(KeyEvent::new('d'), &keymap.normal.clone());

@@ -43,15 +43,17 @@ pub mod project;
 pub mod thread;
 
 pub use agent::{Agent, AgentRegistry, AgentStatus, AgentType};
-pub use config::{ImpelConfig, TemperatureConfig, AgentConfig, EscalationConfig, TimingConfig};
+pub use config::{AgentConfig, EscalationConfig, ImpelConfig, TemperatureConfig, TimingConfig};
 pub use coordination::{Command, CoordinationState};
 pub use error::{ImpelError, Result};
 pub use escalation::{Escalation, EscalationCategory, EscalationPriority, EscalationStatus};
 pub use event::{Event, EventId, EventStore, Projection};
 pub use message::{Attachment, MessageBody, MessageEnvelope, MessageId};
 pub use persistence::{Repository, Schema};
-pub use program::{Program, ProgramId, ProgramStatus, ProgramRegistry};
-pub use project::{Project, ProjectId, ProjectStatus, ProjectRelation, Deliverable, DeliverableKind};
+pub use program::{Program, ProgramId, ProgramRegistry, ProgramStatus};
+pub use project::{
+    Deliverable, DeliverableKind, Project, ProjectId, ProjectRelation, ProjectStatus,
+};
 pub use thread::{Temperature, TemperatureCoefficients, Thread, ThreadId, ThreadState};
 
 // Setup UniFFI when the feature is enabled

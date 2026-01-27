@@ -62,7 +62,11 @@ impl ThreadState {
         match self {
             ThreadState::Embryo => vec![ThreadState::Active],
             ThreadState::Active => {
-                vec![ThreadState::Blocked, ThreadState::Review, ThreadState::Killed]
+                vec![
+                    ThreadState::Blocked,
+                    ThreadState::Review,
+                    ThreadState::Killed,
+                ]
             }
             ThreadState::Blocked => vec![ThreadState::Active, ThreadState::Killed],
             ThreadState::Review => {

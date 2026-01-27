@@ -239,7 +239,10 @@ mod tests {
         let config = ImpelConfig::default();
         let json = config.to_json().unwrap();
         let parsed: ImpelConfig = ImpelConfig::from_json(&json).unwrap();
-        assert_eq!(config.temperature.hot_threshold, parsed.temperature.hot_threshold);
+        assert_eq!(
+            config.temperature.hot_threshold,
+            parsed.temperature.hot_threshold
+        );
     }
 
     #[test]

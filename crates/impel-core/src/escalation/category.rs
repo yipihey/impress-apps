@@ -46,18 +46,12 @@ impl EscalationCategory {
             EscalationCategory::Novelty => {
                 "Unprecedented situation requiring human judgment and guidance"
             }
-            EscalationCategory::Stuck => {
-                "Unable to make progress, need human input or resources"
-            }
-            EscalationCategory::Scope => {
-                "Potential scope creep or boundary issues detected"
-            }
+            EscalationCategory::Stuck => "Unable to make progress, need human input or resources",
+            EscalationCategory::Scope => "Potential scope creep or boundary issues detected",
             EscalationCategory::Quality => {
                 "Quality concerns that require human review and approval"
             }
-            EscalationCategory::Checkpoint => {
-                "Regular progress checkpoint for human review"
-            }
+            EscalationCategory::Checkpoint => "Regular progress checkpoint for human review",
         }
     }
 
@@ -139,12 +133,18 @@ pub enum EscalationStatus {
 impl EscalationStatus {
     /// Check if the escalation is still open
     pub fn is_open(&self) -> bool {
-        matches!(self, EscalationStatus::Pending | EscalationStatus::Acknowledged)
+        matches!(
+            self,
+            EscalationStatus::Pending | EscalationStatus::Acknowledged
+        )
     }
 
     /// Check if the escalation has been handled
     pub fn is_handled(&self) -> bool {
-        matches!(self, EscalationStatus::Resolved | EscalationStatus::Dismissed)
+        matches!(
+            self,
+            EscalationStatus::Resolved | EscalationStatus::Dismissed
+        )
     }
 }
 
@@ -232,7 +232,8 @@ impl Escalation {
         created_by: String,
         options: Vec<EscalationOption>,
     ) -> Self {
-        let mut escalation = Self::new(EscalationCategory::Decision, title, description, created_by);
+        let mut escalation =
+            Self::new(EscalationCategory::Decision, title, description, created_by);
         escalation.options = options;
         escalation
     }

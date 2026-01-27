@@ -205,7 +205,7 @@ impl Program {
             active_projects,
             completed_projects,
             total_threads,
-            open_escalations: 0, // Would be computed from escalation state
+            open_escalations: 0,    // Would be computed from escalation state
             pending_submissions: 0, // Would be computed from submission queue
             overall_progress,
         }
@@ -290,11 +290,8 @@ impl ProgramRegistry {
 
     /// Get orphan projects (not in any program)
     pub fn orphan_projects(&self) -> Vec<&Project> {
-        let all_program_projects: std::collections::HashSet<_> = self
-            .programs
-            .iter()
-            .flat_map(|p| &p.projects)
-            .collect();
+        let all_program_projects: std::collections::HashSet<_> =
+            self.programs.iter().flat_map(|p| &p.projects).collect();
 
         self.projects
             .iter()
@@ -315,7 +312,10 @@ mod tests {
 
     #[test]
     fn test_program_creation() {
-        let program = Program::new("Research 2024".to_string(), "Annual research program".to_string());
+        let program = Program::new(
+            "Research 2024".to_string(),
+            "Annual research program".to_string(),
+        );
         assert_eq!(program.name, "Research 2024");
         assert_eq!(program.status, ProgramStatus::Setup);
         assert!(program.projects.is_empty());

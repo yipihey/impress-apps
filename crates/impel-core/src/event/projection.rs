@@ -80,9 +80,7 @@ impl Projection for ThreadProjection {
                 let metadata = ThreadMetadata {
                     title: title.clone(),
                     description: description.clone(),
-                    parent_id: parent_id
-                        .as_ref()
-                        .and_then(|s| ThreadId::parse(s).ok()),
+                    parent_id: parent_id.as_ref().and_then(|s| ThreadId::parse(s).ok()),
                     ..Default::default()
                 };
 
@@ -130,10 +128,10 @@ impl Projection for ThreadProjection {
                 // Mark source thread as killed when merged
                 if let Some(thread) = self.threads.get_mut(&event.entity_id) {
                     thread.state = ThreadState::Killed;
-                    thread.metadata.custom.insert(
-                        "merged_into".to_string(),
-                        target_id.clone(),
-                    );
+                    thread
+                        .metadata
+                        .custom
+                        .insert("merged_into".to_string(), target_id.clone());
                     thread.version += 1;
                 }
             }
@@ -186,10 +184,7 @@ impl Projection for AgentProjection {
         }
 
         match &event.payload {
-            EventPayload::AgentRegistered {
-                agent_type,
-                ..
-            } => {
+            EventPayload::AgentRegistered { agent_type, .. } => {
                 let agent = Agent::new(event.entity_id.clone(), *agent_type);
                 let _ = self.registry.register(agent);
             }

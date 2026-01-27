@@ -5,7 +5,9 @@
 
 use crate::mode::HelixMode as InternalHelixMode;
 use crate::space::SpaceCommand as InternalSpaceCommand;
-use crate::text_object::{TextObject as InternalTextObject, TextObjectModifier as InternalModifier};
+use crate::text_object::{
+    TextObject as InternalTextObject, TextObjectModifier as InternalModifier,
+};
 
 /// FFI-safe Helix editing mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -242,7 +244,9 @@ pub enum FfiKeyResult {
     /// A space-mode command was triggered.
     SpaceCommand { command: FfiSpaceCommand },
     /// Space-mode menu is showing, here are the available keys.
-    SpaceModePending { available_keys: Vec<FfiWhichKeyItem> },
+    SpaceModePending {
+        available_keys: Vec<FfiWhichKeyItem>,
+    },
 }
 
 /// FFI wrapper for the Helix editor state.
@@ -329,11 +333,8 @@ impl FfiHelixEditor {
             alt: modifiers.alt,
         };
 
-        let result = state.handle_key_with_result::<crate::text_engine::NullTextEngine>(
-            key_char,
-            &mods,
-            None,
-        );
+        let result = state
+            .handle_key_with_result::<crate::text_engine::NullTextEngine>(key_char, &mods, None);
 
         match result {
             crate::KeyHandleResult::Handled => FfiKeyResult::Handled,

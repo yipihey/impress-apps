@@ -12,9 +12,7 @@ use crate::AppState;
 /// WebSocket upgrade handler (placeholder - returns current status)
 ///
 /// To enable full WebSocket support, add axum-extra with websocket feature.
-pub async fn ws_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn ws_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     // Return current status as JSON for now
     // Full WebSocket support would require axum-extra
     let coord = state.coordination.read().await;

@@ -243,7 +243,10 @@ impl EventPayload {
             }
             EventPayload::AgentTerminated { reason } => format!(
                 "Agent terminated{}",
-                reason.as_ref().map(|r| format!(": {}", r)).unwrap_or_default()
+                reason
+                    .as_ref()
+                    .map(|r| format!(": {}", r))
+                    .unwrap_or_default()
             ),
             EventPayload::MessageSent { from, subject, .. } => {
                 format!("Message from {}: {}", from, subject)
@@ -251,7 +254,9 @@ impl EventPayload {
             EventPayload::MessageRead { reader_id } => {
                 format!("Message read by {}", reader_id)
             }
-            EventPayload::EscalationCreated { category, title, .. } => {
+            EventPayload::EscalationCreated {
+                category, title, ..
+            } => {
                 format!("Escalation ({:?}): {}", category, title)
             }
             EventPayload::EscalationAcknowledged { acknowledger_id } => {

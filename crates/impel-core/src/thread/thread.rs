@@ -179,11 +179,9 @@ impl Thread {
     /// Claim the thread for an agent
     pub fn claim(&mut self, agent_id: &str) -> Result<()> {
         if !self.state.is_claimable() {
-            return Err(ThreadError::NotClaimable(
-                self.id.to_string(),
-                self.state.to_string(),
-            )
-            .into());
+            return Err(
+                ThreadError::NotClaimable(self.id.to_string(), self.state.to_string()).into(),
+            );
         }
         if let Some(ref current) = self.claimed_by {
             return Err(ThreadError::AlreadyClaimed(self.id.to_string(), current.clone()).into());

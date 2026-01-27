@@ -35,9 +35,7 @@ impl MessageId {
 
     /// Get the raw ID without angle brackets
     pub fn raw(&self) -> &str {
-        self.0
-            .trim_start_matches('<')
-            .trim_end_matches('>')
+        self.0.trim_start_matches('<').trim_end_matches('>')
     }
 }
 
@@ -222,18 +220,29 @@ impl MessageEnvelope {
         headers.push(format!("From: {}", self.from.formatted()));
         headers.push(format!(
             "To: {}",
-            self.to.iter().map(|a| a.formatted()).collect::<Vec<_>>().join(", ")
+            self.to
+                .iter()
+                .map(|a| a.formatted())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
 
         if !self.cc.is_empty() {
             headers.push(format!(
                 "Cc: {}",
-                self.cc.iter().map(|a| a.formatted()).collect::<Vec<_>>().join(", ")
+                self.cc
+                    .iter()
+                    .map(|a| a.formatted())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
         headers.push(format!("Subject: {}", self.subject));
-        headers.push(format!("Date: {}", self.date.format("%a, %d %b %Y %H:%M:%S %z")));
+        headers.push(format!(
+            "Date: {}",
+            self.date.format("%a, %d %b %Y %H:%M:%S %z")
+        ));
 
         if let Some(ref reply_to) = self.in_reply_to {
             headers.push(format!("In-Reply-To: {}", reply_to));
@@ -370,7 +379,9 @@ fn parse_address(s: &str) -> Address {
 
 /// Parse a comma-separated list of addresses
 fn parse_address_list(s: &str) -> Vec<Address> {
-    s.split(',').map(|addr| parse_address(addr.trim())).collect()
+    s.split(',')
+        .map(|addr| parse_address(addr.trim()))
+        .collect()
 }
 
 #[cfg(test)]

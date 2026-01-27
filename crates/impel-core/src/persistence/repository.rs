@@ -416,7 +416,8 @@ impl Repository {
             _ => EscalationStatus::Pending,
         };
 
-        let options: Vec<EscalationOption> = serde_json::from_str(&options_json).unwrap_or_default();
+        let options: Vec<EscalationOption> =
+            serde_json::from_str(&options_json).unwrap_or_default();
 
         Ok(Escalation {
             id,
@@ -463,11 +464,11 @@ impl Repository {
 
     /// Get a system state value
     pub fn get_system_state(&self, key: &str) -> Result<Option<String>> {
-        let result = self
-            .conn
-            .query_row("SELECT value FROM system_state WHERE key = ?1", [key], |row| {
-                row.get(0)
-            });
+        let result = self.conn.query_row(
+            "SELECT value FROM system_state WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        );
 
         match result {
             Ok(value) => Ok(Some(value)),

@@ -104,14 +104,22 @@ impl Temperature {
     }
 
     /// Update temperature with new activity
-    pub fn record_activity(&mut self, activity_weight: f64, coefficients: &TemperatureCoefficients) {
+    pub fn record_activity(
+        &mut self,
+        activity_weight: f64,
+        coefficients: &TemperatureCoefficients,
+    ) {
         self.value += coefficients.alpha * activity_weight;
         self.value = self.value.clamp(0.0, 1.0);
         self.last_updated = Utc::now();
     }
 
     /// Record a breakthrough signal
-    pub fn record_breakthrough(&mut self, signal_strength: f64, coefficients: &TemperatureCoefficients) {
+    pub fn record_breakthrough(
+        &mut self,
+        signal_strength: f64,
+        coefficients: &TemperatureCoefficients,
+    ) {
         self.breakthrough_signal = signal_strength.clamp(0.0, 1.0);
         self.value += coefficients.beta * self.breakthrough_signal;
         self.value = self.value.clamp(0.0, 1.0);

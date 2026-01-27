@@ -23,10 +23,16 @@ pub enum Command {
     ActivateThread { thread_id: ThreadId },
 
     /// Claim a thread for an agent
-    ClaimThread { thread_id: ThreadId, agent_id: String },
+    ClaimThread {
+        thread_id: ThreadId,
+        agent_id: String,
+    },
 
     /// Release a thread from an agent
-    ReleaseThread { thread_id: ThreadId, agent_id: String },
+    ReleaseThread {
+        thread_id: ThreadId,
+        agent_id: String,
+    },
 
     /// Block a thread
     BlockThread {
@@ -63,7 +69,10 @@ pub enum Command {
     },
 
     /// Register a new agent
-    RegisterAgent { agent_id: String, agent_type: AgentType },
+    RegisterAgent {
+        agent_id: String,
+        agent_type: AgentType,
+    },
 
     /// Terminate an agent
     TerminateAgent {
@@ -81,10 +90,7 @@ pub enum Command {
     },
 
     /// Acknowledge an escalation
-    AcknowledgeEscalation {
-        escalation_id: String,
-        by: String,
-    },
+    AcknowledgeEscalation { escalation_id: String, by: String },
 
     /// Resolve an escalation
     ResolveEscalation {
@@ -141,9 +147,9 @@ impl Command {
             }
 
             Command::ActivateThread { thread_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.can_transition_to(&ThreadState::Active) {
                     return Err(ThreadError::InvalidStateTransition {
@@ -166,10 +172,13 @@ impl Command {
                 Ok(vec![state.apply_event(event)?])
             }
 
-            Command::ClaimThread { thread_id, agent_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+            Command::ClaimThread {
+                thread_id,
+                agent_id,
+            } => {
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.is_claimable() {
                     return Err(ThreadError::NotClaimable(
@@ -199,10 +208,13 @@ impl Command {
                 Ok(vec![state.apply_event(event)?])
             }
 
-            Command::ReleaseThread { thread_id, agent_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+            Command::ReleaseThread {
+                thread_id,
+                agent_id,
+            } => {
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.is_claimed_by(&agent_id) {
                     return Err(ImpelError::InvalidOperation(format!(
@@ -224,9 +236,9 @@ impl Command {
             }
 
             Command::BlockThread { thread_id, reason } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.can_transition_to(&ThreadState::Blocked) {
                     return Err(ThreadError::InvalidStateTransition {
@@ -250,9 +262,9 @@ impl Command {
             }
 
             Command::UnblockThread { thread_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if thread.state != ThreadState::Blocked {
                     return Err(ImpelError::InvalidOperation(format!(
@@ -275,9 +287,9 @@ impl Command {
             }
 
             Command::SubmitForReview { thread_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.can_transition_to(&ThreadState::Review) {
                     return Err(ThreadError::InvalidStateTransition {
@@ -301,9 +313,9 @@ impl Command {
             }
 
             Command::CompleteThread { thread_id } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.can_transition_to(&ThreadState::Complete) {
                     return Err(ThreadError::InvalidStateTransition {
@@ -327,9 +339,9 @@ impl Command {
             }
 
             Command::KillThread { thread_id, reason } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 if !thread.state.can_transition_to(&ThreadState::Killed) {
                     return Err(ThreadError::InvalidStateTransition {
@@ -352,14 +364,17 @@ impl Command {
                 Ok(vec![state.apply_event(event)?])
             }
 
-            Command::MergeThreads { source_id, target_id } => {
+            Command::MergeThreads {
+                source_id,
+                target_id,
+            } => {
                 // Verify both threads exist
-                let _ = state.get_thread(&source_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Source thread {}", source_id))
-                })?;
-                let _ = state.get_thread(&target_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Target thread {}", target_id))
-                })?;
+                let _ = state
+                    .get_thread(&source_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Source thread {}", source_id)))?;
+                let _ = state
+                    .get_thread(&target_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Target thread {}", target_id)))?;
 
                 let event = Event::new(
                     source_id.to_string(),
@@ -378,9 +393,9 @@ impl Command {
                 temperature,
                 reason,
             } => {
-                let thread = state.get_thread(&thread_id.to_string()).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Thread {}", thread_id))
-                })?;
+                let thread = state
+                    .get_thread(&thread_id.to_string())
+                    .ok_or_else(|| ImpelError::NotFound(format!("Thread {}", thread_id)))?;
 
                 let event = Event::new(
                     thread_id.to_string(),
@@ -395,7 +410,10 @@ impl Command {
                 Ok(vec![state.apply_event(event)?])
             }
 
-            Command::RegisterAgent { agent_id, agent_type } => {
+            Command::RegisterAgent {
+                agent_id,
+                agent_type,
+            } => {
                 let event = Event::new(
                     agent_id.clone(),
                     EntityType::Agent,
@@ -452,9 +470,9 @@ impl Command {
             }
 
             Command::AcknowledgeEscalation { escalation_id, by } => {
-                let escalation = state.get_escalation_mut(&escalation_id).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Escalation {}", escalation_id))
-                })?;
+                let escalation = state
+                    .get_escalation_mut(&escalation_id)
+                    .ok_or_else(|| ImpelError::NotFound(format!("Escalation {}", escalation_id)))?;
 
                 escalation.acknowledge(by.clone());
 
@@ -475,9 +493,9 @@ impl Command {
                 by,
                 resolution,
             } => {
-                let escalation = state.get_escalation_mut(&escalation_id).ok_or_else(|| {
-                    ImpelError::NotFound(format!("Escalation {}", escalation_id))
-                })?;
+                let escalation = state
+                    .get_escalation_mut(&escalation_id)
+                    .ok_or_else(|| ImpelError::NotFound(format!("Escalation {}", escalation_id)))?;
 
                 escalation.resolve(by.clone(), resolution.clone());
 
