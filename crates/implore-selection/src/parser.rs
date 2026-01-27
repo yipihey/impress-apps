@@ -302,7 +302,10 @@ mod tests {
     #[test]
     fn test_parse_box() {
         let result = parse_selection("box([0, 0, 0], [1, 1, 1])").unwrap();
-        assert!(matches!(result, SelectionExpr::Geometric(GeometricPrimitive::Box { .. })));
+        assert!(matches!(
+            result,
+            SelectionExpr::Geometric(GeometricPrimitive::Box { .. })
+        ));
     }
 
     #[test]
@@ -313,8 +316,14 @@ mod tests {
 
     #[test]
     fn test_parse_all_none() {
-        assert!(matches!(parse_selection("all").unwrap(), SelectionExpr::All));
-        assert!(matches!(parse_selection("none").unwrap(), SelectionExpr::None));
+        assert!(matches!(
+            parse_selection("all").unwrap(),
+            SelectionExpr::All
+        ));
+        assert!(matches!(
+            parse_selection("none").unwrap(),
+            SelectionExpr::None
+        ));
     }
 
     #[test]

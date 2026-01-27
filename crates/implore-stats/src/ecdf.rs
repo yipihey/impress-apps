@@ -46,11 +46,7 @@ impl Ecdf {
             .map(|i| i as f64 / values.len() as f64)
             .collect();
 
-        Self {
-            values,
-            cdf,
-            n,
-        }
+        Self { values, cdf, n }
     }
 
     /// Evaluate the ECDF at a point

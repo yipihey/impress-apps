@@ -220,22 +220,13 @@ impl FunctionCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GeometricPrimitive {
     /// Sphere defined by center and radius
-    Sphere {
-        center: [f64; 3],
-        radius: f64,
-    },
+    Sphere { center: [f64; 3], radius: f64 },
 
     /// Axis-aligned bounding box
-    Box {
-        min: [f64; 3],
-        max: [f64; 3],
-    },
+    Box { min: [f64; 3], max: [f64; 3] },
 
     /// Infinite plane defined by point and normal
-    Plane {
-        point: [f64; 3],
-        normal: [f64; 3],
-    },
+    Plane { point: [f64; 3], normal: [f64; 3] },
 
     /// Cylinder along an axis
     Cylinder {
@@ -246,9 +237,7 @@ pub enum GeometricPrimitive {
     },
 
     /// 2D polygon (for 2D selections)
-    Polygon {
-        vertices: Vec<[f64; 2]>,
-    },
+    Polygon { vertices: Vec<[f64; 2]> },
 }
 
 impl GeometricPrimitive {
@@ -276,9 +265,7 @@ impl GeometricPrimitive {
                     + (point[2] - center[2]).powi(2);
                 d2 <= radius * radius
             }
-            Self::Box { min, max } => {
-                (0..3).all(|i| point[i] >= min[i] && point[i] <= max[i])
-            }
+            Self::Box { min, max } => (0..3).all(|i| point[i] >= min[i] && point[i] <= max[i]),
             Self::Plane { point: p, normal } => {
                 let d = (point[0] - p[0]) * normal[0]
                     + (point[1] - p[1]) * normal[1]
@@ -345,23 +332,13 @@ impl GeometricPrimitive {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StatisticalFilter {
     /// Z-score filter: |zscore(field)| < threshold
-    ZScore {
-        field: String,
-        threshold: f64,
-    },
+    ZScore { field: String, threshold: f64 },
 
     /// Percentile filter: field in [low_pct, high_pct]
-    Percentile {
-        field: String,
-        low: f64,
-        high: f64,
-    },
+    Percentile { field: String, low: f64, high: f64 },
 
     /// Outlier detection: |robust_zscore(field)| < threshold
-    RobustOutlier {
-        field: String,
-        threshold: f64,
-    },
+    RobustOutlier { field: String, threshold: f64 },
 }
 
 impl StatisticalFilter {

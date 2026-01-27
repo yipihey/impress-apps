@@ -53,10 +53,7 @@ impl FastCdf2D {
     pub fn count_dominated(&self, x: f64, y: f64) -> usize {
         // Simple implementation - O(n) scan
         // For production, implement a proper range tree
-        self.points
-            .iter()
-            .filter(|p| p.x <= x && p.y <= y)
-            .count()
+        self.points.iter().filter(|p| p.x <= x && p.y <= y).count()
     }
 
     /// Compute the joint CDF at (x, y)
@@ -85,10 +82,26 @@ impl FastCdf2D {
             return None;
         }
 
-        let x_min = self.points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
-        let x_max = self.points.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
-        let y_min = self.points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
-        let y_max = self.points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+        let x_min = self
+            .points
+            .iter()
+            .map(|p| p.x)
+            .fold(f64::INFINITY, f64::min);
+        let x_max = self
+            .points
+            .iter()
+            .map(|p| p.x)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let y_min = self
+            .points
+            .iter()
+            .map(|p| p.y)
+            .fold(f64::INFINITY, f64::min);
+        let y_max = self
+            .points
+            .iter()
+            .map(|p| p.y)
+            .fold(f64::NEG_INFINITY, f64::max);
 
         Some(((x_min, y_min), (x_max, y_max)))
     }
