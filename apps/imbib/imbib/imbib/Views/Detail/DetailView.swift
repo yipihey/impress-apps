@@ -237,11 +237,11 @@ struct DetailView: View {
         // Tab Picker (no background - buttons appear directly on toolbar)
         HStack(spacing: 2) {
             tabButton(tab: .info, label: "Info", icon: "info.circle")
-            tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
             tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
             if canEdit {
                 tabButton(tab: .notes, label: "Notes", icon: "note.text")
             }
+            tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
         }
 
         Spacer()
@@ -351,11 +351,11 @@ struct DetailView: View {
             // Tab Picker (no background - buttons appear directly)
             HStack(spacing: 2) {
                 tabButton(tab: .info, label: "Info", icon: "info.circle")
-                tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
                 tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
                 if canEdit {
                     tabButton(tab: .notes, label: "Notes", icon: "note.text")
                 }
+                tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
             }
 
             Spacer()
@@ -660,9 +660,9 @@ struct DetailView: View {
 
 enum DetailTab: String, CaseIterable {
     case info
-    case bibtex
     case pdf
     case notes
+    case bibtex
 }
 
 // MARK: - Notes Position

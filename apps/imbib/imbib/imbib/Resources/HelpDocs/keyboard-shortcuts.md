@@ -205,7 +205,7 @@ Print this for your desk:
 │  Navigation                                                 │
 │    ↑/↓ or J/K     Move between papers                      │
 │    Cmd-1/2/3      Focus sidebar/list/detail                │
-│    Cmd-4/5/6/7    Switch tabs: Info/BibTeX/PDF/Notes       │
+│    Cmd-4/5/6      Switch tabs: PDF/Notes/BibTeX            │
 ├─────────────────────────────────────────────────────────────┤
 │  Search                                                     │
 │    Cmd-F or /     Focus search                             │

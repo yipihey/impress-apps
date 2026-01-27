@@ -604,13 +604,13 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("4", modifiers: .command)
 
-            Button("Show BibTeX Tab") {
-                NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
+            Button("Show Notes Tab") {
+                NotificationCenter.default.post(name: .showNotesTab, object: nil)
             }
             .keyboardShortcut("5", modifiers: .command)
 
-            Button("Show Notes Tab") {
-                NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            Button("Show BibTeX Tab") {
+                NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
             }
             .keyboardShortcut("6", modifiers: .command)
 
