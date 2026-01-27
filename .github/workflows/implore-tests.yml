@@ -46,10 +46,10 @@ jobs:
             ${{ runner.os }}-rust-implore-
 
       - name: Build Rust xcframework
-        working-directory: apps/implore
+        working-directory: crates/implore-core
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
-        run: ./build-rust.sh
+        run: ./build-xcframework.sh
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -124,10 +124,10 @@ jobs:
             ${{ runner.os }}-rust-implore-
 
       - name: Build Rust xcframework
-        working-directory: apps/implore
+        working-directory: crates/implore-core
         env:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
-        run: ./build-rust.sh
+        run: ./build-xcframework.sh
 
       - name: Install XcodeGen
         run: brew install xcodegen
