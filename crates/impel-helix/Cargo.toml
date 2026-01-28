@@ -6,13 +6,21 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["ffi"]
+
 [dependencies]
 crossterm = { workspace = true }
-uniffi = { workspace = true, optional = true }
+uniffi = { workspace = true, optional = true, features = ["cli"] }
 
 [features]
 default = []
 ffi = ["uniffi"]
 
 [build-dependencies]
-uniffi = { workspace = true, optional = true }
+uniffi = { workspace = true, optional = true, features = ["build"] }

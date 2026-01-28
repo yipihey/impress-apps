@@ -126,6 +126,52 @@ pub fn extract_all(text: String) -> Vec<ExtractedIdentifier> {
     extract_all_internal(text)
 }
 
+/// Result of batch identifier extraction for a single text
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ExtractedIdentifiers {
+    /// DOIs found in the text
+    pub dois: Vec<String>,
+    /// arXiv IDs found in the text
+    pub arxiv_ids: Vec<String>,
+    /// ISBNs found in the text
+    pub isbns: Vec<String>,
+    /// All identifiers with position information
+    pub all: Vec<ExtractedIdentifier>,
+}
+
+pub(crate) fn extract_all_identifiers_internal(text: &str) -> ExtractedIdentifiers {
+    ExtractedIdentifiers {
+        dois: extract_dois_internal(text.to_string()),
+        arxiv_ids: extract_arxiv_ids_internal(text.to_string()),
+        isbns: extract_isbns_internal(text.to_string()),
+        all: extract_all_internal(text.to_string()),
+    }
+}
+
+/// Extract all identifiers from a single text (convenience function).
+///
+/// Returns a struct with DOIs, arXiv IDs, ISBNs, and all identifiers.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_identifiers(text: String) -> ExtractedIdentifiers {
+    extract_all_identifiers_internal(&text)
+}
+
+/// Extract all identifiers from multiple texts in a single FFI call.
+///
+/// This batch API reduces FFI overhead when processing multiple documents
+/// (e.g., extracting identifiers from PDF text during bulk import).
+///
+/// Returns a vector of ExtractedIdentifiers, one per input text.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn extract_all_identifiers_batch(texts: Vec<String>) -> Vec<ExtractedIdentifiers> {
+    texts
+        .iter()
+        .map(|text| extract_all_identifiers_internal(text))
+        .collect()
+}
+
 /// Clean a DOI by removing trailing punctuation
 fn clean_doi(doi: &str) -> String {
     let mut s = doi.to_string();
@@ -254,5 +300,29 @@ mod tests {
         assert!(is_valid_isbn_checksum("0306406152")); // ISBN-10
         assert!(is_valid_isbn_checksum("9780321125217")); // ISBN-13
         assert!(!is_valid_isbn_checksum("0306406151")); // Invalid
+    }
+
+    #[test]
+    fn test_extract_identifiers() {
+        let text = "DOI: 10.1038/nature12373, arXiv: 2301.12345, ISBN: 978-0-321-12521-7";
+        let result = extract_identifiers(text.to_string());
+        assert_eq!(result.dois.len(), 1);
+        assert_eq!(result.arxiv_ids.len(), 1);
+        assert_eq!(result.isbns.len(), 1);
+        assert_eq!(result.all.len(), 3);
+    }
+
+    #[test]
+    fn test_extract_all_identifiers_batch() {
+        let texts = vec![
+            "Paper 1: 10.1038/nature12373".to_string(),
+            "Paper 2: arXiv:2301.12345".to_string(),
+            "Paper 3: ISBN 978-0-321-12521-7".to_string(),
+        ];
+        let results = extract_all_identifiers_batch(texts);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].dois.len(), 1);
+        assert_eq!(results[1].arxiv_ids.len(), 1);
+        assert_eq!(results[2].isbns.len(), 1);
     }
 }

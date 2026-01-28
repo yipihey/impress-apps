@@ -19,7 +19,8 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
         .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.0"),
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),
-        .package(path: "../ImbibRustCore")
+        .package(path: "../ImbibRustCore"),
+        .package(path: "../../../packages/ImpressAutomation")
     ],
     targets: [
         .target(
@@ -29,7 +30,8 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "SwiftMath", package: "SwiftMath"),
                 .product(name: "HighlightSwift", package: "HighlightSwift"),
-                "ImbibRustCore"
+                "ImbibRustCore",
+                "ImpressAutomation"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg")

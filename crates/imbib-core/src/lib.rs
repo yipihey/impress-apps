@@ -34,6 +34,7 @@ pub mod text;
 pub mod annotations;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pdf;
+pub mod recommendation;
 
 // Re-export main types for convenience
 // Re-export types (not functions that are wrapped for FFI)
@@ -75,9 +76,14 @@ pub use annotations::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use pdf::{
     extract_pdf_text, generate_thumbnail, get_page_count, get_page_dimensions, search_in_pdf,
-    PageDimensions, PageText, PdfError, PdfMetadata, PdfTextResult, TextMatch, ThumbnailConfig,
+    HeuristicConfidence, HeuristicExtractedFields, PageDimensions, PageText, PdfError,
+    PdfMetadata, PdfTextResult, TextMatch, ThumbnailConfig,
 };
 pub use search::snippets::{extract_snippet, highlight_terms};
+
+pub use recommendation::{
+    FeatureType, FeatureVector, LibraryContext, MutedItems, ProfileData, PublicationFeatureInput,
+};
 
 #[cfg(feature = "embeddings")]
 pub use search::{

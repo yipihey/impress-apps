@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import ImpressAutomation
 import OSLog
 
 private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRouter")
@@ -24,7 +25,7 @@ private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRou
 /// - `GET /api/export?keys=a,b,c` - Export BibTeX for multiple cite keys
 /// - `GET /api/collections` - List all collections
 /// - `OPTIONS /*` - CORS preflight
-public actor HTTPAutomationRouter {
+public actor HTTPAutomationRouter: HTTPRouter {
 
     // MARK: - Dependencies
 

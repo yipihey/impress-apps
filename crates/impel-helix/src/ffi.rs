@@ -373,3 +373,365 @@ impl Default for FfiHelixEditor {
         Self::new()
     }
 }
+
+// MARK: - Motion FFI
+
+/// FFI-safe motion type.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum FfiMotion {
+    Left { count: u32 },
+    Right { count: u32 },
+    Up { count: u32 },
+    Down { count: u32 },
+    WordForward { count: u32 },
+    WordBackward { count: u32 },
+    WordEnd { count: u32 },
+    BigWordForward { count: u32 },
+    BigWordBackward { count: u32 },
+    BigWordEnd { count: u32 },
+    LineStart,
+    LineEnd,
+    LineFirstNonBlank,
+    DocumentStart,
+    DocumentEnd,
+    GotoLine { line: u32 },
+    ParagraphForward { count: u32 },
+    ParagraphBackward { count: u32 },
+    FindChar { char: String, count: u32 },
+    FindCharBackward { char: String, count: u32 },
+    TillChar { char: String, count: u32 },
+    TillCharBackward { char: String, count: u32 },
+    Line,
+    MatchingBracket,
+    ToLineEnd,
+    ToLineStart,
+}
+
+impl From<FfiMotion> for crate::motion::Motion {
+    fn from(m: FfiMotion) -> Self {
+        match m {
+            FfiMotion::Left { count } => crate::motion::Motion::Left(count as usize),
+            FfiMotion::Right { count } => crate::motion::Motion::Right(count as usize),
+            FfiMotion::Up { count } => crate::motion::Motion::Up(count as usize),
+            FfiMotion::Down { count } => crate::motion::Motion::Down(count as usize),
+            FfiMotion::WordForward { count } => {
+                crate::motion::Motion::WordForward(count as usize)
+            }
+            FfiMotion::WordBackward { count } => {
+                crate::motion::Motion::WordBackward(count as usize)
+            }
+            FfiMotion::WordEnd { count } => crate::motion::Motion::WordEnd(count as usize),
+            FfiMotion::BigWordForward { count } => {
+                crate::motion::Motion::WORDForward(count as usize)
+            }
+            FfiMotion::BigWordBackward { count } => {
+                crate::motion::Motion::WORDBackward(count as usize)
+            }
+            FfiMotion::BigWordEnd { count } => crate::motion::Motion::WORDEnd(count as usize),
+            FfiMotion::LineStart => crate::motion::Motion::LineStart,
+            FfiMotion::LineEnd => crate::motion::Motion::LineEnd,
+            FfiMotion::LineFirstNonBlank => crate::motion::Motion::LineFirstNonBlank,
+            FfiMotion::DocumentStart => crate::motion::Motion::DocumentStart,
+            FfiMotion::DocumentEnd => crate::motion::Motion::DocumentEnd,
+            FfiMotion::GotoLine { line } => crate::motion::Motion::GotoLine(line as usize),
+            FfiMotion::ParagraphForward { count } => {
+                crate::motion::Motion::ParagraphForward(count as usize)
+            }
+            FfiMotion::ParagraphBackward { count } => {
+                crate::motion::Motion::ParagraphBackward(count as usize)
+            }
+            FfiMotion::FindChar { char, count } => {
+                let c = char.chars().next().unwrap_or(' ');
+                crate::motion::Motion::FindChar(c, count as usize)
+            }
+            FfiMotion::FindCharBackward { char, count } => {
+                let c = char.chars().next().unwrap_or(' ');
+                crate::motion::Motion::FindCharBackward(c, count as usize)
+            }
+            FfiMotion::TillChar { char, count } => {
+                let c = char.chars().next().unwrap_or(' ');
+                crate::motion::Motion::TillChar(c, count as usize)
+            }
+            FfiMotion::TillCharBackward { char, count } => {
+                let c = char.chars().next().unwrap_or(' ');
+                crate::motion::Motion::TillCharBackward(c, count as usize)
+            }
+            FfiMotion::Line => crate::motion::Motion::Line,
+            FfiMotion::MatchingBracket => crate::motion::Motion::MatchingBracket,
+            FfiMotion::ToLineEnd => crate::motion::Motion::ToLineEnd,
+            FfiMotion::ToLineStart => crate::motion::Motion::ToLineStart,
+        }
+    }
+}
+
+// MARK: - Command FFI
+
+/// FFI-safe Helix command.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum FfiHelixCommand {
+    // Mode changes
+    EnterInsertMode,
+    EnterNormalMode,
+    EnterSelectMode,
+    EnterSearchMode { backward: bool },
+
+    // Basic movement
+    MoveLeft { count: u32 },
+    MoveRight { count: u32 },
+    MoveUp { count: u32 },
+    MoveDown { count: u32 },
+
+    // Word movement
+    WordForward { count: u32 },
+    WordBackward { count: u32 },
+    WordEnd { count: u32 },
+
+    // Line movement
+    LineStart,
+    LineEnd,
+    LineFirstNonBlank,
+
+    // Document movement
+    DocumentStart,
+    DocumentEnd,
+
+    // Character finding
+    FindCharacter { char: String, count: u32 },
+    FindCharacterBackward { char: String, count: u32 },
+    TillCharacter { char: String, count: u32 },
+    TillCharacterBackward { char: String, count: u32 },
+    RepeatFind,
+    RepeatFindReverse,
+
+    // Search
+    SearchNext { count: u32 },
+    SearchPrevious { count: u32 },
+
+    // Selection
+    SelectLine,
+    SelectAll,
+
+    // Insert mode variants
+    AppendAfterCursor,
+    AppendAtLineEnd,
+    InsertAtLineStart,
+    OpenLineBelow,
+    OpenLineAbove,
+
+    // Editing
+    Delete,
+    Yank,
+    PasteAfter,
+    PasteBefore,
+    Change,
+    Substitute,
+
+    // Line operations
+    JoinLines,
+    ToggleCase,
+    Indent,
+    Dedent,
+    ReplaceCharacter { char: String },
+
+    // Operator + Motion combinations
+    DeleteMotion { motion: FfiMotion },
+    ChangeMotion { motion: FfiMotion },
+    YankMotion { motion: FfiMotion },
+    IndentMotion { motion: FfiMotion },
+    DedentMotion { motion: FfiMotion },
+
+    // Operator + Text Object combinations
+    DeleteTextObject {
+        text_object: FfiTextObject,
+        modifier: FfiTextObjectModifier,
+    },
+    ChangeTextObject {
+        text_object: FfiTextObject,
+        modifier: FfiTextObjectModifier,
+    },
+    YankTextObject {
+        text_object: FfiTextObject,
+        modifier: FfiTextObjectModifier,
+    },
+
+    // Repeat and undo
+    RepeatLastChange,
+    Undo,
+    Redo,
+}
+
+// MARK: - Range Calculation FFI
+
+/// Result of a range calculation.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiTextRange {
+    /// Start byte offset.
+    pub start: u64,
+    /// End byte offset.
+    pub end: u64,
+}
+
+/// Calculate the range affected by a motion.
+///
+/// - `text`: The full text content.
+/// - `cursor_position`: Current cursor position (byte offset).
+/// - `motion`: The motion to calculate range for.
+///
+/// Returns the range as (start, end) byte offsets, or None if motion cannot be performed.
+#[uniffi::export]
+pub fn calculate_motion_range(
+    text: String,
+    cursor_position: u64,
+    motion: FfiMotion,
+) -> Option<FfiTextRange> {
+    use crate::text_engine::HelixTextEngine;
+
+    struct TextEngineAdapter {
+        text: String,
+        cursor: usize,
+    }
+
+    impl HelixTextEngine for TextEngineAdapter {
+        fn text(&self) -> &str {
+            &self.text
+        }
+
+        fn cursor_position(&self) -> usize {
+            self.cursor
+        }
+
+        fn set_cursor_position(&mut self, position: usize) {
+            self.cursor = position;
+        }
+
+        fn selection(&self) -> (usize, usize) {
+            (self.cursor, self.cursor)
+        }
+
+        fn set_selection(&mut self, _start: usize, _end: usize) {}
+
+        fn insert_text(&mut self, _text: &str) {}
+
+        fn delete(&mut self) {}
+
+        fn replace_selection(&mut self, _text: &str) {}
+
+        fn undo(&mut self) {}
+
+        fn redo(&mut self) {}
+    }
+
+    let engine = TextEngineAdapter {
+        text,
+        cursor: cursor_position as usize,
+    };
+
+    let internal_motion: crate::motion::Motion = motion.into();
+    engine.motion_range(&internal_motion).map(|(start, end)| FfiTextRange {
+        start: start as u64,
+        end: end as u64,
+    })
+}
+
+/// Calculate the range affected by a text object.
+///
+/// - `text`: The full text content.
+/// - `cursor_position`: Current cursor position (byte offset).
+/// - `text_object`: The text object type.
+/// - `modifier`: Inner or Around modifier.
+///
+/// Returns the range as (start, end) byte offsets, or None if text object not found.
+#[uniffi::export]
+pub fn calculate_text_object_range(
+    text: String,
+    cursor_position: u64,
+    text_object: FfiTextObject,
+    modifier: FfiTextObjectModifier,
+) -> Option<FfiTextRange> {
+    use crate::text_engine::HelixTextEngine;
+    use crate::text_object::{TextObject, TextObjectModifier};
+
+    struct TextEngineAdapter {
+        text: String,
+        cursor: usize,
+    }
+
+    impl HelixTextEngine for TextEngineAdapter {
+        fn text(&self) -> &str {
+            &self.text
+        }
+
+        fn cursor_position(&self) -> usize {
+            self.cursor
+        }
+
+        fn set_cursor_position(&mut self, position: usize) {
+            self.cursor = position;
+        }
+
+        fn selection(&self) -> (usize, usize) {
+            (self.cursor, self.cursor)
+        }
+
+        fn set_selection(&mut self, _start: usize, _end: usize) {}
+
+        fn insert_text(&mut self, _text: &str) {}
+
+        fn delete(&mut self) {}
+
+        fn replace_selection(&mut self, _text: &str) {}
+
+        fn undo(&mut self) {}
+
+        fn redo(&mut self) {}
+    }
+
+    let engine = TextEngineAdapter {
+        text,
+        cursor: cursor_position as usize,
+    };
+
+    let internal_text_object: TextObject = match text_object {
+        FfiTextObject::Word => TextObject::Word,
+        FfiTextObject::BigWord => TextObject::WORD,
+        FfiTextObject::DoubleQuote => TextObject::DoubleQuote,
+        FfiTextObject::SingleQuote => TextObject::SingleQuote,
+        FfiTextObject::BacktickQuote => TextObject::BacktickQuote,
+        FfiTextObject::Parentheses => TextObject::Parentheses,
+        FfiTextObject::SquareBrackets => TextObject::SquareBrackets,
+        FfiTextObject::CurlyBraces => TextObject::CurlyBraces,
+        FfiTextObject::AngleBrackets => TextObject::AngleBrackets,
+        FfiTextObject::Paragraph => TextObject::Paragraph,
+        FfiTextObject::Sentence => TextObject::Sentence,
+        FfiTextObject::Function => TextObject::Function,
+        FfiTextObject::Class => TextObject::Class,
+        FfiTextObject::Comment => TextObject::Comment,
+        FfiTextObject::Argument => TextObject::Argument,
+    };
+
+    let internal_modifier: TextObjectModifier = match modifier {
+        FfiTextObjectModifier::Inner => TextObjectModifier::Inner,
+        FfiTextObjectModifier::Around => TextObjectModifier::Around,
+    };
+
+    engine
+        .text_object_range(internal_text_object, internal_modifier)
+        .map(|(start, end)| FfiTextRange {
+            start: start as u64,
+            end: end as u64,
+        })
+}
+
+/// Check if a motion is linewise (affects whole lines).
+#[uniffi::export]
+pub fn is_motion_linewise(motion: FfiMotion) -> bool {
+    let internal_motion: crate::motion::Motion = motion.into();
+    internal_motion.is_linewise()
+}
+
+/// Check if a motion is inclusive (includes the character at the end).
+#[uniffi::export]
+pub fn is_motion_inclusive(motion: FfiMotion) -> bool {
+    let internal_motion: crate::motion::Motion = motion.into();
+    internal_motion.is_inclusive()
+}

@@ -29,10 +29,12 @@ packages:
     path: ImprintRustCore
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
-  ImpressModalEditing:
-    path: ../../packages/ImpressModalEditing
+  ImpelHelixCore:
+    path: ../../packages/ImpelHelixCore
   ImpressAI:
     path: ../../packages/ImpressAI
+  ImpressAutomation:
+    path: ../../packages/ImpressAutomation
 
 targets:
   imprint:
@@ -54,8 +56,9 @@ targets:
     dependencies:
       - package: ImprintCore
       - package: ImprintRustCore
-      - package: ImpressModalEditing
+      - package: ImpelHelixCore
       - package: ImpressAI
+      - package: ImpressAutomation
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -117,8 +120,9 @@ targets:
     dependencies:
       - package: ImprintCore
       - package: ImprintRustCore
-      - package: ImpressModalEditing
+      - package: ImpelHelixCore
       - package: ImpressAI
+      - package: ImpressAutomation
     entitlements:
       path: imprint-iOS/imprint-iOS.entitlements
       properties:

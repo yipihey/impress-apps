@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import ImpressAutomation
 import OSLog
 #if os(macOS)
 import AppKit
@@ -29,7 +30,7 @@ private let routerLogger = Logger(subsystem: "com.imbib.imprint", category: "htt
 /// - `POST /api/documents/{id}/insert-citation` - Insert citation
 /// - `POST /api/documents/create` - Create new document
 /// - `OPTIONS /*` - CORS preflight
-public actor ImprintHTTPRouter {
+public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - Initialization
 
