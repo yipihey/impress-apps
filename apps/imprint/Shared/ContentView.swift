@@ -19,6 +19,25 @@ struct ContentView: View {
     private let renderer = TypstRenderer()
 
     var body: some View {
+        ZStack {
+            mainContent
+
+            // Focus Mode overlay
+            if appState.isFocusMode {
+                FocusModeView(
+                    source: $document.source,
+                    cursorPosition: $cursorPosition,
+                    isActive: $appState.isFocusMode
+                )
+                .transition(.opacity)
+                .zIndex(1)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.isFocusMode)
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
         NavigationSplitView {
             // Sidebar: Document outline and cited papers
             List {
@@ -111,6 +130,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showVersionHistory)) { _ in
             appState.showingVersionHistory = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleFocusMode)) { _ in
+            appState.isFocusMode.toggle()
         }
     }
 

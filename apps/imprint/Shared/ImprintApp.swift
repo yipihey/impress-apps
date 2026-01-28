@@ -85,6 +85,13 @@ struct ImprintApp: App {
                     Text("Text Only").tag(EditMode.textOnly)
                 }
                 .keyboardShortcut(.tab)
+
+                Divider()
+
+                Button(appState.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
+                    NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
+                }
+                .keyboardShortcut("F", modifiers: [.command, .shift])
             }
 
             // Format menu
@@ -168,6 +175,9 @@ class AppState: ObservableObject {
 
     /// Whether version history is showing
     @Published var showingVersionHistory = false
+
+    /// Whether focus mode is active (distraction-free editing)
+    @Published var isFocusMode = false
 }
 
 /// Editing modes for imprint
@@ -189,6 +199,33 @@ enum EditMode: String, CaseIterable {
         case .textOnly: self = .directPdf
         }
     }
+
+    /// SF Symbol name for the mode
+    var iconName: String {
+        switch self {
+        case .directPdf: return "doc.richtext"
+        case .splitView: return "rectangle.split.2x1"
+        case .textOnly: return "doc.text"
+        }
+    }
+
+    /// Help text for toolbar tooltip
+    var helpText: String {
+        switch self {
+        case .directPdf: return "Direct PDF Mode"
+        case .splitView: return "Split View Mode"
+        case .textOnly: return "Text Only Mode"
+        }
+    }
+
+    /// Accessibility identifier for UI testing
+    var accessibilityIdentifier: String {
+        switch self {
+        case .directPdf: return "toolbar.mode.directPdf"
+        case .splitView: return "toolbar.mode.splitView"
+        case .textOnly: return "toolbar.mode.textOnly"
+        }
+    }
 }
 
 // MARK: - Notification Names
@@ -203,6 +240,7 @@ extension Notification.Name {
     static let exportBibliography = Notification.Name("exportBibliography")
     static let showVersionHistory = Notification.Name("showVersionHistory")
     static let shareDocument = Notification.Name("shareDocument")
+    static let toggleFocusMode = Notification.Name("toggleFocusMode")
 }
 
 // MARK: - UI Testing Support
