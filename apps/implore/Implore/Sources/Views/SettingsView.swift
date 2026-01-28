@@ -1,4 +1,5 @@
 import SwiftUI
+import ImpressModalEditing
 
 /// Settings view for implore preferences
 struct SettingsView: View {
@@ -36,7 +37,7 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @AppStorage("autoLoadLastDataset") private var autoLoadLastDataset = true
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
-    @AppStorage("implore.helix.isEnabled") private var helixEnabled = true
+    @ObservedObject private var modalSettings = ModalEditingSettings.shared
 
     var body: some View {
         Form {
@@ -45,14 +46,22 @@ struct GeneralSettingsView: View {
                 Toggle("Auto-load last dataset", isOn: $autoLoadLastDataset)
             }
 
-            Section("Editing") {
-                Toggle("Helix-style modal editing", isOn: $helixEnabled)
-                    .accessibilityIdentifier("settings.general.helixMode")
+            Section("Modal Editing") {
+                Toggle("Enable modal editing", isOn: $modalSettings.isEnabled)
+                    .accessibilityIdentifier("settings.general.modalEditing")
 
-                if helixEnabled {
-                    Text("Use hjkl for movement, i/Escape for insert/normal mode in selection grammar editor")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if modalSettings.isEnabled {
+                    Picker("Style", selection: $modalSettings.selectedStyle) {
+                        ForEach(EditorStyleIdentifier.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.general.modalStyle")
+
+                    Toggle("Show mode indicator", isOn: $modalSettings.showModeIndicator)
+                        .accessibilityIdentifier("settings.general.modeIndicator")
+
+                    styleDescription
                 }
             }
 
@@ -64,6 +73,24 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    @ViewBuilder
+    private var styleDescription: some View {
+        switch modalSettings.selectedStyle {
+        case .helix:
+            Text("Selection-first editing in grammar editor: select text, then act on it")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .vim:
+            Text("Verb-object grammar in grammar editor: type operator (d/c/y), then motion")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .emacs:
+            Text("Chorded keys in grammar editor: Control and Meta for commands")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

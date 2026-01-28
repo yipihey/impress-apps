@@ -22,6 +22,24 @@ struct AppearanceSettingsTab: View {
 
     var body: some View {
         Form {
+            // Color Scheme
+            Section("Color Scheme") {
+                Picker("Appearance", selection: Binding(
+                    get: { settings.appearanceMode },
+                    set: { newMode in
+                        Task {
+                            await ThemeSettingsStore.shared.updateAppearanceMode(newMode)
+                            settings = await ThemeSettingsStore.shared.settings
+                        }
+                    }
+                )) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             // Theme Selection
             Section {
                 themePicker

@@ -79,13 +79,15 @@ struct IOSBibTeXEditorSheet: View {
 
                 // BibTeX content
                 if isEditing {
-                    TextEditor(text: $bibtexText)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .onChange(of: bibtexText) { _, newValue in
+                    IOSBibTeXEditorView(
+                        text: $bibtexText,
+                        onSave: {
+                            saveBibTeX()
+                        },
+                        onValidate: { newValue in
                             validateBibTeX(newValue)
                         }
+                    )
                 } else {
                     ScrollView {
                         Text(bibtexText)

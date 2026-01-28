@@ -8,6 +8,32 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Appearance Mode
+
+/// User preference for color scheme
+public enum AppearanceMode: String, Codable, CaseIterable, Sendable {
+    case system     // Follow system settings
+    case light      // Always light mode
+    case dark       // Always dark mode
+
+    public var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    /// Convert to SwiftUI ColorScheme (nil = system)
+    public var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 // MARK: - Theme ID
 
 /// Identifier for predefined themes
@@ -176,6 +202,9 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
     /// Separate color overrides for dark mode (nil = auto-adjust)
     public var darkModeOverrides: DarkModeOverrides?
 
+    /// User's preferred color scheme (system/light/dark)
+    public var appearanceMode: AppearanceMode
+
     // MARK: - Initialization
 
     public init(
@@ -196,7 +225,8 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         useSerifTitles: Bool = false,
         fontScale: Double = 1.0,
         iconColorHex: String? = nil,
-        darkModeOverrides: DarkModeOverrides? = nil
+        darkModeOverrides: DarkModeOverrides? = nil,
+        appearanceMode: AppearanceMode = .system
     ) {
         self.themeID = themeID
         self.isCustom = isCustom
@@ -216,6 +246,7 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         self.fontScale = max(0.7, min(1.4, fontScale))  // Clamp to valid range
         self.iconColorHex = iconColorHex
         self.darkModeOverrides = darkModeOverrides
+        self.appearanceMode = appearanceMode
     }
 
     public static let `default` = ThemeSettings.mail

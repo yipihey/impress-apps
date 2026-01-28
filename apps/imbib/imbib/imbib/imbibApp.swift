@@ -325,6 +325,12 @@ struct imbibApp: App {
             await EmbeddingService.shared.setupChangeObservers()
             appLogger.info("EmbeddingService change observers set up")
 
+            // Start HTTP automation server if enabled
+            await HTTPAutomationServer.shared.start()
+            if await HTTPAutomationServer.shared.running {
+                appLogger.info("HTTP automation server started")
+            }
+
             // Auto-build search indexes after a short delay (ADR-022)
             // This ensures Cmd+K global search works without manual setup
             try? await Task.sleep(for: .seconds(3))

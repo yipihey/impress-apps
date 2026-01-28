@@ -15,6 +15,7 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
     case underline
     case strikethrough
     case textNote
+    case sketch  // iOS only - PencilKit drawing
 
     public var id: String { rawValue }
 
@@ -25,6 +26,7 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
         case .underline: return "underline"
         case .strikethrough: return "strikethrough"
         case .textNote: return "note.text"
+        case .sketch: return "scribble"
         }
     }
 
@@ -35,6 +37,7 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
         case .underline: return "Underline"
         case .strikethrough: return "Strikethrough"
         case .textNote: return "Add Note"
+        case .sketch: return "Draw"
         }
     }
 
@@ -45,7 +48,23 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
         case .underline: return "U"
         case .strikethrough: return "S"
         case .textNote: return "N"
+        case .sketch: return "D"
         }
+    }
+
+    /// Whether this tool is available on the current platform
+    public var isAvailable: Bool {
+        #if os(iOS)
+        return true
+        #else
+        // Sketch requires PencilKit, only available on iOS
+        return self != .sketch
+        #endif
+    }
+
+    /// All tools available on the current platform
+    public static var availableCases: [AnnotationTool] {
+        allCases.filter { $0.isAvailable }
     }
 }
 
@@ -93,6 +112,7 @@ public enum AnnotationToolbarPosition: String, CaseIterable {
 /// - Expanded state shows all annotation tools
 /// - Can be positioned on any edge (top, bottom, left, right)
 /// - Position persisted via UserDefaults
+/// - Sketch tool for iOS (Apple Pencil)
 public struct AnnotationToolbar: View {
 
     // MARK: - Properties
@@ -104,6 +124,7 @@ public struct AnnotationToolbar: View {
     public var onUnderline: () -> Void
     public var onStrikethrough: () -> Void
     public var onAddNote: () -> Void
+    public var onSketch: (() -> Void)?  // iOS only
 
     // Persisted state
     @AppStorage("annotationToolbarExpanded") private var isExpanded: Bool = false
@@ -123,7 +144,8 @@ public struct AnnotationToolbar: View {
         onHighlight: @escaping () -> Void,
         onUnderline: @escaping () -> Void,
         onStrikethrough: @escaping () -> Void,
-        onAddNote: @escaping () -> Void
+        onAddNote: @escaping () -> Void,
+        onSketch: (() -> Void)? = nil
     ) {
         self._selectedTool = selectedTool
         self._highlightColor = highlightColor
@@ -132,6 +154,7 @@ public struct AnnotationToolbar: View {
         self.onUnderline = onUnderline
         self.onStrikethrough = onStrikethrough
         self.onAddNote = onAddNote
+        self.onSketch = onSketch
     }
 
     // MARK: - Body
@@ -219,6 +242,13 @@ public struct AnnotationToolbar: View {
         // Text note
         toolButton(tool: .textNote, action: onAddNote)
 
+        // Sketch (iOS only)
+        #if os(iOS)
+        if let onSketch = onSketch {
+            toolButton(tool: .sketch, action: onSketch)
+        }
+        #endif
+
         divider(vertical: vertical)
 
         // Color picker
@@ -288,6 +318,16 @@ public struct AnnotationToolbar: View {
 
     // MARK: - Tool Button
 
+    /// Whether a tool requires text selection to be enabled
+    private func toolRequiresSelection(_ tool: AnnotationTool) -> Bool {
+        switch tool {
+        case .textNote, .sketch:
+            return false  // These tools work without selection
+        case .highlight, .underline, .strikethrough:
+            return true   // These tools require text selection
+        }
+    }
+
     private func toolButton(tool: AnnotationTool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: tool.iconName)
@@ -296,8 +336,8 @@ public struct AnnotationToolbar: View {
         }
         .buttonStyle(.plain)
         .help("\(tool.displayName) (\(tool.shortcutHint))")
-        .disabled(tool != .textNote && !hasSelection)
-        .opacity((tool != .textNote && !hasSelection) ? 0.5 : 1.0)
+        .disabled(toolRequiresSelection(tool) && !hasSelection)
+        .opacity((toolRequiresSelection(tool) && !hasSelection) ? 0.5 : 1.0)
     }
 
     // MARK: - Color Picker

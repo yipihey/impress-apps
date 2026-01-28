@@ -15,7 +15,7 @@
 
 set -e
 
-TEST_USER="testrunner"
+TEST_USER="${IMPRESS_TEST_USER:-testrunner}"
 REPO_PATH="/Users/$TEST_USER/Projects/impress-apps"
 LOG_FILE="/tmp/ui-tests-$(date +%Y%m%d-%H%M%S).log"
 RESULT_FILE="/tmp/ui-test-result.txt"

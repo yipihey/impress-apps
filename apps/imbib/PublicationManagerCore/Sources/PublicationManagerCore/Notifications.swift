@@ -453,4 +453,31 @@ public extension Notification.Name {
     /// userInfo:
     /// - `query`: The search query string
     static let pdfSearchRequested = Notification.Name("pdfSearchRequested")
+
+    // MARK: - imprint Integration
+
+    /// Show PDF annotations for a paper (from imprint deep link)
+    ///
+    /// userInfo:
+    /// - `citeKey`: The cite key of the paper
+    ///
+    /// This is triggered when imprint requests to view annotations via URL scheme:
+    /// `imbib://paper/{citeKey}/annotations`
+    static let showAnnotations = Notification.Name("showAnnotations")
+
+    /// Open a paper in imprint (launch imprint with linked document)
+    ///
+    /// userInfo:
+    /// - `citeKey`: The cite key of the manuscript
+    ///
+    /// This is triggered via URL scheme or context menu:
+    /// `imbib://paper/{citeKey}/open-in-imprint`
+    static let openInImprint = Notification.Name("openInImprint")
+
+    /// Posted when a compiled PDF is detected from imprint
+    ///
+    /// userInfo:
+    /// - `documentUUID`: UUID of the imprint document
+    /// - `pdfURL`: URL of the compiled PDF
+    static let compiledPDFDetected = Notification.Name("compiledPDFDetected")
 }

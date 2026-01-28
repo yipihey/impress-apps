@@ -22,18 +22,30 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
     /// Whether to log automation requests to the console
     public var logRequests: Bool
 
+    /// Whether the HTTP server is enabled for browser extension integration
+    public var isHTTPServerEnabled: Bool
+
+    /// Port number for the HTTP server (default: 23120)
+    public var httpServerPort: UInt16
+
     /// Default settings (automation disabled for security)
     public static let `default` = AutomationSettings(
         isEnabled: false,
-        logRequests: true
+        logRequests: true,
+        isHTTPServerEnabled: false,
+        httpServerPort: 23120
     )
 
     public init(
         isEnabled: Bool = false,
-        logRequests: Bool = true
+        logRequests: Bool = true,
+        isHTTPServerEnabled: Bool = false,
+        httpServerPort: UInt16 = 23120
     ) {
         self.isEnabled = isEnabled
         self.logRequests = logRequests
+        self.isHTTPServerEnabled = isHTTPServerEnabled
+        self.httpServerPort = httpServerPort
     }
 }
 
@@ -102,6 +114,34 @@ public actor AutomationSettingsStore {
     public func setLoggingEnabled(_ enabled: Bool) async {
         var current = await settings
         current.logRequests = enabled
+        await update(current)
+    }
+
+    /// Check if HTTP server is enabled
+    public var isHTTPServerEnabled: Bool {
+        get async {
+            await settings.isHTTPServerEnabled
+        }
+    }
+
+    /// Get HTTP server port
+    public var httpServerPort: UInt16 {
+        get async {
+            await settings.httpServerPort
+        }
+    }
+
+    /// Enable or disable HTTP server
+    public func setHTTPServerEnabled(_ enabled: Bool) async {
+        var current = await settings
+        current.isHTTPServerEnabled = enabled
+        await update(current)
+    }
+
+    /// Set HTTP server port
+    public func setHTTPServerPort(_ port: UInt16) async {
+        var current = await settings
+        current.httpServerPort = port
         await update(current)
     }
 

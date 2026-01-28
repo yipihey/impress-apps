@@ -3,9 +3,11 @@ options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   developmentLanguage: en
+  groupSortPosition: top
 
 configs:
   Debug: debug
@@ -15,7 +17,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     PRODUCT_NAME: imprint
-    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    DEVELOPMENT_TEAM: QG3MEYVHMS
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
@@ -23,8 +25,14 @@ settings:
 packages:
   ImprintCore:
     path: Packages/ImprintCore
+  ImprintRustCore:
+    path: ImprintRustCore
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
+  ImpressModalEditing:
+    path: ../../packages/ImpressModalEditing
+  ImpressAI:
+    path: ../../packages/ImpressAI
 
 targets:
   imprint:
@@ -33,14 +41,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Shared
-        excludes:
-          - "**/*.xcassets"
       - path: macOS
-        excludes:
-          - "**/*.xcassets"
-    resources:
-      - path: Shared/Assets.xcassets
-      - path: macOS/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
@@ -52,6 +53,9 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
     dependencies:
       - package: ImprintCore
+      - package: ImprintRustCore
+      - package: ImpressModalEditing
+      - package: ImpressAI
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -59,6 +63,12 @@ targets:
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
         com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - group.com.imbib.shared
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.shared
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.imbib.shared
 
   imprintTests:
     type: bundle.unit-test
@@ -87,6 +97,50 @@ targets:
         PRODUCT_MODULE_NAME: imprintUITests
         GENERATE_INFOPLIST_FILE: YES
 
+  # iOS Target
+  imprint-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Shared
+      - path: imprint-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
+        INFOPLIST_FILE: imprint-iOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: imprint-iOS/imprint-iOS.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    dependencies:
+      - package: ImprintCore
+      - package: ImprintRustCore
+      - package: ImpressModalEditing
+      - package: ImpressAI
+    entitlements:
+      path: imprint-iOS/imprint-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.shared
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.shared
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.imbib.shared
+
+  imprint-iOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: imprint-iOSTests
+    dependencies:
+      - target: imprint-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.iostests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   imprint:
     build:
@@ -99,6 +153,21 @@ schemes:
       targets:
         - imprintTests
         - imprintUITests
+    profile:
+      config: Release
+    archive:
+      config: Release
+
+  imprint-iOS:
+    build:
+      targets:
+        imprint-iOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - imprint-iOSTests
     profile:
       config: Release
     archive:

@@ -3,7 +3,10 @@ import Combine
 
 /// The central state machine for Helix-style modal editing.
 @MainActor
-public final class HelixState: ObservableObject {
+public final class HelixState: ObservableObject, EditorState {
+    public typealias Mode = HelixMode
+    public typealias Command = HelixCommand
+
     /// The current editing mode.
     @Published public private(set) var mode: HelixMode = .normal
 
@@ -11,7 +14,7 @@ public final class HelixState: ObservableObject {
     @Published public var isSearching: Bool = false
 
     /// Whether search is backward.
-    @Published public var searchBackward: Bool = false
+    @Published public private(set) var searchBackward: Bool = false
 
     /// Current search query.
     @Published public var searchQuery: String = ""
@@ -45,14 +48,24 @@ public final class HelixState: ObservableObject {
         self.accessibilityPublisher = PassthroughSubject()
     }
 
+    // MARK: - EditorState Protocol
+
+    /// Handle a key event using the generic TextEngine protocol.
+    @discardableResult
+    public func handleKey(_ key: Character, modifiers: KeyModifiers, textEngine: (any TextEngine)?) -> Bool {
+        // Convert TextEngine to HelixTextEngine if possible
+        let helixEngine = textEngine as? (any HelixTextEngine)
+        return handleKey(key, modifiers: modifiers, helixTextEngine: helixEngine)
+    }
+
     /// Handle a key event and optionally execute commands on the given text engine.
     /// - Parameters:
     ///   - key: The character that was pressed.
     ///   - modifiers: Any modifier keys that were held.
-    ///   - textEngine: Optional text engine to execute commands on directly.
+    ///   - helixTextEngine: Optional text engine to execute commands on directly.
     /// - Returns: Whether the key was handled (true) or should be passed through (false).
     @discardableResult
-    public func handleKey(_ key: Character, modifiers: KeyModifiers = [], textEngine: (any HelixTextEngine)? = nil) -> Bool {
+    public func handleKey(_ key: Character, modifiers: KeyModifiers = [], helixTextEngine textEngine: (any HelixTextEngine)? = nil) -> Bool {
         let result = keyHandler.handleKey(key, in: mode, modifiers: modifiers)
 
         switch result {
@@ -84,8 +97,14 @@ public final class HelixState: ObservableObject {
         }
     }
 
+    /// Execute a search with the current query (EditorState protocol).
+    public func executeSearch(textEngine: (any TextEngine)?) {
+        let helixEngine = textEngine as? (any HelixTextEngine)
+        executeSearch(helixTextEngine: helixEngine)
+    }
+
     /// Execute a search with the current query.
-    public func executeSearch(textEngine: (any HelixTextEngine)? = nil) {
+    public func executeSearch(helixTextEngine textEngine: (any HelixTextEngine)? = nil) {
         guard !searchQuery.isEmpty else { return }
         isSearching = false
 
@@ -186,6 +205,24 @@ public final class HelixState: ObservableObject {
             setMode(.insert)
             lastRepeatableCommand = .substitute
             return
+        case .changeMotion:
+            // Change motion: execute delete on motion range, then switch to insert mode
+            if let engine = textEngine {
+                engine.execute(command, registers: registers, extendSelection: false)
+            }
+            commandPublisher.send(command)
+            setMode(.insert)
+            lastRepeatableCommand = command
+            return
+        case .changeTextObject:
+            // Change text object: execute delete on text object, then switch to insert mode
+            if let engine = textEngine {
+                engine.execute(command, registers: registers, extendSelection: false)
+            }
+            commandPublisher.send(command)
+            setMode(.insert)
+            lastRepeatableCommand = command
+            return
         case .repeatLastChange:
             // Execute the last repeatable command
             if let lastCommand = lastRepeatableCommand {
@@ -249,12 +286,4 @@ public final class HelixState: ObservableObject {
     }
 }
 
-/// Events related to search functionality.
-public enum SearchEvent: Sendable, Equatable {
-    /// Search mode has begun.
-    case beginSearch(backward: Bool)
-    /// Search was executed with the given query.
-    case searchExecuted(query: String, backward: Bool)
-    /// Search was cancelled.
-    case searchCancelled
-}
+// SearchEvent is now defined in Core/EditorState.swift

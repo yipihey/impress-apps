@@ -1,22 +1,8 @@
 import Foundation
 
 /// Result of handling a key event in Helix mode.
-public enum HelixKeyResult: Sendable, Equatable {
-    /// The key was handled and produced a command.
-    case command(HelixCommand)
-    /// The key was handled and produced multiple commands.
-    case commands([HelixCommand])
-    /// The key should be passed through to the text view (e.g., in insert mode).
-    case passThrough
-    /// The key is part of a pending sequence (e.g., "g" waiting for "g").
-    case pending
-    /// The key was consumed but produced no command (e.g., invalid key in normal mode).
-    case consumed
-    /// Need to enter search mode with a UI prompt.
-    case enterSearch(backward: Bool)
-    /// Waiting for character input (for f/t/r commands).
-    case awaitingCharacter
-}
+/// This is a type alias for the generic KeyResult specialized for HelixCommand.
+public typealias HelixKeyResult = KeyResult<HelixCommand>
 
 /// Type of pending operation that expects a character.
 public enum PendingCharacterOperation: Sendable, Equatable {
@@ -27,9 +13,27 @@ public enum PendingCharacterOperation: Sendable, Equatable {
     case replace          // r
 }
 
+/// Pending operator waiting for a motion or text object.
+public enum PendingOperator: Sendable, Equatable {
+    case delete           // d
+    case change           // c
+    case yank             // y
+    case indent           // >
+    case dedent           // <
+}
+
+/// Pending text object modifier (inner/around).
+public enum PendingTextObjectModifier: Sendable, Equatable {
+    case inner            // i
+    case around           // a
+}
+
 /// Handles key events and translates them to Helix commands.
 @MainActor
-public final class HelixKeyHandler: ObservableObject {
+public final class HelixKeyHandler: ObservableObject, KeyHandler {
+    public typealias Mode = HelixMode
+    public typealias Command = HelixCommand
+
     /// Pending key for multi-key sequences (e.g., "g" in "gg").
     @Published public private(set) var pendingKey: Character?
 
@@ -41,6 +45,20 @@ public final class HelixKeyHandler: ObservableObject {
 
     /// Last find character command for ; and , repeat.
     @Published public private(set) var lastFindOp: (Character, PendingCharacterOperation)?
+
+    /// Pending operator waiting for motion or text object (d, c, y, etc.).
+    @Published public private(set) var pendingOperator: PendingOperator?
+
+    /// Pending text object modifier (i for inner, a for around).
+    @Published public private(set) var pendingTextObjectModifier: PendingTextObjectModifier?
+
+    /// Selected register for next yank/paste (nil = default register).
+    @Published public private(set) var selectedRegister: Character?
+
+    /// Whether waiting for a character input (f/t/r commands).
+    public var isAwaitingCharacter: Bool {
+        pendingCharOp != nil
+    }
 
     public init() {}
 
@@ -60,6 +78,25 @@ public final class HelixKeyHandler: ObservableObject {
             let count = countPrefix ?? 1
             countPrefix = nil
             return handleCharacterInput(key, operation: op, count: count)
+        }
+
+        // Handle pending text object modifier (i/a waiting for object type)
+        if let modifier = pendingTextObjectModifier {
+            pendingTextObjectModifier = nil
+            let count = countPrefix ?? 1
+            countPrefix = nil
+            return handleTextObjectInput(key, modifier: modifier, count: count)
+        }
+
+        // Handle pending operator waiting for motion or text object
+        if let op = pendingOperator {
+            return handleOperatorMotion(key, operator: op, mode: mode, modifiers: modifiers)
+        }
+
+        // Handle register selection (")
+        if key == "\"" && selectedRegister == nil {
+            pendingKey = "\""
+            return .pending
         }
 
         // Handle numeric prefix for count
@@ -86,6 +123,9 @@ public final class HelixKeyHandler: ObservableObject {
         pendingKey = nil
         countPrefix = nil
         pendingCharOp = nil
+        pendingOperator = nil
+        pendingTextObjectModifier = nil
+        selectedRegister = nil
     }
 
     // MARK: - Private
@@ -202,25 +242,39 @@ public final class HelixKeyHandler: ObservableObject {
         case "%":
             return .command(.selectAll)
 
-        // Editing
+        // Operators (wait for motion/text-object)
         case "d":
-            return .command(.delete)
+            pendingOperator = .delete
+            countPrefix = count > 1 ? count : nil
+            return .pending
+        case "c":
+            pendingOperator = .change
+            countPrefix = count > 1 ? count : nil
+            return .pending
         case "y":
-            return .command(.yank)
+            pendingOperator = .yank
+            countPrefix = count > 1 ? count : nil
+            return .pending
+        case ">":
+            pendingOperator = .indent
+            countPrefix = count > 1 ? count : nil
+            return .pending
+        case "<":
+            pendingOperator = .dedent
+            countPrefix = count > 1 ? count : nil
+            return .pending
+
+        // Paste
         case "p":
             return .command(.pasteAfter)
         case "P":
             return .command(.pasteBefore)
-        case "c":
-            return .commands([.delete, .enterInsertMode])
+
+        // Other editing
         case "J":
             return .command(.joinLines)
         case "~":
             return .command(.toggleCase)
-        case ">":
-            return .command(.indent)
-        case "<":
-            return .command(.dedent)
 
         // Repeat
         case ".":
@@ -236,7 +290,33 @@ public final class HelixKeyHandler: ObservableObject {
         case "G":
             return .command(.documentEnd)
 
+        // Paragraph motions
+        case "{":
+            return .command(.paragraphBackward(count: count))
+        case "}":
+            return .command(.paragraphForward(count: count))
+
+        // Matching bracket
+        case "m":
+            // In Helix, m is the motion for matching bracket (like % in vim)
+            return .command(.matchingBracket)
+
         default:
+            // Handle control key combinations
+            if modifiers.contains(.control) {
+                switch key {
+                case "d":
+                    return .command(.scrollDown(count: count))
+                case "u":
+                    return .command(.scrollUp(count: count))
+                case "f":
+                    return .command(.pageDown(count: count))
+                case "b":
+                    return .command(.pageUp(count: count))
+                default:
+                    break
+                }
+            }
             return .consumed
         }
     }
@@ -248,55 +328,168 @@ public final class HelixKeyHandler: ObservableObject {
         case ("g", "e"):
             // ge - go to end of previous word (backward word end)
             return .command(.wordBackward(count: count))
+        case ("\"", _):
+            // Register selection: "a, "b, etc.
+            if second.isLetter || second == "+" || second == "*" || second == "\"" {
+                selectedRegister = second
+                return .pending
+            }
+            return .consumed
         default:
             // Invalid sequence, consume both keys
             return .consumed
         }
     }
-}
 
-/// Modifier keys for key events.
-public struct KeyModifiers: OptionSet, Sendable {
-    public let rawValue: Int
+    private func handleOperatorMotion(_ key: Character, operator op: PendingOperator, mode: HelixMode, modifiers: KeyModifiers) -> HelixKeyResult {
+        let count = countPrefix ?? 1
+        countPrefix = nil
 
-    public init(rawValue: Int) {
-        self.rawValue = rawValue
+        // Same operator twice = line operation (dd, cc, yy, >>, <<)
+        let sameKey: Character
+        switch op {
+        case .delete: sameKey = "d"
+        case .change: sameKey = "c"
+        case .yank: sameKey = "y"
+        case .indent: sameKey = ">"
+        case .dedent: sameKey = "<"
+        }
+
+        if key == sameKey {
+            pendingOperator = nil
+            let motion = HelixMotion.line
+            return operatorCommand(op, motion: motion)
+        }
+
+        // Text object modifier (i/a)
+        if key == "i" {
+            pendingTextObjectModifier = .inner
+            return .pending
+        }
+        if key == "a" {
+            pendingTextObjectModifier = .around
+            return .pending
+        }
+
+        // Motion keys
+        if let motion = motionForKey(key, count: count, modifiers: modifiers) {
+            pendingOperator = nil
+            return operatorCommand(op, motion: motion)
+        }
+
+        // Escape cancels pending operator
+        if key == "\u{1B}" {
+            pendingOperator = nil
+            return .consumed
+        }
+
+        // Invalid key, cancel operator
+        pendingOperator = nil
+        return .consumed
     }
 
-    public static let shift = KeyModifiers(rawValue: 1 << 0)
-    public static let control = KeyModifiers(rawValue: 1 << 1)
-    public static let option = KeyModifiers(rawValue: 1 << 2)
-    public static let command = KeyModifiers(rawValue: 1 << 3)
-}
+    private func handleTextObjectInput(_ key: Character, modifier: PendingTextObjectModifier, count: Int) -> HelixKeyResult {
+        guard let textObject = textObjectForKey(key, modifier: modifier) else {
+            // Invalid text object, cancel pending operator too
+            pendingOperator = nil
+            return .consumed
+        }
 
-#if canImport(AppKit)
-import AppKit
+        guard let op = pendingOperator else {
+            // No operator, just consume
+            return .consumed
+        }
 
-public extension KeyModifiers {
-    /// Create from NSEvent modifier flags.
-    init(flags: NSEvent.ModifierFlags) {
-        var modifiers: KeyModifiers = []
-        if flags.contains(.shift) { modifiers.insert(.shift) }
-        if flags.contains(.control) { modifiers.insert(.control) }
-        if flags.contains(.option) { modifiers.insert(.option) }
-        if flags.contains(.command) { modifiers.insert(.command) }
-        self = modifiers
+        pendingOperator = nil
+        return operatorTextObjectCommand(op, textObject: textObject)
+    }
+
+    private func motionForKey(_ key: Character, count: Int, modifiers: KeyModifiers) -> HelixMotion? {
+        switch key {
+        case "h": return .left(count: count)
+        case "j": return .down(count: count)
+        case "k": return .up(count: count)
+        case "l": return .right(count: count)
+        case "w": return .wordForward(count: count)
+        case "W": return .wordForwardWORD(count: count)
+        case "b": return .wordBackward(count: count)
+        case "B": return .wordBackwardWORD(count: count)
+        case "e": return .wordEnd(count: count)
+        case "E": return .wordEndWORD(count: count)
+        case "0": return .lineStart
+        case "^": return .lineFirstNonBlank
+        case "$": return .lineEnd
+        case "G": return .documentEnd
+        case "{": return .paragraphBackward(count: count)
+        case "}": return .paragraphForward(count: count)
+        case "m": return .matchingBracket
+        default:
+            // Handle gg through pending key mechanism
+            if key == "g" {
+                pendingKey = "g"
+                return nil
+            }
+            return nil
+        }
+    }
+
+    private func textObjectForKey(_ key: Character, modifier: PendingTextObjectModifier) -> HelixTextObject? {
+        let inner = modifier == .inner
+        switch key {
+        case "w":
+            return inner ? .innerWord : .aroundWord
+        case "W":
+            return inner ? .innerWORD : .aroundWORD
+        case "\"":
+            return inner ? .innerDoubleQuote : .aroundDoubleQuote
+        case "'":
+            return inner ? .innerSingleQuote : .aroundSingleQuote
+        case "`":
+            return inner ? .innerBacktick : .aroundBacktick
+        case "(", ")":
+            return inner ? .innerParen : .aroundParen
+        case "[", "]":
+            return inner ? .innerBracket : .aroundBracket
+        case "{", "}":
+            return inner ? .innerBrace : .aroundBrace
+        case "<", ">":
+            return inner ? .innerAngle : .aroundAngle
+        case "p":
+            return inner ? .innerParagraph : .aroundParagraph
+        default:
+            return nil
+        }
+    }
+
+    private func operatorCommand(_ op: PendingOperator, motion: HelixMotion) -> HelixKeyResult {
+        switch op {
+        case .delete:
+            return .command(.deleteMotion(motion))
+        case .change:
+            return .command(.changeMotion(motion))
+        case .yank:
+            return .command(.yankMotion(motion))
+        case .indent:
+            return .command(.indentMotion(motion))
+        case .dedent:
+            return .command(.dedentMotion(motion))
+        }
+    }
+
+    private func operatorTextObjectCommand(_ op: PendingOperator, textObject: HelixTextObject) -> HelixKeyResult {
+        switch op {
+        case .delete:
+            return .command(.deleteTextObject(textObject))
+        case .change:
+            return .command(.changeTextObject(textObject))
+        case .yank:
+            return .command(.yankTextObject(textObject))
+        case .indent:
+            return .command(.indentTextObject(textObject))
+        case .dedent:
+            return .command(.dedentTextObject(textObject))
+        }
     }
 }
-#endif
 
-#if canImport(UIKit)
-import UIKit
-
-public extension KeyModifiers {
-    /// Create from UIKeyModifierFlags.
-    init(flags: UIKeyModifierFlags) {
-        var modifiers: KeyModifiers = []
-        if flags.contains(.shift) { modifiers.insert(.shift) }
-        if flags.contains(.control) { modifiers.insert(.control) }
-        if flags.contains(.alternate) { modifiers.insert(.option) }
-        if flags.contains(.command) { modifiers.insert(.command) }
-        self = modifiers
-    }
-}
-#endif
+// KeyModifiers is now defined in Core/KeyHandler.swift

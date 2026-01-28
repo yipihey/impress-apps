@@ -10,6 +10,12 @@ import PublicationManagerCore
 import ImpressModalEditing
 
 /// iOS Notes tab for viewing and editing publication notes.
+///
+/// Features:
+/// - Hardware keyboard shortcuts (Cmd+S save, Cmd+B bold, Cmd+I italic)
+/// - Apple Pencil Scribble support
+/// - Helix modal editing mode (optional)
+/// - Auto-save with debouncing
 @available(iOS 17.0, *)
 struct IOSNotesTab: View {
     let publication: CDPublication
@@ -17,6 +23,7 @@ struct IOSNotesTab: View {
     @Environment(LibraryViewModel.self) private var viewModel
     @State private var notes: String = ""
     @State private var saveTask: Task<Void, Never>?
+    @State private var showSaveConfirmation = false
 
     // Helix mode settings
     @AppStorage("helixModeEnabled") private var helixModeEnabled = false
@@ -33,13 +40,16 @@ struct IOSNotesTab: View {
                     indicatorPosition: .bottomRight
                 )
             } else {
-                TextEditor(text: $notes)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
+                // Use IOSNotesEditorView for keyboard shortcut and Scribble support
+                IOSNotesEditorView(
+                    text: $notes,
+                    onSave: {
+                        saveNotes()
+                    }
+                )
             }
         }
         .background(Color(.systemBackground))
-        .padding()
         .onChange(of: publication.id, initial: true) { _, _ in
             saveTask?.cancel()
             notes = publication.fields["note"] ?? ""
@@ -55,6 +65,15 @@ struct IOSNotesTab: View {
                 guard targetPublication.id == self.publication.id else { return }
                 await viewModel.updateField(targetPublication, field: "note", value: newValue)
             }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func saveNotes() {
+        saveTask?.cancel()
+        Task {
+            await viewModel.updateField(publication, field: "note", value: notes)
         }
     }
 }

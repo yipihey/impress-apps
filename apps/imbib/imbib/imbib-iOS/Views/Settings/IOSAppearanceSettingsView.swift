@@ -19,6 +19,27 @@ struct IOSAppearanceSettingsView: View {
 
     var body: some View {
         List {
+            // Color Scheme
+            Section {
+                Picker("Appearance", selection: Binding(
+                    get: { settings.appearanceMode },
+                    set: { newMode in
+                        Task {
+                            await ThemeSettingsStore.shared.updateAppearanceMode(newMode)
+                            settings = await ThemeSettingsStore.shared.settings
+                        }
+                    }
+                )) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+            } header: {
+                Text("Color Scheme")
+            } footer: {
+                Text("Choose whether to follow system appearance or always use light/dark mode")
+            }
+
             // Theme Selection
             Section {
                 ForEach(ThemeID.allCases.filter { $0 != .custom }, id: \.self) { themeID in

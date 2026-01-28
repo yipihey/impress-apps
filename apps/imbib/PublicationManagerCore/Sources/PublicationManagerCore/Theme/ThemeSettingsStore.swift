@@ -167,6 +167,15 @@ public actor ThemeSettingsStore {
         updateFontScale(1.0)
     }
 
+    /// Update appearance mode (system/light/dark)
+    public func updateAppearanceMode(_ mode: AppearanceMode) {
+        var current = settings
+        current.appearanceMode = mode
+        saveSettings(current)
+        postNotification()
+        Self.logger.info("Updated appearance mode to \(mode.rawValue)")
+    }
+
     /// Reset settings to default (Mail theme)
     public func reset() {
         userDefaults.removeObject(forKey: settingsKey)

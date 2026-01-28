@@ -2,11 +2,11 @@
 #
 # setup-testrunner.sh
 #
-# Sets up the testrunner account with all development tools needed
+# Sets up the test user account with all development tools needed
 # to run UI tests for impress-apps.
 #
 # Run this script in the testrunner account Terminal:
-#   cd ~/impress-apps && ./scripts/setup-testrunner.sh
+#   cd ~/Projects/impress-apps && ./scripts/setup-testrunner.sh
 #
 
 set -e

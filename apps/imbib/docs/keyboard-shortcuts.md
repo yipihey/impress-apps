@@ -186,9 +186,81 @@ imBib is designed for efficient keyboard-driven workflows. This page lists all a
 
 ---
 
+## iOS Keyboard Shortcuts (iPad)
+
+When using a hardware keyboard with iPad, the following shortcuts are available:
+
+### Notes Editor
+
+| Action | Shortcut |
+|--------|----------|
+| Save notes | `Cmd-S` |
+| Bold | `Cmd-B` |
+| Italic | `Cmd-I` |
+| Undo | `Cmd-Z` |
+| Redo | `Cmd-Shift-Z` |
+
+### BibTeX Editor
+
+| Action | Shortcut |
+|--------|----------|
+| Save and validate | `Cmd-S` |
+| Select all | `Cmd-A` |
+| Copy | `Cmd-C` |
+| Insert field template | `Cmd-N` |
+| Undo | `Cmd-Z` |
+| Redo | `Cmd-Shift-Z` |
+
+### PDF Annotations
+
+| Action | Shortcut |
+|--------|----------|
+| Highlight | `H` |
+| Underline | `U` |
+| Strikethrough | `S` |
+| Add Note | `N` |
+| Draw (Sketch) | `D` |
+
+---
+
+## Apple Pencil Gestures (iPad)
+
+imBib supports Apple Pencil with Scribble for natural text input:
+
+| Gesture | Action |
+|---------|--------|
+| Write | Insert text at cursor |
+| Scratch out | Delete text |
+| Circle | Select word |
+| Tap and hold | Position cursor |
+| Draw line through | Delete crossed text |
+
+---
+
+## Voice Commands (Dictation)
+
+When dictation is active, speak these commands:
+
+| Command | Action |
+|---------|--------|
+| "new paragraph" | Insert paragraph break |
+| "new line" | Insert line break |
+| "bold" | Insert bold marker |
+| "italic" | Insert italic marker |
+| "save note" | Save current notes |
+| "next paper" | Navigate to next paper |
+| "previous paper" | Navigate to previous paper |
+| "show pdf" | Switch to PDF tab |
+| "show notes" | Switch to Notes tab |
+| "show bibtex" | Switch to BibTeX tab |
+| "undo" | Undo last action |
+| "stop dictation" | End voice input |
+
+---
+
 ## Customizing Shortcuts
 
-Keyboard shortcuts are currently not customizable. We plan to add this in a future release.
+Keyboard shortcuts can be customized in **Settings > Keyboard Shortcuts** on iOS.
 
 If you have suggestions for additional shortcuts, please [open an issue](https://github.com/yipihey/imbib/issues).
 
@@ -200,7 +272,7 @@ Print this for your desk:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  imBib Quick Reference                                      │
+│  imBib Quick Reference (macOS)                              │
 ├─────────────────────────────────────────────────────────────┤
 │  Navigation                                                 │
 │    ↑/↓ or J/K     Move between papers                      │
@@ -226,5 +298,35 @@ Print this for your desk:
 │    ←/→            Prev/Next page                            │
 │    Cmd-+/-        Zoom in/out                               │
 │    Cmd-0          Actual size                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  imBib Quick Reference (iPad)                               │
+├─────────────────────────────────────────────────────────────┤
+│  Notes Editor                                               │
+│    Cmd-S          Save notes                                │
+│    Cmd-B          Bold (**text**)                           │
+│    Cmd-I          Italic (*text*)                           │
+│    Cmd-Z          Undo                                      │
+├─────────────────────────────────────────────────────────────┤
+│  BibTeX Editor                                              │
+│    Cmd-S          Save & validate                           │
+│    Cmd-A          Select all                                │
+│    Cmd-C          Copy                                      │
+│    Cmd-N          Insert field                              │
+├─────────────────────────────────────────────────────────────┤
+│  PDF Annotations                                            │
+│    H              Highlight                                 │
+│    U              Underline                                 │
+│    S              Strikethrough                             │
+│    N              Add note                                  │
+│    D              Draw/Sketch                               │
+├─────────────────────────────────────────────────────────────┤
+│  Apple Pencil (Scribble)                                    │
+│    Write          Insert text                               │
+│    Scratch        Delete text                               │
+│    Circle         Select word                               │
 └─────────────────────────────────────────────────────────────┘
 ```

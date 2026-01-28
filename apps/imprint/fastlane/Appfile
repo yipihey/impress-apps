@@ -1,0 +1,20 @@
+# Appfile for imprint
+# Configuration for Fastlane
+
+app_identifier("com.imbib.imprint")
+team_id("QG3MEYVHMS")
+
+# Apple ID for authentication
+# Set via environment variable FASTLANE_USER or uncomment and set below:
+# apple_id("your@email.com")
+
+for_platform :mac do
+  # macOS uses same credentials
+end
+
+for_platform :ios do
+  # iOS uses same credentials
+end
+
+# For App Store Connect (not needed for just Developer Portal)
+# itc_team_id("123456789")

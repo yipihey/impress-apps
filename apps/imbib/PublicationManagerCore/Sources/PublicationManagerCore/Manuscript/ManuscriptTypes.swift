@@ -160,6 +160,9 @@ public enum ManuscriptAttachmentTag: String, CaseIterable, Sendable {
     case supplementary = "manuscript:supplementary"
     case coverLetter = "manuscript:cover-letter"
 
+    // imprint integration
+    case compiledPDF = "manuscript:compiled-pdf"
+
     /// The common prefix for all manuscript tags
     public static let prefix = "manuscript:"
 
@@ -179,6 +182,7 @@ public enum ManuscriptAttachmentTag: String, CaseIterable, Sendable {
         case .proofs: return "Proofs"
         case .supplementary: return "Supplementary Material"
         case .coverLetter: return "Cover Letter"
+        case .compiledPDF: return "Compiled PDF"
         }
     }
 
@@ -203,6 +207,8 @@ public enum ManuscriptAttachmentTag: String, CaseIterable, Sendable {
             return "doc.on.doc"
         case .coverLetter:
             return "envelope"
+        case .compiledPDF:
+            return "doc.text.fill"
         }
     }
 
@@ -227,6 +233,8 @@ public enum ManuscriptAttachmentTag: String, CaseIterable, Sendable {
             return .gray
         case .coverLetter:
             return .indigo
+        case .compiledPDF:
+            return .cyan
         }
     }
 
@@ -297,4 +305,18 @@ public enum ManuscriptMetadataKey: String, Sendable {
     case acceptanceDate = "_acceptance_date"
     case targetJournal = "_target_journal"
     case coauthorEmails = "_coauthor_emails"
+
+    // MARK: - imprint Integration Keys
+
+    /// Stable UUID from imprint document's metadata.json
+    case imprintDocumentUUID = "_imprint_document_uuid"
+
+    /// Last known file path to the .imprint document
+    case imprintDocumentPath = "_imprint_document_path"
+
+    /// Security-scoped bookmark data for sandboxed access (macOS)
+    case imprintBookmarkData = "_imprint_bookmark_data"
+
+    /// UUID of CDLinkedFile containing the compiled PDF
+    case compiledPDFLinkedFileID = "_compiled_pdf_linked_file_id"
 }

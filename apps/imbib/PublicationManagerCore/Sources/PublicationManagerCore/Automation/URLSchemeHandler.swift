@@ -395,6 +395,12 @@ public actor URLSchemeHandler {
             await postNotification(.copyIdentifier, userInfo: userInfo)
         case .share:
             await postNotification(.sharePapers, userInfo: userInfo)
+
+        // imprint integration
+        case .annotations:
+            await postNotification(.showAnnotations, userInfo: userInfo)
+        case .openInImprint:
+            await postNotification(.openInImprint, userInfo: userInfo)
         }
 
         return .success(command: "paper", result: ["citeKey": AnyCodable(citeKey)])

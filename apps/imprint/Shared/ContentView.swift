@@ -1,7 +1,8 @@
+#if os(macOS)
 import SwiftUI
 import ImprintCore
 
-/// Main content view for an imprint document
+/// Main content view for an imprint document (macOS)
 struct ContentView: View {
     @Binding var document: ImprintDocument
     @EnvironmentObject var appState: AppState
@@ -15,8 +16,10 @@ struct ContentView: View {
     @State private var debugStatus: String = "idle"
     @State private var debugHistory: String = ""
 
-    /// Comment service for this document
+    #if os(macOS)
+    /// Comment service for this document (macOS only)
     @StateObject private var commentService = CommentService()
+    #endif
 
     /// Shared Typst renderer instance
     private let renderer = TypstRenderer()
@@ -165,6 +168,7 @@ struct ContentView: View {
                 appState.showingComments.toggle()
             }
         }
+        #if os(macOS)
         .onReceive(NotificationCenter.default.publisher(for: .addCommentAtSelection)) { _ in
             // Add comment at current selection
             if let range = appState.selectedRange, range.length > 0 {
@@ -176,6 +180,7 @@ struct ContentView: View {
                 appState.showingComments = true
             }
         }
+        #endif
     }
 
     @ViewBuilder
@@ -401,3 +406,4 @@ struct EditModeSegmentButton: View {
     ContentView(document: .constant(ImprintDocument()))
         .environmentObject(AppState())
 }
+#endif // os(macOS)

@@ -22,8 +22,66 @@ struct IOSKeyboardShortcutsSettingsView: View {
 
     var body: some View {
         List {
+            // Info section
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hardware Keyboard Required")
+                            .font(.subheadline.weight(.medium))
+                        Text("Connect a Magic Keyboard or Bluetooth keyboard to use shortcuts. Shortcuts work in Notes and BibTeX editors.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "keyboard")
+                        .foregroundStyle(.accent)
+                }
+            }
+
             ForEach(ShortcutCategory.allCases, id: \.self) { category in
                 categorySection(category)
+            }
+
+            // Apple Pencil section
+            Section("Apple Pencil") {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Scribble")
+                            .font(.subheadline.weight(.medium))
+                        Text("Write in any text field with Apple Pencil. Handwriting converts to text automatically.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "pencil.tip")
+                }
+
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PDF Annotations")
+                            .font(.subheadline.weight(.medium))
+                        Text("Tap the Draw tool in PDF viewer to sketch annotations with pressure sensitivity.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "scribble")
+                }
+            }
+
+            // Voice section
+            Section("Voice Input") {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Dictation")
+                            .font(.subheadline.weight(.medium))
+                        Text("Tap the microphone button to dictate. Say \"bold\", \"new paragraph\", or \"stop dictation\" for commands.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "mic")
+                }
             }
         }
         .searchable(text: $searchText, prompt: "Filter shortcuts")

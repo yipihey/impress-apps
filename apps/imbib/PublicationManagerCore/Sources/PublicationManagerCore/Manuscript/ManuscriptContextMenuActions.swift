@@ -26,18 +26,28 @@ public struct ManuscriptContextMenuActions: View {
     /// Callback when "view manuscripts citing this" is triggered
     public var onViewCitingManuscripts: (() -> Void)?
 
+    /// Callback when "Open in imprint" is triggered
+    public var onOpenInImprint: (() -> Void)?
+
+    /// Callback when "Link imprint Document" is triggered
+    public var onLinkImprintDocument: (() -> Void)?
+
     // MARK: - Initialization
 
     public init(
         publication: CDPublication,
         onAddCitation: (() -> Void)? = nil,
         onConvertToManuscript: (() -> Void)? = nil,
-        onViewCitingManuscripts: (() -> Void)? = nil
+        onViewCitingManuscripts: (() -> Void)? = nil,
+        onOpenInImprint: (() -> Void)? = nil,
+        onLinkImprintDocument: (() -> Void)? = nil
     ) {
         self.publication = publication
         self.onAddCitation = onAddCitation
         self.onConvertToManuscript = onConvertToManuscript
         self.onViewCitingManuscripts = onViewCitingManuscripts
+        self.onOpenInImprint = onOpenInImprint
+        self.onLinkImprintDocument = onLinkImprintDocument
     }
 
     // MARK: - Body
@@ -100,6 +110,11 @@ public struct ManuscriptContextMenuActions: View {
     /// Actions for manuscripts
     private var manuscriptActions: some View {
         Group {
+            // imprint integration actions
+            imprintActions
+
+            Divider()
+
             // Show citation count
             let citationCount = publication.citedPublicationCount
             if citationCount > 0 {
@@ -144,6 +159,48 @@ public struct ManuscriptContextMenuActions: View {
                 PersistenceController.shared.save()
             } label: {
                 Label("Remove Manuscript Status", systemImage: "xmark.circle")
+            }
+        }
+    }
+
+    // MARK: - imprint Actions
+
+    /// Actions for imprint integration
+    @ViewBuilder
+    private var imprintActions: some View {
+        if publication.hasLinkedImprintDocument {
+            // Open in imprint
+            Button {
+                onOpenInImprint?()
+            } label: {
+                Label("Open in imprint", systemImage: "doc.text.fill")
+            }
+
+            // Unlink action (in submenu to prevent accidents)
+            Menu {
+                Button(role: .destructive) {
+                    try? publication.unlinkImprintDocument(
+                        context: PersistenceController.shared.viewContext
+                    )
+                } label: {
+                    Label("Unlink Document", systemImage: "link.badge.minus")
+                }
+            } label: {
+                Label("imprint Document", systemImage: "ellipsis.circle")
+            }
+        } else {
+            // Link imprint document
+            Button {
+                onLinkImprintDocument?()
+            } label: {
+                Label("Link imprint Document...", systemImage: "link.badge.plus")
+            }
+
+            // Create new imprint document
+            Button {
+                onLinkImprintDocument?()
+            } label: {
+                Label("Create imprint Document...", systemImage: "doc.badge.plus")
             }
         }
     }

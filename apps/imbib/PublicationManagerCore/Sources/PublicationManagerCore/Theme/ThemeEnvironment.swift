@@ -72,6 +72,7 @@ public struct ThemeProvider: ViewModifier {
             .environment(\.themeColors, colors)
             .environment(\.fontScale, effectiveFontScale)
             .tint(colors.accent)
+            .preferredColorScheme(settings.appearanceMode.colorScheme)
             #if os(macOS)
             .background(WindowBackgroundSetter(color: colors.detailBackground))
             #endif

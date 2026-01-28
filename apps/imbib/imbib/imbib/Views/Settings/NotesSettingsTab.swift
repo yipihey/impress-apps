@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressModalEditing
 
 /// Settings tab for customizing quick annotations and notes panel behavior.
 struct NotesSettingsTab: View {
@@ -16,8 +17,7 @@ struct NotesSettingsTab: View {
     @State private var settings = QuickAnnotationSettings.defaults
     @State private var isLoading = true
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
-    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+    @ObservedObject private var modalSettings = ModalEditingSettings.shared
 
     // Notes position options
     private let notesPositionOptions: [(value: String, label: String)] = [
@@ -106,18 +106,41 @@ struct NotesSettingsTab: View {
     // MARK: - Editing Mode Section
 
     private var editingModeSection: some View {
-        Section("Editing Mode") {
-            Toggle("Helix-style modal editing", isOn: $helixModeEnabled)
-                .accessibilityIdentifier("settings.notes.helixMode")
+        Section("Modal Editing") {
+            Toggle("Enable modal editing", isOn: $modalSettings.isEnabled)
+                .accessibilityIdentifier("settings.notes.modalEditing")
 
-            if helixModeEnabled {
-                Toggle("Show mode indicator", isOn: $helixShowModeIndicator)
-                    .accessibilityIdentifier("settings.notes.helixModeIndicator")
+            if modalSettings.isEnabled {
+                Picker("Style", selection: $modalSettings.selectedStyle) {
+                    ForEach(EditorStyleIdentifier.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .accessibilityIdentifier("settings.notes.modalStyle")
 
-                Text("Use hjkl for movement, i/Escape for insert/normal mode")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Show mode indicator", isOn: $modalSettings.showModeIndicator)
+                    .accessibilityIdentifier("settings.notes.modeIndicator")
+
+                styleDescription
             }
+        }
+    }
+
+    @ViewBuilder
+    private var styleDescription: some View {
+        switch modalSettings.selectedStyle {
+        case .helix:
+            Text("Selection-first editing: select text, then act on it")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .vim:
+            Text("Verb-object grammar: type operator (d/c/y), then motion")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .emacs:
+            Text("Chorded keys: Control and Meta for commands, always insert mode")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

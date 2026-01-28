@@ -306,6 +306,80 @@ public final class AnnotationService {
         return annotation
     }
 
+    // MARK: - Ink/Sketch Annotations
+
+    #if os(iOS)
+    /// Add an ink annotation from a sketch drawing.
+    ///
+    /// This is used to add PencilKit drawings as PDF annotations.
+    ///
+    /// - Parameters:
+    ///   - page: The page to add the annotation to
+    ///   - bounds: The bounds of the annotation
+    ///   - paths: Array of CGPath objects representing the drawing strokes
+    ///   - color: The stroke color (default: black)
+    /// - Returns: The created annotation
+    @discardableResult
+    public func addInkAnnotation(
+        to page: PDFPage,
+        bounds: CGRect,
+        paths: [CGPath],
+        color: PlatformColor = .black
+    ) -> PDFAnnotation {
+        let annotation = PDFAnnotation(
+            bounds: bounds,
+            forType: .ink,
+            withProperties: nil
+        )
+        annotation.color = color
+
+        // Add paths to the ink annotation
+        for path in paths {
+            annotation.add(UIBezierPath(cgPath: path))
+        }
+
+        page.addAnnotation(annotation)
+
+        Logger.files.debugCapture("Added ink annotation at \(bounds)", category: "annotation")
+
+        return annotation
+    }
+
+    /// Add a stamp annotation with an image (for sketch exports).
+    ///
+    /// - Parameters:
+    ///   - page: The page to add the annotation to
+    ///   - bounds: The bounds of the annotation
+    ///   - imageData: PNG image data
+    /// - Returns: The created annotation, or nil if image data is invalid
+    @discardableResult
+    public func addStampAnnotation(
+        to page: PDFPage,
+        bounds: CGRect,
+        imageData: Data
+    ) -> PDFAnnotation? {
+        guard let image = UIImage(data: imageData) else {
+            Logger.files.warningCapture("Invalid image data for stamp annotation", category: "annotation")
+            return nil
+        }
+
+        let annotation = PDFAnnotation(
+            bounds: bounds,
+            forType: .stamp,
+            withProperties: nil
+        )
+
+        // Create appearance stream from image
+        annotation.setValue(image, forAnnotationKey: .appearance)
+
+        page.addAnnotation(annotation)
+
+        Logger.files.debugCapture("Added stamp annotation at \(bounds)", category: "annotation")
+
+        return annotation
+    }
+    #endif
+
     // MARK: - Remove Annotations
 
     /// Remove an annotation from its page.

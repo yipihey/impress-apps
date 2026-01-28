@@ -1,0 +1,83 @@
+# Fastfile for imprint - iCloud Setup
+#
+# Run: cd apps/imprint && fastlane setup_icloud
+
+default_platform(:mac)
+
+TEAM_ID = "QG3MEYVHMS"
+APP_IDENTIFIER = "com.imbib.imprint"
+ICLOUD_CONTAINER = "iCloud.com.imbib.shared"
+APP_GROUP = "group.com.imbib.shared"
+
+platform :mac do
+  desc "Set up iCloud capabilities in Apple Developer Portal"
+  lane :setup_icloud do
+    # Ensure we're logged in
+    app_store_connect_api_key_available = false
+
+    UI.message("Setting up iCloud for #{APP_IDENTIFIER}...")
+
+    # Register/update the App ID with iCloud capability
+    produce(
+      app_identifier: APP_IDENTIFIER,
+      app_name: "imprint",
+      team_id: TEAM_ID,
+      skip_itc: true,  # Skip App Store Connect, just do Developer Portal
+      enable_services: {
+        icloud: "cloudkit",  # Enable iCloud with CloudKit
+        app_group: true,     # Enable App Groups
+      }
+    )
+
+    UI.success("App ID registered with iCloud capability!")
+
+    # Note: iCloud container creation requires manual step or Spaceship API
+    UI.important("Next steps:")
+    UI.important("1. Go to https://developer.apple.com/account/resources/identifiers/list/cloudContainer")
+    UI.important("2. Create container: #{ICLOUD_CONTAINER}")
+    UI.important("3. Associate it with App ID: #{APP_IDENTIFIER}")
+    UI.important("4. Then run: fastlane regenerate_profiles")
+  end
+
+  desc "Regenerate provisioning profiles after iCloud setup"
+  lane :regenerate_profiles do
+    # Get provisioning profile with iCloud capability
+    get_provisioning_profile(
+      app_identifier: APP_IDENTIFIER,
+      team_id: TEAM_ID,
+      force: true,  # Force regeneration
+      filename: "imprint_dev.mobileprovision"
+    )
+
+    UI.success("Provisioning profile regenerated!")
+    UI.message("Profile saved to: imprint_dev.mobileprovision")
+  end
+
+  desc "Full setup - creates everything needed for iCloud"
+  lane :full_setup do
+    setup_icloud
+
+    UI.message("")
+    UI.message("After creating the iCloud container in the portal, run:")
+    UI.message("  fastlane regenerate_profiles")
+  end
+end
+
+platform :ios do
+  desc "Set up iCloud for iOS target"
+  lane :setup_icloud_ios do
+    produce(
+      app_identifier: APP_IDENTIFIER,
+      app_name: "imprint",
+      team_id: TEAM_ID,
+      skip_itc: true,
+      platform: "ios",
+      enable_services: {
+        icloud: "cloudkit",
+        app_group: true,
+      }
+    )
+
+    UI.success("iOS App ID registered with iCloud capability!")
+  end
+end

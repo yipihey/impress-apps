@@ -1,0 +1,9 @@
+# UniFFI configuration for impress-llm
+# This configures Swift binding generation
+
+[bindings.swift]
+# Module name for the generated Swift code
+module_name = "impress_llm"
+
+# Generate async-compatible wrappers where possible
+# (Note: our functions are synchronous, Swift wraps in Task.detached)

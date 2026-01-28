@@ -2,17 +2,19 @@
 #
 # sync-to-testrunner.sh
 #
-# Syncs the current working directory to the testrunner account.
+# Syncs the current working directory to the test user account.
 # Use this to test uncommitted changes without committing.
 #
 # Usage:
 #   ./scripts/sync-to-testrunner.sh           # Sync all files
 #   ./scripts/sync-to-testrunner.sh --dry-run # Preview what would be synced
 #
+# Override test user: IMPRESS_TEST_USER=otheruser ./scripts/sync-to-testrunner.sh
+#
 
 set -e
 
-TEST_USER="testrunner"
+TEST_USER="${IMPRESS_TEST_USER:-testrunner}"
 SOURCE_PATH="/Users/tabel/Projects/impress-apps/"
 DEST_PATH="/Users/$TEST_USER/Projects/impress-apps/"
 
@@ -71,6 +73,6 @@ echo -e "${GREEN}Sync complete!${NC}"
 echo ""
 echo "Note: Xcode projects and Rust frameworks were excluded."
 echo "In testrunner account, run:"
-echo "  cd ~/impress-apps"
-echo "  ./apps/imprint/build-rust.sh       # If Rust code changed"
+echo "  cd ~/Projects/impress-apps"
+echo "  ./apps/imprint/build-rust.sh          # If Rust code changed"
 echo "  cd apps/imprint && xcodegen generate  # Regenerate Xcode project"

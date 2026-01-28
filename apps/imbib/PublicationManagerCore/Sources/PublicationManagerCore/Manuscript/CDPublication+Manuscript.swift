@@ -302,6 +302,9 @@ extension ManuscriptMetadataKey: CaseIterable {
     public static let allCases: [ManuscriptMetadataKey] = [
         .status, .venue, .revisionNumber, .notes, .citedPublicationIDs,
         .bibliographyMode, .externalBibPath, .submissionDate,
-        .acceptanceDate, .targetJournal, .coauthorEmails
+        .acceptanceDate, .targetJournal, .coauthorEmails,
+        // imprint integration
+        .imprintDocumentUUID, .imprintDocumentPath, .imprintBookmarkData,
+        .compiledPDFLinkedFileID
     ]
 }

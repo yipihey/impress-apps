@@ -7,6 +7,8 @@ members = [
     "crates/impress-collab",
     "crates/imprint-core",
     "crates/imbib-core",
+    # impress-llm - extended LLM provider support via graniet/llm
+    "crates/impress-llm",
     # implore - scientific data visualization
     "crates/implore-core",
     "crates/implore-stats",
@@ -48,6 +50,7 @@ impress-identifiers = { path = "crates/impress-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
+impress-llm = { path = "crates/impress-llm" }
 
 # implore crates
 implore-core = { path = "crates/implore-core" }

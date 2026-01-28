@@ -425,6 +425,28 @@ impl ImprintDocument {
     pub fn begin_transaction(&self) -> Transaction {
         Transaction::new(self.selections.clone())
     }
+
+    // =========================================================================
+    // Sync/Collaboration Methods
+    // =========================================================================
+
+    /// Get a reference to the underlying Automerge document.
+    ///
+    /// This is used by the sync protocol to generate and receive sync messages.
+    /// For most use cases, prefer the higher-level methods like `merge()` and
+    /// `apply_changes()`.
+    pub fn automerge(&self) -> &AutoCommit {
+        &self.doc
+    }
+
+    /// Get a mutable reference to the underlying Automerge document.
+    ///
+    /// This is used by the sync protocol to apply incoming changes.
+    /// For most use cases, prefer the higher-level methods like `merge()` and
+    /// `apply_changes()`.
+    pub fn automerge_mut(&mut self) -> &mut AutoCommit {
+        &mut self.doc
+    }
 }
 
 impl Default for ImprintDocument {

@@ -28,7 +28,7 @@
 //! ```
 
 use crate::document::ImprintDocument;
-use automerge::sync::{Message, State as SyncState};
+use automerge::sync::{Message, State as SyncState, SyncDoc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -196,32 +196,91 @@ impl SyncSession {
     }
 
     /// Generate sync messages for a peer
+    ///
+    /// This implements the Automerge sync protocol. Call this method after
+    /// making local changes to generate messages to send to a peer.
+    ///
+    /// Returns `Some(message)` if there are changes to send, or `None` if
+    /// the peer is already up to date.
     pub fn generate_sync_message(&mut self, peer_id: &str) -> CollaborationResult<Option<Message>> {
-        let state = self
-            .peer_states
-            .get_mut(peer_id)
-            .ok_or_else(|| CollaborationError::UnknownPeer(peer_id.to_string()))?;
+        // Check peer exists first
+        if !self.peer_states.contains_key(peer_id) {
+            return Err(CollaborationError::UnknownPeer(peer_id.to_string()));
+        }
 
-        // Note: In a real implementation, this would use the Automerge sync protocol
-        // For now, return None to indicate no message needed
-        let _ = state;
-        Ok(None)
+        // Get mutable references to both fields separately to satisfy borrow checker
+        let state = self.peer_states.get_mut(peer_id).unwrap();
+        let doc = self.document.automerge_mut();
+
+        // Generate a sync message using Automerge's sync protocol
+        let message = doc.sync().generate_sync_message(state);
+
+        Ok(message)
     }
 
     /// Receive and apply a sync message from a peer
+    ///
+    /// This implements the Automerge sync protocol. When a message is received
+    /// from a peer, call this method to apply it to the local document.
+    ///
+    /// After receiving, call `generate_sync_message` separately to check if
+    /// you need to send a response. Do NOT call generate_sync_message inline
+    /// as part of receiving - the sync protocol expects all messages to be
+    /// generated before any are received in each round.
     pub fn receive_sync_message(
         &mut self,
         peer_id: &str,
-        _message: Message,
-    ) -> CollaborationResult<Option<Message>> {
-        let _state = self
-            .peer_states
-            .get_mut(peer_id)
-            .ok_or_else(|| CollaborationError::UnknownPeer(peer_id.to_string()))?;
+        message: Message,
+    ) -> CollaborationResult<()> {
+        // Check peer exists first
+        if !self.peer_states.contains_key(peer_id) {
+            return Err(CollaborationError::UnknownPeer(peer_id.to_string()));
+        }
 
-        // Note: In a real implementation, this would apply the sync message
-        // and potentially generate a response
-        Ok(None)
+        // Get the state and document
+        let state = self.peer_states.get_mut(peer_id).unwrap();
+        let doc = self.document.automerge_mut();
+
+        // Receive the sync message - this applies changes from the peer
+        doc.sync()
+            .receive_sync_message(state, message)
+            .map_err(|e: automerge::AutomergeError| CollaborationError::SyncError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Get all pending sync messages for a peer
+    ///
+    /// Generates messages until the peer is in sync. This is useful for
+    /// initial sync when establishing a new connection.
+    pub fn generate_all_sync_messages(&mut self, peer_id: &str) -> CollaborationResult<Vec<Message>> {
+        let mut messages = Vec::new();
+
+        while let Some(msg) = self.generate_sync_message(peer_id)? {
+            messages.push(msg);
+        }
+
+        Ok(messages)
+    }
+
+    /// Check if a peer needs sync
+    ///
+    /// Returns true if there are changes to send to the peer or if we need
+    /// changes from the peer.
+    pub fn needs_sync(&self, peer_id: &str) -> bool {
+        // A peer needs sync if we have sync state for them
+        // (A more accurate implementation would check the actual sync state)
+        self.peer_states.contains_key(peer_id)
+    }
+
+    /// Encode a sync message to bytes for transport
+    pub fn encode_message(message: Message) -> Vec<u8> {
+        message.encode()
+    }
+
+    /// Decode a sync message from bytes
+    pub fn decode_message(bytes: &[u8]) -> CollaborationResult<Message> {
+        Message::decode(bytes).map_err(|e| CollaborationError::SyncError(e.to_string()))
     }
 
     /// Update presence for a peer
@@ -362,5 +421,186 @@ mod tests {
         let online: Vec<_> = session.online_presence().collect();
         assert_eq!(online.len(), 1);
         assert_eq!(online[0].peer_id, "peer2");
+    }
+
+    #[test]
+    fn test_sync_protocol_two_peers() {
+        // Create a document and fork it for the second peer
+        // This is the proper way to set up collaboration - both documents share the same origin
+        let mut doc1 = ImprintDocument::new();
+        let bytes = doc1.to_bytes();
+        let doc2 = ImprintDocument::from_bytes(&bytes).unwrap();
+
+        // Now doc1 makes changes
+        doc1.insert_text(0, "Hello from peer1!").unwrap();
+
+        let mut session1 = SyncSession::new(doc1, "peer1");
+        let mut session2 = SyncSession::new(doc2, "peer2");
+
+        // Connect the peers to each other
+        session1.connect("peer2");
+        session2.connect("peer1");
+
+        // Sync loop: generate all messages, then receive all messages
+        let mut iterations = 0;
+        loop {
+            iterations += 1;
+            if iterations > 20 {
+                panic!("Sync did not complete in 20 iterations");
+            }
+
+            // Generate messages from both sides first
+            let msg1to2 = session1.generate_sync_message("peer2").unwrap();
+            let msg2to1 = session2.generate_sync_message("peer1").unwrap();
+
+            if msg1to2.is_none() && msg2to1.is_none() {
+                break;
+            }
+
+            // Then receive them
+            if let Some(msg) = msg1to2 {
+                session2.receive_sync_message("peer1", msg).unwrap();
+            }
+            if let Some(msg) = msg2to1 {
+                session1.receive_sync_message("peer2", msg).unwrap();
+            }
+        }
+
+        // Verify both documents have the same content
+        let text1 = session1.document().text().unwrap();
+        let text2 = session2.document().text().unwrap();
+        assert_eq!(text1, text2, "Documents should be in sync");
+        assert_eq!(text1, "Hello from peer1!");
+    }
+
+    #[test]
+    fn test_sync_protocol_concurrent_edits() {
+        // Fork from a common origin
+        let mut origin = ImprintDocument::new();
+        let bytes = origin.to_bytes();
+
+        // Each peer starts from the same origin but makes different edits
+        let mut doc1 = ImprintDocument::from_bytes(&bytes).unwrap();
+        doc1.insert_text(0, "A").unwrap();
+        let mut session1 = SyncSession::new(doc1, "peer1");
+
+        let mut doc2 = ImprintDocument::from_bytes(&bytes).unwrap();
+        doc2.insert_text(0, "B").unwrap();
+        let mut session2 = SyncSession::new(doc2, "peer2");
+
+        // Connect the peers
+        session1.connect("peer2");
+        session2.connect("peer1");
+
+        // Sync loop: generate all messages, then receive all messages
+        let mut iterations = 0;
+        loop {
+            iterations += 1;
+            if iterations > 20 {
+                panic!("Sync did not complete in 20 iterations");
+            }
+
+            // Generate messages from both sides first
+            let msg1to2 = session1.generate_sync_message("peer2").unwrap();
+            let msg2to1 = session2.generate_sync_message("peer1").unwrap();
+
+            if msg1to2.is_none() && msg2to1.is_none() {
+                break;
+            }
+
+            // Then receive them
+            if let Some(msg) = msg1to2 {
+                session2.receive_sync_message("peer1", msg).unwrap();
+            }
+            if let Some(msg) = msg2to1 {
+                session1.receive_sync_message("peer2", msg).unwrap();
+            }
+        }
+
+        // After sync, both documents should have the same merged content
+        let text1 = session1.document().text().unwrap();
+        let text2 = session2.document().text().unwrap();
+        assert_eq!(text1, text2, "Documents should have identical content after sync");
+        // Both A and B should be present (order depends on CRDT resolution)
+        assert!(text1.contains('A') && text1.contains('B'),
+            "Both edits should be present: got '{}'", text1);
+    }
+
+    #[test]
+    fn test_raw_automerge_sync() {
+        // Test the underlying Automerge sync protocol directly
+        use automerge::{AutoCommit, ObjType, transaction::Transactable, ReadDoc};
+
+        // Create two documents from a common origin
+        let mut origin = AutoCommit::new();
+        origin.put_object(automerge::ROOT, "content", ObjType::Text).unwrap();
+        let bytes = origin.save();
+
+        let mut doc1 = AutoCommit::load(&bytes).unwrap();
+        let mut doc2 = AutoCommit::load(&bytes).unwrap();
+
+        // Get the content object ID
+        let (_, content_id) = doc1.get(automerge::ROOT, "content").unwrap().unwrap();
+
+        // doc1 makes a change
+        doc1.splice_text(&content_id, 0, 0, "Hello").unwrap();
+        assert_eq!(doc1.text(&content_id).unwrap(), "Hello");
+        assert_eq!(doc2.text(&content_id).unwrap(), ""); // doc2 doesn't have the change yet
+
+        // Sync using Automerge's sync protocol
+        let mut state1 = SyncState::new();
+        let mut state2 = SyncState::new();
+
+        // Exchange messages until sync is complete
+        let mut iterations = 0;
+        loop {
+            iterations += 1;
+            if iterations > 20 {
+                panic!("Sync did not complete");
+            }
+
+            let msg1to2 = doc1.sync().generate_sync_message(&mut state1);
+            let msg2to1 = doc2.sync().generate_sync_message(&mut state2);
+
+            if msg1to2.is_none() && msg2to1.is_none() {
+                break;
+            }
+
+            if let Some(msg) = msg1to2 {
+                doc2.sync().receive_sync_message(&mut state2, msg).unwrap();
+            }
+            if let Some(msg) = msg2to1 {
+                doc1.sync().receive_sync_message(&mut state1, msg).unwrap();
+            }
+        }
+
+        // Both documents should now have the same content
+        let text1 = doc1.text(&content_id).unwrap();
+        let text2 = doc2.text(&content_id).unwrap();
+        assert_eq!(text1, text2, "Raw Automerge sync should work");
+        assert_eq!(text1, "Hello");
+    }
+
+    #[test]
+    fn test_message_encode_decode() {
+        let mut doc = ImprintDocument::new();
+        doc.insert_text(0, "Test content").unwrap();
+        let mut session = SyncSession::new(doc, "local");
+
+        session.connect("remote");
+
+        // Generate a sync message
+        if let Some(msg) = session.generate_sync_message("remote").unwrap() {
+            // Encode to bytes
+            let bytes = SyncSession::encode_message(msg);
+            assert!(!bytes.is_empty());
+
+            // Decode back
+            let decoded = SyncSession::decode_message(&bytes).unwrap();
+
+            // Re-encode and verify bytes match
+            let bytes2 = SyncSession::encode_message(decoded);
+            assert_eq!(bytes, bytes2);
+        }
     }
 }

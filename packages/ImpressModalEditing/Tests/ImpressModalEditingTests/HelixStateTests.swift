@@ -89,11 +89,28 @@ struct HelixKeyHandlerTests {
         #expect(result == .command(.moveDown(count: 3)))
     }
 
-    @Test("Change command produces delete and insert mode")
-    func changeCommand() {
+    @Test("Change key waits for motion")
+    func changeAwaitsMotion() {
         let handler = HelixKeyHandler()
         let result = handler.handleKey("c", in: .normal)
-        #expect(result == .commands([.delete, .enterInsertMode]))
+        #expect(result == .pending)
+        #expect(handler.pendingOperator == .change)
+    }
+
+    @Test("cc produces change line command")
+    func changeLine() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("c", in: .normal)
+        let result = handler.handleKey("c", in: .normal)
+        #expect(result == .command(.changeMotion(.line)))
+    }
+
+    @Test("cw produces change word command")
+    func changeWord() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("c", in: .normal)
+        let result = handler.handleKey("w", in: .normal)
+        #expect(result == .command(.changeMotion(.wordForward(count: 1))))
     }
 
     @Test("f key awaits character input")
@@ -234,18 +251,36 @@ struct HelixKeyHandlerTests {
         #expect(result == .command(.searchPrevious(count: 1)))
     }
 
-    @Test("> produces indent")
-    func indent() {
+    @Test("> waits for motion")
+    func indentAwaitsMotion() {
         let handler = HelixKeyHandler()
         let result = handler.handleKey(">", in: .normal)
-        #expect(result == .command(.indent))
+        #expect(result == .pending)
+        #expect(handler.pendingOperator == .indent)
     }
 
-    @Test("< produces dedent")
-    func dedent() {
+    @Test(">> produces indent line")
+    func indentLine() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey(">", in: .normal)
+        let result = handler.handleKey(">", in: .normal)
+        #expect(result == .command(.indentMotion(.line)))
+    }
+
+    @Test("< waits for motion")
+    func dedentAwaitsMotion() {
         let handler = HelixKeyHandler()
         let result = handler.handleKey("<", in: .normal)
-        #expect(result == .command(.dedent))
+        #expect(result == .pending)
+        #expect(handler.pendingOperator == .dedent)
+    }
+
+    @Test("<< produces dedent line")
+    func dedentLine() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("<", in: .normal)
+        let result = handler.handleKey("<", in: .normal)
+        #expect(result == .command(.dedentMotion(.line)))
     }
 
     @Test("e produces word end")
@@ -267,5 +302,93 @@ struct HelixKeyHandlerTests {
         let handler = HelixKeyHandler()
         let result = handler.handleKey("s", in: .normal)
         #expect(result == .command(.substitute))
+    }
+
+    @Test("d waits for motion")
+    func deleteAwaitsMotion() {
+        let handler = HelixKeyHandler()
+        let result = handler.handleKey("d", in: .normal)
+        #expect(result == .pending)
+        #expect(handler.pendingOperator == .delete)
+    }
+
+    @Test("dd produces delete line")
+    func deleteLine() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("d", in: .normal)
+        let result = handler.handleKey("d", in: .normal)
+        #expect(result == .command(.deleteMotion(.line)))
+    }
+
+    @Test("dw produces delete word")
+    func deleteWord() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("d", in: .normal)
+        let result = handler.handleKey("w", in: .normal)
+        #expect(result == .command(.deleteMotion(.wordForward(count: 1))))
+    }
+
+    @Test("y waits for motion")
+    func yankAwaitsMotion() {
+        let handler = HelixKeyHandler()
+        let result = handler.handleKey("y", in: .normal)
+        #expect(result == .pending)
+        #expect(handler.pendingOperator == .yank)
+    }
+
+    @Test("yy produces yank line")
+    func yankLine() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("y", in: .normal)
+        let result = handler.handleKey("y", in: .normal)
+        #expect(result == .command(.yankMotion(.line)))
+    }
+
+    @Test("diw produces delete inner word")
+    func deleteInnerWord() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("d", in: .normal)
+        _ = handler.handleKey("i", in: .normal)
+        let result = handler.handleKey("w", in: .normal)
+        #expect(result == .command(.deleteTextObject(.innerWord)))
+    }
+
+    @Test("ci\" produces change inner quote")
+    func changeInnerQuote() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("c", in: .normal)
+        _ = handler.handleKey("i", in: .normal)
+        let result = handler.handleKey("\"", in: .normal)
+        #expect(result == .command(.changeTextObject(.innerDoubleQuote)))
+    }
+
+    @Test("da( produces delete around paren")
+    func deleteAroundParen() {
+        let handler = HelixKeyHandler()
+        _ = handler.handleKey("d", in: .normal)
+        _ = handler.handleKey("a", in: .normal)
+        let result = handler.handleKey("(", in: .normal)
+        #expect(result == .command(.deleteTextObject(.aroundParen)))
+    }
+
+    @Test("{ produces paragraph backward")
+    func paragraphBackward() {
+        let handler = HelixKeyHandler()
+        let result = handler.handleKey("{", in: .normal)
+        #expect(result == .command(.paragraphBackward(count: 1)))
+    }
+
+    @Test("} produces paragraph forward")
+    func paragraphForward() {
+        let handler = HelixKeyHandler()
+        let result = handler.handleKey("}", in: .normal)
+        #expect(result == .command(.paragraphForward(count: 1)))
+    }
+
+    @Test("m produces matching bracket")
+    func matchingBracket() {
+        let handler = HelixKeyHandler()
+        let result = handler.handleKey("m", in: .normal)
+        #expect(result == .command(.matchingBracket))
     }
 }

@@ -15,7 +15,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/evgenyneu/keychain-swift", from: "20.0.0"),
+        .package(url: "https://github.com/evgenyneu/keychain-swift", from: "21.0.0"),
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
         .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.0"),
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),

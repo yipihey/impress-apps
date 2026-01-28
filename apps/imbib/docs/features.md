@@ -572,11 +572,63 @@ Changes made on any device appear everywhere within seconds.
 - **Widgets**: Quick access to Inbox count and recent papers
 - **Handoff**: Continue reading on Mac where you left off on iPad
 
+### Hardware Keyboard Support (iPad)
+
+When using a hardware keyboard with your iPad, imBib provides full keyboard shortcut support:
+
+**Notes Editor:**
+| Shortcut | Action |
+|----------|--------|
+| `Cmd-S` | Save notes immediately |
+| `Cmd-B` | Bold (wraps selection with `**`) |
+| `Cmd-I` | Italic (wraps selection with `*`) |
+| `Cmd-Z` | Undo |
+| `Cmd-Shift-Z` | Redo |
+
+**BibTeX Editor:**
+| Shortcut | Action |
+|----------|--------|
+| `Cmd-S` | Save and validate BibTeX |
+| `Cmd-A` | Select all text |
+| `Cmd-C` | Copy selection (or all if none selected) |
+| `Cmd-N` | Insert field template |
+| `Cmd-Z` | Undo |
+| `Cmd-Shift-Z` | Redo |
+
+### Apple Pencil Support (iPad)
+
+imBib fully supports Apple Pencil for natural input:
+
+**Scribble (Handwriting-to-Text):**
+- Write anywhere in the Notes or BibTeX editors
+- Handwriting converts automatically to typed text
+- Scratch out text to delete it
+- Circle words to select them
+- Tap and hold to position cursor
+
+**PDF Sketch Annotations:**
+- Draw directly on PDFs with Apple Pencil
+- Access via the Draw tool in the annotation toolbar
+- Full pressure sensitivity support
+- Undo/redo for strokes
+- Sketches saved as embedded annotations
+
+**Voice Dictation:**
+- Tap the microphone button to dictate notes
+- Auto-punctuation for natural speech
+- Voice commands for formatting:
+  - "new paragraph" - Insert paragraph break
+  - "bold" / "italic" - Toggle formatting
+  - "save note" - Save current notes
+  - "next paper" / "previous paper" - Navigate papers
+  - "stop dictation" - End voice input
+
 ### Requirements
 
 - iOS 17.0 or later
 - iPhone or iPad
 - iCloud account (for sync)
+- Apple Pencil (optional, for handwriting and sketching)
 
 ---
 

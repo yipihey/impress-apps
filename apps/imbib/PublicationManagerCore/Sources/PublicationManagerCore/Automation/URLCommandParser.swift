@@ -131,6 +131,10 @@ public enum PaperAction: Sendable {
     case copyCitation
     case copyIdentifier
     case share
+
+    // imprint integration
+    case annotations
+    case openInImprint
 }
 
 // MARK: - Selected Papers Action
@@ -463,6 +467,9 @@ public struct URLCommandParser {
         case "copy-citation": action = .copyCitation
         case "copy-identifier": action = .copyIdentifier
         case "share": action = .share
+        // imprint integration
+        case "annotations": action = .annotations
+        case "open-in-imprint": action = .openInImprint
         default:
             throw AutomationError.invalidParameter("action", actionStr)
         }

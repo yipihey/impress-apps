@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import ImprintCore
 
 /// Direct PDF manipulation view (Mode A)
 ///
@@ -8,9 +9,11 @@ import PDFKit
 struct DirectPDFView: View {
     @Binding var document: ImprintDocument
     let pdfData: Data?
+    let sourceMapEntries: [SourceMapEntry]
     @Binding var cursorPosition: Int
 
     @State private var hoveredPosition: CGPoint?
+    @State private var lastClickInfo: String = ""
 
     var body: some View {
         if let pdfData = pdfData {
@@ -23,6 +26,16 @@ struct DirectPDFView: View {
                 modeIndicator
                     .accessibilityIdentifier("directPdf.modeIndicator")
             }
+            .overlay(alignment: .bottomLeading) {
+                if !lastClickInfo.isEmpty {
+                    Text(lastClickInfo)
+                        .font(.caption)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                        .padding(8)
+                        .accessibilityIdentifier("directPdf.clickInfo")
+                }
+            }
             .accessibilityIdentifier("directPdf.container")
         } else {
             emptyState
@@ -33,6 +46,10 @@ struct DirectPDFView: View {
         HStack(spacing: 4) {
             Image(systemName: "cursorarrow.click.2")
             Text("Direct Edit")
+            if !sourceMapEntries.isEmpty {
+                Text("(\(sourceMapEntries.count) regions)")
+                    .foregroundColor(.secondary)
+            }
         }
         .font(.caption)
         .padding(.horizontal, 8)
@@ -58,16 +75,36 @@ struct DirectPDFView: View {
     }
 
     private func handleClick(at point: CGPoint, page: Int) {
-        // TODO: Use source map to convert PDF position to source position
-        // For now, just log the click
-        print("Clicked at \(point) on page \(page)")
+        // Use source map to convert PDF position to source position
+        let result = SourceMapUtils.lookup(
+            entries: sourceMapEntries,
+            page: page,
+            x: Double(point.x),
+            y: Double(point.y)
+        )
 
-        // In full implementation:
-        // 1. Get source map from last compilation
-        // 2. Call sourceMap.renderToSource(position)
-        // 3. Move cursor to that position
-        // 4. Focus the editor
+        if result.found {
+            // Move cursor to the source position
+            cursorPosition = result.sourceOffset
+            lastClickInfo = "Cursor → \(result.sourceOffset) (\(result.contentType.rawValue))"
+            print("[DirectPDF] Click at (\(point.x), \(point.y)) page \(page) → source offset \(result.sourceOffset)")
+
+            // Post notification to switch to split view and focus editor
+            NotificationCenter.default.post(name: .directPdfCursorMoved, object: nil, userInfo: [
+                "sourceOffset": result.sourceOffset,
+                "contentType": result.contentType.rawValue
+            ])
+        } else {
+            lastClickInfo = "No match at (\(Int(point.x)), \(Int(point.y)))"
+            print("[DirectPDF] Click at (\(point.x), \(point.y)) page \(page) → no match in source map")
+        }
     }
+}
+
+// MARK: - Notifications
+
+extension Notification.Name {
+    static let directPdfCursorMoved = Notification.Name("directPdfCursorMoved")
 }
 
 /// NSViewRepresentable for clickable PDF viewing
@@ -115,6 +152,7 @@ class ClickablePDFView: PDFView {
     DirectPDFView(
         document: .constant(ImprintDocument()),
         pdfData: nil,
+        sourceMapEntries: [],
         cursorPosition: .constant(0)
     )
     .frame(width: 600, height: 800)

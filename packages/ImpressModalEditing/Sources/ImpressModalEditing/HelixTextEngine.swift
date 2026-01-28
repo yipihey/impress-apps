@@ -117,6 +117,47 @@ public protocol HelixTextEngine: AnyObject {
 
     /// Replace character under cursor.
     func replaceCharacter(with char: Character)
+
+    // MARK: - Paragraph Motions
+
+    /// Move to the start of the next paragraph.
+    func moveToParagraphForward(count: Int, extendSelection: Bool)
+
+    /// Move to the start of the previous paragraph.
+    func moveToParagraphBackward(count: Int, extendSelection: Bool)
+
+    // MARK: - Scroll/Page Motions
+
+    /// Scroll down by half page.
+    func scrollDown(count: Int, extendSelection: Bool)
+
+    /// Scroll up by half page.
+    func scrollUp(count: Int, extendSelection: Bool)
+
+    /// Page down.
+    func pageDown(count: Int, extendSelection: Bool)
+
+    /// Page up.
+    func pageUp(count: Int, extendSelection: Bool)
+
+    // MARK: - Bracket Matching
+
+    /// Move to matching bracket.
+    func moveToMatchingBracket(extendSelection: Bool)
+
+    // MARK: - Text Objects and Motions
+
+    /// Get the range for a text object at the current position.
+    func rangeForTextObject(_ textObject: HelixTextObject) -> NSRange?
+
+    /// Get the range for a motion from the current position.
+    func rangeForMotion(_ motion: HelixMotion) -> NSRange?
+
+    /// Select text covered by a text object.
+    func selectTextObject(_ textObject: HelixTextObject)
+
+    /// Select text covered by a motion.
+    func selectMotion(_ motion: HelixMotion)
 }
 
 // MARK: - Default Implementations
@@ -283,6 +324,100 @@ public extension HelixTextEngine {
 
         case .redo:
             performRedo()
+
+        // New movement commands
+        case .paragraphForward(let count):
+            moveToParagraphForward(count: count, extendSelection: extendSelection)
+
+        case .paragraphBackward(let count):
+            moveToParagraphBackward(count: count, extendSelection: extendSelection)
+
+        case .matchingBracket:
+            moveToMatchingBracket(extendSelection: extendSelection)
+
+        case .scrollDown(let count):
+            scrollDown(count: count, extendSelection: extendSelection)
+
+        case .scrollUp(let count):
+            scrollUp(count: count, extendSelection: extendSelection)
+
+        case .pageDown(let count):
+            pageDown(count: count, extendSelection: extendSelection)
+
+        case .pageUp(let count):
+            pageUp(count: count, extendSelection: extendSelection)
+
+        // Operator + Motion commands
+        case .deleteMotion(let motion):
+            if let range = rangeForMotion(motion), range.length > 0 {
+                let deletedText = text(in: range) ?? ""
+                registers.yank(deletedText, linewise: motion == .line)
+                selectedRange = range
+                replaceSelectedText(with: "")
+            }
+
+        case .changeMotion(let motion):
+            if let range = rangeForMotion(motion), range.length > 0 {
+                let deletedText = text(in: range) ?? ""
+                registers.yank(deletedText, linewise: motion == .line)
+                selectedRange = range
+                replaceSelectedText(with: "")
+            }
+            // Mode change to insert handled by HelixState
+
+        case .yankMotion(let motion):
+            if let range = rangeForMotion(motion), range.length > 0 {
+                if let yankedText = text(in: range) {
+                    registers.yank(yankedText, linewise: motion == .line)
+                }
+            }
+
+        case .indentMotion(let motion):
+            if let range = rangeForMotion(motion) {
+                // Indent all lines in the range
+                indentRange(range)
+            }
+
+        case .dedentMotion(let motion):
+            if let range = rangeForMotion(motion) {
+                // Dedent all lines in the range
+                dedentRange(range)
+            }
+
+        // Operator + Text Object commands
+        case .deleteTextObject(let textObject):
+            if let range = rangeForTextObject(textObject), range.length > 0 {
+                let deletedText = text(in: range) ?? ""
+                registers.yank(deletedText)
+                selectedRange = range
+                replaceSelectedText(with: "")
+            }
+
+        case .changeTextObject(let textObject):
+            if let range = rangeForTextObject(textObject), range.length > 0 {
+                let deletedText = text(in: range) ?? ""
+                registers.yank(deletedText)
+                selectedRange = range
+                replaceSelectedText(with: "")
+            }
+            // Mode change to insert handled by HelixState
+
+        case .yankTextObject(let textObject):
+            if let range = rangeForTextObject(textObject), range.length > 0 {
+                if let yankedText = text(in: range) {
+                    registers.yank(yankedText)
+                }
+            }
+
+        case .indentTextObject(let textObject):
+            if let range = rangeForTextObject(textObject) {
+                indentRange(range)
+            }
+
+        case .dedentTextObject(let textObject):
+            if let range = rangeForTextObject(textObject) {
+                dedentRange(range)
+            }
         }
     }
 
@@ -533,6 +668,224 @@ public extension HelixTextEngine {
             replaceSelectedText(with: String(char))
             // Move cursor back to the replaced position
             selectedRange = NSRange(location: range.location, length: 0)
+        }
+    }
+
+    // MARK: - Paragraph Motions
+
+    func moveToParagraphForward(count: Int, extendSelection: Bool) {
+        let nsText = text as NSString
+        let length = nsText.length
+        guard selectedRange.location < length else { return }
+
+        var pos = selectedRange.location
+        for _ in 0..<count {
+            var foundNonBlank = false
+            while pos < length {
+                let lineRange = nsText.lineRange(for: NSRange(location: pos, length: 0))
+                let lineText = nsText.substring(with: lineRange).trimmingCharacters(in: .newlines)
+
+                if lineText.isEmpty {
+                    if foundNonBlank {
+                        pos = lineRange.location
+                        break
+                    }
+                } else {
+                    foundNonBlank = true
+                }
+
+                pos = lineRange.location + lineRange.length
+                if pos >= length {
+                    pos = length
+                    break
+                }
+            }
+        }
+        moveCursor(to: pos, extendSelection: extendSelection)
+    }
+
+    func moveToParagraphBackward(count: Int, extendSelection: Bool) {
+        let nsText = text as NSString
+        guard selectedRange.location > 0 else { return }
+
+        var pos = selectedRange.location
+        for _ in 0..<count {
+            var foundNonBlank = false
+            while pos > 0 {
+                let lineRange = nsText.lineRange(for: NSRange(location: pos - 1, length: 0))
+                let lineText = nsText.substring(with: lineRange).trimmingCharacters(in: .newlines)
+
+                if lineText.isEmpty {
+                    if foundNonBlank {
+                        pos = lineRange.location
+                        break
+                    }
+                } else {
+                    foundNonBlank = true
+                }
+
+                if lineRange.location == 0 {
+                    pos = 0
+                    break
+                }
+                pos = lineRange.location
+            }
+        }
+        moveCursor(to: pos, extendSelection: extendSelection)
+    }
+
+    // MARK: - Scroll/Page Motions
+
+    func scrollDown(count: Int, extendSelection: Bool) {
+        // Default: move down ~20 lines (half page approximation)
+        moveDown(count: count * 20, extendSelection: extendSelection)
+    }
+
+    func scrollUp(count: Int, extendSelection: Bool) {
+        // Default: move up ~20 lines (half page approximation)
+        moveUp(count: count * 20, extendSelection: extendSelection)
+    }
+
+    func pageDown(count: Int, extendSelection: Bool) {
+        // Default: move down ~40 lines (full page approximation)
+        moveDown(count: count * 40, extendSelection: extendSelection)
+    }
+
+    func pageUp(count: Int, extendSelection: Bool) {
+        // Default: move up ~40 lines (full page approximation)
+        moveUp(count: count * 40, extendSelection: extendSelection)
+    }
+
+    // MARK: - Bracket Matching
+
+    func moveToMatchingBracket(extendSelection: Bool) {
+        let nsText = text as NSString
+        let length = nsText.length
+        guard selectedRange.location < length else { return }
+
+        let pos = selectedRange.location
+        let char = Character(UnicodeScalar(nsText.character(at: pos))!)
+
+        let pairs: [(Character, Character)] = [
+            ("(", ")"), ("[", "]"), ("{", "}"), ("<", ">")
+        ]
+
+        for (open, close) in pairs {
+            if char == open {
+                // Search forward for matching close
+                var depth = 1
+                var searchPos = pos + 1
+                while searchPos < length && depth > 0 {
+                    let c = Character(UnicodeScalar(nsText.character(at: searchPos))!)
+                    if c == open { depth += 1 }
+                    else if c == close { depth -= 1 }
+                    if depth == 0 {
+                        moveCursor(to: searchPos, extendSelection: extendSelection)
+                        return
+                    }
+                    searchPos += 1
+                }
+                return
+            } else if char == close {
+                // Search backward for matching open
+                var depth = 1
+                var searchPos = pos - 1
+                while searchPos >= 0 && depth > 0 {
+                    let c = Character(UnicodeScalar(nsText.character(at: searchPos))!)
+                    if c == close { depth += 1 }
+                    else if c == open { depth -= 1 }
+                    if depth == 0 {
+                        moveCursor(to: searchPos, extendSelection: extendSelection)
+                        return
+                    }
+                    searchPos -= 1
+                }
+                return
+            }
+        }
+    }
+
+    // MARK: - Text Objects and Motions
+
+    func rangeForTextObject(_ textObject: HelixTextObject) -> NSRange? {
+        return textObject.range(in: text, from: selectedRange.location)
+    }
+
+    func rangeForMotion(_ motion: HelixMotion) -> NSRange? {
+        return motion.range(in: text, from: selectedRange.location)
+    }
+
+    func selectTextObject(_ textObject: HelixTextObject) {
+        if let range = rangeForTextObject(textObject) {
+            selectedRange = range
+        }
+    }
+
+    func selectMotion(_ motion: HelixMotion) {
+        if let range = rangeForMotion(motion) {
+            selectedRange = range
+        }
+    }
+
+    // MARK: - Range Operations
+
+    func indentRange(_ range: NSRange) {
+        let nsText = text as NSString
+        let startLine = nsText.lineRange(for: NSRange(location: range.location, length: 0))
+        let endLine = nsText.lineRange(for: NSRange(location: range.location + max(0, range.length - 1), length: 0))
+
+        var currentPos = startLine.location
+        var offset = 0
+
+        while currentPos <= endLine.location {
+            let lineRange = nsText.lineRange(for: NSRange(location: currentPos + offset, length: 0))
+            // Insert tab at the beginning of this line
+            selectedRange = NSRange(location: lineRange.location, length: 0)
+            replaceSelectedText(with: "\t")
+            offset += 1
+
+            let nextLineStart = lineRange.location + lineRange.length + 1
+            if nextLineStart > endLine.location + offset {
+                break
+            }
+            currentPos = nextLineStart - offset
+        }
+    }
+
+    func dedentRange(_ range: NSRange) {
+        let nsText = text as NSString
+        let startLine = nsText.lineRange(for: NSRange(location: range.location, length: 0))
+        let endLine = nsText.lineRange(for: NSRange(location: range.location + max(0, range.length - 1), length: 0))
+
+        var currentPos = startLine.location
+        var offset = 0
+
+        while currentPos <= endLine.location {
+            let adjustedPos = currentPos + offset
+            if adjustedPos >= (text as NSString).length { break }
+
+            let lineRange = (text as NSString).lineRange(for: NSRange(location: adjustedPos, length: 0))
+            let lineText = (text as NSString).substring(with: lineRange)
+
+            if lineText.hasPrefix("\t") {
+                selectedRange = NSRange(location: lineRange.location, length: 1)
+                replaceSelectedText(with: "")
+                offset -= 1
+            } else if lineText.hasPrefix("    ") {
+                selectedRange = NSRange(location: lineRange.location, length: 4)
+                replaceSelectedText(with: "")
+                offset -= 4
+            } else if lineText.hasPrefix(" ") {
+                selectedRange = NSRange(location: lineRange.location, length: 1)
+                replaceSelectedText(with: "")
+                offset -= 1
+            }
+
+            let nextLineStart = lineRange.location + lineRange.length
+            if nextLineStart - offset > endLine.location {
+                break
+            }
+            currentPos = nextLineStart - offset
         }
     }
 }

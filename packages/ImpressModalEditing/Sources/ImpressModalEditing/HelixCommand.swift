@@ -1,7 +1,7 @@
 import Foundation
 
 /// Commands that can be executed in Helix-style modal editing.
-public enum HelixCommand: Sendable, Equatable {
+public enum HelixCommand: Sendable, Equatable, Hashable {
     // MARK: - Mode Changes
     /// Enter insert mode at current position.
     case enterInsertMode
@@ -37,6 +37,20 @@ public enum HelixCommand: Sendable, Equatable {
     case documentStart
     /// Move cursor to end of document.
     case documentEnd
+    /// Move to next paragraph.
+    case paragraphForward(count: Int = 1)
+    /// Move to previous paragraph.
+    case paragraphBackward(count: Int = 1)
+    /// Move to matching bracket.
+    case matchingBracket
+    /// Scroll down half page.
+    case scrollDown(count: Int = 1)
+    /// Scroll up half page.
+    case scrollUp(count: Int = 1)
+    /// Page down.
+    case pageDown(count: Int = 1)
+    /// Page up.
+    case pageUp(count: Int = 1)
 
     // MARK: - Find Character
     /// Find character forward on current line.
@@ -98,6 +112,30 @@ public enum HelixCommand: Sendable, Equatable {
     /// Substitute (delete character and enter insert mode).
     case substitute
 
+    // MARK: - Operator + Motion Combinations
+    /// Delete text covered by motion.
+    case deleteMotion(HelixMotion)
+    /// Change text covered by motion (delete and enter insert mode).
+    case changeMotion(HelixMotion)
+    /// Yank text covered by motion.
+    case yankMotion(HelixMotion)
+    /// Indent text covered by motion.
+    case indentMotion(HelixMotion)
+    /// Dedent text covered by motion.
+    case dedentMotion(HelixMotion)
+
+    // MARK: - Operator + Text Object Combinations
+    /// Delete text object.
+    case deleteTextObject(HelixTextObject)
+    /// Change text object (delete and enter insert mode).
+    case changeTextObject(HelixTextObject)
+    /// Yank text object.
+    case yankTextObject(HelixTextObject)
+    /// Indent text object.
+    case indentTextObject(HelixTextObject)
+    /// Dedent text object.
+    case dedentTextObject(HelixTextObject)
+
     // MARK: - Repeat
     /// Repeat the last change command.
     case repeatLastChange
@@ -114,6 +152,8 @@ public enum HelixCommand: Sendable, Equatable {
         case .moveLeft, .moveRight, .moveUp, .moveDown,
              .wordForward, .wordBackward, .wordEnd, .lineStart, .lineEnd,
              .lineFirstNonBlank, .documentStart, .documentEnd,
+             .paragraphForward, .paragraphBackward, .matchingBracket,
+             .scrollDown, .scrollUp, .pageDown, .pageUp,
              .findCharacter, .findCharacterBackward, .tillCharacter, .tillCharacterBackward,
              .repeatFind, .repeatFindReverse, .searchNext, .searchPrevious:
             return true
@@ -128,7 +168,9 @@ public enum HelixCommand: Sendable, Equatable {
         case .delete, .yank, .pasteAfter, .pasteBefore, .change,
              .openLineBelow, .openLineAbove, .appendAfterCursor, .appendAtLineEnd,
              .insertAtLineStart, .joinLines, .toggleCase, .indent, .dedent,
-             .replaceCharacter, .substitute:
+             .replaceCharacter, .substitute,
+             .deleteMotion, .changeMotion, .yankMotion, .indentMotion, .dedentMotion,
+             .deleteTextObject, .changeTextObject, .yankTextObject, .indentTextObject, .dedentTextObject:
             return true
         default:
             return false

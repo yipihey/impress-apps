@@ -551,11 +551,28 @@ Changes made on any device appear everywhere within seconds.
 - **Widgets**: Quick access to Inbox count and recent papers
 - **Handoff**: Continue reading on Mac where you left off on iPad
 
+### Hardware Keyboard Support (iPad)
+
+Full keyboard shortcuts when using Magic Keyboard or external keyboards:
+
+**Notes:** Cmd-S (save), Cmd-B (bold), Cmd-I (italic), Cmd-Z (undo)
+
+**BibTeX:** Cmd-S (save), Cmd-A (select all), Cmd-C (copy), Cmd-N (insert field)
+
+### Apple Pencil Support (iPad)
+
+**Scribble:** Write naturally in any text field - handwriting converts to text automatically. Scratch out to delete, circle to select.
+
+**PDF Sketches:** Draw annotations directly on PDFs with full pressure sensitivity. Access via the Draw (D) tool in the annotation toolbar.
+
+**Voice Dictation:** Tap the microphone to dictate notes. Say "new paragraph", "bold", "save note", or "stop dictation" for voice commands.
+
 ### Requirements
 
 - iOS 17.0 or later
 - iPhone or iPad
 - iCloud account (for sync)
+- Apple Pencil (optional, for drawing and handwriting)
 
 ---
 

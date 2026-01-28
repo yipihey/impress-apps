@@ -307,10 +307,5 @@ public final class CommentService: ObservableObject {
 extension Notification.Name {
     /// Posted when user should navigate to a comment
     static let navigateToComment = Notification.Name("navigateToComment")
-
-    /// Posted when user wants to add a comment at selection
-    static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
-
-    /// Posted when comments sidebar should toggle
-    static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
+    // Note: addCommentAtSelection and toggleCommentsSidebar are defined in ImprintApp.swift
 }

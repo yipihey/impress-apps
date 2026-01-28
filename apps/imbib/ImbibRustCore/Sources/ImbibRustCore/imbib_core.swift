@@ -2993,6 +2993,280 @@ public func FfiConverterTypeFilenameOptions_lower(_ value: FilenameOptions) -> R
 
 
 /**
+ * A help document to be indexed
+ */
+public struct HelpDocument {
+    /**
+     * Unique document identifier (e.g., "features/siri-shortcuts")
+     */
+    public var id: String
+    /**
+     * Document title
+     */
+    public var title: String
+    /**
+     * Document body/content (markdown)
+     */
+    public var body: String
+    /**
+     * Search keywords
+     */
+    public var keywords: [String]
+    /**
+     * Target platform
+     */
+    public var platform: HelpPlatform
+    /**
+     * Category for grouping
+     */
+    public var category: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Unique document identifier (e.g., "features/siri-shortcuts")
+         */id: String, 
+        /**
+         * Document title
+         */title: String, 
+        /**
+         * Document body/content (markdown)
+         */body: String, 
+        /**
+         * Search keywords
+         */keywords: [String], 
+        /**
+         * Target platform
+         */platform: HelpPlatform, 
+        /**
+         * Category for grouping
+         */category: String) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.keywords = keywords
+        self.platform = platform
+        self.category = category
+    }
+}
+
+
+
+extension HelpDocument: Equatable, Hashable {
+    public static func ==(lhs: HelpDocument, rhs: HelpDocument) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        if lhs.keywords != rhs.keywords {
+            return false
+        }
+        if lhs.platform != rhs.platform {
+            return false
+        }
+        if lhs.category != rhs.category {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(body)
+        hasher.combine(keywords)
+        hasher.combine(platform)
+        hasher.combine(category)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHelpDocument: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HelpDocument {
+        return
+            try HelpDocument(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                keywords: FfiConverterSequenceString.read(from: &buf), 
+                platform: FfiConverterTypeHelpPlatform.read(from: &buf), 
+                category: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HelpDocument, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterSequenceString.write(value.keywords, into: &buf)
+        FfiConverterTypeHelpPlatform.write(value.platform, into: &buf)
+        FfiConverterString.write(value.category, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpDocument_lift(_ buf: RustBuffer) throws -> HelpDocument {
+    return try FfiConverterTypeHelpDocument.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpDocument_lower(_ value: HelpDocument) -> RustBuffer {
+    return FfiConverterTypeHelpDocument.lower(value)
+}
+
+
+/**
+ * A search result from the help index
+ */
+public struct HelpSearchResult {
+    /**
+     * Document identifier
+     */
+    public var id: String
+    /**
+     * Document title
+     */
+    public var title: String
+    /**
+     * Snippet with highlighted terms (using <mark> tags)
+     */
+    public var snippet: String
+    /**
+     * Relevance score (0.0 to 1.0)
+     */
+    public var relevanceScore: Float
+    /**
+     * Target platform
+     */
+    public var platform: HelpPlatform
+    /**
+     * Category
+     */
+    public var category: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Document identifier
+         */id: String, 
+        /**
+         * Document title
+         */title: String, 
+        /**
+         * Snippet with highlighted terms (using <mark> tags)
+         */snippet: String, 
+        /**
+         * Relevance score (0.0 to 1.0)
+         */relevanceScore: Float, 
+        /**
+         * Target platform
+         */platform: HelpPlatform, 
+        /**
+         * Category
+         */category: String) {
+        self.id = id
+        self.title = title
+        self.snippet = snippet
+        self.relevanceScore = relevanceScore
+        self.platform = platform
+        self.category = category
+    }
+}
+
+
+
+extension HelpSearchResult: Equatable, Hashable {
+    public static func ==(lhs: HelpSearchResult, rhs: HelpSearchResult) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.snippet != rhs.snippet {
+            return false
+        }
+        if lhs.relevanceScore != rhs.relevanceScore {
+            return false
+        }
+        if lhs.platform != rhs.platform {
+            return false
+        }
+        if lhs.category != rhs.category {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(snippet)
+        hasher.combine(relevanceScore)
+        hasher.combine(platform)
+        hasher.combine(category)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHelpSearchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HelpSearchResult {
+        return
+            try HelpSearchResult(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                snippet: FfiConverterString.read(from: &buf), 
+                relevanceScore: FfiConverterFloat.read(from: &buf), 
+                platform: FfiConverterTypeHelpPlatform.read(from: &buf), 
+                category: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HelpSearchResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.snippet, into: &buf)
+        FfiConverterFloat.write(value.relevanceScore, into: &buf)
+        FfiConverterTypeHelpPlatform.write(value.platform, into: &buf)
+        FfiConverterString.write(value.category, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpSearchResult_lift(_ buf: RustBuffer) throws -> HelpSearchResult {
+    return try FfiConverterTypeHelpSearchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpSearchResult_lower(_ value: HelpSearchResult) -> RustBuffer {
+    return FfiConverterTypeHelpSearchResult.lower(value)
+}
+
+
+/**
  * Collection of publication identifiers
  */
 public struct Identifiers {
@@ -7951,6 +8225,173 @@ extension FileStorageType: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Platform for help documentation filtering
+ */
+
+public enum HelpPlatform {
+    
+    /**
+     * iOS-only feature
+     */
+    case ios
+    /**
+     * macOS-only feature
+     */
+    case macOs
+    /**
+     * Available on both platforms
+     */
+    case both
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHelpPlatform: FfiConverterRustBuffer {
+    typealias SwiftType = HelpPlatform
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HelpPlatform {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .ios
+        
+        case 2: return .macOs
+        
+        case 3: return .both
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HelpPlatform, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .ios:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .macOs:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .both:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpPlatform_lift(_ buf: RustBuffer) throws -> HelpPlatform {
+    return try FfiConverterTypeHelpPlatform.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHelpPlatform_lower(_ value: HelpPlatform) -> RustBuffer {
+    return FfiConverterTypeHelpPlatform.lower(value)
+}
+
+
+
+extension HelpPlatform: Equatable, Hashable {}
+
+
+
+
+/**
+ * Error type for help search operations
+ */
+public enum HelpSearchError {
+
+    
+    
+    case IndexError(String
+    )
+    case QueryError(String
+    )
+    case IoError(String
+    )
+    case InvalidHandle
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHelpSearchError: FfiConverterRustBuffer {
+    typealias SwiftType = HelpSearchError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HelpSearchError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .IndexError(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .QueryError(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .IoError(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .InvalidHandle
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HelpSearchError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .IndexError(v1):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .QueryError(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .IoError(v1):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case .InvalidHandle:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+extension HelpSearchError: Equatable, Hashable {}
+
+extension HelpSearchError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Types of publication identifiers across different sources
  */
 
@@ -9742,6 +10183,30 @@ fileprivate struct FfiConverterOptionTypeAutomationCommand: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHelpPlatform: FfiConverterRustBuffer {
+    typealias SwiftType = HelpPlatform?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHelpPlatform.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHelpPlatform.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
     typealias SwiftType = [UInt32]
 
@@ -10134,6 +10599,31 @@ fileprivate struct FfiConverterSequenceTypeExtractedIdentifier: FfiConverterRust
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeExtractedIdentifier.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHelpSearchResult: FfiConverterRustBuffer {
+    typealias SwiftType = [HelpSearchResult]
+
+    public static func write(_ value: [HelpSearchResult], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHelpSearchResult.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HelpSearchResult] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HelpSearchResult]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHelpSearchResult.read(from: &buf))
         }
         return seq
     }
@@ -11156,6 +11646,75 @@ public func helloFromRust() -> String {
 })
 }
 /**
+ * Add a help document to the index
+ */
+public func helpIndexAddDocument(handleId: UInt64, document: HelpDocument)throws  {try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_add_document(
+        FfiConverterUInt64.lower(handleId),
+        FfiConverterTypeHelpDocument.lower(document),$0
+    )
+}
+}
+/**
+ * Close and release a help index handle
+ */
+public func helpIndexClose(handleId: UInt64)throws  {try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_close(
+        FfiConverterUInt64.lower(handleId),$0
+    )
+}
+}
+/**
+ * Commit pending changes
+ */
+public func helpIndexCommit(handleId: UInt64)throws  {try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_commit(
+        FfiConverterUInt64.lower(handleId),$0
+    )
+}
+}
+/**
+ * Create a new help search index at the given path
+ */
+public func helpIndexCreate(path: String)throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_create(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * Create an in-memory help search index
+ */
+public func helpIndexCreateInMemory()throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_create_in_memory($0
+    )
+})
+}
+/**
+ * Get the number of active help index handles
+ */
+public func helpIndexHandleCount() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_help_index_handle_count($0
+    )
+})
+}
+/**
+ * Search the help index
+ */
+public func helpIndexSearch(handleId: UInt64, query: String, limit: UInt32, platform: HelpPlatform?)throws  -> [HelpSearchResult] {
+    return try  FfiConverterSequenceTypeHelpSearchResult.lift(try rustCallWithError(FfiConverterTypeHelpSearchError.lift) {
+    uniffi_imbib_core_fn_func_help_index_search(
+        FfiConverterUInt64.lower(handleId),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limit),
+        FfiConverterOptionTypeHelpPlatform.lower(platform),$0
+    )
+})
+}
+/**
  * Highlight query terms in text
  */
 public func highlightTerms(text: String, queryTerms: [String], highlightStart: String, highlightEnd: String) -> String {
@@ -12050,6 +12609,27 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_hello_from_rust() != 10594) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_add_document() != 48809) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_close() != 8078) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_commit() != 6287) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_create() != 55195) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_create_in_memory() != 47752) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_handle_count() != 19407) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_help_index_search() != 57103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_highlight_terms() != 15570) {

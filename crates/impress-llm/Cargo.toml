@@ -1,0 +1,55 @@
+[package]
+name = "impress-llm"
+description = "Extended LLM provider support for impress apps using graniet/llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+# Full native build with UniFFI for iOS/macOS
+native = ["uniffi"]
+
+[dependencies]
+# LLM library for multi-provider support
+llm = { git = "https://github.com/graniet/llm", features = [
+    "groq",
+    "phind",
+    "mistral",
+    "cohere",
+    "deepseek",
+    "xai",
+    "huggingface",
+] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# UniFFI for FFI bindings (optional)
+uniffi = { workspace = true, optional = true }
+
+# UUID for conversation handles
+uuid = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["uniffi"]

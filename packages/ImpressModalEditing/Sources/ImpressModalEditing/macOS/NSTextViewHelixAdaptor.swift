@@ -64,7 +64,7 @@ public final class NSTextViewHelixAdaptor: NSObject {
         let modifiers = KeyModifiers(flags: event.modifierFlags)
         let engine = NSTextViewHelixEngine(textView: textView, searchQuery: currentSearchQuery, searchBackward: searchBackward)
 
-        return helixState.handleKey(char, modifiers: modifiers, textEngine: engine)
+        return helixState.handleKey(char, modifiers: modifiers, helixTextEngine: engine)
     }
 
     // MARK: - Search Handling
@@ -80,7 +80,7 @@ public final class NSTextViewHelixAdaptor: NSObject {
             searchBackward = helixState.searchBackward
             if let textView {
                 let engine = NSTextViewHelixEngine(textView: textView, searchQuery: currentSearchQuery, searchBackward: searchBackward)
-                helixState.executeSearch(textEngine: engine)
+                helixState.executeSearch(helixTextEngine: engine)
             }
             return true
         }
@@ -455,6 +455,50 @@ public final class NSTextViewHelixEngine: HelixTextEngine {
         if range.location + range.length <= text.count {
             textView.insertText(String(char), replacementRange: range)
             selectedRange = NSRange(location: range.location, length: 0)
+        }
+    }
+
+    // MARK: - Scroll/Page Motions (NSTextView-specific implementations)
+
+    public func scrollDown(count: Int, extendSelection: Bool) {
+        // Use NSTextView's page down functionality for half-page scroll
+        for _ in 0..<count {
+            if extendSelection {
+                textView.pageDownAndModifySelection(nil)
+            } else {
+                textView.pageDown(nil)
+            }
+        }
+    }
+
+    public func scrollUp(count: Int, extendSelection: Bool) {
+        // Use NSTextView's page up functionality for half-page scroll
+        for _ in 0..<count {
+            if extendSelection {
+                textView.pageUpAndModifySelection(nil)
+            } else {
+                textView.pageUp(nil)
+            }
+        }
+    }
+
+    public func pageDown(count: Int, extendSelection: Bool) {
+        for _ in 0..<count {
+            if extendSelection {
+                textView.pageDownAndModifySelection(nil)
+            } else {
+                textView.pageDown(nil)
+            }
+        }
+    }
+
+    public func pageUp(count: Int, extendSelection: Bool) {
+        for _ in 0..<count {
+            if extendSelection {
+                textView.pageUpAndModifySelection(nil)
+            } else {
+                textView.pageUp(nil)
+            }
         }
     }
 }

@@ -129,9 +129,10 @@ NC='\033[0m' # No Color
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
 BUILD_DIR="$PROJECT_DIR/build"
 IMBIB_DIR="$PROJECT_DIR/imbib"
-IMBIB_CORE_DIR="$PROJECT_DIR/imbib-core"
+IMBIB_CORE_DIR="$REPO_ROOT/crates/imbib-core"
 
 # Version from argument or git tag (skip flags)
 VERSION=""
@@ -444,7 +445,7 @@ export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 
 # Check if Rust source has changed since last build
 RUST_SRC_HASH=$(find "$IMBIB_CORE_DIR/src" -name "*.rs" -exec cat {} \; 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-RUST_HASH_FILE="$IMBIB_CORE_DIR/target/.build_hash"
+RUST_HASH_FILE="$REPO_ROOT/target/.build_hash"
 PREV_HASH=$(cat "$RUST_HASH_FILE" 2>/dev/null || echo "")
 
 RUST_NEEDS_BUILD=false
@@ -453,21 +454,21 @@ if [ "$RUST_SRC_HASH" != "$PREV_HASH" ]; then
 fi
 
 # Build macOS (both architectures for universal binary)
-MACOS_ARM_LIB="$IMBIB_CORE_DIR/target/aarch64-apple-darwin/release/libimbib_core.a"
+MACOS_ARM_LIB="$REPO_ROOT/target/aarch64-apple-darwin/release/libimbib_core.a"
 if $RUST_NEEDS_BUILD || [ ! -f "$MACOS_ARM_LIB" ]; then
     echo "  Building macOS (aarch64-apple-darwin)..."
     rustup target add aarch64-apple-darwin 2>/dev/null || true
-    cargo build --release --target aarch64-apple-darwin
+    cargo build --release --features native --target aarch64-apple-darwin
 else
     echo "  Skipping macOS arm64 (up to date)"
 fi
 
 if $BUILD_MACOS; then
-    MACOS_X86_LIB="$IMBIB_CORE_DIR/target/x86_64-apple-darwin/release/libimbib_core.a"
+    MACOS_X86_LIB="$REPO_ROOT/target/x86_64-apple-darwin/release/libimbib_core.a"
     if $RUST_NEEDS_BUILD || [ ! -f "$MACOS_X86_LIB" ]; then
         echo "  Building macOS (x86_64-apple-darwin)..."
         rustup target add x86_64-apple-darwin 2>/dev/null || true
-        cargo build --release --target x86_64-apple-darwin
+        cargo build --release --features native --target x86_64-apple-darwin
     else
         echo "  Skipping macOS x86_64 (up to date)"
     fi
@@ -475,11 +476,11 @@ fi
 
 # Build iOS if needed
 if $BUILD_IOS; then
-    IOS_LIB="$IMBIB_CORE_DIR/target/aarch64-apple-ios/release/libimbib_core.a"
+    IOS_LIB="$REPO_ROOT/target/aarch64-apple-ios/release/libimbib_core.a"
     if $RUST_NEEDS_BUILD || [ ! -f "$IOS_LIB" ]; then
         echo "  Building iOS (aarch64-apple-ios)..."
         rustup target add aarch64-apple-ios 2>/dev/null || true
-        cargo build --release --target aarch64-apple-ios
+        cargo build --release --features native --target aarch64-apple-ios
     else
         echo "  Skipping iOS (up to date)"
     fi
@@ -495,7 +496,7 @@ step_end
 # ============================================================================
 step_start "Creating combined XCFramework..."
 
-RUST_BUILD_DIR="$IMBIB_CORE_DIR/target"
+RUST_BUILD_DIR="$REPO_ROOT/target"
 FRAMEWORK_DIR="$IMBIB_CORE_DIR/frameworks"
 XCFRAMEWORK_NAME="ImbibCore"
 
@@ -522,7 +523,7 @@ mkdir -p "$FRAMEWORK_DIR"
 
 # Generate Swift bindings
 echo "  Generating Swift bindings..."
-cargo run --bin uniffi-bindgen generate \
+cargo run --features native --bin uniffi-bindgen generate \
     --library "$RUST_BUILD_DIR/aarch64-apple-darwin/release/libimbib_core.dylib" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"

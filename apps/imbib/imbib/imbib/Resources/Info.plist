@@ -20,7 +20,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.imbib.app</string>
+			<string>com.imbib.app.ios</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>imbib</string>
@@ -28,7 +28,9 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>43.2601270811</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
