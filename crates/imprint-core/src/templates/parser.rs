@@ -59,7 +59,11 @@ pub fn parse_template_directory(path: &Path) -> TemplateResult<Template> {
 pub fn parse_template_package(path: &Path) -> TemplateResult<Template> {
     if path.is_dir() {
         parse_template_directory(path)
-    } else if path.extension().map(|e| e == "imprintTemplate").unwrap_or(false) {
+    } else if path
+        .extension()
+        .map(|e| e == "imprintTemplate")
+        .unwrap_or(false)
+    {
         // For now, we treat .imprintTemplate as a directory
         // In the future, this could support zip archives
         parse_template_directory(path)
@@ -119,7 +123,9 @@ fn find_typ_file(dir: &Path) -> TemplateResult<String> {
 pub fn validate_template(template: &Template) -> TemplateResult<()> {
     // Basic validation checks
     if template.metadata.id.is_empty() {
-        return Err(TemplateError::Invalid("Template ID cannot be empty".to_string()));
+        return Err(TemplateError::Invalid(
+            "Template ID cannot be empty".to_string(),
+        ));
     }
 
     if template.metadata.name.is_empty() {

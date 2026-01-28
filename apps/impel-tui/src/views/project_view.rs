@@ -10,11 +10,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Gauge},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
     Frame,
 };
 
-use impel_core::project::{Project, ProjectStatus, Deliverable, DeliverableKind};
+use impel_core::project::{Deliverable, DeliverableKind, Project, ProjectStatus};
 use impel_core::thread::{Thread, ThreadState};
 
 /// Project view state
@@ -48,8 +48,8 @@ impl ProjectView {
             let block = Block::default()
                 .title("No Project Selected")
                 .borders(Borders::ALL);
-            let paragraph = Paragraph::new("Press 1 to go to Program view and select a project")
-                .block(block);
+            let paragraph =
+                Paragraph::new("Press 1 to go to Program view and select a project").block(block);
             frame.render_widget(paragraph, area);
             return;
         };
@@ -58,9 +58,9 @@ impl ProjectView {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Header
-                Constraint::Min(0),     // Main content
-                Constraint::Length(5),  // Goals
+                Constraint::Length(3), // Header
+                Constraint::Min(0),    // Main content
+                Constraint::Length(5), // Goals
             ])
             .split(area);
 
@@ -70,10 +70,7 @@ impl ProjectView {
         // Main content: threads and deliverables
         let main_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[1]);
 
         self.render_thread_list(frame, main_chunks[0], project, threads);
@@ -115,9 +112,18 @@ impl ProjectView {
         threads: &[Thread],
     ) {
         // Count threads by state
-        let active_count = threads.iter().filter(|t| t.state == ThreadState::Active).count();
-        let blocked_count = threads.iter().filter(|t| t.state == ThreadState::Blocked).count();
-        let complete_count = threads.iter().filter(|t| t.state == ThreadState::Complete).count();
+        let active_count = threads
+            .iter()
+            .filter(|t| t.state == ThreadState::Active)
+            .count();
+        let blocked_count = threads
+            .iter()
+            .filter(|t| t.state == ThreadState::Blocked)
+            .count();
+        let complete_count = threads
+            .iter()
+            .filter(|t| t.state == ThreadState::Complete)
+            .count();
 
         let title = format!(
             "Threads ({}) - {} active, {} blocked, {} done",
@@ -165,7 +171,10 @@ impl ProjectView {
 
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{} ", state_icon), Style::default().fg(state_color)),
-                    Span::styled(format!("[{}] ", temp_indicator), Style::default().fg(Color::Cyan)),
+                    Span::styled(
+                        format!("[{}] ", temp_indicator),
+                        Style::default().fg(Color::Cyan),
+                    ),
                     Span::styled(&thread.metadata.title, style),
                 ]))
             })
@@ -177,8 +186,12 @@ impl ProjectView {
             Style::default()
         };
 
-        let list = List::new(items)
-            .block(Block::default().title(title).borders(Borders::ALL).border_style(border_style));
+        let list = List::new(items).block(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        );
 
         frame.render_widget(list, area);
     }
@@ -210,7 +223,10 @@ impl ProjectView {
 
                 ListItem::new(Line::from(vec![
                     Span::raw(format!("{} ", status_icon)),
-                    Span::styled(format!("{}: ", kind_str), Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("{}: ", kind_str),
+                        Style::default().fg(Color::Yellow),
+                    ),
                     Span::styled(&d.name, style),
                     Span::raw(" "),
                     Span::styled(progress_bar, Style::default().fg(Color::Green)),
@@ -224,13 +240,12 @@ impl ProjectView {
             Style::default()
         };
 
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .title(format!("Deliverables ({})", deliverables.len()))
-                    .borders(Borders::ALL)
-                    .border_style(border_style),
-            );
+        let list = List::new(items).block(
+            Block::default()
+                .title(format!("Deliverables ({})", deliverables.len()))
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        );
 
         frame.render_widget(list, area);
     }
@@ -239,7 +254,8 @@ impl ProjectView {
         let goals_text = if project.goals.is_empty() {
             "No goals defined".to_string()
         } else {
-            project.goals
+            project
+                .goals
                 .iter()
                 .enumerate()
                 .map(|(i, g)| format!("{}. {}", i + 1, g))

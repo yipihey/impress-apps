@@ -392,10 +392,7 @@ impl TemplateRegistry {
 
     /// List built-in templates only
     pub fn builtin_templates(&self) -> Vec<&Template> {
-        self.templates
-            .values()
-            .filter(|t| t.is_builtin())
-            .collect()
+        self.templates.values().filter(|t| t.is_builtin()).collect()
     }
 
     /// List user templates only
@@ -536,7 +533,10 @@ mod tests {
     #[test]
     fn test_template_registry_new() {
         let registry = TemplateRegistry::new();
-        assert!(!registry.is_empty(), "Registry should have built-in templates");
+        assert!(
+            !registry.is_empty(),
+            "Registry should have built-in templates"
+        );
     }
 
     #[test]
@@ -544,9 +544,18 @@ mod tests {
         let registry = TemplateRegistry::new();
 
         // Check for some expected built-in templates
-        assert!(registry.get("generic").is_some(), "generic template should exist");
-        assert!(registry.get("mnras").is_some(), "mnras template should exist");
-        assert!(registry.get("nature").is_some(), "nature template should exist");
+        assert!(
+            registry.get("generic").is_some(),
+            "generic template should exist"
+        );
+        assert!(
+            registry.get("mnras").is_some(),
+            "mnras template should exist"
+        );
+        assert!(
+            registry.get("nature").is_some(),
+            "nature template should exist"
+        );
     }
 
     #[test]
@@ -554,7 +563,10 @@ mod tests {
         let registry = TemplateRegistry::new();
         let journal_templates = registry.by_category(&TemplateCategory::Journal);
 
-        assert!(!journal_templates.is_empty(), "Should have journal templates");
+        assert!(
+            !journal_templates.is_empty(),
+            "Should have journal templates"
+        );
         for template in journal_templates {
             assert_eq!(template.metadata.category, TemplateCategory::Journal);
         }
@@ -565,7 +577,10 @@ mod tests {
         let registry = TemplateRegistry::new();
 
         let results = registry.search("astronomy");
-        assert!(!results.is_empty(), "Should find templates with astronomy tag");
+        assert!(
+            !results.is_empty(),
+            "Should find templates with astronomy tag"
+        );
     }
 
     #[test]
@@ -611,10 +626,7 @@ mod tests {
             modified_at: None,
         };
 
-        let template = Template::new(
-            metadata,
-            "Title: ${title}\nAuthor: ${author}".to_string(),
-        );
+        let template = Template::new(metadata, "Title: ${title}\nAuthor: ${author}".to_string());
 
         let mut vars = HashMap::new();
         vars.insert("title".to_string(), "My Paper".to_string());

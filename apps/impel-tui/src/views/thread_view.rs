@@ -15,8 +15,8 @@ use ratatui::{
     Frame,
 };
 
-use impel_core::thread::{Thread, ThreadState};
 use impel_core::event::Event;
+use impel_core::thread::{Thread, ThreadState};
 
 /// Thread view state
 pub struct ThreadView {
@@ -35,19 +35,13 @@ impl ThreadView {
     }
 
     /// Render the thread view
-    pub fn render(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        thread: Option<&Thread>,
-        events: &[Event],
-    ) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, thread: Option<&Thread>, events: &[Event]) {
         let Some(thread) = thread else {
             let block = Block::default()
                 .title("No Thread Selected")
                 .borders(Borders::ALL);
-            let paragraph = Paragraph::new("Press 2 to go to Project view and select a thread")
-                .block(block);
+            let paragraph =
+                Paragraph::new("Press 2 to go to Project view and select a thread").block(block);
             frame.render_widget(paragraph, area);
             return;
         };
@@ -56,8 +50,8 @@ impl ThreadView {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7),  // Header with thread info
-                Constraint::Min(0),     // Events and details
+                Constraint::Length(7), // Header with thread info
+                Constraint::Min(0),    // Events and details
             ])
             .split(area);
 
@@ -67,10 +61,7 @@ impl ThreadView {
         // Main content: events and temperature
         let main_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(65),
-                Constraint::Percentage(35),
-            ])
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
             .split(chunks[1]);
 
         self.render_events(frame, main_chunks[0], events);
@@ -96,19 +87,26 @@ impl ThreadView {
         };
 
         let lines = vec![
-            Line::from(vec![
-                Span::styled(&thread.metadata.title, Style::default().add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled(
+                &thread.metadata.title,
+                Style::default().add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![
                 Span::raw("State: "),
                 Span::styled(format!("{}", thread.state), state_style),
                 Span::raw(" | Temperature: "),
                 Span::styled(format!("{:.2}", thread.temperature.value()), temp_style),
-                Span::raw(format!(" (base: {:.2})", thread.temperature.base_priority())),
+                Span::raw(format!(
+                    " (base: {:.2})",
+                    thread.temperature.base_priority()
+                )),
             ]),
             Line::from(vec![
                 Span::raw("ID: "),
-                Span::styled(format!("{}", thread.id), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}", thread.id),
+                    Style::default().fg(Color::DarkGray),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Claimed by: "),
@@ -117,9 +115,7 @@ impl ThreadView {
                     Style::default().fg(Color::Cyan),
                 ),
             ]),
-            Line::from(vec![
-                Span::raw(&thread.metadata.description),
-            ]),
+            Line::from(vec![Span::raw(&thread.metadata.description)]),
         ];
 
         let block = Block::default()
@@ -155,12 +151,11 @@ impl ThreadView {
             })
             .collect();
 
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .title(format!("Events ({})", events.len()))
-                    .borders(Borders::ALL),
-            );
+        let list = List::new(items).block(
+            Block::default()
+                .title(format!("Events ({})", events.len()))
+                .borders(Borders::ALL),
+        );
 
         frame.render_widget(list, area);
     }
@@ -169,10 +164,7 @@ impl ThreadView {
         // Split into temperature breakdown and dependencies
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(10),
-                Constraint::Min(0),
-            ])
+            .constraints([Constraint::Length(10), Constraint::Min(0)])
             .split(area);
 
         // Temperature breakdown
@@ -191,13 +183,14 @@ impl ThreadView {
             Line::from(""),
             Line::from("Components:"),
             Line::from(format!("  Base:    {:.3}", temp.base_priority())),
-            Line::from(format!("  Last update: {}", temp.time_since_update().num_minutes())),
+            Line::from(format!(
+                "  Last update: {}",
+                temp.time_since_update().num_minutes()
+            )),
             Line::from(format!("    minutes ago")),
         ];
 
-        let block = Block::default()
-            .title("Temperature")
-            .borders(Borders::ALL);
+        let block = Block::default().title("Temperature").borders(Borders::ALL);
 
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, area);
@@ -236,9 +229,7 @@ impl ThreadView {
             lines.push(Line::from(format!("  {}", thread.metadata.tags.join(", "))));
         }
 
-        let block = Block::default()
-            .title("Dependencies")
-            .borders(Borders::ALL);
+        let block = Block::default().title("Dependencies").borders(Borders::ALL);
 
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, area);

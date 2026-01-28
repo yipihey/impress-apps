@@ -179,14 +179,8 @@ mod tests {
 
     #[test]
     fn test_open_access_display_names() {
-        assert_eq!(
-            OpenAccessStatus::Gold.display_name(),
-            "Gold Open Access"
-        );
-        assert_eq!(
-            OpenAccessStatus::Closed.display_name(),
-            "Closed Access"
-        );
+        assert_eq!(OpenAccessStatus::Gold.display_name(), "Gold Open Access");
+        assert_eq!(OpenAccessStatus::Closed.display_name(), "Closed Access");
     }
 
     #[test]
@@ -201,9 +195,6 @@ mod tests {
             EnrichmentCapability::CitationCount.display_name(),
             "Citation Count"
         );
-        assert_eq!(
-            EnrichmentCapability::PdfUrl.display_name(),
-            "PDF URL"
-        );
+        assert_eq!(EnrichmentCapability::PdfUrl.display_name(), "PDF URL");
     }
 }

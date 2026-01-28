@@ -4972,6 +4972,11 @@ public enum GeneratorErrorFfi {
      */
     case JsonError(message: String
     )
+    /**
+     * Internal lock error (registry was poisoned)
+     */
+    case LockError(message: String
+    )
 }
 
 
@@ -5010,6 +5015,9 @@ public struct FfiConverterTypeGeneratorErrorFfi: FfiConverterRustBuffer {
             )
         case 7: return .NotGenerated
         case 8: return .JsonError(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 9: return .LockError(
             message: try FfiConverterString.read(from: &buf)
             )
 
@@ -5062,6 +5070,11 @@ public struct FfiConverterTypeGeneratorErrorFfi: FfiConverterRustBuffer {
         
         case let .JsonError(message):
             writeInt(&buf, Int32(8))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .LockError(message):
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(message, into: &buf)
             
         }

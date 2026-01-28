@@ -53,18 +53,29 @@ fn generic_template() -> Template {
         id: "generic".to_string(),
         name: "Generic Article".to_string(),
         version: "1.0.0".to_string(),
-        description: "A clean, minimal template for academic writing. Good starting point for any document.".to_string(),
+        description:
+            "A clean, minimal template for academic writing. Good starting point for any document."
+                .to_string(),
         author: "imprint".to_string(),
         license: "MIT".to_string(),
         category: TemplateCategory::Custom,
-        tags: vec!["general".to_string(), "starter".to_string(), "minimal".to_string()],
+        tags: vec![
+            "general".to_string(),
+            "starter".to_string(),
+            "minimal".to_string(),
+        ],
         journal: None,
         typst: TypstRequirements {
             min_version: Some("0.14.0".to_string()),
         },
         page_defaults: PageDefaults {
             size: "a4".to_string(),
-            margins: PageMargins { top: 25.0, right: 25.0, bottom: 25.0, left: 25.0 },
+            margins: PageMargins {
+                top: 25.0,
+                right: 25.0,
+                bottom: 25.0,
+                left: 25.0,
+            },
             columns: 1,
             font_size: 11.0,
         },
@@ -1608,8 +1619,9 @@ fn jcp_template() -> Template {
         ],
         journal: Some(JournalInfo {
             publisher: "Elsevier".to_string(),
-            url: Some("https://www.journals.elsevier.com/journal-of-computational-physics"
-                .to_string()),
+            url: Some(
+                "https://www.journals.elsevier.com/journal-of-computational-physics".to_string(),
+            ),
             latex_class: Some("elsarticle".to_string()),
             issn: Some("0021-9991".to_string()),
         }),
@@ -3207,7 +3219,11 @@ mod tests {
     #[test]
     fn test_builtin_templates_count() {
         let templates = builtin_templates();
-        assert!(templates.len() >= 20, "Should have at least 20 built-in templates, got {}", templates.len());
+        assert!(
+            templates.len() >= 20,
+            "Should have at least 20 built-in templates, got {}",
+            templates.len()
+        );
     }
 
     #[test]
@@ -3215,7 +3231,10 @@ mod tests {
         for template in builtin_templates() {
             assert!(!template.id().is_empty(), "Template ID should not be empty");
             assert!(
-                template.id().chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
+                template
+                    .id()
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
                 "Template ID '{}' contains invalid characters",
                 template.id()
             );
@@ -3225,7 +3244,11 @@ mod tests {
     #[test]
     fn test_builtin_templates_have_source() {
         for template in builtin_templates() {
-            assert!(!template.typst_source.is_empty(), "Template '{}' should have Typst source", template.id());
+            assert!(
+                !template.typst_source.is_empty(),
+                "Template '{}' should have Typst source",
+                template.id()
+            );
         }
     }
 

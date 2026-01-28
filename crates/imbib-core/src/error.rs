@@ -27,6 +27,8 @@ impl From<String> for FfiError {
 
 impl From<ParseError> for FfiError {
     fn from(e: ParseError) -> Self {
-        FfiError::ParseError { message: e.to_string() }
+        FfiError::ParseError {
+            message: e.to_string(),
+        }
     }
 }

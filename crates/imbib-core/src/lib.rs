@@ -40,13 +40,13 @@ pub mod pdf;
 pub use bibtex::{
     BibTeXEntry, BibTeXEntryType, BibTeXField, BibTeXParseError, BibTeXParseResult, ParseError,
 };
-pub use error::FfiError;
 pub use deduplication::{DeduplicationMatch, DuplicateGroup};
 pub use domain::{
     Author, AuthorStats, Collection, EnrichmentCapability, EnrichmentData, EnrichmentPriority,
     FileStorageType, Identifiers, Library, LinkedFile, OpenAccessStatus, PdfLink, PdfLinkType,
     Publication, SearchResult, Source, Tag, ValidationError, ValidationSeverity,
 };
+pub use error::FfiError;
 
 // PaperStub is defined in sources/ads.rs
 pub use export::{ExportFormat, ExportOptions};
@@ -59,11 +59,9 @@ pub use search::{ADSDatabase, QueryLogic};
 #[cfg(feature = "native")]
 pub use search::{AnnIndex, AnnIndexConfig, AnnIndexItem, AnnSimilarityResult};
 #[cfg(not(target_arch = "wasm32"))]
-pub use search::{SearchHit, SearchIndex, SearchIndexError};
+pub use search::{HelpDocument, HelpPlatform, HelpSearchError, HelpSearchIndex, HelpSearchResult};
 #[cfg(not(target_arch = "wasm32"))]
-pub use search::{
-    HelpDocument, HelpPlatform, HelpSearchError, HelpSearchIndex, HelpSearchResult,
-};
+pub use search::{SearchHit, SearchIndex, SearchIndexError};
 #[cfg(feature = "native")]
 pub use sources::ads::PaperStub;
 

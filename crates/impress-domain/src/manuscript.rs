@@ -1,7 +1,7 @@
 //! Manuscript tracking for works in progress
 
-use serde::{Deserialize, Serialize};
 use crate::Author;
+use serde::{Deserialize, Serialize};
 
 /// A manuscript being written (links imprint document to imbib)
 #[derive(Clone, Debug, Serialize, Deserialize)]

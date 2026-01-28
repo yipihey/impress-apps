@@ -53,9 +53,7 @@ pub fn bibtex_entry_to_publication(entry: BibTeXEntry) -> Publication {
             "school" => pub_.school = Some(value),
             "note" => pub_.note = Some(value),
             "abstract" => pub_.abstract_text = Some(value),
-            "keywords" => {
-                pub_.keywords = value.split(',').map(|s| s.trim().to_string()).collect()
-            }
+            "keywords" => pub_.keywords = value.split(',').map(|s| s.trim().to_string()).collect(),
             "url" => pub_.url = Some(value),
             "doi" => pub_.identifiers.doi = Some(value),
             "eprint" => {
@@ -251,7 +249,13 @@ mod tests {
         let entry = publication_to_bibtex_entry(&pub_);
         assert_eq!(entry.cite_key, "smith2024");
         assert_eq!(entry.entry_type, BibTeXEntryType::Article);
-        assert!(entry.fields.iter().any(|f| f.key == "title" && f.value == "A Great Paper"));
-        assert!(entry.fields.iter().any(|f| f.key == "year" && f.value == "2024"));
+        assert!(entry
+            .fields
+            .iter()
+            .any(|f| f.key == "title" && f.value == "A Great Paper"));
+        assert!(entry
+            .fields
+            .iter()
+            .any(|f| f.key == "year" && f.value == "2024"));
     }
 }

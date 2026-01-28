@@ -6,7 +6,8 @@
 use imbib_core::bibtex::{BibTeXEntry, BibTeXEntryType};
 use imbib_core::deduplication::{
     authors_overlap, calculate_publication_similarity, calculate_similarity, find_duplicates,
-    normalize_author_export as normalize_author, normalize_title_export as normalize_title, titles_match,
+    normalize_author_export as normalize_author, normalize_title_export as normalize_title,
+    titles_match,
 };
 use imbib_core::domain::{Author, Identifiers, Publication};
 use proptest::prelude::*;

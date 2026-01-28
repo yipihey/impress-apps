@@ -207,8 +207,18 @@ pub fn normalize_author_name(name: String) -> String {
 
     // Remove titles
     let titles = [
-        "dr ", "dr. ", "prof ", "prof. ", "professor ", "mr ", "mr. ", "mrs ", "mrs. ", "ms ",
-        "ms. ", "sir ",
+        "dr ",
+        "dr. ",
+        "prof ",
+        "prof. ",
+        "professor ",
+        "mr ",
+        "mr. ",
+        "mrs ",
+        "mrs. ",
+        "ms ",
+        "ms. ",
+        "sir ",
     ];
     for title in titles {
         result = result.replace(title, "");

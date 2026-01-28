@@ -155,18 +155,9 @@ mod tests {
 
     #[test]
     fn test_normalize_title() {
-        assert_eq!(
-            normalize_title("The Quick Brown Fox"),
-            "quick brown fox"
-        );
-        assert_eq!(
-            normalize_title("A Study in Scarlet"),
-            "study in scarlet"
-        );
-        assert_eq!(
-            normalize_title("Machine   Learning"),
-            "machine learning"
-        );
+        assert_eq!(normalize_title("The Quick Brown Fox"), "quick brown fox");
+        assert_eq!(normalize_title("A Study in Scarlet"), "study in scarlet");
+        assert_eq!(normalize_title("Machine   Learning"), "machine learning");
     }
 
     #[test]
@@ -177,10 +168,7 @@ mod tests {
 
     #[test]
     fn test_normalize_title_with_diacritics() {
-        assert_eq!(
-            normalize_title("Études Françaises"),
-            "etudes francaises"
-        );
+        assert_eq!(normalize_title("Études Françaises"), "etudes francaises");
         assert_eq!(normalize_title("Naïve Bayes"), "naive bayes");
     }
 
@@ -193,10 +181,7 @@ mod tests {
 
     #[test]
     fn test_normalize_author_with_diacritics() {
-        assert_eq!(
-            normalize_author("François Müller"),
-            "francois muller"
-        );
+        assert_eq!(normalize_author("François Müller"), "francois muller");
     }
 
     #[test]

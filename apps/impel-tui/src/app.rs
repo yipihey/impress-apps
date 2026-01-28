@@ -17,8 +17,8 @@ use impel_core::thread::ThreadId;
 
 use crate::mode::Mode;
 use crate::views::{
-    EventView, GroundView, LandscapeView, ProgramView, ProjectView, TeamView, ThreadView,
-    View, ZoomLevel,
+    EventView, GroundView, LandscapeView, ProgramView, ProjectView, TeamView, ThreadView, View,
+    ZoomLevel,
 };
 use crate::widgets::{AlertPanel, StatusBar, ThreadTree};
 
@@ -149,7 +149,11 @@ impl App {
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let status = if self.paused { "PAUSED" } else { "RUNNING" };
-        let status_color = if self.paused { Color::Yellow } else { Color::Green };
+        let status_color = if self.paused {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
 
         let mode_str = self.mode.short_code();
         let mode_color = match self.mode {
@@ -212,8 +216,7 @@ impl App {
             })
             .collect();
 
-        let list = List::new(items)
-            .block(Block::default().title("Threads").borders(Borders::ALL));
+        let list = List::new(items).block(Block::default().title("Threads").borders(Borders::ALL));
 
         frame.render_widget(list, area);
     }
@@ -252,13 +255,23 @@ impl App {
     fn render_thread_view(&self, frame: &mut Frame, area: Rect) {
         let threads: Vec<_> = self.state.threads().collect();
         let thread = threads.get(self.selected_thread).copied();
-        let events: Vec<Event> = self.state.all_events().iter().map(|e| (*e).clone()).collect();
+        let events: Vec<Event> = self
+            .state
+            .all_events()
+            .iter()
+            .map(|e| (*e).clone())
+            .collect();
 
         self.thread_view.render(frame, area, thread, &events);
     }
 
     fn render_event_view(&self, frame: &mut Frame, area: Rect) {
-        let events: Vec<Event> = self.state.all_events().iter().map(|e| (*e).clone()).collect();
+        let events: Vec<Event> = self
+            .state
+            .all_events()
+            .iter()
+            .map(|e| (*e).clone())
+            .collect();
         let event: Option<Event> = events.iter().rev().nth(self.selected_event).cloned();
 
         // For related events, we'd need to trace the causation chain
@@ -403,14 +416,16 @@ Other:
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
                 if let Some(next) = self.zoom_level.zoom_in() {
                     self.zoom_level = next;
-                    self.status_message = Some(format!("Level {}: {} View", next as u8, next.name()));
+                    self.status_message =
+                        Some(format!("Level {}: {} View", next as u8, next.name()));
                 }
             }
             // Zoom out
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Esc => {
                 if let Some(prev) = self.zoom_level.zoom_out() {
                     self.zoom_level = prev;
-                    self.status_message = Some(format!("Level {}: {} View", prev as u8, prev.name()));
+                    self.status_message =
+                        Some(format!("Level {}: {} View", prev as u8, prev.name()));
                 }
             }
             // Tab to switch panels in project view

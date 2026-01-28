@@ -18,9 +18,7 @@ use uuid::Uuid;
 /// Get or create a tokio runtime for executing async calls
 fn get_runtime() -> &'static Runtime {
     static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        Runtime::new().expect("Failed to create tokio runtime")
-    })
+    RUNTIME.get_or_init(|| Runtime::new().expect("Failed to create tokio runtime"))
 }
 
 // ============================================================================
@@ -105,7 +103,9 @@ pub fn get_models(provider: &str) -> Vec<ModelInfo> {
             ModelInfo {
                 id: "llama-3.3-70b-versatile".to_string(),
                 name: "Llama 3.3 70B Versatile".to_string(),
-                description: Some("Latest Llama model, excellent all-around performance".to_string()),
+                description: Some(
+                    "Latest Llama model, excellent all-around performance".to_string(),
+                ),
                 context_window: Some(128_000),
                 max_output_tokens: Some(32_768),
                 is_default: true,
@@ -143,16 +143,14 @@ pub fn get_models(provider: &str) -> Vec<ModelInfo> {
                 is_default: false,
             },
         ],
-        "phind" => vec![
-            ModelInfo {
-                id: "Phind-70B".to_string(),
-                name: "Phind 70B".to_string(),
-                description: Some("Code-optimized model, excellent for programming".to_string()),
-                context_window: Some(32_000),
-                max_output_tokens: Some(4_096),
-                is_default: true,
-            },
-        ],
+        "phind" => vec![ModelInfo {
+            id: "Phind-70B".to_string(),
+            name: "Phind 70B".to_string(),
+            description: Some("Code-optimized model, excellent for programming".to_string()),
+            context_window: Some(32_000),
+            max_output_tokens: Some(4_096),
+            is_default: true,
+        }],
         "mistral" => vec![
             ModelInfo {
                 id: "mistral-large-latest".to_string(),
@@ -191,7 +189,9 @@ pub fn get_models(provider: &str) -> Vec<ModelInfo> {
             ModelInfo {
                 id: "command-r-plus".to_string(),
                 name: "Command R+".to_string(),
-                description: Some("Most capable Cohere model, excellent for complex tasks".to_string()),
+                description: Some(
+                    "Most capable Cohere model, excellent for complex tasks".to_string(),
+                ),
                 context_window: Some(128_000),
                 max_output_tokens: Some(4_096),
                 is_default: true,
@@ -327,9 +327,11 @@ async fn complete_async(request: &LLMRequest) -> Result<LLMResponse, LLMError> {
     }
 
     // Build the client
-    let llm = builder.build().map_err(|e: llm::error::LLMError| LLMError::InvalidRequest {
-        message: e.to_string(),
-    })?;
+    let llm = builder
+        .build()
+        .map_err(|e: llm::error::LLMError| LLMError::InvalidRequest {
+            message: e.to_string(),
+        })?;
 
     // Convert messages - handle system message specially
     let mut chat_messages = Vec::new();
@@ -348,18 +350,10 @@ async fn complete_async(request: &LLMRequest) -> Result<LLMResponse, LLMError> {
                 } else {
                     msg.content.clone()
                 };
-                chat_messages.push(
-                    ChatMessage::user()
-                        .content(&content)
-                        .build()
-                );
+                chat_messages.push(ChatMessage::user().content(&content).build());
             }
             LLMRole::Assistant => {
-                chat_messages.push(
-                    ChatMessage::assistant()
-                        .content(&msg.content)
-                        .build()
-                );
+                chat_messages.push(ChatMessage::assistant().content(&msg.content).build());
             }
         }
     }
@@ -367,11 +361,7 @@ async fn complete_async(request: &LLMRequest) -> Result<LLMResponse, LLMError> {
     // If we only have a system prompt and no user messages, treat it as a user message
     if chat_messages.is_empty() {
         if let Some(sys) = system_prompt {
-            chat_messages.push(
-                ChatMessage::user()
-                    .content(&sys)
-                    .build()
-            );
+            chat_messages.push(ChatMessage::user().content(&sys).build());
         }
     }
 
@@ -452,12 +442,15 @@ pub fn create_memory(scope_id: Option<String>, scope: MemoryScope) -> MemoryHand
     let store = store_guard.as_mut().unwrap();
 
     // Create empty memory state if it doesn't exist
-    store.memories.entry(id.clone()).or_insert_with(|| MemoryState {
-        messages: vec![],
-        metadata: HashMap::new(),
-        scope,
-        last_updated: chrono::Utc::now().timestamp(),
-    });
+    store
+        .memories
+        .entry(id.clone())
+        .or_insert_with(|| MemoryState {
+            messages: vec![],
+            metadata: HashMap::new(),
+            scope,
+            last_updated: chrono::Utc::now().timestamp(),
+        });
 
     MemoryHandle {
         id,
@@ -470,9 +463,12 @@ pub fn add_to_memory(handle: &MemoryHandle, message: LLMMessage) -> Result<(), L
     let mut store_guard = MemoryStore::get_or_init();
     let store = store_guard.as_mut().unwrap();
 
-    let memory = store.memories.get_mut(&handle.id).ok_or_else(|| LLMError::Unknown {
-        message: format!("Memory scope not found: {}", handle.id),
-    })?;
+    let memory = store
+        .memories
+        .get_mut(&handle.id)
+        .ok_or_else(|| LLMError::Unknown {
+            message: format!("Memory scope not found: {}", handle.id),
+        })?;
 
     memory.messages.push(message);
     memory.last_updated = chrono::Utc::now().timestamp();
@@ -485,9 +481,12 @@ pub fn get_memory_messages(handle: &MemoryHandle) -> Result<Vec<LLMMessage>, LLM
     let store_guard = MemoryStore::get_or_init();
     let store = store_guard.as_ref().unwrap();
 
-    let memory = store.memories.get(&handle.id).ok_or_else(|| LLMError::Unknown {
-        message: format!("Memory scope not found: {}", handle.id),
-    })?;
+    let memory = store
+        .memories
+        .get(&handle.id)
+        .ok_or_else(|| LLMError::Unknown {
+            message: format!("Memory scope not found: {}", handle.id),
+        })?;
 
     Ok(memory.messages.clone())
 }
@@ -497,9 +496,12 @@ pub fn export_memory(handle: &MemoryHandle) -> Result<MemoryState, LLMError> {
     let store_guard = MemoryStore::get_or_init();
     let store = store_guard.as_ref().unwrap();
 
-    let memory = store.memories.get(&handle.id).ok_or_else(|| LLMError::Unknown {
-        message: format!("Memory scope not found: {}", handle.id),
-    })?;
+    let memory = store
+        .memories
+        .get(&handle.id)
+        .ok_or_else(|| LLMError::Unknown {
+            message: format!("Memory scope not found: {}", handle.id),
+        })?;
 
     Ok(memory.clone())
 }

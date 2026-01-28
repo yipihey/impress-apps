@@ -493,7 +493,10 @@ pub fn help_index_create_in_memory() -> Result<u64, HelpSearchError> {
 
 /// Add a help document to the index
 #[uniffi::export]
-pub fn help_index_add_document(handle_id: u64, document: HelpDocument) -> Result<(), HelpSearchError> {
+pub fn help_index_add_document(
+    handle_id: u64,
+    document: HelpDocument,
+) -> Result<(), HelpSearchError> {
     let registry = HELP_INDEX_REGISTRY.read().unwrap();
     let handle = registry
         .get(&handle_id)
@@ -501,9 +504,9 @@ pub fn help_index_add_document(handle_id: u64, document: HelpDocument) -> Result
         .clone();
 
     let mut writer_guard = handle.writer.lock().unwrap();
-    let writer = writer_guard
-        .as_mut()
-        .ok_or(HelpSearchError::IndexError("Writer not available".to_string()))?;
+    let writer = writer_guard.as_mut().ok_or(HelpSearchError::IndexError(
+        "Writer not available".to_string(),
+    ))?;
 
     handle.index.index_document(writer, &document)
 }
@@ -518,9 +521,9 @@ pub fn help_index_commit(handle_id: u64) -> Result<(), HelpSearchError> {
         .clone();
 
     let mut writer_guard = handle.writer.lock().unwrap();
-    let writer = writer_guard
-        .as_mut()
-        .ok_or(HelpSearchError::IndexError("Writer not available".to_string()))?;
+    let writer = writer_guard.as_mut().ok_or(HelpSearchError::IndexError(
+        "Writer not available".to_string(),
+    ))?;
 
     handle.index.commit(writer)
 }

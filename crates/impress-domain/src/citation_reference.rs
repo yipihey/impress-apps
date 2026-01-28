@@ -329,7 +329,8 @@ mod tests {
         assert_eq!(meta2.authors_short, "Smith & Jones");
 
         // Three or more authors
-        let meta3 = CitationMetadata::new("Title".to_string(), sample_authors(), "article".to_string());
+        let meta3 =
+            CitationMetadata::new("Title".to_string(), sample_authors(), "article".to_string());
         assert_eq!(meta3.authors_short, "Smith et al.");
     }
 

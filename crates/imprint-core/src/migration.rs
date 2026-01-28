@@ -476,7 +476,10 @@ mod tests {
 
     #[test]
     fn test_version_check() {
-        assert!(matches!(check_version(Some(120)), VersionCheckResult::Current));
+        assert!(matches!(
+            check_version(Some(120)),
+            VersionCheckResult::Current
+        ));
         assert!(matches!(
             check_version(Some(100)),
             VersionCheckResult::NeedsMigration { .. }

@@ -39,8 +39,8 @@ impl EventView {
             let block = Block::default()
                 .title("No Event Selected")
                 .borders(Borders::ALL);
-            let paragraph = Paragraph::new("Press 3 to go to Thread view and select an event")
-                .block(block);
+            let paragraph =
+                Paragraph::new("Press 3 to go to Thread view and select an event").block(block);
             frame.render_widget(paragraph, area);
             return;
         };
@@ -49,9 +49,9 @@ impl EventView {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8),   // Header
-                Constraint::Min(0),      // Content
-                Constraint::Length(10),  // Related events
+                Constraint::Length(8),  // Header
+                Constraint::Min(0),     // Content
+                Constraint::Length(10), // Related events
             ])
             .split(area);
 
@@ -69,10 +69,7 @@ impl EventView {
         let lines = vec![
             Line::from(vec![
                 Span::styled("Event ID: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    format!("{}", event.id),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled(format!("{}", event.id), Style::default().fg(Color::Cyan)),
             ]),
             Line::from(vec![
                 Span::raw("Sequence: "),
@@ -83,7 +80,12 @@ impl EventView {
             ]),
             Line::from(vec![
                 Span::raw("Timestamp: "),
-                Span::raw(event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f UTC").to_string()),
+                Span::raw(
+                    event
+                        .timestamp
+                        .format("%Y-%m-%d %H:%M:%S%.3f UTC")
+                        .to_string(),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Entity: "),
@@ -110,9 +112,7 @@ impl EventView {
     fn render_content(&self, frame: &mut Frame, area: Rect, event: &Event) {
         let content = self.format_payload(&event.payload);
 
-        let block = Block::default()
-            .title("Payload")
-            .borders(Borders::ALL);
+        let block = Block::default().title("Payload").borders(Borders::ALL);
 
         let paragraph = Paragraph::new(content)
             .block(block)
@@ -127,16 +127,17 @@ impl EventView {
         // Add type indicator
         lines.push(Line::from(vec![
             Span::styled("Type: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(
-                payload.description(),
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled(payload.description(), Style::default().fg(Color::Cyan)),
         ]));
         lines.push(Line::from(""));
 
         // Add payload-specific details
         match payload {
-            EventPayload::ThreadCreated { title, description, parent_id } => {
+            EventPayload::ThreadCreated {
+                title,
+                description,
+                parent_id,
+            } => {
                 lines.push(Line::from(format!("Title: {}", title)));
                 lines.push(Line::from(format!("Description: {}", description)));
                 if let Some(parent) = parent_id {
@@ -156,23 +157,37 @@ impl EventView {
             EventPayload::ThreadReleased { agent_id } => {
                 lines.push(Line::from(format!("Agent: {}", agent_id)));
             }
-            EventPayload::ThreadTemperatureChanged { old_value, new_value, reason } => {
+            EventPayload::ThreadTemperatureChanged {
+                old_value,
+                new_value,
+                reason,
+            } => {
                 lines.push(Line::from(format!("Old: {:.3}", old_value)));
                 lines.push(Line::from(format!("New: {:.3}", new_value)));
                 lines.push(Line::from(format!("Reason: {}", reason)));
             }
-            EventPayload::EscalationCreated { category, title, thread_id } => {
+            EventPayload::EscalationCreated {
+                category,
+                title,
+                thread_id,
+            } => {
                 lines.push(Line::from(format!("Category: {:?}", category)));
                 lines.push(Line::from(format!("Title: {}", title)));
                 if let Some(tid) = thread_id {
                     lines.push(Line::from(format!("Thread: {}", tid)));
                 }
             }
-            EventPayload::EscalationResolved { resolver_id, resolution } => {
+            EventPayload::EscalationResolved {
+                resolver_id,
+                resolution,
+            } => {
                 lines.push(Line::from(format!("Resolver: {}", resolver_id)));
                 lines.push(Line::from(format!("Resolution: {}", resolution)));
             }
-            EventPayload::AgentRegistered { agent_type, capabilities } => {
+            EventPayload::AgentRegistered {
+                agent_type,
+                capabilities,
+            } => {
                 lines.push(Line::from(format!("Type: {}", agent_type)));
                 lines.push(Line::from("Capabilities:"));
                 for cap in capabilities {

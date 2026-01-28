@@ -396,10 +396,7 @@ pub fn build_lookup_url(
 
 // Cross-app URL builders
 
-pub fn build_insert_citation_url_internal(
-    cite_key: String,
-    document_id: Option<String>,
-) -> String {
+pub fn build_insert_citation_url_internal(cite_key: String, document_id: Option<String>) -> String {
     let mut url = format!(
         "imbib://insert-citation?cite_key={}",
         urlencoding::encode(&cite_key)
@@ -578,8 +575,9 @@ mod tests {
 
     #[test]
     fn test_parse_sync_bibliography_url_export() {
-        let result =
-            parse_url_command("imbib://sync-bibliography?document=abc123&action=export".to_string());
+        let result = parse_url_command(
+            "imbib://sync-bibliography?document=abc123&action=export".to_string(),
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(AutomationCommand::SyncBibliography(cmd)) => {
@@ -592,8 +590,9 @@ mod tests {
 
     #[test]
     fn test_parse_sync_bibliography_url_import() {
-        let result =
-            parse_url_command("imbib://sync-bibliography?document=abc123&action=import".to_string());
+        let result = parse_url_command(
+            "imbib://sync-bibliography?document=abc123&action=import".to_string(),
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(AutomationCommand::SyncBibliography(cmd)) => {
@@ -606,8 +605,9 @@ mod tests {
 
     #[test]
     fn test_parse_sync_bibliography_url_verify() {
-        let result =
-            parse_url_command("imbib://sync-bibliography?document=abc123&action=verify".to_string());
+        let result = parse_url_command(
+            "imbib://sync-bibliography?document=abc123&action=verify".to_string(),
+        );
         assert!(result.error.is_none());
         match result.command {
             Some(AutomationCommand::SyncBibliography(cmd)) => {
@@ -620,10 +620,8 @@ mod tests {
 
     #[test]
     fn test_build_insert_citation_url() {
-        let url = build_insert_citation_url_internal(
-            "Smith2024".to_string(),
-            Some("doc123".to_string()),
-        );
+        let url =
+            build_insert_citation_url_internal("Smith2024".to_string(), Some("doc123".to_string()));
         assert!(url.contains("insert-citation"));
         assert!(url.contains("cite_key=Smith2024"));
         assert!(url.contains("document=doc123"));
@@ -646,8 +644,7 @@ mod tests {
 
     #[test]
     fn test_build_sync_bibliography_url_export() {
-        let url =
-            build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Export);
+        let url = build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Export);
         assert!(url.contains("sync-bibliography"));
         assert!(url.contains("document=doc456"));
         assert!(url.contains("action=export"));
@@ -655,15 +652,13 @@ mod tests {
 
     #[test]
     fn test_build_sync_bibliography_url_import() {
-        let url =
-            build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Import);
+        let url = build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Import);
         assert!(url.contains("action=import"));
     }
 
     #[test]
     fn test_build_sync_bibliography_url_verify() {
-        let url =
-            build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Verify);
+        let url = build_sync_bibliography_url_internal("doc456".to_string(), BibSyncAction::Verify);
         assert!(url.contains("action=verify"));
     }
 
@@ -671,7 +666,8 @@ mod tests {
     fn test_roundtrip_insert_citation() {
         let original_key = "Einstein1905";
         let original_doc = Some("doc-uuid-123".to_string());
-        let url = build_insert_citation_url_internal(original_key.to_string(), original_doc.clone());
+        let url =
+            build_insert_citation_url_internal(original_key.to_string(), original_doc.clone());
         let result = parse_url_command_internal(url);
         match result.command {
             Some(AutomationCommand::InsertCitation(cmd)) => {
@@ -686,10 +682,8 @@ mod tests {
     fn test_roundtrip_sync_bibliography() {
         let original_doc = "doc-uuid-456";
         let original_action = BibSyncAction::Export;
-        let url = build_sync_bibliography_url_internal(
-            original_doc.to_string(),
-            original_action.clone(),
-        );
+        let url =
+            build_sync_bibliography_url_internal(original_doc.to_string(), original_action.clone());
         let result = parse_url_command_internal(url);
         match result.command {
             Some(AutomationCommand::SyncBibliography(cmd)) => {

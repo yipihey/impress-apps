@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Gauge},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -42,10 +42,7 @@ impl ProgramView {
         // Split into left panel (project list) and right panel (graph/details)
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(40),
-                Constraint::Percentage(60),
-            ])
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(area);
 
         // Left panel: Project list
@@ -89,7 +86,9 @@ impl ProgramView {
                 };
 
                 let style = if i == self.selected_project {
-                    Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
@@ -102,7 +101,10 @@ impl ProgramView {
                 );
 
                 ListItem::new(Line::from(vec![
-                    Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)),
+                    Span::styled(
+                        format!("{} ", status_icon),
+                        Style::default().fg(status_color),
+                    ),
                     Span::styled(&project.name, style),
                     Span::raw(" "),
                     Span::styled(progress_bar, Style::default().fg(Color::Cyan)),
@@ -128,8 +130,8 @@ impl ProgramView {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8),  // Stats summary
-                Constraint::Min(0),     // Project graph
+                Constraint::Length(8), // Stats summary
+                Constraint::Min(0),    // Project graph
             ])
             .split(area);
 
@@ -201,7 +203,10 @@ impl ProgramView {
                         impel_core::project::ProjectRelation::Sibling { .. } => "sibling of",
                         impel_core::project::ProjectRelation::Dependency { .. } => "depends on",
                     };
-                    lines.push(Line::from(format!("      -> {} {}", relation_desc, related_id)));
+                    lines.push(Line::from(format!(
+                        "      -> {} {}",
+                        relation_desc, related_id
+                    )));
                 }
             }
         }

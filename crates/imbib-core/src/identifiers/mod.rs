@@ -21,7 +21,9 @@ pub use cite_key::{
 };
 
 // Re-export extractor types and functions
-pub use extractors::{extract_all, extract_arxiv_ids, extract_dois, extract_isbns, ExtractedIdentifier};
+pub use extractors::{
+    extract_all, extract_arxiv_ids, extract_dois, extract_isbns, ExtractedIdentifier,
+};
 
 // Re-export resolver types and functions
 pub use resolver::{

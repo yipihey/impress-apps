@@ -278,7 +278,10 @@ pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileR
 /// and estimates their positions in the rendered PDF. For precise mapping, we would
 /// need deeper integration with Typst's compiler internals.
 #[cfg(feature = "uniffi")]
-fn generate_source_map_entries(source: &str, options: &crate::render::RenderOptions) -> Vec<FFISourceMapEntry> {
+fn generate_source_map_entries(
+    source: &str,
+    options: &crate::render::RenderOptions,
+) -> Vec<FFISourceMapEntry> {
     let mut entries = Vec::new();
     let mut current_y = options.margins.0; // Start after top margin
     let page_width = options.page_size.width_pt();
@@ -363,7 +366,10 @@ fn generate_source_map_entries(source: &str, options: &crate::render::RenderOpti
                 content_type: FFIContentType::Code,
             });
             current_y += line_height;
-        } else if trimmed.starts_with("- ") || trimmed.starts_with("+ ") || trimmed.starts_with("* ") {
+        } else if trimmed.starts_with("- ")
+            || trimmed.starts_with("+ ")
+            || trimmed.starts_with("* ")
+        {
             // List item
             entries.push(FFISourceMapEntry {
                 source: FFISourceSpan {
@@ -604,7 +610,7 @@ pub fn compile_typst_to_pdf_default(source: String) -> CompileResult {
 #[cfg(feature = "uniffi")]
 #[uniffi::export]
 pub fn generate_source_map(source: String, options: CompileOptions) -> Vec<FFISourceMapEntry> {
-    use crate::render::{PageSize, RenderOptions, OutputFormat};
+    use crate::render::{OutputFormat, PageSize, RenderOptions};
 
     let page_size = match options.page_size {
         FFIPageSize::Letter => PageSize::Letter,
@@ -804,7 +810,11 @@ impl From<&templates::Template> for FFITemplate {
 #[uniffi::export]
 pub fn list_templates() -> Vec<FFITemplateMetadata> {
     let registry = templates::TemplateRegistry::new();
-    registry.list().into_iter().map(FFITemplateMetadata::from).collect()
+    registry
+        .list()
+        .into_iter()
+        .map(FFITemplateMetadata::from)
+        .collect()
 }
 
 /// Get a template by ID
@@ -828,7 +838,11 @@ pub fn get_template_source(id: String) -> Option<String> {
 #[uniffi::export]
 pub fn search_templates(query: String) -> Vec<FFITemplateMetadata> {
     let registry = templates::TemplateRegistry::new();
-    registry.search(&query).into_iter().map(FFITemplateMetadata::from).collect()
+    registry
+        .search(&query)
+        .into_iter()
+        .map(FFITemplateMetadata::from)
+        .collect()
 }
 
 /// List templates by category
@@ -843,7 +857,11 @@ pub fn list_templates_by_category(category: FFITemplateCategory) -> Vec<FFITempl
         FFITemplateCategory::Report => templates::TemplateCategory::Report,
         FFITemplateCategory::Custom => templates::TemplateCategory::Custom,
     };
-    registry.by_category(&cat).into_iter().map(FFITemplateMetadata::from).collect()
+    registry
+        .by_category(&cat)
+        .into_iter()
+        .map(FFITemplateMetadata::from)
+        .collect()
 }
 
 /// Get the number of available templates

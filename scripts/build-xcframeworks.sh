@@ -84,8 +84,7 @@ echo "Parallel: $PARALLEL"
 echo "Verbose: $VERBOSE"
 echo ""
 
-# Track results
-declare -A BUILD_RESULTS
+# Track failures
 BUILD_FAILED=false
 
 build_crate() {
@@ -96,19 +95,15 @@ build_crate() {
 
     if [ "$VERBOSE" = true ]; then
         if bash "$build_script"; then
-            BUILD_RESULTS[$crate]="success"
             echo "✓ $crate built successfully"
         else
-            BUILD_RESULTS[$crate]="failed"
             BUILD_FAILED=true
             echo "✗ $crate build failed"
         fi
     else
         if bash "$build_script" > /dev/null 2>&1; then
-            BUILD_RESULTS[$crate]="success"
             echo "✓ $crate built successfully"
         else
-            BUILD_RESULTS[$crate]="failed"
             BUILD_FAILED=true
             echo "✗ $crate build failed (run with --verbose for details)"
         fi

@@ -253,7 +253,10 @@ impl SyncSession {
     ///
     /// Generates messages until the peer is in sync. This is useful for
     /// initial sync when establishing a new connection.
-    pub fn generate_all_sync_messages(&mut self, peer_id: &str) -> CollaborationResult<Vec<Message>> {
+    pub fn generate_all_sync_messages(
+        &mut self,
+        peer_id: &str,
+    ) -> CollaborationResult<Vec<Message>> {
         let mut messages = Vec::new();
 
         while let Some(msg) = self.generate_sync_message(peer_id)? {
@@ -520,20 +523,28 @@ mod tests {
         // After sync, both documents should have the same merged content
         let text1 = session1.document().text().unwrap();
         let text2 = session2.document().text().unwrap();
-        assert_eq!(text1, text2, "Documents should have identical content after sync");
+        assert_eq!(
+            text1, text2,
+            "Documents should have identical content after sync"
+        );
         // Both A and B should be present (order depends on CRDT resolution)
-        assert!(text1.contains('A') && text1.contains('B'),
-            "Both edits should be present: got '{}'", text1);
+        assert!(
+            text1.contains('A') && text1.contains('B'),
+            "Both edits should be present: got '{}'",
+            text1
+        );
     }
 
     #[test]
     fn test_raw_automerge_sync() {
         // Test the underlying Automerge sync protocol directly
-        use automerge::{AutoCommit, ObjType, transaction::Transactable, ReadDoc};
+        use automerge::{transaction::Transactable, AutoCommit, ObjType, ReadDoc};
 
         // Create two documents from a common origin
         let mut origin = AutoCommit::new();
-        origin.put_object(automerge::ROOT, "content", ObjType::Text).unwrap();
+        origin
+            .put_object(automerge::ROOT, "content", ObjType::Text)
+            .unwrap();
         let bytes = origin.save();
 
         let mut doc1 = AutoCommit::load(&bytes).unwrap();
