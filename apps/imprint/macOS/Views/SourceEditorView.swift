@@ -7,24 +7,28 @@ struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
 
-    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
-    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+    @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
+    @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
 
     @StateObject private var helixState = HelixState()
 
     var body: some View {
-        TypstEditorRepresentable(
-            source: $source,
-            cursorPosition: $cursorPosition,
-            helixState: helixState,
-            helixEnabled: helixModeEnabled
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .helixModeIndicator(
-            state: helixState,
-            position: .bottomLeft,
-            isVisible: helixModeEnabled && helixShowModeIndicator
-        )
+        ZStack(alignment: .bottomLeading) {
+            // Color.clear expands to fill available space, forcing ZStack to full size
+            Color.clear
+
+            TypstEditorRepresentable(
+                source: $source,
+                cursorPosition: $cursorPosition,
+                helixState: helixState,
+                helixEnabled: helixModeEnabled
+            )
+
+            if helixModeEnabled && helixShowModeIndicator {
+                HelixModeIndicator(state: helixState, position: .bottomLeft)
+                    .padding(12)
+            }
+        }
         .accessibilityIdentifier("sourceEditor.container")
     }
 }
