@@ -16,6 +16,10 @@ struct ContentView: View {
     @State private var debugStatus: String = "idle"
     @State private var debugHistory: String = ""
 
+    // AI Context Menu state
+    @State private var showingAIContextMenu = false
+    @State private var currentSuggestion: RewriteSuggestion?
+
     #if os(macOS)
     /// Comment service for this document (macOS only)
     @StateObject private var commentService = CommentService()
@@ -180,6 +184,42 @@ struct ContentView: View {
                 appState.showingComments = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showAIContextMenu)) { _ in
+            // Show AI context menu (Cmd+Shift+A)
+            showingAIContextMenu = true
+        }
+        .sheet(isPresented: $showingAIContextMenu) {
+            AIContextMenuContent(
+                selectedText: $appState.selectedText,
+                selectedRange: $appState.selectedRange,
+                documentSource: document.source,
+                onActionResult: { suggestion in
+                    currentSuggestion = suggestion
+                    showingAIContextMenu = false
+                },
+                onDismiss: {
+                    showingAIContextMenu = false
+                }
+            )
+            .frame(width: 300, height: 500)
+        }
+        .sheet(item: $currentSuggestion) { suggestion in
+            RewriteSuggestionView(
+                suggestion: suggestion,
+                onAccept: { text in
+                    replaceSelection(with: text)
+                    currentSuggestion = nil
+                },
+                onReject: {
+                    currentSuggestion = nil
+                },
+                onEdit: {
+                    // Open in AI chat sidebar with the suggestion
+                    appState.showingAIAssistant = true
+                    currentSuggestion = nil
+                }
+            )
+        }
         #endif
     }
 
@@ -273,6 +313,23 @@ struct ContentView: View {
         let index = document.source.index(document.source.startIndex, offsetBy: position)
         document.source.insert(contentsOf: text, at: index)
         cursorPosition = position + text.count
+    }
+
+    /// Replace the current selection with new text
+    private func replaceSelection(with text: String) {
+        guard let range = appState.selectedRange,
+              let swiftRange = Range(range, in: document.source) else {
+            // No selection, insert at cursor
+            insertTextAtCursor(text)
+            return
+        }
+
+        document.source.replaceSubrange(swiftRange, with: text)
+        cursorPosition = range.location + text.count
+
+        // Clear selection
+        appState.selectedText = ""
+        appState.selectedRange = NSRange(location: cursorPosition, length: 0)
     }
 
     // MARK: - Compilation

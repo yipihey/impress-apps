@@ -344,6 +344,35 @@ public final class SyncedSettingsStore: @unchecked Sendable {
         return store?.synchronize() ?? false
     }
 
+    // MARK: - Export/Import
+
+    /// Export all settings as a dictionary for backup.
+    public func exportAllSettings() -> [String: Any] {
+        var settings: [String: Any] = [:]
+
+        // Export all known keys
+        for key in SyncedSettingsKey.allCases {
+            if let value = store?.object(forKey: key.rawValue) ?? localStore?.object(forKey: key.rawValue) {
+                settings[key.rawValue] = value
+            }
+        }
+
+        return settings
+    }
+
+    /// Import settings from a backup dictionary.
+    public func importSettings(_ settings: [String: Any]) {
+        for (key, value) in settings {
+            if isUITesting {
+                localStore?.set(value, forKey: key)
+            } else {
+                store?.set(value, forKey: key)
+            }
+        }
+        store?.synchronize()
+        Logger.settings.info("Imported \(settings.count) settings from backup")
+    }
+
     // MARK: - Migration
 
     /// Migrate a value from local UserDefaults to synced storage if not already synced.

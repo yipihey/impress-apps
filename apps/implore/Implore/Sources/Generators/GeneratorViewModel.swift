@@ -117,6 +117,8 @@ public final class GeneratorViewModel: ObservableObject {
             return "Data was not generated"
         case .JsonError(let message):
             return "JSON error: \(message)"
+        case .LockError(let message):
+            return "Lock error: \(message)"
         }
     }
 }

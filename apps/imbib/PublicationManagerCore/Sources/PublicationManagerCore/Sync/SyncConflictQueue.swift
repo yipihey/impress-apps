@@ -78,6 +78,11 @@ public final class SyncConflictQueue {
         pendingConflicts.count
     }
 
+    /// Number of pending conflicts (alias for conflictCount)
+    public var count: Int {
+        conflictCount
+    }
+
     // MARK: - Initialization
 
     private init() {}
@@ -262,8 +267,7 @@ public extension Notification.Name {
     /// Posted when a sync conflict is resolved
     static let syncConflictResolved = Notification.Name("syncConflictResolved")
 
-    /// Posted when sync completes (with or without conflicts)
-    static let syncDidComplete = Notification.Name("syncDidComplete")
+    // NOTE: syncDidComplete is defined in SyncHealthMonitor.swift
 }
 
 // MARK: - Import CoreData

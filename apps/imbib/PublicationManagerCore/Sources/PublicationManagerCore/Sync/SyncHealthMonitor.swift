@@ -11,6 +11,9 @@ import OSLog
 #if canImport(CloudKit)
 import CloudKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Observable health monitor for CloudKit sync status.
 ///
@@ -429,8 +432,4 @@ public extension Notification.Name {
     static let showBackupPrompt = Notification.Name("showBackupPrompt")
 }
 
-// MARK: - Logger Extension
-
-private extension Logger {
-    static let sync = Logger(subsystem: "com.imbib.app", category: "sync")
-}
+// NOTE: Logger.sync is defined in Logger+Extensions.swift

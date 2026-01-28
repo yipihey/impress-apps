@@ -125,6 +125,13 @@ struct ImprintApp: App {
 
                 Divider()
 
+                Button("AI Assistant...") {
+                    NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
+                }
+                .keyboardShortcut("A", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("Compile to PDF") {
                     NotificationCenter.default.post(name: .compileDocument, object: nil)
                 }
@@ -322,6 +329,7 @@ extension Notification.Name {
     static let toggleAIAssistant = Notification.Name("toggleAIAssistant")
     static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
+    static let showAIContextMenu = Notification.Name("showAIContextMenu")
 }
 
 // MARK: - UI Testing Support

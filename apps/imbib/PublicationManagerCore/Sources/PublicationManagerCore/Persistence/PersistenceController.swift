@@ -365,6 +365,16 @@ public final class PersistenceController: @unchecked Sendable {
         configuration.enableCloudKit
     }
 
+    /// The store URL (from configuration or the persistent store description)
+    public var storeURL: URL? {
+        // First check configuration
+        if let url = configuration.storeURL {
+            return url
+        }
+        // Fall back to the first persistent store's URL
+        return container.persistentStoreDescriptions.first?.url
+    }
+
     // MARK: - Initialization
 
     public convenience init(inMemory: Bool = false) {

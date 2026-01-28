@@ -265,6 +265,61 @@ public final class ImbibIntegrationService: ObservableObject {
         openURL(path: "settings/automation")
     }
 
+    // MARK: - AI Context Menu Integration
+
+    /// Search for citations in imbib using a query derived from selected text.
+    ///
+    /// This opens imbib with a pre-populated search query, allowing the user
+    /// to find papers that could support their writing.
+    ///
+    /// - Parameter query: The search query (typically from selected text or AI-extracted keywords)
+    public func searchForCitation(query: String) {
+        guard !query.isEmpty else {
+            logger.warning("Empty search query, opening imbib without search")
+            openImbib()
+            return
+        }
+
+        // URL encode the query
+        guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            logger.error("Failed to encode search query")
+            openImbib()
+            return
+        }
+
+        // Open imbib with search query - brings imbib to front with search populated
+        let urlString = "\(imbibURLScheme)://search?query=\(encodedQuery)"
+        guard let url = URL(string: urlString) else {
+            logger.error("Invalid search URL")
+            openImbib()
+            return
+        }
+
+        logger.info("Opening imbib search for: \(query)")
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Extract citation keys from selected text or AI-suggested terms.
+    ///
+    /// This analyzes the text to find existing @citeKey references.
+    ///
+    /// - Parameter text: The text to analyze
+    /// - Returns: Array of found cite keys
+    public func extractCiteKeys(from text: String) -> [String] {
+        let pattern = "@([a-zA-Z0-9_:-]+)"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: range)
+
+        return matches.compactMap { match -> String? in
+            guard let keyRange = Range(match.range(at: 1), in: text) else { return nil }
+            return String(text[keyRange])
+        }
+    }
+
     private func openURL(path: String) {
         guard let url = URL(string: "\(imbibURLScheme)://\(path)") else {
             logger.error("Invalid URL path: \(path)")

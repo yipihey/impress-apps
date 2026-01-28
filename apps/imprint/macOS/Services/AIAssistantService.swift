@@ -198,6 +198,233 @@ public final class AIAssistantService: ObservableObject {
         chatHistory.removeAll()
     }
 
+    // MARK: - Streaming API
+
+    /// Stream a message response for real-time output.
+    ///
+    /// - Parameters:
+    ///   - systemPrompt: The system prompt to use
+    ///   - userMessage: The user's message
+    ///   - maxTokens: Maximum tokens for the response
+    /// - Returns: An async stream of text chunks
+    public func streamMessage(
+        systemPrompt: String,
+        userMessage: String,
+        maxTokens: Int = 2000
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard isConfigured else {
+                        throw AIAssistantError.notConfigured
+                    }
+
+                    await MainActor.run {
+                        isLoading = true
+                        lastError = nil
+                    }
+
+                    switch provider {
+                    case .claude:
+                        try await streamClaudeRequest(
+                            system: systemPrompt,
+                            user: userMessage,
+                            maxTokens: maxTokens,
+                            continuation: continuation
+                        )
+                    case .openai:
+                        try await streamOpenAIRequest(
+                            system: systemPrompt,
+                            user: userMessage,
+                            maxTokens: maxTokens,
+                            continuation: continuation
+                        )
+                    }
+
+                    await MainActor.run {
+                        isLoading = false
+                    }
+
+                    continuation.finish()
+
+                } catch {
+                    await MainActor.run {
+                        isLoading = false
+                        lastError = error as? AIAssistantError ?? .requestFailed(error.localizedDescription)
+                    }
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func streamClaudeRequest(
+        system: String,
+        user: String,
+        maxTokens: Int,
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        guard let url = URL(string: claudeEndpoint) else {
+            throw AIAssistantError.invalidConfiguration
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(claudeApiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": maxTokens,
+            "stream": true,
+            "system": system,
+            "messages": [
+                ["role": "user", "content": user]
+            ]
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        logger.info("Starting Claude streaming request...")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIAssistantError.requestFailed("Invalid response")
+        }
+
+        if httpResponse.statusCode != 200 {
+            // Read error body
+            var errorData = Data()
+            for try await byte in bytes {
+                errorData.append(byte)
+            }
+            if let errorJson = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+               let error = errorJson["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw AIAssistantError.apiError(httpResponse.statusCode, message)
+            }
+            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
+        }
+
+        // Parse SSE stream
+        var buffer = ""
+        for try await byte in bytes {
+            buffer.append(Character(UnicodeScalar(byte)))
+
+            // Check for complete SSE event (ends with double newline)
+            while let eventEnd = buffer.range(of: "\n\n") {
+                let eventString = String(buffer[..<eventEnd.lowerBound])
+                buffer.removeSubrange(..<eventEnd.upperBound)
+
+                // Parse SSE event
+                for line in eventString.components(separatedBy: "\n") {
+                    if line.hasPrefix("data: ") {
+                        let jsonString = String(line.dropFirst(6))
+                        if jsonString == "[DONE]" {
+                            continue
+                        }
+
+                        if let data = jsonString.data(using: .utf8),
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+                            // Extract text from content_block_delta event
+                            if let eventType = json["type"] as? String,
+                               eventType == "content_block_delta",
+                               let delta = json["delta"] as? [String: Any],
+                               let text = delta["text"] as? String {
+                                continuation.yield(text)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        logger.info("Claude streaming complete")
+    }
+
+    private func streamOpenAIRequest(
+        system: String,
+        user: String,
+        maxTokens: Int,
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        guard let url = URL(string: openaiEndpoint) else {
+            throw AIAssistantError.invalidConfiguration
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(openaiApiKey)", forHTTPHeaderField: "Authorization")
+
+        let body: [String: Any] = [
+            "model": "gpt-4o",
+            "max_tokens": maxTokens,
+            "stream": true,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user]
+            ]
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        logger.info("Starting OpenAI streaming request...")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIAssistantError.requestFailed("Invalid response")
+        }
+
+        if httpResponse.statusCode != 200 {
+            var errorData = Data()
+            for try await byte in bytes {
+                errorData.append(byte)
+            }
+            if let errorJson = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+               let error = errorJson["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw AIAssistantError.apiError(httpResponse.statusCode, message)
+            }
+            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
+        }
+
+        // Parse SSE stream
+        var buffer = ""
+        for try await byte in bytes {
+            buffer.append(Character(UnicodeScalar(byte)))
+
+            while let eventEnd = buffer.range(of: "\n\n") {
+                let eventString = String(buffer[..<eventEnd.lowerBound])
+                buffer.removeSubrange(..<eventEnd.upperBound)
+
+                for line in eventString.components(separatedBy: "\n") {
+                    if line.hasPrefix("data: ") {
+                        let jsonString = String(line.dropFirst(6))
+                        if jsonString == "[DONE]" {
+                            continue
+                        }
+
+                        if let data = jsonString.data(using: .utf8),
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let choices = json["choices"] as? [[String: Any]],
+                           let firstChoice = choices.first,
+                           let delta = firstChoice["delta"] as? [String: Any],
+                           let content = delta["content"] as? String {
+                            continuation.yield(content)
+                        }
+                    }
+                }
+            }
+        }
+
+        logger.info("OpenAI streaming complete")
+    }
+
     // MARK: - API Communication
 
     private func sendRequest(systemPrompt: String, userMessage: String, maxTokens: Int) async throws -> String {

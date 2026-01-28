@@ -1588,6 +1588,101 @@ public func FfiConverterTypeBibTeXParseResult_lower(_ value: BibTeXParseResult) 
 
 
 /**
+ * Result of validating a format string
+ */
+public struct CiteKeyFormatValidation {
+    /**
+     * Whether the format is valid
+     */
+    public var isValid: Bool
+    /**
+     * Error message if invalid, empty if valid
+     */
+    public var errorMessage: String
+    /**
+     * List of warnings (valid but potentially problematic)
+     */
+    public var warnings: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether the format is valid
+         */isValid: Bool, 
+        /**
+         * Error message if invalid, empty if valid
+         */errorMessage: String, 
+        /**
+         * List of warnings (valid but potentially problematic)
+         */warnings: [String]) {
+        self.isValid = isValid
+        self.errorMessage = errorMessage
+        self.warnings = warnings
+    }
+}
+
+
+
+extension CiteKeyFormatValidation: Equatable, Hashable {
+    public static func ==(lhs: CiteKeyFormatValidation, rhs: CiteKeyFormatValidation) -> Bool {
+        if lhs.isValid != rhs.isValid {
+            return false
+        }
+        if lhs.errorMessage != rhs.errorMessage {
+            return false
+        }
+        if lhs.warnings != rhs.warnings {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(isValid)
+        hasher.combine(errorMessage)
+        hasher.combine(warnings)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCiteKeyFormatValidation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CiteKeyFormatValidation {
+        return
+            try CiteKeyFormatValidation(
+                isValid: FfiConverterBool.read(from: &buf), 
+                errorMessage: FfiConverterString.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CiteKeyFormatValidation, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isValid, into: &buf)
+        FfiConverterString.write(value.errorMessage, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCiteKeyFormatValidation_lift(_ buf: RustBuffer) throws -> CiteKeyFormatValidation {
+    return try FfiConverterTypeCiteKeyFormatValidation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCiteKeyFormatValidation_lower(_ value: CiteKeyFormatValidation) -> RustBuffer {
+    return FfiConverterTypeCiteKeyFormatValidation.lower(value)
+}
+
+
+/**
  * A collection (folder) for organizing publications
  */
 public struct Collection {
@@ -11602,6 +11697,20 @@ public func generateCiteKey(author: String?, year: String?, title: String?) -> S
     )
 })
 }
+/**
+ * Generate a cite key with the specified format (UniFFI export)
+ */
+public func generateCiteKeyFormatted(format: String, author: String?, year: String?, title: String?, lowercase: Bool) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_generate_cite_key_formatted(
+        FfiConverterString.lower(format),
+        FfiConverterOptionString.lower(author),
+        FfiConverterOptionString.lower(year),
+        FfiConverterOptionString.lower(title),
+        FfiConverterBool.lower(lowercase),$0
+    )
+})
+}
 public func generatePdfFilename(publication: Publication, options: FilenameOptions) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_generate_pdf_filename(
@@ -11626,6 +11735,21 @@ public func generateUniqueCiteKey(author: String?, year: String?, title: String?
         FfiConverterOptionString.lower(author),
         FfiConverterOptionString.lower(year),
         FfiConverterOptionString.lower(title),
+        FfiConverterSequenceString.lower(existingKeys),$0
+    )
+})
+}
+/**
+ * Generate a unique cite key with the specified format (UniFFI export)
+ */
+public func generateUniqueCiteKeyFormatted(format: String, author: String?, year: String?, title: String?, lowercase: Bool, existingKeys: [String]) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_generate_unique_cite_key_formatted(
+        FfiConverterString.lower(format),
+        FfiConverterOptionString.lower(author),
+        FfiConverterOptionString.lower(year),
+        FfiConverterOptionString.lower(title),
+        FfiConverterBool.lower(lowercase),
         FfiConverterSequenceString.lower(existingKeys),$0
     )
 })
@@ -12148,6 +12272,16 @@ public func preprocessScientificText(text: String) -> String {
     )
 })
 }
+/**
+ * Generate a preview cite key using example data
+ */
+public func previewCiteKeyFormat(format: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_preview_cite_key_format(
+        FfiConverterString.lower(format),$0
+    )
+})
+}
 public func publicationFromBibtex(entry: BibTeXEntry) -> Publication {
     return try!  FfiConverterTypePublication.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_publication_from_bibtex(
@@ -12385,6 +12519,16 @@ public func titlesMatch(title1: String, title2: String, threshold: Double) -> Bo
 })
 }
 /**
+ * Validate a cite key format string
+ */
+public func validateCiteKeyFormat(format: String) -> CiteKeyFormatValidation {
+    return try!  FfiConverterTypeCiteKeyFormatValidation.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_validate_cite_key_format(
+        FfiConverterString.lower(format),$0
+    )
+})
+}
+/**
  * Validate a publication and return errors/warnings
  */
 public func validatePublication(publication: Publication) -> [ValidationError] {
@@ -12596,6 +12740,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_generate_cite_key() != 7221) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_generate_cite_key_formatted() != 20649) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_generate_pdf_filename() != 22946) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12603,6 +12750,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_generate_unique_cite_key() != 43249) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_generate_unique_cite_key_formatted() != 28363) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_get_all_journal_macro_names() != 53362) {
@@ -12767,6 +12917,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_preprocess_scientific_text() != 17542) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_preview_cite_key_format() != 19118) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_publication_from_bibtex() != 56917) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12846,6 +12999,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_titles_match() != 58179) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_validate_cite_key_format() != 32590) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_validate_publication() != 151) {

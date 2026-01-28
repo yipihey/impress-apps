@@ -321,7 +321,7 @@ public actor LibraryBackupService {
             let publications = (try? context.fetch(request)) ?? []
 
             return publications.compactMap { pub -> [String: Any]? in
-                guard let noteField = pub.fields?["note"], !noteField.isEmpty else {
+                guard let noteField = pub.fields["note"], !noteField.isEmpty else {
                     return nil
                 }
                 return [
@@ -342,7 +342,7 @@ public actor LibraryBackupService {
 
         // Export synced settings
         let settings = await SyncedSettingsStore.shared.exportAllSettings()
-        let settingsData = try JSONEncoder().encode(settings)
+        let settingsData = try JSONSerialization.data(withJSONObject: settings, options: .prettyPrinted)
         try settingsData.write(to: settingsURL)
 
         Logger.backup.info("Exported settings")

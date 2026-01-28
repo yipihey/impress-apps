@@ -77,7 +77,7 @@ public actor SafeMigrationService {
     /// 4. Validates the post-migration state
     /// 5. Enables CloudKit sync only after successful migration
     ///
-    /// - Throws: `MigrationError` if any step fails.
+    /// - Throws: `SafeMigrationError` if any step fails.
     public func performMigration() async throws {
         Logger.migration.info("Starting safe migration process")
 
@@ -218,7 +218,7 @@ public actor SafeMigrationService {
         }
 
         guard let storeURL = storeURL else {
-            throw MigrationError.storeNotFound
+            throw SafeMigrationError.storeNotFound
         }
 
         // Copy store files
@@ -284,7 +284,7 @@ public actor SafeMigrationService {
     private func validateMigration(from preState: StoreState, to postState: StoreState) throws {
         // Publications should not decrease
         if postState.publicationCount < preState.publicationCount {
-            throw MigrationError.dataLoss(
+            throw SafeMigrationError.dataLoss(
                 expected: preState.publicationCount,
                 actual: postState.publicationCount
             )
@@ -292,7 +292,7 @@ public actor SafeMigrationService {
 
         // Libraries should not decrease
         if postState.libraryCount < preState.libraryCount {
-            throw MigrationError.dataLoss(
+            throw SafeMigrationError.dataLoss(
                 expected: preState.libraryCount,
                 actual: postState.libraryCount
             )
@@ -318,8 +318,8 @@ public actor SafeMigrationService {
 
 // MARK: - Supporting Types
 
-/// Errors that can occur during migration.
-public enum MigrationError: LocalizedError {
+/// Errors that can occur during safe Core Data migration.
+public enum SafeMigrationError: LocalizedError {
     case storeNotFound
     case backupFailed(underlying: Error)
     case migrationFailed(underlying: Error)

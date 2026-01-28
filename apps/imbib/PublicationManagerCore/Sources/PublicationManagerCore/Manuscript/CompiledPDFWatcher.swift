@@ -190,7 +190,7 @@ public final class CompiledPDFWatcher: NSObject, @unchecked Sendable {
 
         await MainActor.run {
             // Find the manuscript linked to this imprint document
-            let fetchRequest: NSFetchRequest<CDPublication> = CDPublication.fetchRequest()
+            let fetchRequest = NSFetchRequest<CDPublication>(entityName: "CDPublication")
             // We need to search in rawFields since imprintDocumentUUID is stored there
             fetchRequest.predicate = NSPredicate(
                 format: "rawFields CONTAINS %@",
@@ -281,9 +281,4 @@ public final class CompiledPDFWatcher: NSObject, @unchecked Sendable {
     }
 }
 
-// MARK: - Notification Names
-
-public extension Notification.Name {
-    /// Posted when a compiled PDF is detected from imprint
-    static let compiledPDFDetected = Notification.Name("com.imbib.compiledPDFDetected")
-}
+// NOTE: compiledPDFDetected notification is defined in Notifications.swift

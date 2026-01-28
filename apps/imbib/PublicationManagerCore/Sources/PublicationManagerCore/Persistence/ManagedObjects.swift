@@ -130,6 +130,26 @@ public extension CDPublication {
             .compactMap { $0.author }
     }
 
+    /// Authors (alias for sortedAuthors)
+    var authors: [CDAuthor] {
+        sortedAuthors
+    }
+
+    /// Add a linked file to this publication (Core Data relationship accessor)
+    func addToLinkedFiles(_ file: CDLinkedFile) {
+        if linkedFiles == nil {
+            linkedFiles = []
+        }
+        linkedFiles?.insert(file)
+        file.publication = self
+    }
+
+    /// Remove a linked file from this publication
+    func removeFromLinkedFiles(_ file: CDLinkedFile) {
+        linkedFiles?.remove(file)
+        file.publication = nil
+    }
+
     /// Author string for display
     var authorString: String {
         // Prefer CDAuthor entities if they exist
@@ -455,6 +475,11 @@ public extension CDAuthor {
         return familyName
     }
 
+    /// Formatted name for display (alias for displayName)
+    var formattedName: String {
+        displayName
+    }
+
     /// BibTeX format (e.g., "Einstein, Albert")
     var bibtexName: String {
         if let given = givenName {
@@ -565,9 +590,32 @@ public extension CDLinkedFile {
         !(attachmentTags?.isEmpty ?? true)
     }
 
+    /// Whether this file is stored as in-memory data (fileData) vs external file reference
+    var isFileData: Bool {
+        get { fileData != nil }
+        set {
+            // If setting to false and we have file data, this clears it
+            // Note: Setting to true requires setting fileData separately
+            if !newValue { fileData = nil }
+        }
+    }
+
     /// Sorted tags by order
     var sortedTags: [CDAttachmentTag] {
         (attachmentTags ?? []).sorted { $0.order < $1.order }
+    }
+
+    /// Add an attachment tag to this linked file (Core Data relationship accessor)
+    func addToAttachmentTags(_ tag: CDAttachmentTag) {
+        if attachmentTags == nil {
+            attachmentTags = []
+        }
+        attachmentTags?.insert(tag)
+    }
+
+    /// Remove an attachment tag from this linked file
+    func removeFromAttachmentTags(_ tag: CDAttachmentTag) {
+        attachmentTags?.remove(tag)
     }
 }
 

@@ -1,0 +1,236 @@
+# AI Context Menu Prompt Templates
+# Variables available in prompts:
+# - {{selection}} - Selected text
+# - {{paragraph}} - Surrounding paragraph for context
+# - {{document_title}} - Current document title
+# - {{section_heading}} - Nearest section heading
+
+rewrite:
+  improve_clarity:
+    title: "Improve clarity"
+    icon: "text.magnifyingglass"
+    requires_selection: true
+    prompt: |
+      Rewrite the following text to improve clarity while preserving the meaning.
+      Use active voice, shorter sentences, and precise word choices.
+      Output only the rewritten text, no explanations.
+
+      Text to rewrite:
+      {{selection}}
+
+  make_concise:
+    title: "Make concise"
+    icon: "arrow.down.right.and.arrow.up.left"
+    requires_selection: true
+    prompt: |
+      Rewrite the following text to be more concise.
+      Remove redundancy, unnecessary qualifiers, and filler words.
+      Preserve the core meaning. Output only the rewritten text.
+
+      Text to rewrite:
+      {{selection}}
+
+  make_formal:
+    title: "Make formal"
+    icon: "graduationcap"
+    requires_selection: true
+    prompt: |
+      Rewrite the following text in a more formal, academic tone.
+      Use appropriate scholarly language and passive voice where suitable.
+      Output only the rewritten text.
+
+      Text to rewrite:
+      {{selection}}
+
+  expand_detail:
+    title: "Expand with detail"
+    icon: "arrow.up.left.and.arrow.down.right"
+    requires_selection: true
+    prompt: |
+      Expand the following text by adding more detail and explanation.
+      Develop the ideas more fully while maintaining the original argument.
+      Output only the expanded text.
+
+      Text to expand:
+      {{selection}}
+
+      Context (surrounding paragraph):
+      {{paragraph}}
+
+  fix_grammar:
+    title: "Fix grammar & spelling"
+    icon: "textformat.abc"
+    requires_selection: true
+    prompt: |
+      Fix any grammar, spelling, or punctuation errors in the following text.
+      Do not change the meaning or style. Output only the corrected text.
+
+      Text to correct:
+      {{selection}}
+
+citations:
+  find_supporting:
+    title: "Find supporting citation"
+    icon: "magnifyingglass"
+    requires_selection: true
+    opens_imbib: true
+    prompt: ""
+
+  check_needed:
+    title: "Check citation needed"
+    icon: "exclamationmark.triangle"
+    requires_selection: true
+    prompt: |
+      Analyze the following text and identify any claims that should be supported by citations.
+      For each claim, explain why a citation would strengthen it and suggest what type of source would be appropriate.
+      Format as a numbered list.
+
+      Text to analyze:
+      {{selection}}
+
+      Section: {{section_heading}}
+
+  format_citation:
+    title: "Format citation"
+    icon: "text.quote"
+    requires_selection: true
+    prompt: |
+      The following text contains citation information (author names, titles, years, etc.).
+      Convert it into a properly formatted citation in a standard academic format.
+      If the format is ambiguous, use APA style. Output only the formatted citation.
+
+      Text to format:
+      {{selection}}
+
+explain:
+  simplify_general:
+    title: "Simplify for general audience"
+    icon: "person.2"
+    requires_selection: true
+    prompt: |
+      Rewrite the following technical or academic text for a general audience.
+      Replace jargon with plain language, add brief explanations of complex concepts.
+      Maintain accuracy while improving accessibility. Output only the rewritten text.
+
+      Text to simplify:
+      {{selection}}
+
+  add_technical:
+    title: "Add technical detail"
+    icon: "gearshape.2"
+    requires_selection: true
+    prompt: |
+      Expand the following text by adding more technical detail and precision.
+      Include relevant terminology, specific mechanisms, or quantitative information.
+      Output only the expanded text.
+
+      Text to expand:
+      {{selection}}
+
+      Document context: {{document_title}}
+
+  define_terms:
+    title: "Define terms"
+    icon: "character.book.closed"
+    requires_selection: true
+    prompt: |
+      Identify technical terms, acronyms, or specialized vocabulary in the following text.
+      Provide brief, clear definitions for each term.
+      Format as a list with the term followed by its definition.
+
+      Text to analyze:
+      {{selection}}
+
+structure:
+  to_bullets:
+    title: "Convert to bullet points"
+    icon: "list.bullet"
+    requires_selection: true
+    prompt: |
+      Convert the following prose into a clear, well-organized bullet point list.
+      Each bullet should capture one distinct idea. Use sub-bullets for related details.
+      Output only the bullet points, using - for bullets and indentation for hierarchy.
+
+      Text to convert:
+      {{selection}}
+
+  to_paragraph:
+    title: "Convert to paragraph"
+    icon: "text.alignleft"
+    requires_selection: true
+    prompt: |
+      Convert the following bullet points or list into flowing prose paragraphs.
+      Add appropriate transitions between ideas. Maintain all the information.
+      Output only the paragraph text.
+
+      Text to convert:
+      {{selection}}
+
+  add_transition:
+    title: "Add transition sentence"
+    icon: "arrow.right"
+    requires_selection: true
+    prompt: |
+      Write a transition sentence that would smoothly connect the ideas in the following text.
+      The transition should bridge between the preceding and following content.
+      Output only the transition sentence.
+
+      Text needing transition:
+      {{selection}}
+
+      Context (surrounding paragraph):
+      {{paragraph}}
+
+  suggest_heading:
+    title: "Suggest section heading"
+    icon: "number"
+    requires_selection: true
+    prompt: |
+      Based on the following text, suggest 3 appropriate section headings that accurately describe the content.
+      Headings should be concise (2-6 words) and descriptive.
+      Format as a numbered list.
+
+      Text to analyze:
+      {{selection}}
+
+review:
+  check_flow:
+    title: "Check logical flow"
+    icon: "arrow.triangle.branch"
+    requires_selection: true
+    prompt: |
+      Analyze the logical flow and coherence of the following text.
+      Identify any gaps in reasoning, unclear transitions, or logical jumps.
+      Provide specific suggestions for improvement.
+
+      Text to review:
+      {{selection}}
+
+      Section: {{section_heading}}
+
+  weak_arguments:
+    title: "Identify weak arguments"
+    icon: "exclamationmark.bubble"
+    requires_selection: true
+    prompt: |
+      Analyze the arguments in the following text.
+      Identify any weak points, unsupported claims, or potential counterarguments.
+      For each issue, suggest how to strengthen the argument.
+
+      Text to review:
+      {{selection}}
+
+  suggest_improvements:
+    title: "Suggest improvements"
+    icon: "lightbulb.max"
+    requires_selection: true
+    prompt: |
+      Review the following text and provide 3-5 specific suggestions for improvement.
+      Consider clarity, structure, argument strength, and academic style.
+      Format as a numbered list with brief explanations.
+
+      Text to review:
+      {{selection}}
+
+      Document: {{document_title}}
+      Section: {{section_heading}}

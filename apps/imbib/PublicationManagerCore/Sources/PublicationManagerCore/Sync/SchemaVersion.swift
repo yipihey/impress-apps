@@ -193,8 +193,4 @@ extension SchemaVersion {
     }
 }
 
-// MARK: - Logger Extension
-
-private extension Logger {
-    static let sync = Logger(subsystem: "com.imbib.app", category: "sync")
-}
+// NOTE: Logger.sync is defined in Logger+Extensions.swift
