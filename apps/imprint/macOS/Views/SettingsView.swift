@@ -369,11 +369,11 @@ struct AutomationSettingsView: View {
                     .onChange(of: httpAutomationEnabled) { _, enabled in
                         Task {
                             if enabled {
-                                await HTTPAutomationServer.shared.start()
+                                await ImprintHTTPServer.shared.start()
                             } else {
-                                await HTTPAutomationServer.shared.stop()
+                                await ImprintHTTPServer.shared.stop()
                             }
-                            isServerRunning = await HTTPAutomationServer.shared.running
+                            isServerRunning = await ImprintHTTPServer.shared.running
                         }
                     }
                     .help("Allow AI agents and tools to control imprint via HTTP API")
@@ -386,8 +386,8 @@ struct AutomationSettingsView: View {
                             .frame(width: 80)
                             .onSubmit {
                                 Task {
-                                    await HTTPAutomationServer.shared.restart()
-                                    isServerRunning = await HTTPAutomationServer.shared.running
+                                    await ImprintHTTPServer.shared.restart()
+                                    isServerRunning = await ImprintHTTPServer.shared.running
                                 }
                             }
                     }
@@ -501,94 +501,9 @@ struct AutomationSettingsView: View {
         .padding()
         .onAppear {
             Task {
-                isServerRunning = await HTTPAutomationServer.shared.running
+                isServerRunning = await ImprintHTTPServer.shared.running
             }
         }
-    }
-}
-
-/// imbib integration settings
-struct ImbibSettingsView: View {
-    @AppStorage("imbibPort") private var imbibPort = 23120
-    @AppStorage("autoImportCitations") private var autoImportCitations = true
-
-    var body: some View {
-        Form {
-            Section("Connection") {
-                HStack {
-                    Text("imbib HTTP Port")
-                    TextField("Port", value: $imbibPort, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                }
-                .help("Port where imbib's HTTP API is running (default: 23120)")
-            }
-
-            Section("Citation Import") {
-                Toggle("Auto-import citations to bibliography", isOn: $autoImportCitations)
-                    .help("Automatically add BibTeX entries when inserting citations")
-            }
-
-            Section("imbib App") {
-                Text("Open imbib to manage your paper library and search for citations.")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-
-                Button("Open imbib") {
-                    NSWorkspace.shared.open(URL(string: "imbib://")!)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-}
-
-/// Template service for managing journal templates
-@MainActor
-class TemplateService: ObservableObject {
-    static let shared = TemplateService()
-
-    struct Template: Identifiable {
-        let id: String
-        let name: String
-        let category: String
-    }
-
-    @Published var templates: [Template] = [
-        Template(id: "generic", name: "Generic Article", category: "General"),
-        Template(id: "ieee", name: "IEEE Conference", category: "Computer Science"),
-        Template(id: "acm", name: "ACM SIGCHI", category: "Computer Science"),
-        Template(id: "arxiv", name: "arXiv Preprint", category: "General"),
-    ]
-
-    private init() {}
-}
-
-/// Template browser sheet
-struct TemplateBrowserView: View {
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var templateService = TemplateService.shared
-
-    var body: some View {
-        NavigationStack {
-            List(templateService.templates) { template in
-                VStack(alignment: .leading) {
-                    Text(template.name)
-                        .font(.headline)
-                    Text(template.category)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("Templates")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        .frame(width: 400, height: 300)
     }
 }
 

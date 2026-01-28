@@ -30,6 +30,7 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         static let lastError = "cloudKit.sync.lastError"
         static let lastSyncDate = "cloudKit.sync.lastSyncDate"
         static let pendingReset = "cloudKit.sync.pendingReset"
+        static let featureFlags = "cloudKit.sync.featureFlags"
     }
 
     // MARK: - Properties
@@ -215,10 +216,4 @@ public struct SyncFeatureFlags: Codable, Sendable {
 public extension Notification.Name {
     /// Posted when emergency rollback is performed.
     static let syncRolledBack = Notification.Name("syncRolledBack")
-}
-
-// MARK: - Keys Extension
-
-private extension CloudKitSyncSettingsStore.Keys {
-    static let featureFlags = "cloudKit.sync.featureFlags"
 }

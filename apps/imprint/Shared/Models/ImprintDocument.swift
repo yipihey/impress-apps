@@ -18,7 +18,12 @@ extension UTType {
 ///
 /// Uses Automerge CRDT for conflict-free merging when syncing between devices
 /// or collaborating in real-time.
-struct ImprintDocument: FileDocument {
+struct ImprintDocument: FileDocument, Equatable {
+    // Equatable by ID - used for SwiftUI onChange tracking
+    static func == (lhs: ImprintDocument, rhs: ImprintDocument) -> Bool {
+        lhs.id == rhs.id
+    }
+
     // MARK: - Properties
 
     /// Stable document identifier (persists across renames/moves)

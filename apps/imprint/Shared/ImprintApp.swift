@@ -1,6 +1,33 @@
+#if os(macOS)
 import SwiftUI
 
-/// Main application entry point for imprint
+// MARK: - Appearance Modifier
+
+/// View modifier that applies user's color scheme preference
+struct AppearanceModifier: ViewModifier {
+    @AppStorage("appearanceMode") private var appearanceMode = "system"
+
+    private var colorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content.preferredColorScheme(colorScheme)
+    }
+}
+
+extension View {
+    /// Apply user's appearance preference (system/light/dark)
+    func withAppearance() -> some View {
+        modifier(AppearanceModifier())
+    }
+}
+
+/// Main application entry point for imprint (macOS)
 ///
 /// imprint is a collaborative academic writing application that uses:
 /// - Typst for fast, beautiful document rendering
@@ -23,6 +50,11 @@ struct ImprintApp: App {
         // Configure app for testing if needed
         if Self.isUITesting {
             configureForUITesting()
+        }
+
+        // Start HTTP automation server for AI/MCP integration
+        Task {
+            await ImprintHTTPServer.shared.start()
         }
     }
 
@@ -54,10 +86,27 @@ struct ImprintApp: App {
         DocumentGroup(newDocument: Self.createInitialDocument()) { file in
             ContentView(document: file.$document)
                 .environmentObject(appState)
+                .withAppearance()
                 .onAppear {
                     // In UI testing mode, auto-create an untitled document if none open
                     if Self.isUITesting {
                         UITestingSupport.ensureDocumentOpen()
+                    }
+
+                    // Register document with HTTP API registry
+                    DocumentRegistry.shared.register(file.document, fileURL: file.fileURL)
+                }
+                .onDisappear {
+                    // Unregister document when closed
+                    DocumentRegistry.shared.unregister(file.document, fileURL: file.fileURL)
+                }
+                .onChange(of: file.document) { _, newDoc in
+                    // Update registry when document changes
+                    DocumentRegistry.shared.register(newDoc, fileURL: file.fileURL)
+                }
+                .onOpenURL { url in
+                    Task {
+                        await URLSchemeHandler.shared.handleURL(url)
                     }
                 }
         }
@@ -271,7 +320,8 @@ extension Notification.Name {
     static let shareDocument = Notification.Name("shareDocument")
     static let toggleFocusMode = Notification.Name("toggleFocusMode")
     static let toggleAIAssistant = Notification.Name("toggleAIAssistant")
-    // Note: toggleCommentsSidebar and addCommentAtSelection are defined in CommentService.swift
+    static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
+    static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
 }
 
 // MARK: - UI Testing Support
@@ -344,3 +394,4 @@ extension ImprintDocument {
         return doc
     }
 }
+#endif // os(macOS)

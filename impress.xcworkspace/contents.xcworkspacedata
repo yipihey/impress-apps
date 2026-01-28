@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:apps/imbib/imbib/imbib.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:apps/imprint/imprint.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:apps/implore/implore.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:apps/impel/project.yml">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressModalEditing">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressAI">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressAIImpel">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressKit">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressLLM">
+   </FileRef>
+   <FileRef
+      location = "group:packages/ImpressTestKit">
+   </FileRef>
+</Workspace>
