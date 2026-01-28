@@ -24,16 +24,21 @@ public struct ImportExportSettings: Equatable, Sendable {
     /// Whether to open PDFs in external viewer instead of built-in viewer
     public var openPDFExternally: Bool
 
+    /// Cite key format settings
+    public var citeKeyFormat: CiteKeyFormatSettings
+
     public init(
         autoGenerateCiteKeys: Bool = true,
         defaultEntryType: String = "article",
         exportPreserveRawBibTeX: Bool = true,
-        openPDFExternally: Bool = false
+        openPDFExternally: Bool = false,
+        citeKeyFormat: CiteKeyFormatSettings = .default
     ) {
         self.autoGenerateCiteKeys = autoGenerateCiteKeys
         self.defaultEntryType = defaultEntryType
         self.exportPreserveRawBibTeX = exportPreserveRawBibTeX
         self.openPDFExternally = openPDFExternally
+        self.citeKeyFormat = citeKeyFormat
     }
 
     public static let `default` = ImportExportSettings()
@@ -101,7 +106,23 @@ public actor ImportExportSettingsStore {
             autoGenerateCiteKeys: store.bool(forKey: .importAutoGenerateCiteKeys) ?? true,
             defaultEntryType: store.string(forKey: .importDefaultEntryType) ?? "article",
             exportPreserveRawBibTeX: store.bool(forKey: .exportPreserveRawBibTeX) ?? true,
-            openPDFExternally: defaults.bool(forKey: LocalKeys.openPDFExternally)  // Device-specific
+            openPDFExternally: defaults.bool(forKey: LocalKeys.openPDFExternally),  // Device-specific
+            citeKeyFormat: citeKeyFormatSettings
+        )
+    }
+
+    /// Get the current cite key format settings
+    public var citeKeyFormatSettings: CiteKeyFormatSettings {
+        let store = SyncedSettingsStore.shared
+        let presetRaw = store.string(forKey: .citeKeyFormatPreset) ?? CiteKeyFormatPreset.classic.rawValue
+        let preset = CiteKeyFormatPreset(rawValue: presetRaw) ?? .classic
+        let customFormat = store.string(forKey: .citeKeyFormatCustom) ?? "%a%Y%t"
+        let lowercase = store.bool(forKey: .citeKeyFormatLowercase) ?? false
+
+        return CiteKeyFormatSettings(
+            preset: preset,
+            customFormat: customFormat,
+            lowercase: lowercase
         )
     }
 

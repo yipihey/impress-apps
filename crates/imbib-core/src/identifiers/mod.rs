@@ -5,12 +5,14 @@
 //! - arXiv IDs
 //! - ISBNs (International Standard Book Numbers)
 //! - Cite key generation
+//! - Customizable cite key format support
 //! - Cross-source identifier resolution
 //!
 //! All types are defined locally with UniFFI attributes for FFI export.
 
 // Local modules with uniffi attributes
 mod cite_key;
+pub mod cite_key_format;
 mod extractors;
 mod resolver;
 mod validators;
@@ -18,6 +20,12 @@ mod validators;
 // Re-export cite key functions
 pub use cite_key::{
     generate_cite_key, generate_unique_cite_key, make_cite_key_unique, sanitize_cite_key,
+};
+
+// Re-export cite key format functions
+pub use cite_key_format::{
+    generate_cite_key_formatted, generate_unique_cite_key_formatted, preview_cite_key_format,
+    validate_cite_key_format, CiteKeyFormatValidation,
 };
 
 // Re-export extractor types and functions

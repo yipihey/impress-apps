@@ -51,7 +51,10 @@ pub use error::FfiError;
 // PaperStub is defined in sources/ads.rs
 pub use export::{ExportFormat, ExportOptions};
 pub use filename::FilenameOptions;
-pub use identifiers::{EnrichmentSource, ExtractedIdentifier, IdentifierType, PreferredIdentifier};
+pub use identifiers::{
+    CiteKeyFormatValidation, EnrichmentSource, ExtractedIdentifier, IdentifierType,
+    PreferredIdentifier,
+};
 pub use import::{ImportError, ImportFormat, ImportResult};
 pub use merge::{Conflict, MergeResult, MergeStrategy};
 pub use ris::{RISEntry, RISTag, RISType};

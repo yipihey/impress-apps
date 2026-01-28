@@ -187,14 +187,17 @@ pub fn publication_to_bibtex_entry(pub_: &Publication) -> BibTeXEntry {
 
 // ===== Internal Functions for use within crate =====
 
+#[allow(dead_code)]
 pub(crate) fn publication_from_bibtex_internal(entry: BibTeXEntry) -> Publication {
     bibtex_entry_to_publication(entry)
 }
 
+#[allow(dead_code)]
 pub(crate) fn publication_to_bibtex_internal(publication: &Publication) -> BibTeXEntry {
     publication_to_bibtex_entry(publication)
 }
 
+#[allow(dead_code)]
 pub(crate) fn publication_to_bibtex_string_internal(publication: &Publication) -> String {
     let entry = publication_to_bibtex_entry(publication);
     crate::bibtex::format_entry(entry)

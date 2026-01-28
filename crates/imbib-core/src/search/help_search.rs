@@ -138,6 +138,7 @@ fn build_help_schema() -> Schema {
 pub struct HelpSearchIndex {
     index: Index,
     reader: IndexReader,
+    #[allow(dead_code)]
     schema: Schema,
     id_field: Field,
     title_field: Field,

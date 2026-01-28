@@ -38,6 +38,11 @@ public enum SyncedSettingsKey: String, CaseIterable {
     case importDefaultEntryType = "sync.import.defaultEntryType"
     case exportPreserveRawBibTeX = "sync.export.preserveRawBibTeX"
 
+    // Cite Key Format Settings
+    case citeKeyFormatPreset = "sync.citeKey.preset"
+    case citeKeyFormatCustom = "sync.citeKey.customFormat"
+    case citeKeyFormatLowercase = "sync.citeKey.lowercase"
+
     // Recommendation Settings (ADR-020)
     case recommendationEnabled = "sync.recommendation.enabled"
     case recommendationWeights = "sync.recommendation.weights"

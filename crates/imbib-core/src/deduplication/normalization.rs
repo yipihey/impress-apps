@@ -9,6 +9,7 @@ use unicode_normalization::UnicodeNormalization;
 /// - Removes punctuation
 /// - Collapses whitespace
 /// - Removes common prefixes/suffixes
+#[allow(dead_code)]
 pub(crate) fn normalize_title(title: &str) -> String {
     normalize_title_internal(title)
 }
@@ -19,6 +20,7 @@ pub fn normalize_title_export(title: String) -> String {
     normalize_title_internal(&title)
 }
 
+#[allow(dead_code)]
 pub(crate) fn normalize_author(author: &str) -> String {
     normalize_author_internal(author)
 }
