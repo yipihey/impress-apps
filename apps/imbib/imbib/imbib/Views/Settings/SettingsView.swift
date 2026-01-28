@@ -1193,7 +1193,7 @@ struct ImportExportSettingsTab: View {
     }
 
     private var citeKeyPreview: String {
-        let generator = CiteKeyGenerator(settings: citeKeySettings)
+        let generator = FormatBasedCiteKeyGenerator(settings: citeKeySettings)
         return generator.preview()
     }
 }

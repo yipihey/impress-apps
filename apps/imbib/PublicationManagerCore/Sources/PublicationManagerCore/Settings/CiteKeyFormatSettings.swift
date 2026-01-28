@@ -178,10 +178,11 @@ public let citeKeyFormatSpecifiers: [CiteKeyFormatSpecifier] = [
     ),
 ]
 
-// MARK: - Cite Key Generation Helper
+// MARK: - Cite Key Format Generation Helper
 
-/// Helper for generating cite keys using the current format settings.
-public struct CiteKeyGenerator {
+/// Helper for generating cite keys using customizable format settings.
+/// Uses the Rust imbib-core library for format parsing and generation.
+public struct FormatBasedCiteKeyGenerator {
     private let settings: CiteKeyFormatSettings
 
     public init(settings: CiteKeyFormatSettings) {
@@ -222,11 +223,14 @@ public struct CiteKeyGenerator {
 
     /// Preview what the format produces with example data.
     public func preview() -> String {
-        previewCiteKeyFormat(format: settings.activeFormat)
+        let preview = previewCiteKeyFormat(format: settings.activeFormat)
+        return settings.lowercase ? preview.lowercased() : preview
     }
 
     /// Validate the format string.
-    public func validate() -> CiteKeyFormatValidation {
-        validateCiteKeyFormat(format: settings.activeFormat)
+    /// Returns a tuple of (isValid, errorMessage, warnings).
+    public func validate() -> (isValid: Bool, error: String, warnings: [String]) {
+        let result = validateCiteKeyFormat(format: settings.activeFormat)
+        return (result.isValid, result.errorMessage, result.warnings)
     }
 }
