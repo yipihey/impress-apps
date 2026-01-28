@@ -442,11 +442,7 @@ mod typst_impl {
                     Ok(RenderOutput::Pdf(pdf_bytes))
                 }
                 OutputFormat::Svg => {
-                    let svgs: Vec<String> = document
-                        .pages
-                        .iter()
-                        .map(typst_svg::svg)
-                        .collect();
+                    let svgs: Vec<String> = document.pages.iter().map(typst_svg::svg).collect();
                     Ok(RenderOutput::Svg(svgs))
                 }
                 OutputFormat::Png { ppi: _ } => {
