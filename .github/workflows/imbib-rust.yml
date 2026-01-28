@@ -109,12 +109,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build library
-        run: cargo build --release
+        run: cargo build --release --features native
 
       - name: Generate Swift bindings
         run: |
           mkdir -p generated
-          cargo run --release --bin uniffi-bindgen generate \
+          cargo run --release --features native --bin uniffi-bindgen generate \
             --library ../../target/release/libimbib_core.dylib \
             --language swift \
             --out-dir generated

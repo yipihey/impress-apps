@@ -75,7 +75,7 @@ pub enum TemplateError {
 pub type TemplateResult<T> = Result<T, TemplateError>;
 
 /// Category of template
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TemplateCategory {
     /// Academic journal template
@@ -87,13 +87,8 @@ pub enum TemplateCategory {
     /// Technical report template
     Report,
     /// User-created custom template
+    #[default]
     Custom,
-}
-
-impl Default for TemplateCategory {
-    fn default() -> Self {
-        Self::Custom
-    }
 }
 
 /// Journal-specific information

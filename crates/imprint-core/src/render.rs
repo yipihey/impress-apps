@@ -445,7 +445,7 @@ mod typst_impl {
                     let svgs: Vec<String> = document
                         .pages
                         .iter()
-                        .map(|page| typst_svg::svg(page))
+                        .map(typst_svg::svg)
                         .collect();
                     Ok(RenderOutput::Svg(svgs))
                 }
