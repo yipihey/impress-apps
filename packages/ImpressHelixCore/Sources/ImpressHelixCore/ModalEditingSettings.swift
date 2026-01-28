@@ -1,6 +1,6 @@
 //
 //  ModalEditingSettings.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  Shared settings for modal editing across apps.
 //

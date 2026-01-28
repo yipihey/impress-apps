@@ -1,6 +1,6 @@
 //
 //  Exports.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  Re-exports the UniFFI-generated Swift bindings and Swift wrapper types.
 //
@@ -8,7 +8,7 @@
 // Re-export all public types from the generated bindings
 @_exported import struct Foundation.Data
 
-// The generated bindings are in impel_helix.swift in this same module.
+// The generated bindings are in impress_helix.swift in this same module.
 // All public types (FfiHelixEditor, FfiHelixMode, etc.) are automatically
 // available to consumers of this module.
 

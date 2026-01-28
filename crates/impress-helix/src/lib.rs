@@ -17,13 +17,13 @@
 //! Enable the `ffi` feature to generate Swift/Kotlin bindings:
 //!
 //! ```toml
-//! impel-helix = { version = "0.1", features = ["ffi"] }
+//! impress-helix = { version = "0.1", features = ["ffi"] }
 //! ```
 //!
 //! # Example
 //!
 //! ```
-//! use impel_helix::{HelixState, HelixMode, HelixKeyHandler, HelixKeyResult, KeyModifiers};
+//! use impress_helix::{HelixState, HelixMode, HelixKeyHandler, HelixKeyResult, KeyModifiers};
 //!
 //! let mut state = HelixState::new();
 //! let mut handler = HelixKeyHandler::new();

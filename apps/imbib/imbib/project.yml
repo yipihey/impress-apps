@@ -28,8 +28,8 @@ settings:
 packages:
   PublicationManagerCore:
     path: ../PublicationManagerCore
-  ImpressModalEditing:
-    path: ../../../packages/ImpressModalEditing
+  ImpressHelixCore:
+    path: ../../../packages/ImpressHelixCore
   ImbibRustCore:
     path: ../ImbibRustCore
 
@@ -57,7 +57,7 @@ targets:
           - "Gemfile*"
     dependencies:
       - package: PublicationManagerCore
-      - package: ImpressModalEditing
+      - package: ImpressHelixCore
       - target: imbib-ShareExtension
         embed: true
       - target: imbib-SafariExtension
@@ -133,7 +133,7 @@ targets:
           - "Gemfile*"
     dependencies:
       - package: PublicationManagerCore
-      - package: ImpressModalEditing
+      - package: ImpressHelixCore
       - target: imbib-iOS-ShareExtension
         embed: true
       - target: imbib-iOS-SafariExtension

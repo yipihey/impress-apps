@@ -11,7 +11,7 @@ import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
-import ImpressModalEditing
+import ImpressHelixCore
 #endif
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "unifieddetail")

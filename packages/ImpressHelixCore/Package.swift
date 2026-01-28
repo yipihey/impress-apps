@@ -3,28 +3,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "ImpelHelixCore",
+    name: "ImpressHelixCore",
     platforms: [
         .macOS(.v14),
         .iOS(.v17)
     ],
     products: [
         .library(
-            name: "ImpelHelixCore",
-            targets: ["ImpelHelixCore"]
+            name: "ImpressHelixCore",
+            targets: ["ImpressHelixCore"]
         )
     ],
     targets: [
         // The main Swift wrapper that re-exports the generated code
         .target(
-            name: "ImpelHelixCore",
-            dependencies: ["impel_helixFFI"],
-            path: "Sources/ImpelHelixCore"
+            name: "ImpressHelixCore",
+            dependencies: ["impress_helixFFI"],
+            path: "Sources/ImpressHelixCore"
         ),
         // Binary target for the Rust static library
         .binaryTarget(
-            name: "impel_helixFFI",
-            path: "../../crates/impel-helix/frameworks/ImpelHelix.xcframework"
+            name: "impress_helixFFI",
+            path: "../../crates/impress-helix/frameworks/ImpressHelix.xcframework"
         )
     ]
 )

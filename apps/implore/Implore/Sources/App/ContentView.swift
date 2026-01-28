@@ -1,7 +1,7 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
-import ImpressModalEditing
+import ImpressHelixCore
 #endif
 
 /// Main content view with split visualization and controls

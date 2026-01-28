@@ -1,4 +1,4 @@
-//! UniFFI bindings for impel-helix.
+//! UniFFI bindings for impress-helix.
 //!
 //! This module provides FFI-safe wrappers for the Helix modal editing types,
 //! suitable for use from Swift, Kotlin, and other languages via UniFFI.

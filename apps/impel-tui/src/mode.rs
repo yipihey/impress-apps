@@ -1,6 +1,6 @@
 //! TUI interaction modes
 
-use impel_helix::HelixMode;
+use impress_helix::HelixMode;
 
 /// The current interaction mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

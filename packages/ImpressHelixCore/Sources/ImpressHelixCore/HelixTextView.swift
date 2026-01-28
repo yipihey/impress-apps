@@ -1,6 +1,6 @@
 //
 //  HelixTextView.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  NSTextView subclass with built-in Helix adaptor support.
 //

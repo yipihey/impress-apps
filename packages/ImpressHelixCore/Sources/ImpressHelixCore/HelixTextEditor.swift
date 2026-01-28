@@ -1,6 +1,6 @@
 //
 //  HelixTextEditor.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  SwiftUI wrapper for text editing with Helix support.
 //

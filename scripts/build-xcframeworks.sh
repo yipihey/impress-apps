@@ -17,7 +17,7 @@ ALL_CRATES=(
     "imprint-core"
     "implore-core"
     "impress-llm"
-    "impel-helix"
+    "impress-helix"
 )
 
 # Parse arguments

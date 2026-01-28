@@ -1,5 +1,5 @@
 import SwiftUI
-import ImpressModalEditing
+import ImpressHelixCore
 
 /// Settings view for implore preferences
 struct SettingsView: View {

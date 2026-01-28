@@ -29,8 +29,8 @@ packages:
     path: ImprintRustCore
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
-  ImpelHelixCore:
-    path: ../../packages/ImpelHelixCore
+  ImpressHelixCore:
+    path: ../../packages/ImpressHelixCore
   ImpressAI:
     path: ../../packages/ImpressAI
   ImpressAutomation:
@@ -56,7 +56,7 @@ targets:
     dependencies:
       - package: ImprintCore
       - package: ImprintRustCore
-      - package: ImpelHelixCore
+      - package: ImpressHelixCore
       - package: ImpressAI
       - package: ImpressAutomation
     entitlements:
@@ -120,7 +120,7 @@ targets:
     dependencies:
       - package: ImprintCore
       - package: ImprintRustCore
-      - package: ImpelHelixCore
+      - package: ImpressHelixCore
       - package: ImpressAI
       - package: ImpressAutomation
     entitlements:

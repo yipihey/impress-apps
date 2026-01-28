@@ -1,6 +1,6 @@
 //
 //  HelixModeIndicator.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  SwiftUI view displaying the current Helix mode.
 //

@@ -16,7 +16,7 @@ members = [
     "crates/implore-selection",
     # impel - agent orchestration for autonomous research
     "crates/impel-core",
-    "crates/impel-helix",
+    "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
 ]
@@ -73,7 +73,7 @@ rayon = "1.10"
 
 # impel crates
 impel-core = { path = "crates/impel-core" }
-impel-helix = { path = "crates/impel-helix" }
+impress-helix = { path = "crates/impress-helix" }
 impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }
 

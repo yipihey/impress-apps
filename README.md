@@ -44,10 +44,11 @@ impress-apps/
 │   │   ├── implore-io/           # HDF5, FITS, Parquet, CSV I/O
 │   │   └── implore-selection/    # Selection grammar parser
 │   │
-│   └── impel                     # Agent orchestration
-│       ├── impel-core/           # Thread DAG, event sourcing, 4-level hierarchy
-│       ├── impel-helix/          # Modal editing for TUI
-│       └── impel-server/         # HTTP/WebSocket API
+│   ├── impel                     # Agent orchestration
+│   │   ├── impel-core/           # Thread DAG, event sourcing, 4-level hierarchy
+│   │   └── impel-server/         # HTTP/WebSocket API
+│   │
+│   └── impress-helix/            # Helix-style modal editing for all apps
 │
 ├── apps/                         # Native applications
 │   ├── imbib/                    # macOS/iOS reference manager

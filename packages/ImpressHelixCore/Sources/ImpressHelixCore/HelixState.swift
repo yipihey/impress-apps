@@ -1,6 +1,6 @@
 //
 //  HelixState.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  Observable wrapper around FfiHelixEditor for SwiftUI integration.
 //

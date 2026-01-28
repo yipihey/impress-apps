@@ -1,6 +1,6 @@
 //
 //  NSTextViewHelixAdaptor.swift
-//  ImpelHelixCore
+//  ImpressHelixCore
 //
 //  macOS NSTextView integration for Helix modal editing.
 //

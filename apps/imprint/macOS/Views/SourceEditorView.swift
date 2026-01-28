@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import ImpressModalEditing
+import ImpressHelixCore
 
 /// Typst source code editor with syntax highlighting
 struct SourceEditorView: View {

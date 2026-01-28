@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build script for impel-helix Rust library
+# Build script for impress-helix Rust library
 # Creates an XCFramework for macOS and iOS
 
 set -e
@@ -19,7 +19,7 @@ echo "Using IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$WORKSPACE_ROOT/target"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
-XCFRAMEWORK_NAME="ImpelHelix"
+XCFRAMEWORK_NAME="ImpressHelix"
 
 # Rust targets
 MACOS_TARGET="aarch64-apple-darwin"
@@ -28,7 +28,7 @@ IOS_TARGET="aarch64-apple-ios"
 IOS_SIM_TARGET="aarch64-apple-ios-sim"
 IOS_SIM_X86_TARGET="x86_64-apple-ios"
 
-echo "=== Building impel-helix Rust library ==="
+echo "=== Building impress-helix Rust library ==="
 
 # Ensure required targets are installed
 echo "Installing Rust targets..."
@@ -70,34 +70,34 @@ mkdir -p "$IOS_SIM_UNIVERSAL_DIR"
 
 echo "Creating universal macOS binary..."
 lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/libimpel_helix.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpel_helix.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimpel_helix.a"
+    "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix.a" \
+    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpress_helix.a" \
+    -output "$MACOS_UNIVERSAL_DIR/libimpress_helix.a"
 
 echo "Creating universal iOS Simulator binary..."
 lipo -create \
-    "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpel_helix.a" \
-    "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpel_helix.a" \
-    -output "$IOS_SIM_UNIVERSAL_DIR/libimpel_helix.a"
+    "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
+    "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpress_helix.a" \
+    -output "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
 
 # Generate Swift bindings
 echo ""
 echo "Generating Swift bindings..."
 cargo run --features ffi --bin uniffi-bindgen generate \
-    --library "$BUILD_DIR/$MACOS_TARGET/release/libimpel_helix.dylib" \
+    --library "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix.dylib" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
 # Create headers directory with unique subdirectory to avoid Xcode conflicts
-# This puts headers in impel_helix/ subdirectory so multiple xcframeworks don't conflict
-HEADERS_DIR="$FRAMEWORK_DIR/headers/impel_helix"
+# This puts headers in impress_helix/ subdirectory so multiple xcframeworks don't conflict
+HEADERS_DIR="$FRAMEWORK_DIR/headers/impress_helix"
 mkdir -p "$HEADERS_DIR"
-cp "$FRAMEWORK_DIR/generated/impel_helixFFI.h" "$HEADERS_DIR/"
+cp "$FRAMEWORK_DIR/generated/impress_helixFFI.h" "$HEADERS_DIR/"
 
 # Create module map with path to header in subdirectory
 cat > "$HEADERS_DIR/module.modulemap" << 'MODULEMAP'
-module impel_helixFFI {
-    header "impel_helixFFI.h"
+module impress_helixFFI {
+    header "impress_helixFFI.h"
     export *
 }
 MODULEMAP
@@ -108,11 +108,11 @@ echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 xcodebuild -create-xcframework \
-    -library "$MACOS_UNIVERSAL_DIR/libimpel_helix.a" \
+    -library "$MACOS_UNIVERSAL_DIR/libimpress_helix.a" \
     -headers "$FRAMEWORK_DIR/headers" \
-    -library "$BUILD_DIR/$IOS_TARGET/release/libimpel_helix.a" \
+    -library "$BUILD_DIR/$IOS_TARGET/release/libimpress_helix.a" \
     -headers "$FRAMEWORK_DIR/headers" \
-    -library "$IOS_SIM_UNIVERSAL_DIR/libimpel_helix.a" \
+    -library "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a" \
     -headers "$FRAMEWORK_DIR/headers" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
@@ -120,22 +120,22 @@ echo ""
 echo "Cleaning up xcframework headers..."
 for dir in "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"/*/Headers; do
     # Remove any Swift files from headers - they're not needed there
-    rm -f "$dir"/*/impel_helix.swift 2>/dev/null || true
-    rm -f "$dir/impel_helix.swift" 2>/dev/null || true
+    rm -f "$dir"/*/impress_helix.swift 2>/dev/null || true
+    rm -f "$dir/impress_helix.swift" 2>/dev/null || true
     echo "  Cleaned $dir"
 done
 
 # Copy the single generated Swift bindings file
 echo ""
 echo "Copying Swift bindings..."
-cp "$FRAMEWORK_DIR/generated/impel_helix.swift" "$FRAMEWORK_DIR/impel_helix.swift"
-echo "  Copied impel_helix.swift"
+cp "$FRAMEWORK_DIR/generated/impress_helix.swift" "$FRAMEWORK_DIR/impress_helix.swift"
+echo "  Copied impress_helix.swift"
 
 echo ""
 echo "=== Build complete! ==="
 echo ""
 echo "XCFramework: $FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
-echo "Swift bindings: $FRAMEWORK_DIR/impel_helix.swift"
+echo "Swift bindings: $FRAMEWORK_DIR/impress_helix.swift"
 echo ""
 echo "To use in your Swift package, add the XCFramework as a binary target"
-echo "and copy impel_helix.swift to your sources."
+echo "and copy impress_helix.swift to your sources."

@@ -15,7 +15,7 @@ path = "src/main.rs"
 impel-core = { workspace = true }
 
 # Helix modal editing
-impel-helix = { workspace = true }
+impress-helix = { workspace = true }
 
 # TUI framework
 ratatui = { workspace = true }

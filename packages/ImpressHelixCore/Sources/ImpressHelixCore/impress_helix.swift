@@ -7,8 +7,8 @@ import Foundation
 // Depending on the consumer's build setup, the low-level FFI code
 // might be in a separate module, or it might be compiled inline into
 // this module. This is a bit of light hackery to work with both.
-#if canImport(impel_helixFFI)
-import impel_helixFFI
+#if canImport(impress_helixFFI)
+import impress_helixFFI
 #endif
 
 fileprivate extension RustBuffer {
@@ -25,13 +25,13 @@ fileprivate extension RustBuffer {
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
-        try! rustCall { ffi_impel_helix_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
+        try! rustCall { ffi_impress_helix_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
     }
 
     // Frees the buffer in place.
     // The buffer must not be used after this is called.
     func deallocate() {
-        try! rustCall { ffi_impel_helix_rustbuffer_free(self, $0) }
+        try! rustCall { ffi_impress_helix_rustbuffer_free(self, $0) }
     }
 }
 
@@ -598,7 +598,7 @@ open class FfiHelixEditor:
     @_documentation(visibility: private)
 #endif
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_impel_helix_fn_clone_ffihelixeditor(self.pointer, $0) }
+        return try! rustCall { uniffi_impress_helix_fn_clone_ffihelixeditor(self.pointer, $0) }
     }
     /**
      * Create a new Helix editor instance.
@@ -606,7 +606,7 @@ open class FfiHelixEditor:
 public convenience init() {
     let pointer =
         try! rustCall() {
-    uniffi_impel_helix_fn_constructor_ffihelixeditor_new($0
+    uniffi_impress_helix_fn_constructor_ffihelixeditor_new($0
     )
 }
     self.init(unsafeFromRawPointer: pointer)
@@ -617,7 +617,7 @@ public convenience init() {
             return
         }
 
-        try! rustCall { uniffi_impel_helix_fn_free_ffihelixeditor(pointer, $0) }
+        try! rustCall { uniffi_impress_helix_fn_free_ffihelixeditor(pointer, $0) }
     }
 
     
@@ -627,7 +627,7 @@ public convenience init() {
      * Exit space-mode.
      */
 open func exitSpaceMode() {try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_exit_space_mode(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_exit_space_mode(self.uniffiClonePointer(),$0
     )
 }
 }
@@ -639,7 +639,7 @@ open func exitSpaceMode() {try! rustCall() {
      */
 open func handleKey(key: String, modifiers: FfiKeyModifiers) -> FfiKeyResult {
     return try!  FfiConverterTypeFfiKeyResult.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_handle_key(self.uniffiClonePointer(),
+    uniffi_impress_helix_fn_method_ffihelixeditor_handle_key(self.uniffiClonePointer(),
         FfiConverterString.lower(key),
         FfiConverterTypeFfiKeyModifiers.lower(modifiers),$0
     )
@@ -651,7 +651,7 @@ open func handleKey(key: String, modifiers: FfiKeyModifiers) -> FfiKeyResult {
      */
 open func isAwaitingCharacter() -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_is_awaiting_character(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_is_awaiting_character(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -661,7 +661,7 @@ open func isAwaitingCharacter() -> Bool {
      */
 open func isAwaitingMotion() -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_is_awaiting_motion(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_is_awaiting_motion(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -671,7 +671,7 @@ open func isAwaitingMotion() -> Bool {
      */
 open func isSearching() -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_is_searching(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_is_searching(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -681,7 +681,7 @@ open func isSearching() -> Bool {
      */
 open func isSpaceMode() -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_is_space_mode(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_is_space_mode(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -691,7 +691,7 @@ open func isSpaceMode() -> Bool {
      */
 open func mode() -> FfiHelixMode {
     return try!  FfiConverterTypeFfiHelixMode.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_mode(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_mode(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -701,7 +701,7 @@ open func mode() -> FfiHelixMode {
      */
 open func registerContent() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_register_content(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_register_content(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -710,7 +710,7 @@ open func registerContent() -> String {
      * Reset the editor to normal mode.
      */
 open func reset() {try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_reset(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_reset(self.uniffiClonePointer(),$0
     )
 }
 }
@@ -720,7 +720,7 @@ open func reset() {try! rustCall() {
      */
 open func searchQuery() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_search_query(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_search_query(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -730,7 +730,7 @@ open func searchQuery() -> String {
      */
 open func spaceModeAvailableKeys() -> [FfiWhichKeyItem] {
     return try!  FfiConverterSequenceTypeFfiWhichKeyItem.lift(try! rustCall() {
-    uniffi_impel_helix_fn_method_ffihelixeditor_space_mode_available_keys(self.uniffiClonePointer(),$0
+    uniffi_impress_helix_fn_method_ffihelixeditor_space_mode_available_keys(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -2651,7 +2651,7 @@ fileprivate struct FfiConverterSequenceTypeFfiWhichKeyItem: FfiConverterRustBuff
  */
 public func calculateMotionRange(text: String, cursorPosition: UInt64, motion: FfiMotion) -> FfiTextRange? {
     return try!  FfiConverterOptionTypeFfiTextRange.lift(try! rustCall() {
-    uniffi_impel_helix_fn_func_calculate_motion_range(
+    uniffi_impress_helix_fn_func_calculate_motion_range(
         FfiConverterString.lower(text),
         FfiConverterUInt64.lower(cursorPosition),
         FfiConverterTypeFfiMotion.lower(motion),$0
@@ -2670,7 +2670,7 @@ public func calculateMotionRange(text: String, cursorPosition: UInt64, motion: F
  */
 public func calculateTextObjectRange(text: String, cursorPosition: UInt64, textObject: FfiTextObject, modifier: FfiTextObjectModifier) -> FfiTextRange? {
     return try!  FfiConverterOptionTypeFfiTextRange.lift(try! rustCall() {
-    uniffi_impel_helix_fn_func_calculate_text_object_range(
+    uniffi_impress_helix_fn_func_calculate_text_object_range(
         FfiConverterString.lower(text),
         FfiConverterUInt64.lower(cursorPosition),
         FfiConverterTypeFfiTextObject.lower(textObject),
@@ -2683,7 +2683,7 @@ public func calculateTextObjectRange(text: String, cursorPosition: UInt64, textO
  */
 public func isMotionInclusive(motion: FfiMotion) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_func_is_motion_inclusive(
+    uniffi_impress_helix_fn_func_is_motion_inclusive(
         FfiConverterTypeFfiMotion.lower(motion),$0
     )
 })
@@ -2693,7 +2693,7 @@ public func isMotionInclusive(motion: FfiMotion) -> Bool {
  */
 public func isMotionLinewise(motion: FfiMotion) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_impel_helix_fn_func_is_motion_linewise(
+    uniffi_impress_helix_fn_func_is_motion_linewise(
         FfiConverterTypeFfiMotion.lower(motion),$0
     )
 })
@@ -2710,56 +2710,56 @@ private var initializationResult: InitializationResult = {
     // Get the bindings contract version from our ComponentInterface
     let bindings_contract_version = 26
     // Get the scaffolding contract version by calling the into the dylib
-    let scaffolding_contract_version = ffi_impel_helix_uniffi_contract_version()
+    let scaffolding_contract_version = ffi_impress_helix_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_impel_helix_checksum_func_calculate_motion_range() != 37830) {
+    if (uniffi_impress_helix_checksum_func_calculate_motion_range() != 63933) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_func_calculate_text_object_range() != 45868) {
+    if (uniffi_impress_helix_checksum_func_calculate_text_object_range() != 46132) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_func_is_motion_inclusive() != 44170) {
+    if (uniffi_impress_helix_checksum_func_is_motion_inclusive() != 46243) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_func_is_motion_linewise() != 61538) {
+    if (uniffi_impress_helix_checksum_func_is_motion_linewise() != 12540) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_exit_space_mode() != 11865) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_exit_space_mode() != 33672) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_handle_key() != 18330) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_handle_key() != 40713) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_is_awaiting_character() != 47264) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_is_awaiting_character() != 33721) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_is_awaiting_motion() != 58652) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_is_awaiting_motion() != 22691) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_is_searching() != 3125) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_is_searching() != 45689) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_is_space_mode() != 15565) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_is_space_mode() != 29619) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_mode() != 25886) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_mode() != 46649) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_register_content() != 46072) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_register_content() != 5289) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_reset() != 64028) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_reset() != 33173) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_search_query() != 26406) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_search_query() != 9760) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_method_ffihelixeditor_space_mode_available_keys() != 33813) {
+    if (uniffi_impress_helix_checksum_method_ffihelixeditor_space_mode_available_keys() != 26367) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_helix_checksum_constructor_ffihelixeditor_new() != 59238) {
+    if (uniffi_impress_helix_checksum_constructor_ffihelixeditor_new() != 39193) {
         return InitializationResult.apiChecksumMismatch
     }
 

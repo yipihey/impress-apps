@@ -1,5 +1,5 @@
 [package]
-name = "impel-helix"
+name = "impress-helix"
 description = "Helix-style modal editing for terminal text interfaces"
 version.workspace = true
 edition.workspace = true

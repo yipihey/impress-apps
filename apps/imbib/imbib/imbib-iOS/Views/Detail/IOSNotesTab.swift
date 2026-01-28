@@ -7,7 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
-import ImpressModalEditing
+import ImpressHelixCore
 
 /// iOS Notes tab for viewing and editing publication notes.
 ///

@@ -7,7 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
-import ImpressModalEditing
+import ImpressHelixCore
 
 /// Settings tab for customizing quick annotations and notes panel behavior.
 struct NotesSettingsTab: View {
