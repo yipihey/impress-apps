@@ -6,11 +6,18 @@ import ImpressModalEditing
 struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
+    var onSelectionChange: ((String, NSRange) -> Void)?
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
 
     @StateObject private var helixState = HelixState()
+
+    init(source: Binding<String>, cursorPosition: Binding<Int>, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
+        self._source = source
+        self._cursorPosition = cursorPosition
+        self.onSelectionChange = onSelectionChange
+    }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -21,7 +28,8 @@ struct SourceEditorView: View {
                 source: $source,
                 cursorPosition: $cursorPosition,
                 helixState: helixState,
-                helixEnabled: helixModeEnabled
+                helixEnabled: helixModeEnabled,
+                onSelectionChange: onSelectionChange
             )
 
             if helixModeEnabled && helixShowModeIndicator {
@@ -39,6 +47,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     @Binding var cursorPosition: Int
     let helixState: HelixState
     let helixEnabled: Bool
+    var onSelectionChange: ((String, NSRange) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -189,8 +198,30 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            parent.cursorPosition = textView.selectedRange().location
+            let selectedRange = textView.selectedRange()
+            parent.cursorPosition = selectedRange.location
+
+            // Notify parent of selected text and range
+            if selectedRange.length > 0,
+               let textStorage = textView.textStorage {
+                let selectedText = textStorage.string.substring(with: selectedRange)
+                parent.onSelectionChange?(selectedText, selectedRange)
+            } else {
+                parent.onSelectionChange?("", selectedRange)
+            }
+
+            // Update collaboration cursor
+            textView.updateCollaborationCursor()
         }
+    }
+}
+
+// MARK: - String Extension
+
+extension String {
+    func substring(with nsRange: NSRange) -> String {
+        guard let range = Range(nsRange, in: self) else { return "" }
+        return String(self[range])
     }
 }
 
@@ -203,7 +234,8 @@ class TypstTextView: HelixTextView {
 #Preview {
     SourceEditorView(
         source: .constant("= Hello World\n\nThis is a test document."),
-        cursorPosition: .constant(0)
+        cursorPosition: .constant(0),
+        onSelectionChange: { _, _ in }
     )
     .frame(width: 500, height: 400)
 }

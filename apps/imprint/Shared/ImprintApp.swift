@@ -69,6 +69,11 @@ struct ImprintApp: App {
                 }
                 .keyboardShortcut("K", modifiers: [.command, .shift])
 
+                Button("Add Comment...") {
+                    NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)
+                }
+                .keyboardShortcut("C", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Compile to PDF") {
@@ -92,6 +97,18 @@ struct ImprintApp: App {
                     NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
                 }
                 .keyboardShortcut("F", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button(appState.showingAIAssistant ? "Hide AI Assistant" : "Show AI Assistant") {
+                    NotificationCenter.default.post(name: .toggleAIAssistant, object: nil)
+                }
+                .keyboardShortcut(".", modifiers: [.command])
+
+                Button(appState.showingComments ? "Hide Comments" : "Show Comments") {
+                    NotificationCenter.default.post(name: .toggleCommentsSidebar, object: nil)
+                }
+                .keyboardShortcut("K", modifiers: [.command, .option])
             }
 
             // Format menu
@@ -178,6 +195,18 @@ class AppState: ObservableObject {
 
     /// Whether focus mode is active (distraction-free editing)
     @Published var isFocusMode = false
+
+    /// Whether the AI assistant sidebar is visible
+    @Published var showingAIAssistant = false
+
+    /// Whether the comments sidebar is visible
+    @Published var showingComments = false
+
+    /// Currently selected text (for AI actions)
+    @Published var selectedText = ""
+
+    /// Currently selected text range (for comments)
+    @Published var selectedRange: NSRange?
 }
 
 /// Editing modes for imprint
@@ -241,6 +270,8 @@ extension Notification.Name {
     static let showVersionHistory = Notification.Name("showVersionHistory")
     static let shareDocument = Notification.Name("shareDocument")
     static let toggleFocusMode = Notification.Name("toggleFocusMode")
+    static let toggleAIAssistant = Notification.Name("toggleAIAssistant")
+    // Note: toggleCommentsSidebar and addCommentAtSelection are defined in CommentService.swift
 }
 
 // MARK: - UI Testing Support

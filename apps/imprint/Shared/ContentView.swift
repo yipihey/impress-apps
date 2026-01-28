@@ -15,6 +15,9 @@ struct ContentView: View {
     @State private var debugStatus: String = "idle"
     @State private var debugHistory: String = ""
 
+    /// Comment service for this document
+    @StateObject private var commentService = CommentService()
+
     /// Shared Typst renderer instance
     private let renderer = TypstRenderer()
 
@@ -89,14 +92,32 @@ struct ContentView: View {
                 .help("Insert Citation (Cmd+Shift+K)")
                 .accessibilityIdentifier("toolbar.citationButton")
 
-                // Share button
+                // AI Assistant button
                 Button {
-                    // TODO: Show share sheet
+                    withAnimation {
+                        appState.showingAIAssistant.toggle()
+                    }
                 } label: {
-                    Image(systemName: "person.2")
+                    Image(systemName: appState.showingAIAssistant ? "sparkles.rectangle.stack.fill" : "sparkles")
                 }
-                .help("Share Document")
-                .accessibilityIdentifier("toolbar.shareButton")
+                .help("AI Assistant (Cmd+.)")
+                .accessibilityIdentifier("toolbar.aiAssistantButton")
+
+                // Comments button
+                Button {
+                    withAnimation {
+                        appState.showingComments.toggle()
+                    }
+                } label: {
+                    Image(systemName: appState.showingComments ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                }
+                .help("Comments (Cmd+Opt+K)")
+                .accessibilityIdentifier("toolbar.commentsButton")
+
+                // Collaborator avatars
+                #if os(macOS)
+                CollaboratorAvatarsView()
+                #endif
 
                 // Debug status (only in debug builds)
                 #if DEBUG
@@ -134,10 +155,71 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleFocusMode)) { _ in
             appState.isFocusMode.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleAIAssistant)) { _ in
+            withAnimation {
+                appState.showingAIAssistant.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleCommentsSidebar)) { _ in
+            withAnimation {
+                appState.showingComments.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .addCommentAtSelection)) { _ in
+            // Add comment at current selection
+            if let range = appState.selectedRange, range.length > 0 {
+                let textRange = TextRange(nsRange: range)
+                commentService.addComment(
+                    content: "",
+                    at: textRange
+                )
+                appState.showingComments = true
+            }
+        }
     }
 
     @ViewBuilder
     private var editorView: some View {
+        HStack(spacing: 0) {
+            // Comments sidebar (left)
+            if appState.showingComments {
+                #if os(macOS)
+                CommentsSidebarView(
+                    commentService: commentService,
+                    onNavigateToRange: { range in
+                        cursorPosition = range.start
+                    }
+                )
+                .transition(.move(edge: .leading))
+
+                Divider()
+                #endif
+            }
+
+            // Main editor content
+            mainEditorContent
+                .frame(maxWidth: .infinity)
+
+            // AI Assistant sidebar (right)
+            if appState.showingAIAssistant {
+                Divider()
+
+                #if os(macOS)
+                AIChatSidebar(
+                    selectedText: $appState.selectedText,
+                    documentSource: $document.source,
+                    onInsertText: { text in
+                        insertTextAtCursor(text)
+                    }
+                )
+                .transition(.move(edge: .trailing))
+                #endif
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainEditorContent: some View {
         switch appState.editMode {
         case .directPdf:
             DirectPDFView(
@@ -151,7 +233,11 @@ struct ContentView: View {
             HSplitView {
                 SourceEditorView(
                     source: $document.source,
-                    cursorPosition: $cursorPosition
+                    cursorPosition: $cursorPosition,
+                    onSelectionChange: { selectedText, selectedRange in
+                        appState.selectedText = selectedText
+                        appState.selectedRange = selectedRange
+                    }
                 )
                 .frame(minWidth: 300)
 
@@ -167,9 +253,21 @@ struct ContentView: View {
         case .textOnly:
             SourceEditorView(
                 source: $document.source,
-                cursorPosition: $cursorPosition
+                cursorPosition: $cursorPosition,
+                onSelectionChange: { selectedText, selectedRange in
+                    appState.selectedText = selectedText
+                    appState.selectedRange = selectedRange
+                }
             )
         }
+    }
+
+    /// Insert text at the current cursor position
+    private func insertTextAtCursor(_ text: String) {
+        let position = min(cursorPosition, document.source.count)
+        let index = document.source.index(document.source.startIndex, offsetBy: position)
+        document.source.insert(contentsOf: text, at: index)
+        cursorPosition = position + text.count
     }
 
     // MARK: - Compilation
