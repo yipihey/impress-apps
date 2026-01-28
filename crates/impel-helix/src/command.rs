@@ -6,12 +6,13 @@ use crate::text_object::{TextObject, TextObjectModifier};
 /// A command that can be executed on text.
 ///
 /// These commands mirror the Swift `HelixCommand` enum for cross-platform consistency.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum HelixCommand {
     // Mode changes
     /// Enter insert mode at cursor.
     EnterInsertMode,
     /// Enter normal mode.
+    #[default]
     EnterNormalMode,
     /// Enter select mode.
     EnterSelectMode,
@@ -254,12 +255,6 @@ impl HelixCommand {
             HelixCommand::Undo => "Undo",
             HelixCommand::Redo => "Redo",
         }
-    }
-}
-
-impl Default for HelixCommand {
-    fn default() -> Self {
-        HelixCommand::EnterNormalMode
     }
 }
 

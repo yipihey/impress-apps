@@ -1,7 +1,5 @@
 //! Landscape view - thread graph visualization
 
-use ratatui::{layout::Rect, Frame};
-
 /// Landscape view showing thread relationships as a graph
 pub struct LandscapeView;
 

@@ -3,9 +3,10 @@
 use impel_helix::HelixMode;
 
 /// The current interaction mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     /// Normal navigation mode (default)
+    #[default]
     Normal,
     /// Insert mode for text editing (activated with i)
     Insert,
@@ -13,12 +14,6 @@ pub enum Mode {
     Command,
     /// Multi-select mode (activated with v)
     Select,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Normal
-    }
 }
 
 impl std::fmt::Display for Mode {
@@ -53,7 +48,7 @@ impl Mode {
     }
 
     /// Convert to HelixMode for text editing contexts.
-    pub fn to_helix_mode(&self) -> Option<HelixMode> {
+    pub fn to_helix_mode(self) -> Option<HelixMode> {
         match self {
             Mode::Normal => Some(HelixMode::Normal),
             Mode::Insert => Some(HelixMode::Insert),

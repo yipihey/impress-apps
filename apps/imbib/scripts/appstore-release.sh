@@ -7,6 +7,7 @@
 #        ./scripts/appstore-release.sh --setup       # Store API credentials
 #        ./scripts/appstore-release.sh --ios-only    # Upload iOS only
 #        ./scripts/appstore-release.sh --macos-only  # Upload macOS only
+#        ./scripts/appstore-release.sh --skip-tests  # Skip UI tests
 #
 # Example: ./scripts/appstore-release.sh v1.2.0
 #
@@ -29,6 +30,7 @@ KEYCHAIN_SERVICE_RELEASE="imbib-release"
 # Default: build both platforms
 BUILD_IOS=true
 BUILD_MACOS=true
+SKIP_TESTS=false
 
 # Parse arguments
 for arg in "$@"; do
@@ -39,6 +41,10 @@ for arg in "$@"; do
             ;;
         --macos-only)
             BUILD_IOS=false
+            shift
+            ;;
+        --skip-tests)
+            SKIP_TESTS=true
             shift
             ;;
         --setup)
@@ -155,12 +161,28 @@ STEP_NUM=0
 TOTAL_STEPS=0
 
 # Calculate total steps based on what we're building
+# Base: Rust, XCFramework, Xcode, Build numbers, Versions = 5 steps
+# UI Tests: 1 step (unless skipped)
+# iOS: Archive, Export, Upload = 3 steps
+# macOS: Archive, Export, Upload = 3 steps
 if $BUILD_IOS && $BUILD_MACOS; then
-    TOTAL_STEPS=10  # Rust, XCFramework, Xcode, Build numbers, Versions, Archive iOS, Export iOS, Upload iOS, Archive macOS, Export macOS, Upload macOS
+    if $SKIP_TESTS; then
+        TOTAL_STEPS=11
+    else
+        TOTAL_STEPS=12  # +1 for UI tests
+    fi
 elif $BUILD_IOS; then
-    TOTAL_STEPS=7
+    if $SKIP_TESTS; then
+        TOTAL_STEPS=8
+    else
+        TOTAL_STEPS=9
+    fi
 else
-    TOTAL_STEPS=7
+    if $SKIP_TESTS; then
+        TOTAL_STEPS=8
+    else
+        TOTAL_STEPS=9
+    fi
 fi
 
 step_start() {
@@ -190,6 +212,11 @@ echo -e "${GREEN}=== App Store Release ===${NC}"
 echo -e "Version:      ${YELLOW}$VERSION${NC}"
 echo -e "Build:        ${YELLOW}$BUILD_NUMBER${NC}"
 echo -e "Platforms:    ${YELLOW}$PLATFORMS${NC}"
+if $SKIP_TESTS; then
+    echo -e "UI Tests:     ${YELLOW}Skipped${NC}"
+else
+    echo -e "UI Tests:     ${CYAN}Will run on testrunner${NC}"
+fi
 echo ""
 
 # Check we're on Apple Silicon
@@ -658,6 +685,91 @@ fi
 step_end
 
 # ============================================================================
+# Step 6: Run UI Tests (on testrunner account)
+# ============================================================================
+if ! $SKIP_TESTS; then
+    step_start "Running UI tests on testrunner account..."
+
+    TEST_USER="${IMPRESS_TEST_USER:-testrunner}"
+    TESTRUNNER_REPO="/Users/$TEST_USER/Projects/impress-apps"
+
+    # Check SSH connectivity
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$TEST_USER@localhost" "echo" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Warning: Cannot connect to $TEST_USER@localhost via SSH${NC}"
+        echo "  UI tests skipped. To enable:"
+        echo "    1. Enable Remote Login in System Settings -> General -> Sharing"
+        echo "    2. Run: ssh-copy-id $TEST_USER@localhost"
+        echo ""
+    else
+        # Check if testrunner has GUI session (required for UI tests)
+        if ! ssh "$TEST_USER@localhost" "pgrep -x Finder > /dev/null 2>&1"; then
+            echo -e "${YELLOW}Warning: $TEST_USER must be logged in with a GUI session${NC}"
+            echo "  UI tests require a graphical login. Please:"
+            echo "    1. Use Fast User Switching to log into $TEST_USER"
+            echo "    2. Lock the screen and switch back to your account"
+            echo ""
+        else
+            echo "  Syncing repository to testrunner..."
+
+            # Sync files (excluding build artifacts, will rebuild on testrunner)
+            rsync -az --quiet \
+                --delete \
+                --exclude '.git' \
+                --exclude 'DerivedData' \
+                --exclude '*.xcodeproj' \
+                --exclude 'build' \
+                --exclude '.build' \
+                --exclude 'target' \
+                --exclude 'Frameworks' \
+                --exclude '*.xcframework' \
+                --exclude 'node_modules' \
+                --exclude '.DS_Store' \
+                "$REPO_ROOT/" \
+                "$TEST_USER@localhost:$TESTRUNNER_REPO/"
+
+            echo "  Building and running tests..."
+
+            # Run tests on testrunner and capture result
+            TEST_LOG="/tmp/release-ui-tests-$(date +%Y%m%d-%H%M%S).log"
+            TEST_RESULT_FILE="/tmp/release-ui-test-result.txt"
+
+            ssh "$TEST_USER@localhost" "bash -l -c '
+                cd $TESTRUNNER_REPO
+                export PATH=\"\$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"
+
+                # Generate Xcode project
+                cd apps/imbib/imbib && xcodegen generate --quiet 2>/dev/null
+                cd $TESTRUNNER_REPO
+
+                # Run only imbib UI tests for release (the app being released)
+                ./scripts/run-all-ui-tests.sh imbib 2>&1
+                echo \$? > $TEST_RESULT_FILE
+            '" 2>&1 | tee "$TEST_LOG"
+
+            # Check result
+            TEST_EXIT_CODE=$(ssh "$TEST_USER@localhost" "cat $TEST_RESULT_FILE 2>/dev/null" || echo "1")
+
+            if [[ "$TEST_EXIT_CODE" != "0" ]]; then
+                echo ""
+                echo -e "${RED}════════════════════════════════════════════${NC}"
+                echo -e "${RED}   UI Tests Failed - Release Aborted        ${NC}"
+                echo -e "${RED}════════════════════════════════════════════${NC}"
+                echo ""
+                echo "Review the test log: $TEST_LOG"
+                echo ""
+                echo "To skip tests and force release:"
+                echo "  ./scripts/appstore-release.sh $VERSION --skip-tests"
+                exit 1
+            fi
+
+            echo -e "  ${GREEN}✓ UI tests passed${NC}"
+        fi
+    fi
+
+    step_end
+fi
+
+# ============================================================================
 # iOS Build & Upload
 # ============================================================================
 if $BUILD_IOS; then
@@ -824,6 +936,11 @@ echo ""
 echo -e "Version:    ${YELLOW}$VERSION${NC}"
 echo -e "Build:      ${YELLOW}$BUILD_NUMBER${NC}"
 echo -e "Time:       ${YELLOW}${MINUTES}m ${SECONDS}s${NC}"
+if $SKIP_TESTS; then
+    echo -e "UI Tests:   ${YELLOW}Skipped${NC}"
+else
+    echo -e "UI Tests:   ${GREEN}✓ Passed${NC}"
+fi
 echo ""
 
 if $BUILD_IOS; then

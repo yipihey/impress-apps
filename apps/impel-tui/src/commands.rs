@@ -1,7 +1,6 @@
 //! Command parsing and execution
 
 use impel_core::coordination::{Command, CoordinationState};
-use impel_core::error::Result;
 use impel_core::thread::ThreadId;
 
 /// Parse and execute a command string

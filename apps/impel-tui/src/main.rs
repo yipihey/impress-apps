@@ -2,6 +2,9 @@
 //!
 //! Terminal UI for managing autonomous research teams.
 
+// Work in progress - allow unused code until feature-complete
+#![allow(dead_code, unused)]
+
 mod app;
 mod commands;
 mod keybindings;
@@ -59,10 +62,8 @@ fn run_app<B: ratatui::backend::Backend>(
         terminal.draw(|f| app.render(f))?;
 
         if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                if app.handle_key(key.code, key.modifiers) {
-                    return Ok(());
-                }
+            if key.kind == KeyEventKind::Press && app.handle_key(key.code, key.modifiers) {
+                return Ok(());
             }
         }
     }

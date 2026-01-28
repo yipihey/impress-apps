@@ -187,7 +187,7 @@ impl ThreadView {
                 "  Last update: {}",
                 temp.time_since_update().num_minutes()
             )),
-            Line::from(format!("    minutes ago")),
+            Line::from("    minutes ago"),
         ];
 
         let block = Block::default().title("Temperature").borders(Borders::ALL);

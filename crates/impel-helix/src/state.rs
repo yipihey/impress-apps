@@ -275,10 +275,10 @@ impl HelixState {
         modifiers: &KeyModifiers,
         text_engine: Option<&mut E>,
     ) -> bool {
-        match self.handle_key_with_result(key, modifiers, text_engine) {
-            KeyHandleResult::PassThrough => false,
-            _ => true,
-        }
+        !matches!(
+            self.handle_key_with_result(key, modifiers, text_engine),
+            KeyHandleResult::PassThrough
+        )
     }
 
     /// Handle space-mode key input.

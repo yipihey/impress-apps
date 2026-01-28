@@ -13,14 +13,9 @@ use impel_core::coordination::CoordinationState;
 use impel_core::event::Event;
 use impel_core::program::{Program, ProgramId, ProgramRegistry};
 use impel_core::project::{Project, ProjectId};
-use impel_core::thread::ThreadId;
 
 use crate::mode::Mode;
-use crate::views::{
-    EventView, GroundView, LandscapeView, ProgramView, ProjectView, TeamView, ThreadView, View,
-    ZoomLevel,
-};
-use crate::widgets::{AlertPanel, StatusBar, ThreadTree};
+use crate::views::{EventView, ProgramView, ProjectView, ThreadView, View, ZoomLevel};
 
 /// Main application state
 pub struct App {
