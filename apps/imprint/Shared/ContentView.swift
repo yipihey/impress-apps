@@ -8,6 +8,7 @@ struct ContentView: View {
 
     @State private var cursorPosition: Int = 0
     @State private var pdfData: Data?
+    @State private var sourceMapEntries: [SourceMapEntry] = []
     @State private var isCompiling = false
     @State private var compilationError: String?
     @State private var compilationWarnings: [String] = []
@@ -19,10 +20,19 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            // Sidebar: Document outline
-            DocumentOutlineView(source: document.source)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
-                .accessibilityIdentifier("sidebar.outline")
+            // Sidebar: Document outline and cited papers
+            List {
+                // Document outline section
+                DocumentOutlineView(source: document.source)
+                    .accessibilityIdentifier("sidebar.outline")
+
+                // Cited papers section (from imbib, hidden when not available)
+                #if os(macOS)
+                CitedPapersSection(source: document.source)
+                #endif
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } detail: {
             // Main editor area
             editorView
@@ -30,21 +40,9 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                // Edit mode picker
-                Picker("Mode", selection: $appState.editMode) {
-                    Image(systemName: "doc.richtext")
-                        .tag(EditMode.directPdf)
-                        .accessibilityIdentifier("toolbar.mode.directPdf")
-                    Image(systemName: "rectangle.split.2x1")
-                        .tag(EditMode.splitView)
-                        .accessibilityIdentifier("toolbar.mode.splitView")
-                    Image(systemName: "doc.text")
-                        .tag(EditMode.textOnly)
-                        .accessibilityIdentifier("toolbar.mode.textOnly")
-                }
-                .pickerStyle(.segmented)
-                .help("Edit Mode (Tab to cycle)")
-                .accessibilityIdentifier("toolbar.editModePicker")
+                // Edit mode picker - custom segmented control for accessibility
+                EditModeSegmentedControl(selection: $appState.editMode)
+                    .accessibilityIdentifier("toolbar.editModePicker")
 
                 Spacer()
 
@@ -123,6 +121,7 @@ struct ContentView: View {
             DirectPDFView(
                 document: $document,
                 pdfData: pdfData,
+                sourceMapEntries: sourceMapEntries,
                 cursorPosition: $cursorPosition
             )
 
@@ -134,8 +133,13 @@ struct ContentView: View {
                 )
                 .frame(minWidth: 300)
 
-                PDFPreviewView(pdfData: pdfData, isCompiling: isCompiling)
-                    .frame(minWidth: 300)
+                PDFPreviewView(
+                    pdfData: pdfData,
+                    isCompiling: isCompiling,
+                    sourceMapEntries: sourceMapEntries,
+                    cursorPosition: cursorPosition
+                )
+                .frame(minWidth: 300)
             }
 
         case .textOnly:
@@ -187,10 +191,11 @@ struct ContentView: View {
 
             if output.isSuccess {
                 pdfData = output.pdfData
+                sourceMapEntries = output.sourceMapEntries
                 compilationWarnings = output.warnings
-                debugStatus = "6:set,\(output.pdfData.count)b"
+                debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
                 debugHistory += "6:ok "
-                log("PDF data set, size: \(output.pdfData.count)")
+                log("PDF data set, size: \(output.pdfData.count), source map entries: \(output.sourceMapEntries.count)")
             } else {
                 compilationError = output.errors.joined(separator: "\n")
                 debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
@@ -210,6 +215,65 @@ struct ContentView: View {
         log("compile() finished")
     }
 }
+
+// MARK: - Edit Mode Segmented Control
+
+/// Custom segmented control for edit modes with proper accessibility identifiers
+struct EditModeSegmentedControl: View {
+    @Binding var selection: EditMode
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(EditMode.allCases, id: \.self) { mode in
+                EditModeSegmentButton(
+                    mode: mode,
+                    isSelected: selection == mode,
+                    action: { selection = mode }
+                )
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
+    }
+}
+
+/// Individual segment button with proper accessibility
+struct EditModeSegmentButton: View {
+    let mode: EditMode
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: mode.iconName)
+                .frame(width: 28, height: 20)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(background)
+                .foregroundColor(isSelected ? .primary : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(mode.helpText)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(mode.helpText)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(mode.accessibilityIdentifier)
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        if isSelected {
+            Color(nsColor: .controlAccentColor).opacity(0.2)
+        } else {
+            Color.clear
+        }
+    }
+}
+
 
 // MARK: - Preview
 

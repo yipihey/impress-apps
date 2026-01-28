@@ -7,6 +7,9 @@
 
 import Foundation
 import OSLog
+#if os(macOS)
+import AppKit
+#endif
 
 private let automationLogger = Logger(subsystem: "com.imbib.app", category: "automation")
 
@@ -143,6 +146,70 @@ public actor URLSchemeHandler {
             if let max = maxResults { userInfo["maxResults"] = max }
             await postNotification(.showSearch, userInfo: userInfo)
             return .success(command: "search", result: ["query": AnyCodable(query)])
+
+        // MARK: - Search with Pasteboard Return (for imprint integration)
+
+        case .searchWithReturn(let query, let maxResults):
+            do {
+                let filters = SearchFilters(limit: maxResults)
+                let papers = try await AutomationService.shared.searchLibrary(query: query, filters: filters)
+
+                // Convert to JSON for pasteboard
+                let paperData = papers.map { paper in
+                    ImprintPaperResponse(
+                        id: paper.id.uuidString,
+                        citeKey: paper.citeKey,
+                        title: paper.title,
+                        authors: paper.authors.joined(separator: ", "),
+                        year: paper.year,
+                        venue: paper.venue,
+                        bibtex: paper.bibtex,
+                        hasPDF: paper.hasPDF
+                    )
+                }
+
+                let response = ImprintSearchResponse(papers: paperData, error: nil)
+                let jsonData = try JSONEncoder().encode(response)
+
+                // Write to pasteboard
+                await MainActor.run {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setData(jsonData, forType: NSPasteboard.PasteboardType("com.imbib.citation-data"))
+                }
+
+                return .success(command: "searchWithReturn", result: ["count": AnyCodable(papers.count)])
+            } catch {
+                // Write error to pasteboard
+                let response = ImprintSearchResponse(papers: [], error: error.localizedDescription)
+                if let jsonData = try? JSONEncoder().encode(response) {
+                    await MainActor.run {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setData(jsonData, forType: NSPasteboard.PasteboardType("com.imbib.citation-data"))
+                    }
+                }
+                return .failure(command: "searchWithReturn", error: error.localizedDescription)
+            }
+
+        // MARK: - Export BibTeX with Pasteboard Return (for imprint integration)
+
+        case .exportBibTeXWithReturn(let citeKeys):
+            do {
+                let identifiers = citeKeys.map { PaperIdentifier.citeKey($0) }
+                let result = try await AutomationService.shared.exportBibTeX(identifiers: identifiers)
+
+                // Write BibTeX to pasteboard
+                await MainActor.run {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(result.content, forType: .string)
+                }
+
+                return .success(command: "exportBibTeXWithReturn", result: ["count": AnyCodable(result.paperCount)])
+            } catch {
+                return .failure(command: "exportBibTeXWithReturn", error: error.localizedDescription)
+            }
 
         case .searchCategory(let category):
             await postNotification(.searchCategory, userInfo: ["category": category])
@@ -518,4 +585,50 @@ public struct AutomationURLBuilder {
         components.queryItems = queryItems
         return components.url
     }
+
+    /// Build a search URL with pasteboard return (for imprint integration)
+    public static func searchWithReturn(query: String, maxResults: Int = 20) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "search"
+        components.queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "maxResults", value: String(maxResults)),
+            URLQueryItem(name: "returnTo", value: "pasteboard")
+        ]
+        return components.url
+    }
+
+    /// Build a BibTeX export URL with pasteboard return (for imprint integration)
+    public static func exportBibTeXWithReturn(citeKeys: [String]) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "export"
+        components.path = "/bibtex"
+        components.queryItems = [
+            URLQueryItem(name: "citeKeys", value: citeKeys.joined(separator: ",")),
+            URLQueryItem(name: "returnTo", value: "pasteboard")
+        ]
+        return components.url
+    }
+}
+
+// MARK: - Imprint Integration Response Types
+
+/// Response from imbib search operation for imprint integration.
+struct ImprintSearchResponse: Codable {
+    let papers: [ImprintPaperResponse]
+    let error: String?
+}
+
+/// Paper data for imprint integration.
+struct ImprintPaperResponse: Codable {
+    let id: String
+    let citeKey: String
+    let title: String
+    let authors: String
+    let year: Int?
+    let venue: String?
+    let bibtex: String?
+    let hasPDF: Bool
 }

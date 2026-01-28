@@ -24,7 +24,7 @@ public enum RustHelpPlatform: Sendable {
     func toRust() -> ImbibRustCore.HelpPlatform {
         switch self {
         case .iOS: return .ios
-        case .macOS: return .macos
+        case .macOS: return .macOs
         case .both: return .both
         }
     }
@@ -33,7 +33,7 @@ public enum RustHelpPlatform: Sendable {
     static func from(_ rust: ImbibRustCore.HelpPlatform) -> RustHelpPlatform {
         switch rust {
         case .ios: return .iOS
-        case .macos: return .macOS
+        case .macOs: return .macOS
         case .both: return .both
         }
     }
@@ -284,8 +284,8 @@ public actor RustHelpSearchSession {
         handleId = nil
     }
 
-    /// Check if the index is initialized
-    public var isInitialized: Bool {
+    /// Check if the index is initialized (async - actor-isolated)
+    public func checkInitialized() async -> Bool {
         handleId != nil
     }
 
@@ -380,8 +380,9 @@ public actor RustHelpSearchService {
     }
 
     /// Check if the service is ready for searching
-    public var isReady: Bool {
-        session?.isInitialized == true && isIndexBuilt
+    public func isReady() async -> Bool {
+        guard let session = session else { return false }
+        return await session.checkInitialized() && isIndexBuilt
     }
 
     /// Close the search service and release resources

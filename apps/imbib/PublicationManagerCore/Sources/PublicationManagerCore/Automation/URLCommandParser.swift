@@ -40,6 +40,14 @@ public enum AutomationCommand: Sendable {
     /// Create a smart search in the exploration library
     case createSmartSearch(query: String, name: String?, sourceID: String?)
 
+    // MARK: - Imprint Integration (search with data return)
+
+    /// Search with pasteboard return (for imprint integration)
+    case searchWithReturn(query: String, maxResults: Int)
+
+    /// Export BibTeX with pasteboard return (for imprint integration)
+    case exportBibTeXWithReturn(citeKeys: [String])
+
     // MARK: - Navigation
 
     /// Navigate to a specific view
@@ -322,6 +330,13 @@ public struct URLCommandParser {
         guard let query = params["query"], !query.isEmpty else {
             throw AutomationError.missingParameter("query")
         }
+
+        // Check if this is a search with pasteboard return (for imprint integration)
+        if params["returnTo"] == "pasteboard" {
+            let maxResults = params["maxResults"].flatMap { Int($0) } ?? 20
+            return .searchWithReturn(query: query, maxResults: maxResults)
+        }
+
         let source = params["source"]
         let maxResults = params["max"].flatMap { Int($0) }
         return .search(query: query, source: source, maxResults: maxResults)
@@ -367,6 +382,13 @@ public struct URLCommandParser {
     }
 
     private func parseExportCommand(_ params: [String: String]) throws -> AutomationCommand {
+        // Check if this is a BibTeX export with pasteboard return (for imprint integration)
+        if params["returnTo"] == "pasteboard",
+           let citeKeysStr = params["citeKeys"] {
+            let citeKeys = citeKeysStr.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            return .exportBibTeXWithReturn(citeKeys: citeKeys)
+        }
+
         let format = ExportFormat(string: params["format"] ?? "bibtex") ?? .bibtex
         let libraryID = params["library"].flatMap { UUID(uuidString: $0) }
         return .exportLibrary(libraryID: libraryID, format: format)

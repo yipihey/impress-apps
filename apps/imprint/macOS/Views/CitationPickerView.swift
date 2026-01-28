@@ -6,11 +6,13 @@ struct CitationPickerView: View {
     let cursorPosition: Int
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var imbibService = ImbibIntegrationService.shared
 
     @State private var searchQuery = ""
     @State private var searchResults: [CitationResult] = []
     @State private var isSearching = false
     @State private var selectedCitation: CitationResult?
+    @State private var searchError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +52,13 @@ struct CitationPickerView: View {
             Divider()
 
             // Results list
-            if searchResults.isEmpty && !searchQuery.isEmpty && !isSearching {
+            if !imbibService.isAvailable {
+                imbibNotAvailableView
+            } else if !imbibService.isAutomationEnabled {
+                automationDisabledView
+            } else if let error = searchError {
+                errorView(error)
+            } else if searchResults.isEmpty && !searchQuery.isEmpty && !isSearching {
                 noResultsView
             } else if searchResults.isEmpty {
                 emptyStateView
@@ -58,6 +66,9 @@ struct CitationPickerView: View {
                 List(searchResults, selection: $selectedCitation) { result in
                     CitationResultRow(citation: result)
                         .tag(result)
+                        .contextMenu {
+                            citationContextMenu(for: result)
+                        }
                 }
                 .listStyle(.plain)
                 .accessibilityIdentifier("citationPicker.resultsList")
@@ -133,42 +144,123 @@ struct CitationPickerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func search() {
-        isSearching = true
+    private var imbibNotAvailableView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundColor(.orange)
 
-        // TODO: Call imbib via CloudKit or IPC
-        // For now, simulate with sample data
-        Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            Text("imbib Not Installed")
+                .font(.headline)
 
-            // Sample results
-            searchResults = [
-                CitationResult(
-                    id: UUID(),
-                    citeKey: "einstein1905special",
-                    title: "On the Electrodynamics of Moving Bodies",
-                    authors: "Einstein, A.",
-                    year: 1905,
-                    venue: "Annalen der Physik",
-                    formattedPreview: "Einstein (1905)",
-                    bibtex: "@article{einstein1905special, author={Einstein, Albert}, title={On the Electrodynamics of Moving Bodies}, year={1905}}"
-                ),
-                CitationResult(
-                    id: UUID(),
-                    citeKey: "einstein1905photon",
-                    title: "On a Heuristic Viewpoint Concerning the Production and Transformation of Light",
-                    authors: "Einstein, A.",
-                    year: 1905,
-                    venue: "Annalen der Physik",
-                    formattedPreview: "Einstein (1905)",
-                    bibtex: "@article{einstein1905photon, author={Einstein, Albert}, title={On a Heuristic Viewpoint}, year={1905}}"
-                ),
-            ].filter { result in
-                result.title.localizedCaseInsensitiveContains(searchQuery) ||
-                result.authors.localizedCaseInsensitiveContains(searchQuery) ||
-                result.citeKey.localizedCaseInsensitiveContains(searchQuery)
+            Text("Install imbib to search and insert citations from your library.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var automationDisabledView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.circle")
+                .font(.system(size: 36))
+                .foregroundColor(.orange)
+
+            Text("Automation Disabled")
+                .font(.headline)
+
+            Text("Enable automation in imbib Settings to search citations.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button("Open imbib Settings") {
+                imbibService.openAutomationSettings()
             }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
+    private func errorView(_ error: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 36))
+                .foregroundColor(.red)
+
+            Text("Search Error")
+                .font(.headline)
+
+            Text(error)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button("Try Again") {
+                searchError = nil
+                search()
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func citationContextMenu(for citation: CitationResult) -> some View {
+        if citation.hasPDF {
+            Button {
+                imbibService.openPDF(citeKey: citation.citeKey)
+            } label: {
+                Label("Open PDF in imbib", systemImage: "doc.fill")
+            }
+        }
+
+        Button {
+            imbibService.openNotes(citeKey: citation.citeKey)
+        } label: {
+            Label("View Notes", systemImage: "note.text")
+        }
+
+        Button {
+            imbibService.showPaper(citeKey: citation.citeKey)
+        } label: {
+            Label("Show in imbib", systemImage: "arrow.up.forward.app")
+        }
+
+        Divider()
+
+        Button {
+            imbibService.findRelatedPapers(citeKey: citation.citeKey)
+        } label: {
+            Label("Find Related Papers", systemImage: "link")
+        }
+    }
+
+    private func search() {
+        guard imbibService.isAvailable && imbibService.isAutomationEnabled else {
+            return
+        }
+
+        isSearching = true
+        searchError = nil
+
+        Task {
+            do {
+                if #available(macOS 13.0, *) {
+                    searchResults = try await imbibService.searchPapers(query: searchQuery, maxResults: 20)
+                } else {
+                    // Fallback for older macOS - show message
+                    searchError = "Citation search requires macOS 13 or later."
+                    searchResults = []
+                }
+            } catch {
+                searchError = error.localizedDescription
+                searchResults = []
+            }
             isSearching = false
         }
     }
@@ -187,15 +279,38 @@ struct CitationPickerView: View {
 }
 
 /// Search result from imbib
-struct CitationResult: Identifiable, Hashable {
-    let id: UUID
-    let citeKey: String
-    let title: String
-    let authors: String
-    let year: Int
-    let venue: String
-    let formattedPreview: String
-    let bibtex: String
+public struct CitationResult: Identifiable, Hashable {
+    public let id: UUID
+    public let citeKey: String
+    public let title: String
+    public let authors: String
+    public let year: Int
+    public let venue: String
+    public let formattedPreview: String
+    public let bibtex: String
+    public let hasPDF: Bool
+
+    public init(
+        id: UUID,
+        citeKey: String,
+        title: String,
+        authors: String,
+        year: Int,
+        venue: String,
+        formattedPreview: String,
+        bibtex: String,
+        hasPDF: Bool = false
+    ) {
+        self.id = id
+        self.citeKey = citeKey
+        self.title = title
+        self.authors = authors
+        self.year = year
+        self.venue = venue
+        self.formattedPreview = formattedPreview
+        self.bibtex = bibtex
+        self.hasPDF = hasPDF
+    }
 }
 
 /// Row view for a citation search result
@@ -204,34 +319,46 @@ struct CitationResultRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(citation.title)
-                .font(.headline)
-                .lineLimit(2)
+            HStack(alignment: .top, spacing: 8) {
+                // PDF indicator
+                Image(systemName: citation.hasPDF ? "doc.fill" : "doc")
+                    .foregroundColor(citation.hasPDF ? .accentColor : .secondary)
+                    .font(.headline)
+                    .frame(width: 20)
 
-            HStack {
-                Text(citation.authors)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(citation.title)
+                        .font(.headline)
+                        .lineLimit(2)
 
-                Text("(\(citation.year))")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    HStack {
+                        Text(citation.authors)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
 
-                Spacer()
+                        if citation.year > 0 {
+                            Text("(\(citation.year))")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
 
-                Text(citation.citeKey)
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.2))
-                    .cornerRadius(4)
-            }
+                        Spacer()
 
-            if !citation.venue.isEmpty {
-                Text(citation.venue)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .italic()
+                        Text(citation.citeKey)
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.2))
+                            .cornerRadius(4)
+                    }
+
+                    if !citation.venue.isEmpty {
+                        Text(citation.venue)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .italic()
+                    }
+                }
             }
         }
         .padding(.vertical, 4)

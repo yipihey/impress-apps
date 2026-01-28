@@ -1,4 +1,5 @@
 import SwiftUI
+import ImpressModalEditing
 
 /// Application settings view
 struct SettingsView: View {
@@ -15,6 +16,12 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "doc.text")
                 }
                 .accessibilityIdentifier("settings.tabs.editor")
+
+            ImbibSettingsView()
+                .tabItem {
+                    Label("Citations", systemImage: "books.vertical")
+                }
+                .accessibilityIdentifier("settings.tabs.imbib")
 
             ExportSettingsView()
                 .tabItem {
@@ -67,8 +74,7 @@ struct EditorSettingsView: View {
     @AppStorage("showLineNumbers") private var showLineNumbers = true
     @AppStorage("highlightCurrentLine") private var highlightCurrentLine = true
     @AppStorage("wrapLines") private var wrapLines = true
-    @AppStorage("helixModeEnabled") private var helixModeEnabled = false
-    @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
+    @ObservedObject private var modalSettings = ModalEditingSettings.shared
 
     var body: some View {
         Form {
@@ -89,22 +95,45 @@ struct EditorSettingsView: View {
                 Toggle("Wrap long lines", isOn: $wrapLines)
             }
 
-            Section("Editing Mode") {
-                Toggle("Helix-style modal editing", isOn: $helixModeEnabled)
-                    .accessibilityIdentifier("settings.editor.helixMode")
+            Section("Modal Editing") {
+                Toggle("Enable modal editing", isOn: $modalSettings.isEnabled)
+                    .accessibilityIdentifier("settings.editor.modalEditing")
 
-                if helixModeEnabled {
-                    Toggle("Show mode indicator", isOn: $helixShowModeIndicator)
-                        .accessibilityIdentifier("settings.editor.helixModeIndicator")
+                if modalSettings.isEnabled {
+                    Picker("Style", selection: $modalSettings.selectedStyle) {
+                        ForEach(EditorStyleIdentifier.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.editor.modalStyle")
 
-                    Text("Use hjkl for movement, i/Escape for insert/normal mode")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Toggle("Show mode indicator", isOn: $modalSettings.showModeIndicator)
+                        .accessibilityIdentifier("settings.editor.modeIndicator")
+
+                    styleDescription
                 }
             }
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    @ViewBuilder
+    private var styleDescription: some View {
+        switch modalSettings.selectedStyle {
+        case .helix:
+            Text("Selection-first editing: select text, then act on it")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .vim:
+            Text("Verb-object grammar: type operator (d/c/y), then motion")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .emacs:
+            Text("Chorded keys: Control and Meta for commands, always insert mode")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

@@ -280,7 +280,7 @@ public actor HelpIndexService {
                         category: document.category,
                         snippet: hit.snippet,
                         matchType: .content,
-                        score: Double(hit.relevanceScore)
+                        score: hit.relevanceScore
                     )
                 }
             } catch {
