@@ -4,6 +4,9 @@
 //
 //  Service for loading and searching help documentation.
 //
+//  Uses Rust-powered Tantivy full-text search when available for improved
+//  search quality with term highlighting and relevance scoring.
+//
 
 import Foundation
 import OSLog
@@ -15,7 +18,8 @@ private let logger = Logger(subsystem: "com.imbib.help", category: "index")
 /// Provides:
 /// - Loading the bundled help index
 /// - Loading markdown content for documents
-/// - Combined keyword and semantic search
+/// - Combined keyword and semantic search (Swift fallback)
+/// - Full-text search with highlighting (Rust/Tantivy when available)
 public actor HelpIndexService {
 
     // MARK: - Singleton
@@ -27,6 +31,7 @@ public actor HelpIndexService {
     private var index: HelpIndex?
     private var documentContent: [String: String] = [:]
     private var isLoaded = false
+    private var rustSearchReady = false
 
     // MARK: - Initialization
 
@@ -54,6 +59,44 @@ public actor HelpIndexService {
         } else {
             logger.warning("HelpIndex.json not found in bundle, using built-in documents")
             loadBuiltInDocuments()
+        }
+
+        // Initialize Rust search index if available
+        await initializeRustSearch()
+    }
+
+    /// Initialize the Rust-powered search index
+    private func initializeRustSearch() async {
+        guard RustHelpSearchInfo.isAvailable else {
+            logger.info("Rust help search not available, using Swift fallback")
+            return
+        }
+
+        do {
+            try await RustHelpSearchService.shared.initializeIndex()
+
+            // Index all documents
+            var rustDocs: [HelpDocumentInput] = []
+            for document in index?.documents ?? [] {
+                let content = await loadContent(for: document)
+                let platform: RustHelpPlatform = .both // Default to both platforms
+
+                rustDocs.append(HelpDocumentInput(
+                    id: document.id,
+                    title: document.title,
+                    body: content,
+                    keywords: document.keywords,
+                    platform: platform,
+                    category: document.category.rawValue
+                ))
+            }
+
+            try await RustHelpSearchService.shared.indexDocuments(rustDocs)
+            rustSearchReady = true
+            logger.info("Rust help search index ready with \(rustDocs.count) documents")
+        } catch {
+            logger.warning("Failed to initialize Rust help search: \(error.localizedDescription)")
+            rustSearchReady = false
         }
     }
 
@@ -198,25 +241,65 @@ public actor HelpIndexService {
 
     // MARK: - Search
 
-    /// Search help documents using combined keyword and semantic search.
+    /// Search help documents using Rust full-text search when available,
+    /// falling back to Swift keyword search.
     ///
-    /// Search priority:
+    /// Rust search provides:
+    /// - Tantivy full-text indexing
+    /// - Term highlighting with <mark> tags
+    /// - Better relevance scoring
+    ///
+    /// Swift fallback priority:
     /// 1. Title matches (score: 1.0)
     /// 2. Keyword matches (score: 0.8)
-    /// 3. Semantic search via EmbeddingService (score: 0.6 * similarity)
+    /// 3. Summary matches (score: 0.5)
     /// 4. Content full-text search (score: 0.4)
     public func search(query: String) async -> [HelpSearchResult] {
         await loadIndex()
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return [] }
 
+        // Try Rust search first
+        if rustSearchReady {
+            do {
+                let rustResults = try await RustHelpSearchService.shared.search(
+                    query: trimmedQuery,
+                    limit: 20,
+                    filterPlatform: true
+                )
+
+                // Convert Rust results to HelpSearchResult
+                return rustResults.compactMap { hit -> HelpSearchResult? in
+                    guard let document = index?.documents.first(where: { $0.id == hit.id }) else {
+                        return nil
+                    }
+                    return HelpSearchResult(
+                        documentID: hit.id,
+                        documentTitle: hit.title,
+                        category: document.category,
+                        snippet: hit.snippet,
+                        matchType: .content,
+                        score: Double(hit.relevanceScore)
+                    )
+                }
+            } catch {
+                logger.warning("Rust search failed, falling back to Swift: \(error.localizedDescription)")
+            }
+        }
+
+        // Fall back to Swift search
+        return await swiftSearch(query: trimmedQuery.lowercased())
+    }
+
+    /// Swift-based fallback search implementation
+    private func swiftSearch(query: String) async -> [HelpSearchResult] {
         var results: [HelpSearchResult] = []
-        let queryWords = Set(trimmedQuery.components(separatedBy: .whitespaces))
+        let queryWords = Set(query.components(separatedBy: .whitespaces))
 
         for document in index?.documents ?? [] {
             // 1. Title match
-            if document.title.lowercased().contains(trimmedQuery) {
+            if document.title.lowercased().contains(query) {
                 results.append(HelpSearchResult(
                     documentID: document.id,
                     documentTitle: document.title,
@@ -245,7 +328,7 @@ public actor HelpIndexService {
             }
 
             // 3. Summary match (lightweight content search)
-            if document.summary.lowercased().contains(trimmedQuery) {
+            if document.summary.lowercased().contains(query) {
                 results.append(HelpSearchResult(
                     documentID: document.id,
                     documentTitle: document.title,
@@ -259,9 +342,9 @@ public actor HelpIndexService {
 
             // 4. Full content search (load content if needed)
             let content = await loadContent(for: document)
-            if content.lowercased().contains(trimmedQuery) {
+            if content.lowercased().contains(query) {
                 // Extract snippet around the match
-                let snippet = extractSnippet(from: content, matching: trimmedQuery)
+                let snippet = extractSnippet(from: content, matching: query)
                 results.append(HelpSearchResult(
                     documentID: document.id,
                     documentTitle: document.title,

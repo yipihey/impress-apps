@@ -1,0 +1,170 @@
+{
+  "version": "2.0",
+  "documents": [
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "category": "gettingStarted",
+      "filename": "getting-started.md",
+      "keywords": ["install", "setup", "library", "import", "first", "begin", "new"],
+      "summary": "Set up imbib and import your first papers.",
+      "sortOrder": 0
+    },
+    {
+      "id": "features",
+      "title": "Features Overview",
+      "category": "features",
+      "filename": "features.md",
+      "keywords": ["feature", "capability", "function", "what can", "overview"],
+      "summary": "Explore imbib's key features and capabilities.",
+      "sortOrder": 0
+    },
+    {
+      "id": "keyboard-shortcuts",
+      "title": "Keyboard Shortcuts",
+      "category": "keyboardShortcuts",
+      "filename": "keyboard-shortcuts.md",
+      "keywords": ["shortcut", "hotkey", "keybinding", "keyboard", "command", "key"],
+      "summary": "Quick reference for all keyboard shortcuts.",
+      "sortOrder": 0
+    },
+    {
+      "id": "smart-searches",
+      "title": "Smart Searches",
+      "category": "features",
+      "filename": "smart-searches.md",
+      "keywords": ["smart", "search", "query", "syntax", "filter", "boolean", "arxiv", "ads"],
+      "summary": "Create and use Smart Searches to find papers automatically.",
+      "sortOrder": 1
+    },
+    {
+      "id": "syncing",
+      "title": "iCloud Sync",
+      "category": "features",
+      "filename": "syncing.md",
+      "keywords": ["sync", "icloud", "backup", "devices", "cloud"],
+      "summary": "Keep your library synchronized across devices.",
+      "sortOrder": 2
+    },
+    {
+      "id": "faq",
+      "title": "Frequently Asked Questions",
+      "category": "faq",
+      "filename": "faq.md",
+      "keywords": ["question", "help", "problem", "issue", "how to", "faq"],
+      "summary": "Answers to common questions.",
+      "sortOrder": 0
+    },
+    {
+      "id": "automation",
+      "title": "Automation & Integration",
+      "category": "automation",
+      "filename": "automation.md",
+      "keywords": ["automate", "script", "url scheme", "api", "integrate"],
+      "summary": "Automate imbib with URL schemes and scripts.",
+      "sortOrder": 0
+    },
+    {
+      "id": "url-scheme",
+      "title": "URL Scheme Reference",
+      "category": "automation",
+      "filename": "url-scheme.md",
+      "keywords": ["url", "scheme", "link", "deep link", "api", "command"],
+      "summary": "Complete reference for imbib:// URL scheme commands.",
+      "sortOrder": 1
+    },
+    {
+      "id": "share-extension",
+      "title": "Share Extension",
+      "category": "features",
+      "filename": "features/share-extension.md",
+      "keywords": ["browser", "safari", "extension", "share", "import", "web", "save"],
+      "summary": "Import papers directly from your browser.",
+      "sortOrder": 3
+    },
+    {
+      "id": "siri-shortcuts",
+      "title": "Siri Shortcuts",
+      "category": "automation",
+      "filename": "features/siri-shortcuts.md",
+      "keywords": ["siri", "shortcuts", "voice", "automation", "workflow", "intents"],
+      "summary": "Automate paper management with Siri and Shortcuts.",
+      "sortOrder": 2
+    },
+    {
+      "id": "recommendation-engine",
+      "title": "Recommendation Engine",
+      "category": "features",
+      "filename": "features/recommendation-engine.md",
+      "keywords": ["recommendation", "suggest", "ranking", "weight", "score", "personalize"],
+      "summary": "How imbib recommends papers and how to tune it.",
+      "sortOrder": 4
+    },
+    {
+      "id": "inbox-management",
+      "title": "Inbox Management",
+      "category": "features",
+      "filename": "features/inbox-management.md",
+      "keywords": ["inbox", "triage", "keep", "dismiss", "star", "mute", "feed"],
+      "summary": "Manage and triage papers in your inbox.",
+      "sortOrder": 5
+    },
+    {
+      "id": "command-palette",
+      "title": "Command Palette",
+      "category": "features",
+      "filename": "features/command-palette.md",
+      "keywords": ["command", "palette", "quick", "action", "power user", "keyboard"],
+      "summary": "Access any command with keyboard-driven interface.",
+      "sortOrder": 6,
+      "platform": "macOS"
+    },
+    {
+      "id": "file-provider",
+      "title": "Files App Integration",
+      "category": "features",
+      "filename": "features/file-provider.md",
+      "keywords": ["files", "finder", "file provider", "pdf", "browse", "storage"],
+      "summary": "Access your papers from Files app and Finder.",
+      "sortOrder": 7
+    },
+    {
+      "id": "widgets",
+      "title": "Widgets",
+      "category": "features",
+      "filename": "features/widgets.md",
+      "keywords": ["widget", "home screen", "lock screen", "notification center"],
+      "summary": "Add imbib widgets to your home and lock screens.",
+      "sortOrder": 8
+    },
+    {
+      "id": "ios-guide",
+      "title": "iOS Guide",
+      "category": "features",
+      "filename": "platform/ios-guide.md",
+      "keywords": ["ios", "iphone", "ipad", "mobile", "touch", "gesture"],
+      "summary": "iOS-specific features and tips.",
+      "sortOrder": 10,
+      "platform": "iOS"
+    },
+    {
+      "id": "macos-guide",
+      "title": "macOS Guide",
+      "category": "features",
+      "filename": "platform/macos-guide.md",
+      "keywords": ["macos", "mac", "desktop", "finder", "menu bar"],
+      "summary": "macOS-specific features and tips.",
+      "sortOrder": 11,
+      "platform": "macOS"
+    },
+    {
+      "id": "settings-reference",
+      "title": "Settings Reference",
+      "category": "features",
+      "filename": "reference/settings-reference.md",
+      "keywords": ["settings", "preferences", "configure", "options", "reference"],
+      "summary": "Complete reference for all imbib settings.",
+      "sortOrder": 12
+    }
+  ]
+}

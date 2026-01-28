@@ -5,6 +5,7 @@
 //! - Full-text search with Tantivy (unified search across metadata, PDFs, notes)
 //! - Snippet extraction and term highlighting
 //! - Semantic search with embeddings (optional, requires "embeddings" feature)
+//! - Help documentation search with highlighting
 //!
 //! Query building/parsing works on all platforms including WASM.
 //! Full-text search requires native platforms (uses Tantivy).
@@ -18,6 +19,10 @@ pub mod snippets;
 pub mod index;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod schema;
+
+// Help documentation search (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub mod help_search;
 
 #[cfg(feature = "embeddings")]
 pub mod semantic;
@@ -50,3 +55,7 @@ pub use ann_index::*;
 
 #[cfg(feature = "embeddings")]
 pub use semantic::*;
+
+// Help search exports
+#[cfg(not(target_arch = "wasm32"))]
+pub use help_search::*;

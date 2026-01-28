@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
     macOS: "14.0"
-    iOS: "17.0"
+    iOS: "18.0"
   xcodeVersion: "15.0"
   generateEmptyDirectories: true
   groupSortPosition: top
@@ -16,7 +16,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEAD_CODE_STRIPPING: YES
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "20260125.2"
+    CURRENT_PROJECT_VERSION: "20260127.1"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -30,6 +30,8 @@ packages:
     path: ../PublicationManagerCore
   ImpressModalEditing:
     path: ../../../packages/ImpressModalEditing
+  ImbibRustCore:
+    path: ../ImbibRustCore
 
 targets:
   # macOS App
@@ -41,6 +43,18 @@ targets:
         excludes:
           - "**/*.entitlements"
           - "**/ShareExtension/**"
+      # Help documentation resources
+      - path: ../docs
+        name: HelpDocs
+        type: folder
+        buildPhase: resources
+        excludes:
+          - "adr/**"
+          - "_site/**"
+          - "_includes/**"
+          - "_layouts/**"
+          - "*.yml"
+          - "Gemfile*"
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressModalEditing
@@ -53,8 +67,11 @@ targets:
     info:
       path: imbib/Resources/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.productivity
         CFBundleURLTypes:
-          - CFBundleURLName: com.imbib.app
+          - CFBundleURLName: com.imbib.app.ios
             CFBundleURLSchemes:
               - imbib
         UTExportedTypeDeclarations:
@@ -66,7 +83,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: imbib/Resources/Info.plist
@@ -102,6 +119,18 @@ targets:
           - "**/FileProvider/**"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
+      # Help documentation resources
+      - path: ../docs
+        name: HelpDocs
+        type: folder
+        buildPhase: resources
+        excludes:
+          - "adr/**"
+          - "_site/**"
+          - "_includes/**"
+          - "_layouts/**"
+          - "*.yml"
+          - "Gemfile*"
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressModalEditing
@@ -142,7 +171,7 @@ targets:
             UTTypeTagSpecification: {}
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -174,10 +203,13 @@ targets:
       - path: imbib/Resources/Assets.xcassets
     dependencies:
       - package: PublicationManagerCore
+      - package: ImbibRustCore
+      - framework: ../../../crates/imbib-core/frameworks/ImbibCore.xcframework
+        embed: false
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
         PRODUCT_NAME: imbib-ShareExtension
         INFOPLIST_FILE: ShareExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -203,9 +235,12 @@ targets:
       - path: imbib/Resources/Assets.xcassets
     dependencies:
       - package: PublicationManagerCore
+      - package: ImbibRustCore
+      - framework: ../../../crates/imbib-core/frameworks/ImbibCore.xcframework
+        embed: false
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
         PRODUCT_NAME: imbib-iOS-ShareExtension
         INFOPLIST_FILE: imbib-iOS/ShareExtension/Info.plist
@@ -246,7 +281,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.safari-extension
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -287,7 +322,7 @@ targets:
     dependencies: []
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
@@ -312,10 +347,13 @@ targets:
           - "**/*.entitlements"
     dependencies:
       - package: PublicationManagerCore
+      - package: ImbibRustCore
+      - framework: ../../../crates/imbib-core/frameworks/ImbibCore.xcframework
+        embed: false
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.fileprovider
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
         PRODUCT_NAME: imbib-FileProvider
         INFOPLIST_FILE: FileProvider/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -340,9 +378,12 @@ targets:
           - "**/*.entitlements"
     dependencies:
       - package: PublicationManagerCore
+      - package: ImbibRustCore
+      - framework: ../../../crates/imbib-core/frameworks/ImbibCore.xcframework
+        embed: false
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
         PRODUCT_NAME: imbib-iOS-FileProvider
         INFOPLIST_FILE: imbib-iOS/FileProvider/Info.plist

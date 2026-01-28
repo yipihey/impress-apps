@@ -60,6 +60,10 @@ pub use search::{ADSDatabase, QueryLogic};
 pub use search::{AnnIndex, AnnIndexConfig, AnnIndexItem, AnnSimilarityResult};
 #[cfg(not(target_arch = "wasm32"))]
 pub use search::{SearchHit, SearchIndex, SearchIndexError};
+#[cfg(not(target_arch = "wasm32"))]
+pub use search::{
+    HelpDocument, HelpPlatform, HelpSearchError, HelpSearchIndex, HelpSearchResult,
+};
 #[cfg(feature = "native")]
 pub use sources::ads::PaperStub;
 
