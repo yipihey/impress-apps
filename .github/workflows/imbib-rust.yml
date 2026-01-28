@@ -50,40 +50,8 @@ jobs:
       - name: Run tests
         run: cargo test --features native
 
-  build-ios:
-    name: Build iOS
-    runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: crates/imbib-core
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios, aarch64-apple-ios-sim
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build for iOS device
-        run: cargo build --release --target aarch64-apple-ios
-        env:
-          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
-
-      - name: Build for iOS simulator
-        run: cargo build --release --target aarch64-apple-ios-sim
-        env:
-          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+  # Note: iOS builds are handled via pre-built xcframeworks in the app project.
+  # Cross-compiling with the native feature requires special TLS configuration.
 
   generate-bindings:
     name: Generate Swift Bindings
