@@ -351,9 +351,6 @@ pub struct CrdtValidation {
 // UniFFI Exports for Migration
 // ============================================================================
 
-#[cfg(feature = "uniffi")]
-use crate::{FFISchemaVersion, FFIVersionCheckResult};
-
 /// Schema version for FFI
 #[cfg(feature = "uniffi")]
 #[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq)]

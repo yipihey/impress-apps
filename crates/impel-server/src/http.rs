@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use impel_core::coordination::Command;
 use impel_core::event::{EntityType, Event, EventPayload};
-use impel_core::thread::{Thread, ThreadId, ThreadState};
+use impel_core::thread::{ThreadId, ThreadState};
 
 use crate::AppState;
 

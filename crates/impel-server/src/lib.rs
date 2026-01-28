@@ -10,7 +10,6 @@ pub mod websocket;
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
     routing::{get, post},
     Router,
 };
