@@ -22,7 +22,7 @@ struct IOSSettingsView: View {
         NavigationStack {
             List {
                 // Sources Section
-                Section("Sources") {
+                Section {
                     NavigationLink {
                         SourcesSettingsView()
                     } label: {
@@ -32,7 +32,7 @@ struct IOSSettingsView: View {
                 }
 
                 // PDF Settings
-                Section("PDF") {
+                Section {
                     NavigationLink {
                         PDFSettingsView()
                     } label: {
@@ -41,7 +41,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Search Settings
-                Section("Search") {
+                Section {
                     NavigationLink {
                         SearchSettingsView()
                     } label: {
@@ -50,7 +50,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Enrichment Settings
-                Section("Enrichment") {
+                Section {
                     NavigationLink {
                         IOSEnrichmentSettingsView()
                     } label: {
@@ -60,7 +60,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Inbox Settings
-                Section("Inbox") {
+                Section {
                     NavigationLink {
                         IOSInboxSettingsView()
                     } label: {
@@ -69,7 +69,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Recommendation Settings
-                Section("Recommendations") {
+                Section {
                     NavigationLink {
                         IOSRecommendationSettingsView()
                     } label: {
@@ -79,7 +79,7 @@ struct IOSSettingsView: View {
                 }
 
                 // iCloud Sync Settings
-                Section("iCloud") {
+                Section {
                     NavigationLink {
                         CloudKitSyncSettingsView()
                     } label: {
@@ -119,7 +119,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Automation Settings
-                Section("Automation") {
+                Section {
                     NavigationLink {
                         IOSAutomationSettingsView()
                     } label: {
@@ -128,7 +128,7 @@ struct IOSSettingsView: View {
                 }
 
                 // Keyboard Shortcuts
-                Section("Keyboard") {
+                Section {
                     NavigationLink {
                         IOSKeyboardShortcutsSettingsView()
                     } label: {
