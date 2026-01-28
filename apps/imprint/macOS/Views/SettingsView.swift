@@ -142,6 +142,8 @@ struct ExportSettingsView: View {
     @AppStorage("defaultExportFormat") private var defaultExportFormat = "latex"
     @AppStorage("defaultJournalTemplate") private var defaultJournalTemplate = "generic"
     @AppStorage("includeBibliography") private var includeBibliography = true
+    @State private var showingTemplateBrowser = false
+    @StateObject private var templateService = TemplateService.shared
 
     var body: some View {
         Form {
@@ -154,21 +156,28 @@ struct ExportSettingsView: View {
                 }
             }
 
-            Section("LaTeX") {
-                Picker("Journal Template", selection: $defaultJournalTemplate) {
-                    Text("Generic Article").tag("generic")
-                    Text("MNRAS").tag("mnras")
-                    Text("ApJ").tag("apj")
-                    Text("A&A").tag("aa")
-                    Text("PhysRevD").tag("physrevd")
-                    Text("JCAP").tag("jcap")
+            Section("Templates") {
+                Picker("Default Template", selection: $defaultJournalTemplate) {
+                    ForEach(templateService.templates) { template in
+                        Text(template.name).tag(template.id)
+                    }
                 }
 
+                Button("Manage Templates...") {
+                    showingTemplateBrowser = true
+                }
+                .accessibilityIdentifier("settings.export.manageTemplates")
+            }
+
+            Section("Bibliography") {
                 Toggle("Include bibliography file", isOn: $includeBibliography)
             }
         }
         .formStyle(.grouped)
         .padding()
+        .sheet(isPresented: $showingTemplateBrowser) {
+            TemplateBrowserView()
+        }
     }
 }
 
