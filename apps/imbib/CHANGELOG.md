@@ -2,6 +2,122 @@
 
 Detailed session-by-session development history. For quick reference during development, see [CLAUDE.md](CLAUDE.md).
 
+## 2026-01-28 - iCloud Data Safety Strategy
+
+Comprehensive data protection for CloudKit sync operations.
+
+### Schema Version Management
+- **SchemaVersion.swift**: Explicit versioning with compatibility checks
+  - Version registry (v1.0 → v1.2 current)
+  - Compatibility checker for CloudKit sync
+  - Display strings and migration info
+
+### Safe Migration Infrastructure
+- **SafeMigrationService.swift**: Migration wrapper with pre/post validation
+  - Automatic backup before migrations
+  - State capture and validation
+  - Rollback capability on failure
+  - CloudKit sync coordination
+
+### Sync Health Monitoring
+- **SyncHealthMonitor.swift**: Observable health tracking
+  - Real-time sync status updates
+  - Pending upload/download counts
+  - Unresolved conflict tracking
+  - Actionable issue detection
+
+- **SyncHealthView.swift**: User-facing health dashboard
+  - Status overview with icons
+  - Issue list with resolution actions
+  - Pre-update backup prompts
+
+### Library Backup Service
+- **LibraryBackupService.swift**: Comprehensive export
+  - Full BibTeX export with all metadata
+  - PDF files with preserved structure
+  - Notes as JSON
+  - Settings backup
+  - Manifest with checksums for verification
+
+### CloudKit Feature Flags
+- **CloudKitSyncSettingsStore.swift**: Extended with:
+  - SyncFeatureFlags for gating risky changes
+  - Emergency rollback capability
+  - Graceful degradation options
+
+### Test Infrastructure
+- **SchemaMigrationTests.swift**: Version and migration tests
+- **CloudKitSyncSimulatorTests.swift**: Multi-device simulation
+- **CorruptionRecoveryTests.swift**: Recovery scenario tests
+- **SyncStressTests.swift**: Load and stress tests
+
+### Documentation
+- **icloud-pitfalls.md**: Developer guide for CloudKit
+  - Known limitations and dangerous operations
+  - Safe practices and testing procedures
+  - Recovery procedures
+
+- **data-recovery-guide.md**: User support documentation
+  - Troubleshooting sync issues
+  - Export and backup instructions
+  - Emergency recovery steps
+
+### Modified Files
+- PersistenceController.swift: Schema version recording
+- SettingsView.swift: Added Sync Health and Backup sections
+
+## 2026-01-28 - iOS Keyboard & Apple Pencil Support
+
+Extended hardware keyboard and Apple Pencil support to imbib iOS app.
+
+### Keyboard Shortcuts (iPad)
+- **Notes Editor**: IOSNotesEditorView.swift
+  - Cmd+S: Save notes immediately
+  - Cmd+B: Bold (wraps selection with `**`)
+  - Cmd+I: Italic (wraps selection with `*`)
+  - Cmd+Z: Undo
+  - Cmd+Shift+Z: Redo
+- **BibTeX Editor**: IOSBibTeXEditorView.swift
+  - Cmd+S: Save and validate BibTeX
+  - Cmd+A: Select all text
+  - Cmd+C: Copy (selection or all)
+  - Cmd+N: Insert field template
+  - Cmd+Z/Cmd+Shift+Z: Undo/redo
+
+### Apple Pencil Scribble Support
+- **IOSScribbleSupport.swift**: Scribble configuration and scratch-to-delete gesture
+- UITextView wrappers configured for automatic Scribble support
+- Write anywhere to insert text, scratch to delete, circle to select
+
+### PencilKit PDF Annotations
+- **IOSSketchAnnotationView.swift**: Full PencilKit drawing canvas
+- Draw tool added to AnnotationToolbar (iOS only)
+- Export sketches as PNG stamp annotations on PDFs
+- Full pressure sensitivity and palm rejection
+- Undo/redo support with tool picker integration
+
+### Voice Dictation
+- **IOSDictationService.swift**: Speech recognition service
+- Auto-punctuation for natural speech
+- Voice commands adapted for imbib:
+  - "new paragraph", "new line", "bold", "italic"
+  - "save note", "next paper", "previous paper"
+  - "show pdf", "show notes", "show bibtex"
+  - "undo", "stop dictation"
+- Waveform visualization overlay
+- Floating dictation button component
+
+### Modified Files
+- IOSNotesTab.swift: Uses IOSNotesEditorView for keyboard support
+- IOSBibTeXEditorSheet.swift: Uses IOSBibTeXEditorView for keyboard support
+- AnnotationToolbar.swift: Added sketch tool with iOS conditional
+- AnnotationService.swift: Added ink/stamp annotation methods
+
+### Documentation Updated
+- docs/features.md: Added iOS keyboard/Pencil section
+- docs/keyboard-shortcuts.md: Added iOS shortcuts and voice commands
+- imbib/Resources/HelpDocs/features.md: Updated in-app help
+
 ## 2026-01-19 (Session 21)
 - Enhanced Import Preview with Library Picker
   - Library destination picker: import to existing library or create new

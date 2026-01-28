@@ -134,6 +134,91 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         defaults.removeObject(forKey: Keys.lastError)
         defaults.removeObject(forKey: Keys.lastSyncDate)
         defaults.removeObject(forKey: Keys.pendingReset)
+        defaults.removeObject(forKey: Keys.featureFlags)
         Logger.settings.info("CloudKit sync settings reset")
     }
+
+    // MARK: - Feature Flags
+
+    /// Feature flags for gating risky sync changes.
+    public var featureFlags: SyncFeatureFlags {
+        get {
+            guard let data = defaults.data(forKey: Keys.featureFlags),
+                  let flags = try? JSONDecoder().decode(SyncFeatureFlags.self, from: data) else {
+                return SyncFeatureFlags()
+            }
+            return flags
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: Keys.featureFlags)
+            }
+        }
+    }
+
+    // MARK: - Emergency Rollback
+
+    /// Perform emergency rollback of sync features.
+    ///
+    /// This disables new features and stops sync to prevent data issues.
+    /// Use when detecting widespread sync problems.
+    public func emergencyRollback() {
+        // Reset feature flags to legacy
+        featureFlags = .legacy
+
+        // Disable sync
+        isDisabledByUser = true
+
+        // Clear any pending operations
+        lastError = "Sync paused for safety. Please update the app."
+
+        Logger.settings.warning("Emergency rollback performed - sync disabled, features reverted")
+
+        // Notify the app
+        NotificationCenter.default.post(name: .syncRolledBack, object: nil)
+    }
+}
+
+// MARK: - Feature Flags
+
+/// Feature flags for controlling sync behavior.
+public struct SyncFeatureFlags: Codable, Sendable {
+    /// Whether to use the new field-level conflict resolution.
+    public var enableNewConflictResolution: Bool
+
+    /// Whether to sync large PDF files (>10MB).
+    public var enableLargePDFSync: Bool
+
+    /// Sync schema version to use.
+    public var syncSchemaVersion: Int
+
+    public init(
+        enableNewConflictResolution: Bool = true,
+        enableLargePDFSync: Bool = true,
+        syncSchemaVersion: Int = SchemaVersion.current.rawValue
+    ) {
+        self.enableNewConflictResolution = enableNewConflictResolution
+        self.enableLargePDFSync = enableLargePDFSync
+        self.syncSchemaVersion = syncSchemaVersion
+    }
+
+    /// Legacy feature flags (all new features disabled).
+    public static let legacy = SyncFeatureFlags(
+        enableNewConflictResolution: false,
+        enableLargePDFSync: false,
+        syncSchemaVersion: 100
+    )
+}
+
+// MARK: - Notification Names
+
+public extension Notification.Name {
+    /// Posted when emergency rollback is performed.
+    static let syncRolledBack = Notification.Name("syncRolledBack")
+}
+
+// MARK: - Keys Extension
+
+private extension CloudKitSyncSettingsStore.Keys {
+    static let featureFlags = "cloudKit.sync.featureFlags"
 }

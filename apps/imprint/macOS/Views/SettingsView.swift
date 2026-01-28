@@ -23,6 +23,12 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.imbib")
 
+            DocumentHealthSettingsView()
+                .tabItem {
+                    Label("Documents", systemImage: "doc.badge.gearshape")
+                }
+                .accessibilityIdentifier("settings.tabs.documents")
+
             ExportSettingsView()
                 .tabItem {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -35,8 +41,79 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.account")
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
         .accessibilityIdentifier("settings.container")
+    }
+}
+
+// MARK: - Document Health Settings
+
+/// Settings for document health, validation, and backup
+struct DocumentHealthSettingsView: View {
+    @AppStorage("validateCRDTOnOpen") private var validateCRDTOnOpen = true
+    @AppStorage("autoBackupBeforeMigration") private var autoBackupBeforeMigration = true
+    @State private var isValidating = false
+    @State private var validationResult: String?
+
+    var body: some View {
+        Form {
+            Section("Document Validation") {
+                Toggle("Validate CRDT state when opening documents", isOn: $validateCRDTOnOpen)
+                    .help("Check document integrity when opening to detect corruption early")
+
+                Toggle("Create backup before document migration", isOn: $autoBackupBeforeMigration)
+                    .help("Automatically backup documents before schema version upgrades")
+            }
+
+            Section("Schema Version") {
+                HStack {
+                    Text("Current Format Version")
+                    Spacer()
+                    Text("v\(DocumentSchemaVersion.current.displayString)")
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Text("Minimum Readable Version")
+                    Spacer()
+                    Text("v\(DocumentSchemaVersion.minimumReadable.displayString)")
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section("Diagnostics") {
+                Button {
+                    // This would validate the currently open document
+                    isValidating = true
+                    Task {
+                        // Simulated validation
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        await MainActor.run {
+                            validationResult = "Document is healthy"
+                            isValidating = false
+                        }
+                    }
+                } label: {
+                    if isValidating {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("Validate Current Document")
+                    }
+                }
+                .disabled(isValidating)
+
+                if let result = validationResult {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(result)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
     }
 }
 

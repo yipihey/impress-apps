@@ -428,6 +428,9 @@ public final class PersistenceController: @unchecked Sendable {
             Logger.persistence.info("Loaded persistent store: \(description.url?.absoluteString ?? "unknown")")
             self.storeLoadState = .loaded
 
+            // Record schema version after successful load
+            self.recordSchemaVersion()
+
             // IMPORTANT: Only set up CloudKit observers AFTER store is loaded successfully.
             // Setting up observers before the store is ready causes race conditions with
             // CloudKit's background queue that can crash on startup.
@@ -2173,6 +2176,37 @@ public final class PersistenceController: @unchecked Sendable {
 
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
         container.performBackgroundTask(block)
+    }
+
+    // MARK: - Schema Version
+
+    /// Records the current schema version after store load.
+    ///
+    /// This enables version checking for CloudKit compatibility and safe migrations.
+    private func recordSchemaVersion() {
+        let currentVersion = SchemaVersion.current.rawValue
+        let storedVersion = UserDefaults.forCurrentEnvironment.integer(forKey: SchemaVersion.userDefaultsKey)
+
+        if storedVersion == 0 {
+            // First launch - record version
+            UserDefaults.forCurrentEnvironment.set(currentVersion, forKey: SchemaVersion.userDefaultsKey)
+            Logger.persistence.info("First launch - recorded schema version \(SchemaVersion.current.displayString)")
+        } else if storedVersion < currentVersion {
+            // Upgrade detected
+            Logger.persistence.info("Schema upgrade detected: v\(storedVersion/100).\((storedVersion%100)/10) → v\(SchemaVersion.current.displayString)")
+            UserDefaults.forCurrentEnvironment.set(currentVersion, forKey: SchemaVersion.userDefaultsKey)
+        } else {
+            Logger.persistence.debug("Schema version current: v\(SchemaVersion.current.displayString)")
+        }
+    }
+
+    /// Check if a remote schema version is compatible before sync.
+    ///
+    /// - Parameter remoteVersion: The schema version from CloudKit metadata.
+    /// - Returns: The compatibility check result.
+    public func checkSchemaCompatibility(remoteVersion: Int) -> SchemaVersionCheckResult {
+        let checker = SchemaVersionChecker()
+        return checker.check(remoteVersionRaw: remoteVersion)
     }
 
     // MARK: - Migrations

@@ -211,6 +211,45 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("HTTP Server (Browser Extension)") {
+                Toggle("Enable HTTP server", isOn: $automationSettings.isHTTPServerEnabled)
+                    .help("Run a local HTTP server for browser extension integration")
+                    .disabled(!automationSettings.isEnabled)
+                    .onChange(of: automationSettings.isHTTPServerEnabled) { _, newValue in
+                        saveAutomationSettings()
+                        handleHTTPServerToggle(enabled: newValue)
+                    }
+
+                HStack {
+                    Text("Port:")
+                    TextField("Port", value: $automationSettings.httpServerPort, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .disabled(!automationSettings.isHTTPServerEnabled)
+                        .onChange(of: automationSettings.httpServerPort) { _, _ in
+                            saveAutomationSettings()
+                        }
+                    Text("(default: 23120)")
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(!automationSettings.isEnabled)
+
+                if automationSettings.isHTTPServerEnabled {
+                    HStack {
+                        Image(systemName: "circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption2)
+                        Text("Server running at http://127.0.0.1:\(automationSettings.httpServerPort)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text("Enables the Safari extension to search your library and insert citations. The server only accepts connections from localhost.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
         }
         .formStyle(.grouped)
         .padding()
@@ -223,6 +262,16 @@ struct GeneralSettingsTab: View {
     private func saveAutomationSettings() {
         Task {
             await AutomationSettingsStore.shared.update(automationSettings)
+        }
+    }
+
+    private func handleHTTPServerToggle(enabled: Bool) {
+        Task {
+            if enabled {
+                await HTTPAutomationServer.shared.start()
+            } else {
+                await HTTPAutomationServer.shared.stop()
+            }
         }
     }
 
@@ -748,8 +797,141 @@ extension CDMutedItem.MuteType {
 
 struct SyncSettingsTab: View {
     var body: some View {
-        CloudKitSyncSettingsView()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Sync Health Dashboard
+                GroupBox("Sync Health") {
+                    SyncHealthView()
+                }
+
+                // Existing CloudKit Settings
+                GroupBox("iCloud Settings") {
+                    CloudKitSyncSettingsView()
+                }
+
+                // Backup Section
+                GroupBox("Backup") {
+                    BackupSettingsSection()
+                }
+            }
             .padding()
+        }
+    }
+}
+
+// MARK: - Backup Settings Section
+
+struct BackupSettingsSection: View {
+    @State private var isExporting = false
+    @State private var exportProgress: LibraryBackupService.BackupProgress?
+    @State private var lastBackupDate: Date?
+    @State private var availableBackups: [BackupInfo] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Export button
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Library Backup")
+                        .font(.headline)
+                    if let lastBackup = lastBackupDate {
+                        Text("Last backup: \(lastBackup, style: .relative) ago")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("No recent backups")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    Task { await exportBackup() }
+                } label: {
+                    if isExporting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Export Library", systemImage: "square.and.arrow.up")
+                    }
+                }
+                .disabled(isExporting)
+            }
+
+            if let progress = exportProgress {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: progress.fractionComplete)
+                    Text(progress.phase.rawValue)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
+            // Recent backups list
+            if !availableBackups.isEmpty {
+                Text("Recent Backups")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                ForEach(availableBackups.prefix(3)) { backup in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(backup.url.lastPathComponent)
+                                .font(.caption)
+                            Text("\(backup.publicationCount) publications, \(backup.pdfCount) PDFs")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(backup.sizeString)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            loadBackupInfo()
+        }
+    }
+
+    private func exportBackup() async {
+        isExporting = true
+        defer { isExporting = false }
+
+        let service = LibraryBackupService()
+        do {
+            let backupURL = try await service.exportFullBackup { progress in
+                Task { @MainActor in
+                    self.exportProgress = progress
+                }
+            }
+            exportProgress = nil
+            lastBackupDate = Date()
+
+            // Show in Finder
+            #if os(macOS)
+            NSWorkspace.shared.selectFile(backupURL.path, inFileViewerRootedAtPath: backupURL.deletingLastPathComponent().path)
+            #endif
+        } catch {
+            exportProgress = nil
+            // Handle error
+        }
+    }
+
+    private func loadBackupInfo() {
+        let service = LibraryBackupService()
+        Task {
+            let backups = await service.listBackups()
+            await MainActor.run {
+                availableBackups = backups
+                lastBackupDate = backups.first?.createdAt
+            }
+        }
     }
 }
 

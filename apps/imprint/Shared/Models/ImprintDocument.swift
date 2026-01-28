@@ -21,6 +21,9 @@ extension UTType {
 struct ImprintDocument: FileDocument {
     // MARK: - Properties
 
+    /// Stable document identifier (persists across renames/moves)
+    var id: UUID
+
     /// The Typst source content
     var source: String
 
@@ -38,6 +41,9 @@ struct ImprintDocument: FileDocument {
 
     /// Bibliography entries (cite key -> BibTeX)
     var bibliography: [String: String]
+
+    /// UUID of the linked imbib manuscript, if any
+    var linkedImbibManuscriptID: UUID?
 
     /// Document snapshot for undo (CRDT bytes)
     private var automergeData: Data?
@@ -65,17 +71,38 @@ struct ImprintDocument: FileDocument {
 
             // Read metadata
             if let metadataWrapper = wrapper["metadata.json"],
-               let data = metadataWrapper.regularFileContents,
-               let metadata = try? JSONDecoder().decode(DocumentMetadata.self, from: data) {
-                title = metadata.title
-                authors = metadata.authors
-                createdAt = metadata.createdAt
-                modifiedAt = metadata.modifiedAt
+               let data = metadataWrapper.regularFileContents {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                if let metadata = try? decoder.decode(DocumentMetadata.self, from: data) {
+                    id = metadata.id
+                    title = metadata.title
+                    authors = metadata.authors
+                    createdAt = metadata.createdAt
+                    modifiedAt = metadata.modifiedAt
+                    linkedImbibManuscriptID = metadata.linkedImbibManuscriptID
+
+                    // Validate schema version
+                    let checker = DocumentVersionChecker()
+                    if !checker.canOpen(versionRaw: metadata.schemaVersion) {
+                        throw DocumentMigrationError.newerVersion(documentVersion: metadata.schemaVersion)
+                    }
+                } else {
+                    // Legacy format without schemaVersion - assign defaults
+                    id = UUID()
+                    title = "Untitled"
+                    authors = []
+                    createdAt = Date()
+                    modifiedAt = Date()
+                    linkedImbibManuscriptID = nil
+                }
             } else {
+                id = UUID()
                 title = "Untitled"
                 authors = []
                 createdAt = Date()
                 modifiedAt = Date()
+                linkedImbibManuscriptID = nil
             }
 
             // Read bibliography
@@ -99,22 +126,26 @@ struct ImprintDocument: FileDocument {
                   let text = String(data: data, encoding: .utf8) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
+            id = UUID()
             source = text
             title = "Untitled"
             authors = []
             createdAt = Date()
             modifiedAt = Date()
             bibliography = [:]
+            linkedImbibManuscriptID = nil
         }
     }
 
     init() {
+        id = UUID()
         source = Self.defaultTemplate
         title = "Untitled"
         authors = []
         createdAt = Date()
         modifiedAt = Date()
         bibliography = [:]
+        linkedImbibManuscriptID = nil
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
@@ -128,12 +159,19 @@ struct ImprintDocument: FileDocument {
 
         // Metadata
         let metadata = DocumentMetadata(
+            schemaVersion: DocumentSchemaVersion.current.rawValue,
+            id: id,
             title: title,
             authors: authors,
             createdAt: createdAt,
-            modifiedAt: Date()
+            modifiedAt: Date(),
+            linkedImbibManuscriptID: linkedImbibManuscriptID,
+            lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         )
-        if let metadataData = try? JSONEncoder().encode(metadata) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        if let metadataData = try? encoder.encode(metadata) {
             wrappers["metadata.json"] = FileWrapper(regularFileWithContents: metadataData)
         }
 
@@ -216,9 +254,46 @@ struct ImprintDocument: FileDocument {
 
 // MARK: - Document Metadata
 
-private struct DocumentMetadata: Codable {
+struct DocumentMetadata: Codable {
+    /// Schema version of this document format.
+    var schemaVersion: Int
+
+    /// Stable document identifier (persists across renames/moves)
+    let id: UUID
+
     let title: String
     let authors: [String]
     let createdAt: Date
     let modifiedAt: Date
+
+    /// UUID of the linked imbib manuscript, if any
+    var linkedImbibManuscriptID: UUID?
+
+    /// App version that last saved this document.
+    var lastSavedByAppVersion: String?
+
+    init(
+        schemaVersion: Int = DocumentSchemaVersion.current.rawValue,
+        id: UUID = UUID(),
+        title: String,
+        authors: [String],
+        createdAt: Date,
+        modifiedAt: Date,
+        linkedImbibManuscriptID: UUID? = nil,
+        lastSavedByAppVersion: String? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.id = id
+        self.title = title
+        self.authors = authors
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.linkedImbibManuscriptID = linkedImbibManuscriptID
+        self.lastSavedByAppVersion = lastSavedByAppVersion
+    }
+
+    /// Get the schema version as an enum, if valid.
+    var schemaVersionEnum: DocumentSchemaVersion? {
+        DocumentSchemaVersion(rawValue: schemaVersion)
+    }
 }
