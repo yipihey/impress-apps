@@ -183,6 +183,43 @@ public actor ImportExportSettingsStore {
         )
     }
 
+    // MARK: - Cite Key Format Update Methods
+
+    public func updateCiteKeyFormatPreset(_ preset: CiteKeyFormatPreset) {
+        SyncedSettingsStore.shared.set(preset.rawValue, forKey: .citeKeyFormatPreset)
+        Logger.settings.infoCapture(
+            "Cite key format preset set to '\(preset.displayName)'",
+            category: "settings"
+        )
+    }
+
+    public func updateCiteKeyCustomFormat(_ format: String) {
+        SyncedSettingsStore.shared.set(format, forKey: .citeKeyFormatCustom)
+        Logger.settings.infoCapture(
+            "Cite key custom format set to '\(format)'",
+            category: "settings"
+        )
+    }
+
+    public func updateCiteKeyLowercase(_ value: Bool) {
+        SyncedSettingsStore.shared.set(value, forKey: .citeKeyFormatLowercase)
+        Logger.settings.infoCapture(
+            "Cite key lowercase \(value ? "enabled" : "disabled")",
+            category: "settings"
+        )
+    }
+
+    public func updateCiteKeyFormat(_ settings: CiteKeyFormatSettings) {
+        let store = SyncedSettingsStore.shared
+        store.set(settings.preset.rawValue, forKey: .citeKeyFormatPreset)
+        store.set(settings.customFormat, forKey: .citeKeyFormatCustom)
+        store.set(settings.lowercase, forKey: .citeKeyFormatLowercase)
+        Logger.settings.infoCapture(
+            "Cite key format updated: preset=\(settings.preset.rawValue), lowercase=\(settings.lowercase)",
+            category: "settings"
+        )
+    }
+
     public func update(_ settings: ImportExportSettings) {
         let store = SyncedSettingsStore.shared
         store.set(settings.autoGenerateCiteKeys, forKey: .importAutoGenerateCiteKeys)
@@ -190,6 +227,8 @@ public actor ImportExportSettingsStore {
         store.set(settings.exportPreserveRawBibTeX, forKey: .exportPreserveRawBibTeX)
         // openPDFExternally is device-specific
         defaults.set(settings.openPDFExternally, forKey: LocalKeys.openPDFExternally)
+        // Cite key format settings
+        updateCiteKeyFormat(settings.citeKeyFormat)
     }
 
     // MARK: - Reset
@@ -199,6 +238,9 @@ public actor ImportExportSettingsStore {
         store.remove(forKey: .importAutoGenerateCiteKeys)
         store.remove(forKey: .importDefaultEntryType)
         store.remove(forKey: .exportPreserveRawBibTeX)
+        store.remove(forKey: .citeKeyFormatPreset)
+        store.remove(forKey: .citeKeyFormatCustom)
+        store.remove(forKey: .citeKeyFormatLowercase)
         defaults.removeObject(forKey: LocalKeys.openPDFExternally)
         Logger.settings.infoCapture(
             "Import/export settings reset to defaults",

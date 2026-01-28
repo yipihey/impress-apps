@@ -1102,8 +1102,67 @@ struct ImportExportSettingsTab: View {
     @AppStorage("defaultEntryType") private var defaultEntryType = "article"
     @AppStorage("exportPreserveRawBibTeX") private var preserveRawBibTeX = true
 
+    @State private var citeKeySettings = CiteKeyFormatSettings.default
+    @State private var showFormatHelp = false
+
     var body: some View {
         Form {
+            Section("Cite Key Format") {
+                // Preset picker
+                Picker("Format", selection: $citeKeySettings.preset) {
+                    ForEach(CiteKeyFormatPreset.allCases, id: \.self) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: citeKeySettings.preset) { _, newValue in
+                    Task {
+                        await ImportExportSettingsStore.shared.updateCiteKeyFormatPreset(newValue)
+                    }
+                }
+
+                // Custom format field (only when custom is selected)
+                if citeKeySettings.preset == .custom {
+                    HStack {
+                        TextField("Custom Format", text: $citeKeySettings.customFormat)
+                            .textFieldStyle(.roundedBorder)
+                            .fontDesign(.monospaced)
+                            .onChange(of: citeKeySettings.customFormat) { _, newValue in
+                                Task {
+                                    await ImportExportSettingsStore.shared.updateCiteKeyCustomFormat(newValue)
+                                }
+                            }
+
+                        Button {
+                            showFormatHelp = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showFormatHelp) {
+                            CiteKeyFormatHelpView()
+                        }
+                    }
+                }
+
+                // Preview
+                HStack {
+                    Text("Preview:")
+                        .foregroundStyle(.secondary)
+                    Text(citeKeyPreview)
+                        .fontDesign(.monospaced)
+                        .foregroundStyle(citeKeySettings.lowercase ? .secondary : .primary)
+                }
+
+                // Lowercase toggle
+                Toggle("Generate lowercase", isOn: $citeKeySettings.lowercase)
+                    .onChange(of: citeKeySettings.lowercase) { _, newValue in
+                        Task {
+                            await ImportExportSettingsStore.shared.updateCiteKeyLowercase(newValue)
+                        }
+                    }
+            }
+
             Section("Import") {
                 Toggle("Auto-generate cite keys", isOn: $autoGenerateCiteKeys)
                     .accessibilityIdentifier(AccessibilityID.Settings.ImportExport.includeAbstractsToggle)
@@ -1115,6 +1174,10 @@ struct ImportExportSettingsTab: View {
                     Text("Misc").tag("misc")
                 }
                 .accessibilityIdentifier(AccessibilityID.Settings.ImportExport.exportFormatPicker)
+
+                Text("When enabled, cite keys are generated using the format above for entries with missing or ADS-style cite keys")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Export") {
@@ -1124,6 +1187,52 @@ struct ImportExportSettingsTab: View {
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            citeKeySettings = await ImportExportSettingsStore.shared.citeKeyFormatSettings
+        }
+    }
+
+    private var citeKeyPreview: String {
+        let generator = CiteKeyGenerator(settings: citeKeySettings)
+        return generator.preview()
+    }
+}
+
+// MARK: - Cite Key Format Help View
+
+struct CiteKeyFormatHelpView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Format Specifiers")
+                .font(.headline)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(citeKeyFormatSpecifiers) { spec in
+                        HStack(alignment: .top) {
+                            Text(spec.specifier)
+                                .fontDesign(.monospaced)
+                                .foregroundStyle(.blue)
+                                .frame(width: 70, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(spec.description)
+                                Text(spec.example)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+
+            Text("Example: %a%Y%t produces Smith2024Machine")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(width: 350, height: 350)
     }
 }
 

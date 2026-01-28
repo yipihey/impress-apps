@@ -367,9 +367,13 @@ pub fn validate_cite_key_format_internal(format: &str) -> CiteKeyFormatValidatio
             }
 
             // Check for at least one non-literal specifier
-            let has_specifier = specifiers.iter().any(|s| !matches!(s, CiteKeySpecifier::Literal(_)));
+            let has_specifier = specifiers
+                .iter()
+                .any(|s| !matches!(s, CiteKeySpecifier::Literal(_)));
             if !has_specifier {
-                warnings.push("Format contains no specifiers, all cite keys will be identical".to_string());
+                warnings.push(
+                    "Format contains no specifiers, all cite keys will be identical".to_string(),
+                );
             }
 
             // Check for author or year (recommended)
@@ -384,7 +388,10 @@ pub fn validate_cite_key_format_internal(format: &str) -> CiteKeyFormatValidatio
                 .any(|s| matches!(s, CiteKeySpecifier::Year(_)));
 
             if !has_author && !has_year {
-                warnings.push("Format has neither author nor year, consider adding one for uniqueness".to_string());
+                warnings.push(
+                    "Format has neither author nor year, consider adding one for uniqueness"
+                        .to_string(),
+                );
             }
 
             CiteKeyFormatValidation {
@@ -536,10 +543,7 @@ fn extract_last_name(author: &str) -> Option<String> {
     }
 
     // "First Last" format - take last word
-    trimmed
-        .split_whitespace()
-        .last()
-        .map(|s| s.to_string())
+    trimmed.split_whitespace().last().map(|s| s.to_string())
 }
 
 /// Extract significant words from a title
@@ -659,14 +663,8 @@ mod tests {
         let specs = parse_format("100%% done").unwrap();
         // Will be two literals: "100%" and " done" because we flush on seeing %
         assert_eq!(specs.len(), 2);
-        assert_eq!(
-            specs[0],
-            CiteKeySpecifier::Literal("100".to_string())
-        );
-        assert_eq!(
-            specs[1],
-            CiteKeySpecifier::Literal("% done".to_string())
-        );
+        assert_eq!(specs[0], CiteKeySpecifier::Literal("100".to_string()));
+        assert_eq!(specs[1], CiteKeySpecifier::Literal("% done".to_string()));
     }
 
     #[test]
@@ -839,18 +837,12 @@ mod tests {
 
     #[test]
     fn test_extract_last_name_last_first() {
-        assert_eq!(
-            extract_last_name("Smith, John"),
-            Some("Smith".to_string())
-        );
+        assert_eq!(extract_last_name("Smith, John"), Some("Smith".to_string()));
     }
 
     #[test]
     fn test_extract_last_name_first_last() {
-        assert_eq!(
-            extract_last_name("John Smith"),
-            Some("Smith".to_string())
-        );
+        assert_eq!(extract_last_name("John Smith"), Some("Smith".to_string()));
     }
 
     #[test]
