@@ -187,6 +187,10 @@ public final class InboxManager {
             object: nil,
             userInfo: ["count": unreadCount]
         )
+
+        // Update widget data
+        let totalCount = inboxLibrary?.publications?.count ?? 0
+        WidgetDataStore.shared.updateInboxStats(unread: unreadCount, total: totalCount)
     }
 
     /// Mark a paper as read in the Inbox

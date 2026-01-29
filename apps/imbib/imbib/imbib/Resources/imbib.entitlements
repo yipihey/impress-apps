@@ -24,5 +24,11 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:imbib.app</string>
+		<string>applinks:links.imbib.app</string>
+		<string>applinks:yipihey.github.io</string>
+	</array>
 </dict>
 </plist>

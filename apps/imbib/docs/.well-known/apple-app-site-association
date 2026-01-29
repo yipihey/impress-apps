@@ -1,0 +1,27 @@
+{
+    "applinks": {
+        "apps": [],
+        "details": [
+            {
+                "appIDs": [
+                    "TEAMID.com.imbib.app",
+                    "TEAMID.com.imbib.app.ios"
+                ],
+                "paths": [
+                    "/imbib/doi/*",
+                    "/imbib/arxiv/*",
+                    "/imbib/paper/*",
+                    "/imbib/search",
+                    "/imbib/inbox",
+                    "/imbib/library"
+                ]
+            }
+        ]
+    },
+    "webcredentials": {
+        "apps": [
+            "TEAMID.com.imbib.app",
+            "TEAMID.com.imbib.app.ios"
+        ]
+    }
+}

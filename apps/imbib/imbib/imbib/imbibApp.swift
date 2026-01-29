@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import CoreSpotlight
 import PublicationManagerCore
 import OSLog
 import UniformTypeIdentifiers
@@ -98,11 +99,95 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             debugLog("Processing URL: \(url.absoluteString)")
             if url.scheme == "imbib" {
+                // Handle URL scheme (imbib://...)
                 Task {
                     await URLSchemeHandler.shared.handle(url)
                 }
+            } else if url.isFileURL {
+                // Handle file opening (via AirDrop, Finder double-click, etc.)
+                handleFileOpen(url)
             }
         }
+    }
+
+    /// Handle opening of .imbib, .bib, and .ris files
+    private func handleFileOpen(_ url: URL) {
+        let ext = url.pathExtension.lowercased()
+        debugLog("Handling file open: \(url.lastPathComponent) (extension: \(ext))")
+
+        switch ext {
+        case "imbib", "bib", "bibtex", "ris":
+            // Post notification to show unified import view with the file
+            NotificationCenter.default.post(
+                name: .showUnifiedImport,
+                object: nil,
+                userInfo: ["fileURL": url]
+            )
+        default:
+            debugLog("Unhandled file extension: \(ext)")
+        }
+    }
+
+    // MARK: - Handoff Support
+
+    /// Handle incoming Handoff activities from other devices.
+    func application(
+        _ application: NSApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void
+    ) -> Bool {
+        debugLog("Received Handoff activity: \(userActivity.activityType)")
+
+        switch userActivity.activityType {
+        case HandoffService.readingActivityType:
+            // Continue reading a PDF from another device
+            if let session = HandoffService.parseReadingActivity(userActivity) {
+                debugLog("Restoring reading session: \(session.citeKey) at page \(session.page)")
+                NotificationCenter.default.post(
+                    name: .restoreHandoffReading,
+                    object: nil,
+                    userInfo: [
+                        "publicationID": session.publicationID.uuidString,
+                        "citeKey": session.citeKey,
+                        "page": session.page,
+                        "zoom": session.zoom
+                    ]
+                )
+                return true
+            }
+
+        case HandoffService.viewingActivityType:
+            // Continue viewing a publication from another device
+            if let (publicationID, citeKey) = HandoffService.parseViewingActivity(userActivity) {
+                debugLog("Restoring viewing activity: \(citeKey)")
+                NotificationCenter.default.post(
+                    name: .restoreHandoffViewing,
+                    object: nil,
+                    userInfo: [
+                        "publicationID": publicationID.uuidString,
+                        "citeKey": citeKey
+                    ]
+                )
+                return true
+            }
+
+        case CSSearchableItemActionType:
+            // User tapped a Spotlight search result
+            if let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+               let uuid = UUID(uuidString: identifier) {
+                debugLog("Opening from Spotlight: \(identifier)")
+                // Navigate to the paper via URL scheme
+                Task {
+                    await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
+                }
+                return true
+            }
+
+        default:
+            break
+        }
+
+        return false
     }
 }
 #endif
@@ -372,10 +457,64 @@ struct imbibApp: App {
                 }
                 #if os(iOS)
                 .onOpenURL { url in
-                    // Handle automation URL schemes (imbib://...)
-                    if url.scheme == "imbib" {
+                    // Handle Universal Links (https://imbib.app/...)
+                    if UniversalLinksHandler.canHandle(url) {
+                        if let command = UniversalLinksHandler.parse(url) {
+                            Task {
+                                await UniversalLinksHandler.handle(command)
+                            }
+                        }
+                    } else if url.scheme == "imbib" {
+                        // Handle automation URL schemes (imbib://...)
                         Task {
                             await URLSchemeHandler.shared.handle(url)
+                        }
+                    } else if url.isFileURL {
+                        // Handle file opening (via AirDrop, Files app, etc.)
+                        let ext = url.pathExtension.lowercased()
+                        if ["imbib", "bib", "bibtex", "ris"].contains(ext) {
+                            NotificationCenter.default.post(
+                                name: .showUnifiedImport,
+                                object: nil,
+                                userInfo: ["fileURL": url]
+                            )
+                        }
+                    }
+                }
+                // Handle Handoff: Continue reading PDF from another device
+                .onContinueUserActivity(HandoffService.readingActivityType) { activity in
+                    if let session = HandoffService.parseReadingActivity(activity) {
+                        NotificationCenter.default.post(
+                            name: .restoreHandoffReading,
+                            object: nil,
+                            userInfo: [
+                                "publicationID": session.publicationID.uuidString,
+                                "citeKey": session.citeKey,
+                                "page": session.page,
+                                "zoom": session.zoom
+                            ]
+                        )
+                    }
+                }
+                // Handle Handoff: Continue viewing publication from another device
+                .onContinueUserActivity(HandoffService.viewingActivityType) { activity in
+                    if let (publicationID, citeKey) = HandoffService.parseViewingActivity(activity) {
+                        NotificationCenter.default.post(
+                            name: .restoreHandoffViewing,
+                            object: nil,
+                            userInfo: [
+                                "publicationID": publicationID.uuidString,
+                                "citeKey": citeKey
+                            ]
+                        )
+                    }
+                }
+                // Handle Spotlight search results
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                       let uuid = UUID(uuidString: identifier) {
+                        Task {
+                            await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
                         }
                     }
                 }
@@ -499,13 +638,13 @@ struct AppCommands: Commands {
 
         // File menu
         CommandGroup(after: .newItem) {
-            Button("Import BibTeX...") {
-                NotificationCenter.default.post(name: .importBibTeX, object: nil)
+            Button("Import...") {
+                NotificationCenter.default.post(name: .showUnifiedImport, object: nil)
             }
             .keyboardShortcut("i", modifiers: [.command])
 
-            Button("Export Library...") {
-                NotificationCenter.default.post(name: .exportBibTeX, object: nil)
+            Button("Export...") {
+                NotificationCenter.default.post(name: .showUnifiedExport, object: nil)
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
         }
@@ -845,6 +984,19 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Note: Vim shortcuts (j/k for papers, Option+j/k for unread, h/l for tabs)
+            // are handled via .onKeyPress() to allow text fields to capture them when focused
+
+            Button("Previous Tab") {
+                NotificationCenter.default.post(name: .showPreviousDetailTab, object: nil)
+            }
+
+            Button("Next Tab") {
+                NotificationCenter.default.post(name: .showNextDetailTab, object: nil)
+            }
+
+            Divider()
+
             Button("Go to Page...") {
                 NotificationCenter.default.post(name: .pdfGoToPage, object: nil)
             }
@@ -872,23 +1024,31 @@ struct AppCommands: Commands {
 
             Divider()
 
-            // Dual-monitor / detached window commands
-            Button("Detach PDF to Window") {
+            // Fullscreen window commands (Shift+letter shortcuts)
+            Button("Open PDF in Fullscreen") {
                 NotificationCenter.default.post(name: .detachPDFTab, object: nil)
             }
-            .keyboardShortcut("m", modifiers: [.command, .shift, .option])
+            .keyboardShortcut("p", modifiers: .shift)
 
-            Button("Detach Notes to Window") {
+            Button("Open Notes in Fullscreen") {
                 NotificationCenter.default.post(name: .detachNotesTab, object: nil)
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift, .option])
+            .keyboardShortcut("n", modifiers: .shift)
 
-            if ScreenConfigurationObserver.shared.hasSecondaryScreen {
-                Button("Flip Window Positions") {
-                    NotificationCenter.default.post(name: .flipWindowPositions, object: nil)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .shift, .option])
+            Button("Open Info in Fullscreen") {
+                NotificationCenter.default.post(name: .detachInfoTab, object: nil)
             }
+            .keyboardShortcut("i", modifiers: .shift)
+
+            Button("Open BibTeX in Fullscreen") {
+                NotificationCenter.default.post(name: .detachBibTeXTab, object: nil)
+            }
+            .keyboardShortcut("b", modifiers: .shift)
+
+            Button("Flip Window Positions") {
+                NotificationCenter.default.post(name: .flipWindowPositions, object: nil)
+            }
+            .keyboardShortcut("f", modifiers: .shift)
 
             Button("Close Detached Windows") {
                 NotificationCenter.default.post(name: .closeDetachedWindows, object: nil)

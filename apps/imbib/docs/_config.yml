@@ -19,6 +19,10 @@ header_pages:
   - automation.md
   - faq.md
 
+# Include .well-known for Universal Links
+include:
+  - .well-known
+
 # Exclude from build
 exclude:
   - Gemfile

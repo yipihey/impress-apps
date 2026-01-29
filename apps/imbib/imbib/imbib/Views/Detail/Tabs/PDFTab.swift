@@ -55,6 +55,9 @@ struct PDFTab: View {
     @State private var isCheckingPDF = true  // Start in loading state
     @State private var browserFallbackURL: URL?  // URL to open in browser when publisher PDF fails
 
+    // PDF dark mode setting
+    @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
+
     var body: some View {
         Group {
             // ADR-016: All papers are now CDPublication
@@ -108,6 +111,12 @@ struct PDFTab: View {
                 resetAndCheckPDF()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { notification in
+            // Refresh dark mode setting when it changes
+            Task {
+                pdfDarkModeEnabled = await PDFSettingsStore.shared.settings.darkModeEnabled
+            }
+        }
     }
 
     // MARK: - PDF Viewer Only (no notes panel)
@@ -124,6 +133,21 @@ struct PDFTab: View {
                 }
             }
         )
+        .background(pdfDarkModeEnabled ? Color.black : Color.clear)
+        .onAppear {
+            // Start Handoff activity for reading this PDF
+            HandoffService.shared.startReading(
+                publicationID: pub.id,
+                citeKey: pub.citeKey,
+                title: pub.title ?? "Untitled",
+                page: 1,
+                zoom: 1.0
+            )
+        }
+        .onDisappear {
+            // Stop Handoff activity when leaving PDF view
+            HandoffService.shared.stopReading()
+        }
     }
 
     // MARK: - Subviews

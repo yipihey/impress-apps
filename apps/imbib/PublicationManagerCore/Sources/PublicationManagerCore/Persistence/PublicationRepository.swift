@@ -190,6 +190,9 @@ public actor PublicationRepository {
         // Index for full-text search
         await FullTextSearchService.shared.indexPublication(publication)
 
+        // Index for Spotlight search
+        await SpotlightIndexingService.shared.indexPublication(publication)
+
         return publication
     }
 
@@ -331,6 +334,9 @@ public actor PublicationRepository {
 
         // Update search index
         await FullTextSearchService.shared.indexPublication(publication)
+
+        // Update Spotlight index
+        await SpotlightIndexingService.shared.indexPublication(publication)
     }
 
     /// Update a single field in a publication
@@ -354,6 +360,7 @@ public actor PublicationRepository {
         let searchableFields: Set<String> = ["abstract", "title", "author", "note"]
         if searchableFields.contains(field) {
             await FullTextSearchService.shared.indexPublication(publication)
+            await SpotlightIndexingService.shared.indexPublication(publication)
         }
     }
 
@@ -468,6 +475,9 @@ public actor PublicationRepository {
 
         // Remove from search index
         await FullTextSearchService.shared.removePublication(id: publicationId)
+
+        // Remove from Spotlight index
+        await SpotlightIndexingService.shared.removePublication(id: publicationId)
     }
 
     /// Delete multiple publications
@@ -486,9 +496,10 @@ public actor PublicationRepository {
             self.persistenceController.save()
         }
 
-        // Remove from search index
+        // Remove from search index and Spotlight
         for id in publicationIds {
             await FullTextSearchService.shared.removePublication(id: id)
+            await SpotlightIndexingService.shared.removePublication(id: id)
         }
     }
 
@@ -518,9 +529,10 @@ public actor PublicationRepository {
             }
         }
 
-        // Remove from search index
+        // Remove from search index and Spotlight
         for id in ids {
             await FullTextSearchService.shared.removePublication(id: id)
+            await SpotlightIndexingService.shared.removePublication(id: id)
         }
     }
 
