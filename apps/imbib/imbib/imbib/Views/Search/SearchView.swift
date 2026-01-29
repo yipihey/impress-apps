@@ -7,6 +7,9 @@
 
 import SwiftUI
 import PublicationManagerCore
+#if os(macOS)
+import AppKit
+#endif
 
 /// Displays ad-hoc search results as CDPublication entities.
 ///
@@ -44,6 +47,9 @@ struct SearchResultsListView: View {
         // Results list only - search form is in the detail pane
         resultsList
             .navigationTitle("Search Results")
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress { press in handleKeyPress(press) }
             .task {
                 // Ensure SearchViewModel has access to LibraryManager
                 viewModel.setLibraryManager(libraryManager)
@@ -63,6 +69,127 @@ struct SearchResultsListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
             selectAllPublications()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .inboxSave)) { _ in
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                saveSelectedToLibrary()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .inboxSaveAndStar)) { _ in
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                saveAndStarSelected()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                toggleStarForSelected()
+            }
+        }
+    }
+
+    // MARK: - Keyboard Handling
+
+    /// Check if a text field is currently focused
+    private func isTextFieldFocused() -> Bool {
+        #if os(macOS)
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+        return firstResponder is NSTextView
+        #else
+        return false
+        #endif
+    }
+
+    /// Handle keyboard shortcuts for navigation and triage
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard !isTextFieldFocused() else { return .ignored }
+
+        let store = KeyboardShortcutsStore.shared
+
+        // Vim navigation
+        if store.matches(press, action: "navigateDown") {
+            NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateUp") {
+            NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
+            return .handled
+        }
+
+        // S key: Save to Save library
+        if store.matches(press, action: "inboxSave") {
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                saveSelectedToLibrary()
+                return .handled
+            }
+        }
+
+        // Shift+S: Save and Star
+        if store.matches(press, action: "inboxSaveAndStar") {
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                saveAndStarSelected()
+                return .handled
+            }
+        }
+
+        // T key: Toggle star
+        if store.matches(press, action: "inboxToggleStar") {
+            if !viewModel.selectedPublicationIDs.isEmpty {
+                toggleStarForSelected()
+                return .handled
+            }
+        }
+
+        return .ignored
+    }
+
+    // MARK: - Triage Handlers
+
+    /// Save selected publications to the Save library
+    private func saveSelectedToLibrary() {
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+        let ids = viewModel.selectedPublicationIDs
+
+        Task {
+            await libraryViewModel.addToLibrary(ids, library: saveLibrary)
+        }
+    }
+
+    /// Save and star selected publications
+    private func saveAndStarSelected() {
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+        let ids = viewModel.selectedPublicationIDs
+
+        // Star the publications
+        for id in ids {
+            if let pub = viewModel.publications.first(where: { $0.id == id }) {
+                pub.isStarred = true
+            }
+        }
+        PersistenceController.shared.save()
+
+        Task {
+            await libraryViewModel.addToLibrary(ids, library: saveLibrary)
+        }
+    }
+
+    /// Toggle star for selected publications
+    private func toggleStarForSelected() {
+        let ids = viewModel.selectedPublicationIDs
+        guard !ids.isEmpty else { return }
+
+        // If ANY are unstarred, star ALL; otherwise unstar ALL
+        let anyUnstarred = viewModel.publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
+        let newStarred = anyUnstarred
+
+        for id in ids {
+            if let pub = viewModel.publications.first(where: { $0.id == id }) {
+                pub.isStarred = newStarred
+            }
+        }
+        PersistenceController.shared.save()
     }
 
     // MARK: - Notification Handlers
@@ -175,6 +302,7 @@ struct SearchResultsListView: View {
             }
             .sheet(isPresented: $showingDropPreview) {
                 searchDropPreviewSheetContent
+                    .frame(minWidth: 500, minHeight: 400)
             }
         }
     }

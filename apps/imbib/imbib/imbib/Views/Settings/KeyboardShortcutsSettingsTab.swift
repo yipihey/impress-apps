@@ -18,6 +18,7 @@ struct KeyboardShortcutsSettingsTab: View {
     @State private var expandedCategories: Set<ShortcutCategory> = Set(ShortcutCategory.allCases)
     @State private var recordingBinding: KeyboardShortcutBinding?
     @State private var conflictAlert: ConflictAlert?
+    @State private var showConflictAlert = false
 
     // MARK: - Body
 
@@ -49,16 +50,18 @@ struct KeyboardShortcutsSettingsTab: View {
                     recordingBinding = nil
                 }
             )
+            .frame(minWidth: 350, minHeight: 200)
         }
-        .alert(item: $conflictAlert) { alert in
-            Alert(
-                title: Text("Shortcut Conflict"),
-                message: Text("'\(alert.newBinding.displayShortcut)' is already assigned to '\(alert.existingBinding.displayName)'. Replace it?"),
-                primaryButton: .destructive(Text("Replace")) {
-                    replaceConflictingShortcut(alert)
-                },
-                secondaryButton: .cancel()
-            )
+        .alert("Shortcut Conflict", isPresented: $showConflictAlert, presenting: conflictAlert) { alert in
+            Button("Replace", role: .destructive) {
+                replaceConflictingShortcut(alert)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { alert in
+            Text("'\(alert.newBinding.displayShortcut)' is already assigned to '\(alert.existingBinding.displayName)'. Replace it?")
+        }
+        .onChange(of: conflictAlert) { _, newValue in
+            showConflictAlert = newValue != nil
         }
     }
 
@@ -251,10 +254,14 @@ struct KeyboardShortcutsSettingsTab: View {
 
 // MARK: - Conflict Alert
 
-private struct ConflictAlert: Identifiable {
+private struct ConflictAlert: Identifiable, Equatable {
     let id = UUID()
     let newBinding: KeyboardShortcutBinding
     let existingBinding: KeyboardShortcutBinding
+
+    static func == (lhs: ConflictAlert, rhs: ConflictAlert) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 // MARK: - Shortcut Recorder Sheet

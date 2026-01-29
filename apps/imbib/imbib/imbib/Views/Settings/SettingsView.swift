@@ -877,25 +877,21 @@ extension CDMutedItem.MuteType {
 
 struct SyncSettingsTab: View {
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Sync Health Dashboard
-                GroupBox("Sync Health") {
-                    SyncHealthView()
-                }
-
-                // Existing CloudKit Settings
-                GroupBox("iCloud Settings") {
-                    CloudKitSyncSettingsView()
-                }
-
-                // Backup Section
-                GroupBox("Backup") {
-                    BackupSettingsSection()
-                }
+        Form {
+            Section("Sync Health") {
+                SyncHealthView()
             }
-            .padding()
+
+            Section("iCloud Settings") {
+                CloudKitSyncSettingsView()
+            }
+
+            Section("Backup") {
+                BackupSettingsSection()
+            }
         }
+        .formStyle(.grouped)
+        .padding()
     }
 }
 
@@ -994,6 +990,7 @@ struct BackupSettingsSection: View {
                     loadBackupInfo()
                 }
             )
+            .frame(minWidth: 450, minHeight: 350)
         }
         .sheet(item: Binding(
             get: { showRestoreResult.map { RestoreResultWrapper(result: $0) } },
@@ -1005,6 +1002,7 @@ struct BackupSettingsSection: View {
                     showRestoreResult = nil
                 }
             )
+            .frame(minWidth: 400, minHeight: 300)
         }
     }
 

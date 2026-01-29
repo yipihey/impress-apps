@@ -52,6 +52,12 @@ struct ContentView: View {
     /// Whether to show the onboarding sheet
     @State private var showOnboarding = false
 
+    /// Data for unified export sheet (nil = not shown)
+    @State private var unifiedExportData: UnifiedExportData?
+
+    /// Data for unified import sheet (nil = not shown)
+    @State private var unifiedImportData: UnifiedImportData?
+
     /// Navigation history for browser-style back/forward
     private var navigationHistory = NavigationHistoryStore.shared
 
@@ -184,6 +190,10 @@ struct ContentView: View {
             ))
             .modifier(ImportExportHandlersModifier(
                 importPreviewData: $importPreviewData,
+                unifiedExportData: $unifiedExportData,
+                unifiedImportData: $unifiedImportData,
+                libraryManager: libraryManager,
+                selectedPublications: selectedPublications,
                 onShowImportPanel: showImportPanel,
                 onShowExportPanel: showExportPanel
             ))
@@ -211,9 +221,32 @@ struct ContentView: View {
             #endif
             .sheet(item: $importPreviewData) { data in
                 importPreviewSheet(for: data)
+                    .frame(minWidth: 600, minHeight: 500)
             }
             .sheet(item: $batchDownloadData) { data in
                 PDFBatchDownloadView(publications: data.publications, library: data.library)
+                    .frame(minWidth: 500, minHeight: 400)
+            }
+            .sheet(item: $unifiedExportData) { data in
+                UnifiedExportView(
+                    scope: data.scope,
+                    isPresented: Binding(
+                        get: { unifiedExportData != nil },
+                        set: { if !$0 { unifiedExportData = nil } }
+                    )
+                )
+                .frame(minWidth: 550, minHeight: 450)
+            }
+            .sheet(item: $unifiedImportData) { data in
+                UnifiedImportView(
+                    fileURL: data.fileURL,
+                    targetLibrary: data.targetLibrary,
+                    isPresented: Binding(
+                        get: { unifiedImportData != nil },
+                        set: { if !$0 { unifiedImportData = nil } }
+                    )
+                )
+                .frame(minWidth: 550, minHeight: 450)
             }
             .overlay {
                 // Global search overlay - only render when visible to avoid focus issues
@@ -682,7 +715,7 @@ struct ContentView: View {
         switch formType {
         case .adsModern:
             ADSModernSearchFormView()
-                .navigationTitle("ADS Modern Search")
+                .navigationTitle("SciX Search")
 
         case .adsClassic:
             ADSClassicSearchFormView()
@@ -690,7 +723,7 @@ struct ContentView: View {
 
         case .adsPaper:
             ADSPaperSearchFormView()
-                .navigationTitle("ADS Paper Search")
+                .navigationTitle("SciX Paper Search")
 
         case .arxivAdvanced:
             ArXivAdvancedSearchFormView()
@@ -968,6 +1001,26 @@ struct ImportPreviewData: Identifiable {
         self.fileURL = fileURL
         self.targetLibrary = targetLibrary
         self.preferCreateNewLibrary = preferCreateNewLibrary
+    }
+}
+
+/// Data for the unified export sheet.
+struct UnifiedExportData: Identifiable {
+    let id = UUID()
+    let scope: ExportScope
+}
+
+/// Data for the unified import sheet.
+struct UnifiedImportData: Identifiable {
+    let id = UUID()
+    /// Optional file URL (nil = show file picker)
+    let fileURL: URL?
+    /// Optional target library for import
+    let targetLibrary: CDLibrary?
+
+    init(fileURL: URL? = nil, targetLibrary: CDLibrary? = nil) {
+        self.fileURL = fileURL
+        self.targetLibrary = targetLibrary
     }
 }
 
@@ -1556,6 +1609,10 @@ struct NavigationHandlersModifier: ViewModifier {
 /// ViewModifier for import/export notification handlers.
 struct ImportExportHandlersModifier: ViewModifier {
     @Binding var importPreviewData: ImportPreviewData?
+    @Binding var unifiedExportData: UnifiedExportData?
+    @Binding var unifiedImportData: UnifiedImportData?
+    let libraryManager: LibraryManager
+    let selectedPublications: [CDPublication]
     let onShowImportPanel: () -> Void
     let onShowExportPanel: () -> Void
 
@@ -1572,6 +1629,26 @@ struct ImportExportHandlersModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .exportBibTeX)) { _ in
                 onShowExportPanel()
+            }
+            // Unified Import/Export handlers
+            .onReceive(NotificationCenter.default.publisher(for: .showUnifiedExport)) { notification in
+                // Check if a library was passed in userInfo (context menu)
+                if let library = notification.userInfo?["library"] as? CDLibrary {
+                    unifiedExportData = UnifiedExportData(scope: .library(library))
+                } else if let publications = notification.userInfo?["publications"] as? [CDPublication], !publications.isEmpty {
+                    // Export selected publications
+                    unifiedExportData = UnifiedExportData(scope: .selection(publications))
+                } else if !selectedPublications.isEmpty {
+                    // Export currently selected publications
+                    unifiedExportData = UnifiedExportData(scope: .selection(selectedPublications))
+                } else if let activeLibrary = libraryManager.activeLibrary {
+                    // Export active library
+                    unifiedExportData = UnifiedExportData(scope: .library(activeLibrary))
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showUnifiedImport)) { notification in
+                let targetLibrary = notification.userInfo?["library"] as? CDLibrary
+                unifiedImportData = UnifiedImportData(fileURL: nil, targetLibrary: targetLibrary)
             }
     }
 }

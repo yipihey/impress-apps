@@ -186,6 +186,16 @@ struct DetailView: View {
                 selectedTab = .notes
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showInfoTab)) { _ in
+            selectedTab = .info
+        }
+        // Vim-style tab cycling (h/l keys)
+        .onReceive(NotificationCenter.default.publisher(for: .showPreviousDetailTab)) { _ in
+            cycleTab(direction: -1)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showNextDetailTab)) { _ in
+            cycleTab(direction: 1)
+        }
         // File drop support - allows dropping files to attach them to the publication
         .modifier(FileDropModifier(
             publication: publication,
@@ -216,6 +226,34 @@ struct DetailView: View {
         } catch {
             // Task was cancelled (user navigated away quickly)
         }
+    }
+
+    // MARK: - Tab Cycling
+
+    /// Cycle through detail tabs (h/l vim keys)
+    /// Order: info → pdf → notes → bibtex → info...
+    private func cycleTab(direction: Int) {
+        let tabs: [DetailTab] = [.info, .pdf, .notes, .bibtex]
+        guard let currentIndex = tabs.firstIndex(of: selectedTab) else { return }
+
+        var newIndex = currentIndex + direction
+        if newIndex < 0 {
+            newIndex = tabs.count - 1
+        } else if newIndex >= tabs.count {
+            newIndex = 0
+        }
+
+        // Skip notes tab if not editable (non-library papers)
+        if tabs[newIndex] == .notes && !canEdit {
+            newIndex = newIndex + direction
+            if newIndex < 0 {
+                newIndex = tabs.count - 1
+            } else if newIndex >= tabs.count {
+                newIndex = 0
+            }
+        }
+
+        selectedTab = tabs[newIndex]
     }
 
     // MARK: - Navigation Subtitle
@@ -261,30 +299,41 @@ struct DetailView: View {
                 copyBibTeX()
             } label: {
                 Image(systemName: "doc.on.doc")
-                    .font(.caption)
             }
             .buttonStyle(.borderless)
+            .controlSize(.small)
             .help("Copy BibTeX to clipboard")
 
             // Open in Browser
             if let webURL = publication?.webURLObject {
                 Link(destination: webURL) {
                     Image(systemName: "link")
-                        .font(.caption)
                 }
                 .buttonStyle(.borderless)
+                .controlSize(.small)
                 .help("Open paper's web page")
             }
 
             // Share menu
             if let pub = publication {
                 Menu {
+                    // Native ShareLink for AirDrop, Messages, etc.
+                    ShareLink(
+                        item: ShareablePublication(from: pub),
+                        preview: SharePreview(
+                            pub.title ?? "Paper",
+                            image: Image(systemName: "doc.text")
+                        )
+                    ) {
+                        Label("Share Paper...", systemImage: "square.and.arrow.up")
+                    }
+
                     ShareLink(
                         item: shareText(for: pub),
                         subject: Text(pub.title ?? "Paper"),
                         message: Text(shareText(for: pub))
                     ) {
-                        Label("Share Text...", systemImage: "text.bubble")
+                        Label("Share Citation...", systemImage: "text.bubble")
                     }
 
                     Divider()
@@ -310,9 +359,9 @@ struct DetailView: View {
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.caption)
                 }
                 .menuStyle(.borderlessButton)
+                .controlSize(.small)
                 .help("Share options")
             }
 
@@ -327,9 +376,9 @@ struct DetailView: View {
                     Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
                           ? "rectangle.portrait.on.rectangle.portrait.angled"
                           : "uiwindow.split.2x1")
-                        .font(.caption)
                 }
                 .buttonStyle(.borderless)
+                .controlSize(.small)
                 .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
                       ? "Open \(selectedTab.rawValue) on secondary display"
                       : "Open \(selectedTab.rawValue) in new window")
@@ -375,30 +424,41 @@ struct DetailView: View {
                     copyBibTeX()
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.caption)
                 }
                 .buttonStyle(.borderless)
+                .controlSize(.small)
                 .help("Copy BibTeX to clipboard")
 
                 // Open in Browser
                 if let webURL = publication?.webURLObject {
                     Link(destination: webURL) {
                         Image(systemName: "link")
-                            .font(.caption)
                     }
                     .buttonStyle(.borderless)
+                    .controlSize(.small)
                     .help("Open paper's web page")
                 }
 
                 // Share menu
                 if let pub = publication {
                     Menu {
+                        // Native ShareLink for AirDrop, Messages, etc.
+                        ShareLink(
+                            item: ShareablePublication(from: pub),
+                            preview: SharePreview(
+                                pub.title ?? "Paper",
+                                image: Image(systemName: "doc.text")
+                            )
+                        ) {
+                            Label("Share Paper...", systemImage: "square.and.arrow.up")
+                        }
+
                         ShareLink(
                             item: shareText(for: pub),
                             subject: Text(pub.title ?? "Paper"),
                             message: Text(shareText(for: pub))
                         ) {
-                            Label("Share Text...", systemImage: "text.bubble")
+                            Label("Share Citation...", systemImage: "text.bubble")
                         }
 
                         Divider()
@@ -426,9 +486,9 @@ struct DetailView: View {
                         #endif
                     } label: {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.caption)
                     }
                     .menuStyle(.borderlessButton)
+                    .controlSize(.small)
                     .help("Share options")
                 }
             }
@@ -450,18 +510,14 @@ struct DetailView: View {
         Button {
             selectedTab = tab
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
-                Text(label)
-                    .font(.system(size: 11))
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
-            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
+            Label(label, systemImage: icon)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
+                .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.plain)
+        .controlSize(.small)
     }
 
     // MARK: - Window Toolbar (for multi-selection mode only)
@@ -719,6 +775,8 @@ private struct FileDropModifier: ViewModifier {
     @Binding var isTargeted: Bool
     var onPDFImported: (() -> Void)?
 
+    @State private var showDuplicateAlert = false
+
     func body(content: Content) -> some View {
         @Bindable var dropHandler = handler
         return content
@@ -729,17 +787,18 @@ private struct FileDropModifier: ViewModifier {
                 handler: handler,
                 isTargeted: $isTargeted
             ))
-            .alert(item: $dropHandler.pendingDuplicate) { (pending: PendingDuplicateInfo) in
-                Alert(
-                    title: Text("Duplicate File"),
-                    message: Text("'\(pending.sourceURL.lastPathComponent)' appears to be identical to '\(pending.existingFilename)'. Import anyway?"),
-                    primaryButton: .default(Text("Import")) {
-                        handler.resolveDuplicate(proceed: true)
-                    },
-                    secondaryButton: .cancel(Text("Skip")) {
-                        handler.resolveDuplicate(proceed: false)
-                    }
-                )
+            .alert("Duplicate File", isPresented: $showDuplicateAlert, presenting: dropHandler.pendingDuplicate) { pending in
+                Button("Import") {
+                    handler.resolveDuplicate(proceed: true)
+                }
+                Button("Skip", role: .cancel) {
+                    handler.resolveDuplicate(proceed: false)
+                }
+            } message: { pending in
+                Text("'\(pending.sourceURL.lastPathComponent)' appears to be identical to '\(pending.existingFilename)'. Import anyway?")
+            }
+            .onChange(of: dropHandler.pendingDuplicate) { _, newValue in
+                showDuplicateAlert = newValue != nil
             }
             .onChange(of: handler.isImporting) { wasImporting, isImporting in
                 // When import finishes, check if a PDF was added

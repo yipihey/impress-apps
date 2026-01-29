@@ -299,6 +299,7 @@ struct UnifiedPublicationListWrapper: View {
             }
             .sheet(isPresented: $showingDropPreview) {
                 dropPreviewSheetContent
+                    .frame(minWidth: 500, minHeight: 400)
             }
     }
 
@@ -870,27 +871,60 @@ struct UnifiedPublicationListWrapper: View {
             return .handled
         }
 
-        if store.matches(press, action: "navigateBack") {
-            NotificationCenter.default.post(name: .navigateBack, object: nil)
+        if store.matches(press, action: "previousDetailTab") {
+            NotificationCenter.default.post(name: .showPreviousDetailTab, object: nil)
             return .handled
         }
 
-        if store.matches(press, action: "navigateForward") {
-            NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
+        if store.matches(press, action: "nextDetailTab") {
+            NotificationCenter.default.post(name: .showNextDetailTab, object: nil)
             return .handled
         }
 
-        // S key: Save to Save library (inbox only)
+        // Single-key tab shortcuts (i/p/n/b)
+        if store.matches(press, action: "showInfoTabVim") {
+            NotificationCenter.default.post(name: .showInfoTab, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "showPDFTabVim") {
+            NotificationCenter.default.post(name: .showPDFTab, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "showNotesTabVim") {
+            NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "showBibTeXTabVim") {
+            NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
+            return .handled
+        }
+
+        // Option+J: Next unread (Vim)
+        if store.matches(press, action: "navigateNextUnreadVim") {
+            NotificationCenter.default.post(name: .navigateNextUnread, object: nil)
+            return .handled
+        }
+
+        // Option+K: Previous unread (Vim)
+        if store.matches(press, action: "navigatePreviousUnreadVim") {
+            NotificationCenter.default.post(name: .navigatePreviousUnread, object: nil)
+            return .handled
+        }
+
+        // S key: Save to Save library (works anywhere for paper discovery)
         if store.matches(press, action: "inboxSave") {
-            if isInboxView && !selectedPublicationIDs.isEmpty {
+            if !selectedPublicationIDs.isEmpty {
                 saveSelectedToDefaultLibrary()
                 return .handled
             }
         }
 
-        // Shift+S: Save and Star (inbox only)
+        // Shift+S: Save and Star (works anywhere for paper discovery)
         if store.matches(press, action: "inboxSaveAndStar") {
-            if isInboxView && !selectedPublicationIDs.isEmpty {
+            if !selectedPublicationIDs.isEmpty {
                 saveAndStarSelected()
                 return .handled
             }
@@ -1315,12 +1349,14 @@ private struct InboxTriageModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .inboxSave)) { _ in
-                if isInboxView && hasSelection {
+                // Save works anywhere (paper discovery in search results, smart searches, etc.)
+                if hasSelection {
                     onSave()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxSaveAndStar)) { _ in
-                if isInboxView && hasSelection {
+                // Save and star works anywhere
+                if hasSelection {
                     onSaveAndStar()
                 }
             }
@@ -1330,6 +1366,7 @@ private struct InboxTriageModifier: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
+                // Dismiss only works in inbox view (moves to dismissed library)
                 if isInboxView && hasSelection {
                     onDismiss()
                 }
