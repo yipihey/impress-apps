@@ -4,8 +4,9 @@ baseurl: "/impress-apps"
 url: "https://yipihey.github.io"
 repository: yipihey/impress-apps
 
-# No remote theme - using custom layout and CSS
-plugins: []
+# Plugins
+plugins:
+  - jekyll-seo-tag
 
 # Logo
 logo: /assets/images/logo.png
