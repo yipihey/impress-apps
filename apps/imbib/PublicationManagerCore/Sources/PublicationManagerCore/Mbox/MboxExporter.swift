@@ -308,7 +308,7 @@ public actor MboxExporter {
 
     /// Fetch all publications for a library.
     private func fetchPublications(for library: CDLibrary) async throws -> [CDPublication] {
-        let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
         request.predicate = NSPredicate(format: "ANY libraries == %@", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \CDPublication.citeKey, ascending: true)]
 

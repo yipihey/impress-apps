@@ -251,12 +251,12 @@ public actor SafeMigrationService {
             let context = persistenceController.viewContext
 
             // Count publications
-            let publicationFetch = NSFetchRequest<NSNumber>(entityName: "CDPublication")
+            let publicationFetch = NSFetchRequest<NSNumber>(entityName: "Publication")
             publicationFetch.resultType = .countResultType
             let publicationCount = (try? context.fetch(publicationFetch).first?.intValue) ?? 0
 
             // Count libraries
-            let libraryFetch = NSFetchRequest<NSNumber>(entityName: "CDLibrary")
+            let libraryFetch = NSFetchRequest<NSNumber>(entityName: "Library")
             libraryFetch.resultType = .countResultType
             let libraryCount = (try? context.fetch(libraryFetch).first?.intValue) ?? 0
 

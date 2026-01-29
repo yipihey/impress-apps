@@ -239,7 +239,7 @@ public actor LibraryBackupService {
 
         let publications = await MainActor.run { () -> [CDPublication] in
             let context = persistenceController.viewContext
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             request.sortDescriptors = [NSSortDescriptor(key: "citeKey", ascending: true)]
             return (try? context.fetch(request)) ?? []
         }
@@ -266,7 +266,7 @@ public actor LibraryBackupService {
         // Get all publications with PDFs
         let publications = await MainActor.run { () -> [(citeKey: String, pdfPath: String?)] in
             let context = persistenceController.viewContext
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             request.predicate = NSPredicate(format: "hasPDFDownloaded == YES")
             let results = (try? context.fetch(request)) ?? []
 
@@ -317,7 +317,7 @@ public actor LibraryBackupService {
 
         let notes = await MainActor.run { () -> [[String: Any]] in
             let context = persistenceController.viewContext
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             let publications = (try? context.fetch(request)) ?? []
 
             return publications.compactMap { pub -> [String: Any]? in
@@ -372,7 +372,7 @@ public actor LibraryBackupService {
         // Get publication count
         let publicationCount = await MainActor.run { () -> Int in
             let context = persistenceController.viewContext
-            let request = NSFetchRequest<NSNumber>(entityName: "CDPublication")
+            let request = NSFetchRequest<NSNumber>(entityName: "Publication")
             request.resultType = .countResultType
             return (try? context.fetch(request).first?.intValue) ?? 0
         }

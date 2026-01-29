@@ -190,7 +190,7 @@ public final class CompiledPDFWatcher: NSObject, @unchecked Sendable {
 
         await MainActor.run {
             // Find the manuscript linked to this imprint document
-            let fetchRequest = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let fetchRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
             // We need to search in rawFields since imprintDocumentUUID is stored there
             fetchRequest.predicate = NSPredicate(
                 format: "rawFields CONTAINS %@",

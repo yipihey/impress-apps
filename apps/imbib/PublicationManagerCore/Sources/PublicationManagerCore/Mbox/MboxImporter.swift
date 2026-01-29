@@ -418,7 +418,7 @@ public actor MboxImporter {
     ) async throws {
         try context.performAndWait {
             // Find and delete existing
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             request.predicate = NSPredicate(format: "citeKey == %@", duplicate.existingCiteKey)
             request.fetchLimit = 1
 
@@ -448,7 +448,7 @@ public actor MboxImporter {
         let preview = duplicate.importPublication
 
         try context.performAndWait {
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             request.predicate = NSPredicate(format: "citeKey == %@", duplicate.existingCiteKey)
             request.fetchLimit = 1
 
