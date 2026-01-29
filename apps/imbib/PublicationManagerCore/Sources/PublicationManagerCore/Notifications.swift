@@ -125,13 +125,16 @@ public extension Notification.Name {
 
     // MARK: - Inbox Triage Actions
 
-    /// Keep selected inbox items to default library (K key)
-    static let inboxKeep = Notification.Name("inboxKeep")
+    /// Save selected inbox items to default library (S key)
+    static let inboxSave = Notification.Name("inboxSave")
+
+    /// Save and star selected inbox items (Shift+S)
+    static let inboxSaveAndStar = Notification.Name("inboxSaveAndStar")
 
     /// Dismiss selected inbox items (D key)
     static let inboxDismiss = Notification.Name("inboxDismiss")
 
-    /// Toggle star/flag on selected inbox items (S key)
+    /// Toggle star/flag on selected inbox items (T key)
     static let inboxToggleStar = Notification.Name("inboxToggleStar")
 
     /// Posted when a triage action (keep/dismiss) starts - iOS uses this to lock sidebar
@@ -211,11 +214,11 @@ public extension Notification.Name {
     /// Delete selected papers (⌘Delete)
     static let deleteSelectedPapers = Notification.Name("deleteSelectedPapers")
 
-    /// Keep selected papers to library (⌃⌘K)
-    static let keepToLibrary = Notification.Name("keepToLibrary")
+    /// Save selected papers to library (⌃⌘S)
+    static let saveToLibrary = Notification.Name("saveToLibrary")
 
-    /// Posted when a publication is kept to a library (for auto-removal from Inbox)
-    static let publicationKeptToLibrary = Notification.Name("publicationKeptToLibrary")
+    /// Posted when a publication is saved to a library (for auto-removal from Inbox)
+    static let publicationSavedToLibrary = Notification.Name("publicationSavedToLibrary")
 
     /// Dismiss selected papers from inbox (⇧⌘J)
     static let dismissFromInbox = Notification.Name("dismissFromInbox")
@@ -307,6 +310,14 @@ public extension Notification.Name {
 
     /// Navigate to Search section (object = optional library UUID to create search for)
     static let navigateToSearchSection = Notification.Name("navigateToSearchSection")
+
+    /// Open arXiv search interface with a category pre-filled
+    /// userInfo["category"] = the category query (e.g., "cat:astro-ph")
+    static let openArxivSearchWithCategory = Notification.Name("openArxivSearchWithCategory")
+
+    /// Pre-fill arXiv category in the feed form
+    /// userInfo["category"] = the category query (e.g., "cat:astro-ph")
+    static let prefillArxivCategory = Notification.Name("prefillArxivCategory")
 
     /// Edit a smart search by navigating to Search section with its query
     /// Object = UUID of the smart search to edit

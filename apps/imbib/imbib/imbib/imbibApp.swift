@@ -700,10 +700,10 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Keep to Library") {
-                NotificationCenter.default.post(name: .keepToLibrary, object: nil)
+            Button("Save to Library") {
+                NotificationCenter.default.post(name: .saveToLibrary, object: nil)
             }
-            .keyboardShortcut("k", modifiers: [.control, .command])
+            .keyboardShortcut("s", modifiers: [.control, .command])
 
             Button("Dismiss from Inbox") {
                 NotificationCenter.default.post(name: .dismissFromInbox, object: nil)

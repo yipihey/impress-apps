@@ -18,7 +18,8 @@ public enum SyncedSettingsKey: String, CaseIterable {
 
     // Inbox Settings
     case inboxAgeLimit = "sync.inbox.ageLimit"
-    case inboxKeepLibraryID = "sync.inbox.keepLibraryID"
+    case inboxSaveLibraryID = "sync.inbox.saveLibraryID"
+    // Note: Legacy key "sync.inbox.keepLibraryID" is migrated to inboxSaveLibraryID at startup
     // Note: Muted items are stored in Core Data (CDMutedItem) and sync via CloudKit
 
     // Smart Search Settings
@@ -119,6 +120,34 @@ public final class SyncedSettingsStore: @unchecked Sendable {
             store?.synchronize()
             Logger.settings.info("SyncedSettingsStore initialized (iCloud sync)")
         }
+
+        // Migrate Keep -> Save library ID
+        migrateKeepToSaveLibraryID()
+    }
+
+    /// Migrate from inboxKeepLibraryID to inboxSaveLibraryID.
+    ///
+    /// This is a one-time migration that runs on init. If the new key doesn't have
+    /// a value but the old key does, copy the value to the new key.
+    private func migrateKeepToSaveLibraryID() {
+        // Only migrate if new key doesn't exist and old key does
+        guard string(forKey: .inboxSaveLibraryID) == nil else { return }
+
+        // Read directly from backing store since the deprecated key won't work with enum access
+        let oldKey = "sync.inbox.keepLibraryID"
+        let oldValue: String?
+
+        if isUITesting {
+            oldValue = localStore?.string(forKey: oldKey)
+        } else {
+            oldValue = store?.string(forKey: oldKey)
+        }
+
+        guard let value = oldValue else { return }
+
+        // Copy to new key
+        set(value, forKey: .inboxSaveLibraryID)
+        Logger.settings.info("Migrated inboxKeepLibraryID to inboxSaveLibraryID")
     }
 
     deinit {

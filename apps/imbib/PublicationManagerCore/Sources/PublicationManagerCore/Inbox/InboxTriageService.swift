@@ -11,10 +11,10 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "inbox-triage")
 
-/// Centralized service for inbox triage operations (keep/dismiss).
+/// Centralized service for inbox triage operations (save/dismiss).
 ///
 /// Provides consistent behavior across iOS and macOS list views:
-/// - Keep: Adds paper to target library, removes from inbox, tracks dismissal
+/// - Save: Adds paper to target library, removes from inbox, tracks dismissal
 /// - Dismiss: Moves to Dismissed library (not delete), tracks dismissal
 /// - Both: Automatically calculate next selection for smooth UI transitions
 @MainActor
@@ -26,21 +26,21 @@ public final class InboxTriageService {
 
     private init() {}
 
-    // MARK: - Keep to Library
+    // MARK: - Save to Library
 
-    /// Keep publications to a target library.
+    /// Save publications to a target library.
     ///
-    /// This is the primary triage action for keeping interesting papers.
+    /// This is the primary triage action for saving interesting papers.
     /// Papers are added to the target library and removed from their source.
     ///
     /// - Parameters:
-    ///   - ids: Set of publication IDs to keep
+    ///   - ids: Set of publication IDs to save
     ///   - publications: Current list of publications (for selection calculation)
     ///   - currentSelection: Currently selected publication
-    ///   - targetLibrary: Library to keep papers to
+    ///   - targetLibrary: Library to save papers to
     ///   - source: Where the papers are coming from (for proper cleanup)
-    /// - Returns: Result containing the next selection info and count of papers kept
-    public func keepToLibrary(
+    /// - Returns: Result containing the next selection info and count of papers saved
+    public func saveToLibrary(
         ids: Set<UUID>,
         from publications: [CDPublication],
         currentSelection: CDPublication?,
@@ -59,39 +59,39 @@ public final class InboxTriageService {
         )
 
         let inboxManager = InboxManager.shared
-        var keptCount = 0
+        var savedCount = 0
 
         for id in ids {
             guard let publication = publications.first(where: { $0.id == id }) else { continue }
 
             switch source {
             case .inboxLibrary, .inboxFeed:
-                // Inbox keep: use InboxManager for proper handling
-                inboxManager.keepToLibrary(publication, library: targetLibrary)
+                // Inbox save: use InboxManager for proper handling
+                inboxManager.saveToLibrary(publication, library: targetLibrary)
                 // Remove from ALL inbox feeds' result collections (not just the current one)
-                // This ensures the paper disappears from all feed views after keep
+                // This ensures the paper disappears from all feed views after save
                 removeFromAllInboxFeeds(publication)
-                keptCount += 1
-                // ADR-020: Record keep signal for recommendation engine
-                Task { await SignalCollector.shared.recordKeep(publication) }
+                savedCount += 1
+                // ADR-020: Record save signal for recommendation engine
+                Task { await SignalCollector.shared.recordSave(publication) }
 
             case .regularLibrary(let sourceLibrary):
                 // Non-inbox: add to target, remove from source
                 publication.addToLibrary(targetLibrary)
                 publication.removeFromLibrary(sourceLibrary)
-                keptCount += 1
+                savedCount += 1
             }
         }
 
         // Save changes
         PersistenceController.shared.save()
 
-        logger.info("Kept \(keptCount) papers to '\(targetLibrary.displayName)' from \(source.logDescription)")
+        logger.info("Saved \(savedCount) papers to '\(targetLibrary.displayName)' from \(source.logDescription)")
 
         return TriageResult(
             nextSelectionID: nextID,
             nextPublication: nextPub,
-            affectedCount: keptCount
+            affectedCount: savedCount
         )
     }
 

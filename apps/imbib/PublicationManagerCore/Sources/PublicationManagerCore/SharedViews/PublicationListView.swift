@@ -116,7 +116,7 @@ public struct PublicationListView: View {
 
     /// The target library for "keep" swipe action (configured via Settings > Inbox).
     /// When nil, the first non-inbox library is used as fallback.
-    public var keepLibrary: CDLibrary?
+    public var saveLibrary: CDLibrary?
 
     /// Binding to the filter scope (controls which publications are searched)
     @Binding public var filterScope: FilterScope
@@ -178,7 +178,7 @@ public struct PublicationListView: View {
     // MARK: - Inbox Triage Callbacks
 
     /// Called when keep to library is requested (Inbox: adds to library AND removes from Inbox)
-    public var onKeepToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+    public var onSaveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
 
     /// Called when dismiss is requested (Inbox: remove from Inbox)
     public var onDismiss: ((Set<UUID>) async -> Void)?
@@ -392,6 +392,13 @@ public struct PublicationListView: View {
                 lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending  // Default ascending (A-Z)
             case .citationCount:
                 lhs.citationCount > rhs.citationCount  // Default descending (highest first)
+            case .starred:
+                // Starred first, then by dateAdded as tie-breaker
+                if lhs.isStarred != rhs.isStarred {
+                    lhs.isStarred  // Starred papers first (true > false)
+                } else {
+                    lhs.dateAdded > rhs.dateAdded  // Tie-breaker: newest first
+                }
             case .recommended:
                 true  // Handled above, this won't be reached
             }
@@ -480,7 +487,7 @@ public struct PublicationListView: View {
         listID: ListViewID? = nil,
         disableUnreadFilter: Bool = false,
         isInInbox: Bool = false,
-        keepLibrary: CDLibrary? = nil,
+        saveLibrary: CDLibrary? = nil,
         filterScope: Binding<FilterScope>,
         libraryNameMapping: [UUID: String] = [:],
         sortOrder: Binding<LibrarySortOrder> = .constant(.dateAdded),
@@ -500,7 +507,7 @@ public struct PublicationListView: View {
         onListDrop: (([NSItemProvider], DropTarget) -> Void)? = nil,
         onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
         // Inbox triage callbacks
-        onKeepToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
+        onSaveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
         onToggleStar: ((Set<UUID>) async -> Void)? = nil,
         onMuteAuthor: ((String) -> Void)? = nil,
@@ -534,7 +541,7 @@ public struct PublicationListView: View {
         self.listID = listID
         self.disableUnreadFilter = disableUnreadFilter
         self.isInInbox = isInInbox
-        self.keepLibrary = keepLibrary
+        self.saveLibrary = saveLibrary
         self._filterScope = filterScope
         self.libraryNameMapping = libraryNameMapping
         self._sortOrder = sortOrder
@@ -554,7 +561,7 @@ public struct PublicationListView: View {
         self.onListDrop = onListDrop
         self.onDownloadPDFs = onDownloadPDFs
         // Inbox triage
-        self.onKeepToLibrary = onKeepToLibrary
+        self.onSaveToLibrary = onSaveToLibrary
         self.onDismiss = onDismiss
         self.onToggleStar = onToggleStar
         self.onMuteAuthor = onMuteAuthor
@@ -1596,7 +1603,7 @@ public struct PublicationListView: View {
 
         // Keep to Library (adds to target library AND removes from current library)
         // Available for all views, not just Inbox
-        if let onKeepToLibrary = onKeepToLibrary, !allLibraries.isEmpty {
+        if let onSaveToLibrary = onSaveToLibrary, !allLibraries.isEmpty {
             // Filter out current library and Inbox from keep targets
             let keepLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
             if !keepLibraries.isEmpty {
@@ -1604,7 +1611,7 @@ public struct PublicationListView: View {
                     ForEach(keepLibraries, id: \.id) { targetLibrary in
                         Button(targetLibrary.displayName) {
                             Task {
-                                await onKeepToLibrary(ids, targetLibrary)
+                                await onSaveToLibrary(ids, targetLibrary)
                             }
                         }
                     }
@@ -1705,10 +1712,10 @@ public struct PublicationListView: View {
             Task { await onDelete?([rowData.id]) }
         } : nil
 
-        let keepHandler: (() -> Void)? = {
-            guard onKeepToLibrary != nil else { return nil }
+        let saveHandler: (() -> Void)? = {
+            guard onSaveToLibrary != nil else { return nil }
             // Use the configured keep library if provided, otherwise fall back to first non-inbox library
-            let targetLibrary: CDLibrary? = keepLibrary ?? allLibraries.first { !$0.isInbox }
+            let targetLibrary: CDLibrary? = saveLibrary ?? allLibraries.first { !$0.isInbox }
             guard let library = targetLibrary else { return nil }
             return {
                 // Show green flash for keep action
@@ -1723,7 +1730,7 @@ public struct PublicationListView: View {
                             triageFlashState = nil
                         }
                     }
-                    await onKeepToLibrary?([rowData.id], library)
+                    await onSaveToLibrary?([rowData.id], library)
                 }
             }
         }()
@@ -1852,7 +1859,7 @@ public struct PublicationListView: View {
             onToggleRead: toggleReadHandler,
             onCategoryTap: onCategoryTap,
             onDelete: deleteHandler,
-            onKeep: keepHandler,
+            onSave: saveHandler,
             onDismiss: dismissHandler,
             isInInbox: isInInbox,
             onOpenPDF: openPDFHandler,

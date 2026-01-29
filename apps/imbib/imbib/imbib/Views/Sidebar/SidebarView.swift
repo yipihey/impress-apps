@@ -760,6 +760,12 @@ struct SidebarView: View {
                     deleteSelectedSmartSearches()
                 }
             } else {
+                if let (url, label) = webURL(for: smartSearch) {
+                    Button(label) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
                 Button("Edit Search...") {
                     // Navigate to Search section with this smart search's query
                     NotificationCenter.default.post(name: .editSmartSearch, object: smartSearch.id)
@@ -1082,52 +1088,42 @@ struct SidebarView: View {
     // MARK: - Library Disclosure Group
 
     /// Check if library has any visible children (smart searches or collections).
-    /// Used to determine whether to show "All Publications" row - if no children exist,
-    /// the row is redundant with the library header itself.
-    private func libraryHasChildren(_ library: CDLibrary) -> Bool {
-        let hasSmartSearches = smartSearchRepository.smartSearches.contains { $0.library?.id == library.id }
-        let hasCollections = (library.collections as? Set<CDCollection>)?.isEmpty == false
-        return hasSmartSearches || hasCollections
-    }
-
     @ViewBuilder
     private func libraryDisclosureGroup(for library: CDLibrary) -> some View {
         DisclosureGroup(
             isExpanded: expansionBinding(for: library.id)
         ) {
-            // All Publications - only show if library has children (smart searches or collections)
-            // When no children exist, this row is redundant with the library header
-            if libraryHasChildren(library) {
-                SidebarDropTarget(
-                    isTargeted: state.dropTargetedLibrary == library.id,
-                    showPlusBadge: true
-                ) {
-                    Label("All Publications", systemImage: "books.vertical")
+            // All Publications row - always shown so library selection works
+            // even when library has no collections or smart searches
+            SidebarDropTarget(
+                isTargeted: state.dropTargetedLibrary == library.id,
+                showPlusBadge: true
+            ) {
+                Label("All Publications", systemImage: "books.vertical")
+            }
+            .tag(SidebarSection.library(library))
+            .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
+                dragDropLog("📦 DROP on library '\(library.displayName)' (id: \(library.id.uuidString))")
+                dragDropLog("  - Provider count: \(providers.count)")
+                for (i, provider) in providers.enumerated() {
+                    let types = provider.registeredTypeIdentifiers
+                    dragDropLog("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                    dragDropLog("  - Provider[\(i)] hasPublicationID: \(provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier))")
+                    dragDropLog("  - Provider[\(i)] hasPDF: \(provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier))")
+                    dragDropLog("  - Provider[\(i)] hasFileURL: \(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier))")
                 }
-                .tag(SidebarSection.library(library))
-                .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
-                    dragDropLog("📦 DROP on library '\(library.displayName)' (id: \(library.id.uuidString))")
-                    dragDropLog("  - Provider count: \(providers.count)")
-                    for (i, provider) in providers.enumerated() {
-                        let types = provider.registeredTypeIdentifiers
-                        dragDropLog("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
-                        dragDropLog("  - Provider[\(i)] hasPublicationID: \(provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier))")
-                        dragDropLog("  - Provider[\(i)] hasPDF: \(provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier))")
-                        dragDropLog("  - Provider[\(i)] hasFileURL: \(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier))")
-                    }
 
-                    if hasFileDrops(providers) {
-                        dragDropLog("  → Routing to file drop handler")
-                        handleFileDrop(providers, libraryID: library.id)
-                    } else {
-                        dragDropLog("  → Routing to publication drop handler")
-                        handleDrop(providers: providers) { uuids in
-                            dragDropLog("  → handleDrop completed with \(uuids.count) UUIDs: \(uuids.map { $0.uuidString })")
-                            Task { await addPublicationsToLibrary(uuids, library: library) }
-                        }
+                if hasFileDrops(providers) {
+                    dragDropLog("  → Routing to file drop handler")
+                    handleFileDrop(providers, libraryID: library.id)
+                } else {
+                    dragDropLog("  → Routing to publication drop handler")
+                    handleDrop(providers: providers) { uuids in
+                        dragDropLog("  → handleDrop completed with \(uuids.count) UUIDs: \(uuids.map { $0.uuidString })")
+                        Task { await addPublicationsToLibrary(uuids, library: library) }
                     }
-                    return true
                 }
+                return true
             }
 
             // Smart Searches for this library (use repository for change observation)
@@ -1482,6 +1478,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func libraryHeaderDropTarget(for library: CDLibrary) -> some View {
         let count = publicationCount(for: library)
+        let starredCount = library.isSaveLibrary ? starredPublicationCount(for: library) : 0
         SidebarDropTarget(
             isTargeted: state.dropTargetedLibraryHeader == library.id,
             showPlusBadge: true
@@ -1489,6 +1486,17 @@ struct SidebarView: View {
             HStack {
                 Label(library.displayName, systemImage: "building.columns")
                 Spacer()
+                // Show starred count badge for Save library
+                if starredCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                        Text("\(starredCount)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if count > 0 {
                     CountBadge(count: count)
                 }
@@ -1941,6 +1949,11 @@ struct SidebarView: View {
                         await refreshInboxFeed(feed)
                     }
                 }
+                if let (url, label) = webURL(for: feed) {
+                    Button(label) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 Button("Edit") {
                     // Check feed type and route to appropriate editor
                     if feed.isGroupFeed {
@@ -2093,6 +2106,79 @@ struct SidebarView: View {
         return !hasSearchTerms
     }
 
+    /// Construct an arXiv web URL for a feed.
+    ///
+    /// For category feeds (e.g., "cat:astro-ph.GA"), opens the category listing page.
+    /// For other arXiv searches, opens the search results page.
+    private func arXivWebURL(for feed: CDSmartSearch) -> URL? {
+        guard feed.sources == ["arxiv"] else { return nil }
+
+        let query = feed.query
+
+        // Extract category from "cat:xxx" pattern for category feeds
+        if isArXivCategoryFeed(feed) {
+            // Extract first category from query like "(cat:astro-ph.GA OR cat:astro-ph.CO)"
+            let pattern = #"cat:([^\s()]+)"#
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+               let range = Range(match.range(at: 1), in: query) {
+                let category = String(query[range])
+                return URL(string: "https://arxiv.org/list/\(category)/recent")
+            }
+        }
+
+        // For general arXiv searches, use the search page
+        if let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(string: "https://arxiv.org/search/?query=\(encodedQuery)&searchtype=all")
+        }
+
+        return nil
+    }
+
+    /// Construct an ADS web URL for a feed or search.
+    ///
+    /// Opens the search results page on the ADS web interface.
+    private func adsWebURL(for feed: CDSmartSearch) -> URL? {
+        guard feed.sources == ["ads"] else { return nil }
+
+        let query = feed.query
+        if let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(string: "https://ui.adsabs.harvard.edu/search/q=\(encodedQuery)")
+        }
+
+        return nil
+    }
+
+    /// Construct a SciX web URL for a feed or search.
+    ///
+    /// Opens the search results page on the SciX web interface.
+    private func sciXWebURL(for feed: CDSmartSearch) -> URL? {
+        guard feed.sources == ["scix"] else { return nil }
+
+        let query = feed.query
+        if let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(string: "https://www.scixplorer.org/search/q=\(encodedQuery)")
+        }
+
+        return nil
+    }
+
+    /// Get the appropriate web URL for any supported feed.
+    ///
+    /// Returns the web URL for arXiv, ADS, or SciX feeds based on their source.
+    private func webURL(for feed: CDSmartSearch) -> (url: URL, label: String)? {
+        if let url = arXivWebURL(for: feed) {
+            return (url, "Open on arXiv")
+        }
+        if let url = adsWebURL(for: feed) {
+            return (url, "Open on ADS")
+        }
+        if let url = sciXWebURL(for: feed) {
+            return (url, "Open on SciX")
+        }
+        return nil
+    }
+
     // MARK: - Helpers
 
     /// Convert permission level to tooltip string
@@ -2138,6 +2224,11 @@ struct SidebarView: View {
 
     private func publicationCount(for library: CDLibrary) -> Int {
         allPublications(for: library).count
+    }
+
+    /// Get count of starred publications in a library.
+    private func starredPublicationCount(for library: CDLibrary) -> Int {
+        allPublications(for: library).filter { $0.isStarred }.count
     }
 
     /// Get all publications for a library.

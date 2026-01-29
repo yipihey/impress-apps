@@ -182,7 +182,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             listID: source.listID,
             disableUnreadFilter: source.isInbox,
             isInInbox: source.isInbox,
-            keepLibrary: source.isInbox ? libraryManager.getOrCreateKeepLibrary() : nil,
+            saveLibrary: source.isInbox ? libraryManager.getOrCreateSaveLibrary() : nil,
             filterScope: $filterScope,
             sortOrder: $currentSortOrder,
             sortAscending: $currentSortAscending,
@@ -197,7 +197,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             onRemoveFromAllCollections: { ids in await handleRemoveFromAllCollections(ids) },
             onImport: shouldShowImportButton ? { handleImport() } : nil,
             onOpenPDF: { pub in handleOpenPDF(pub) },
-            onKeepToLibrary: source.isInbox ? { ids, lib in await handleKeepToLibrary(ids, lib) } : nil,
+            onSaveToLibrary: source.isInbox ? { ids, lib in await handleSaveToLibrary(ids, lib) } : nil,
             onDismiss: { ids in await handleDismiss(ids) },
             onCategoryTap: { cat in handleCategoryTap(cat) },
             onOpenInBrowser: { pub, dest in handleOpenInBrowser(pub, dest) },
@@ -542,11 +542,11 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     // MARK: - Inbox Triage Handlers
 
-    private func handleKeepToLibrary(_ ids: Set<UUID>, _ targetLibrary: CDLibrary) async {
+    private func handleSaveToLibrary(_ ids: Set<UUID>, _ targetLibrary: CDLibrary) async {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
-        let result = InboxTriageService.shared.keepToLibrary(
+        let result = InboxTriageService.shared.saveToLibrary(
             ids: ids,
             from: visualOrder,
             currentSelection: selectedPublication,

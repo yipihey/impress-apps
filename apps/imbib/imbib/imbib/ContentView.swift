@@ -178,6 +178,7 @@ struct ContentView: View {
                 searchViewModel: searchViewModel,
                 onEditSmartSearch: handleEditSmartSearch,
                 onNavigateToSearchSection: handleNavigateToSearchSection,
+                onOpenArxivSearchWithCategory: handleOpenArxivSearchWithCategory,
                 onNavigateBack: navigateBack,
                 onNavigateForward: navigateForward
             ))
@@ -446,6 +447,25 @@ struct ContentView: View {
     private func handleNavigateToSearchSection() {
         showSearchFormInList = true
         selectedSection = .searchForm(.adsClassic)  // Default to Classic form
+    }
+
+    /// Handle openArxivSearchWithCategory notification - opens arXiv search with category pre-filled
+    private func handleOpenArxivSearchWithCategory(_ notification: Notification) {
+        guard let category = notification.userInfo?["category"] as? String else { return }
+
+        // Navigate to arXiv feed form and pre-fill the category
+        showSearchFormInList = true
+        selectedSection = .searchForm(.arxivFeed)
+
+        // Post a notification to pre-fill the category in the arXiv form
+        // The form will handle parsing "cat:astro-ph" into category selection
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(
+                name: .prefillArxivCategory,
+                object: nil,
+                userInfo: ["category": category]
+            )
+        }
     }
 
     /// Convert SidebarSelectionState (serializable) to SidebarSection (with Core Data objects)
@@ -1089,9 +1109,9 @@ struct CollectionListView: View {
         .navigationTitle(collection.name)
         .focusable()
         .focusEffectDisabled()
+        .onKeyPress { press in handleVimNavigation(press) }
         .onKeyPress(.downArrow) { handleDownArrowKey() }
         .onKeyPress(.upArrow) { handleUpArrowKey() }
-        .onKeyPress(.init("k")) { handleKeepKey() }
         .onKeyPress(.init("d")) { handleDismissKey() }
         .toolbar {
             ToolbarItem(placement: .automatic) {
@@ -1297,12 +1317,51 @@ struct CollectionListView: View {
         return .handled
     }
 
+    /// Handle vim-style navigation keys (h/j/k/l)
+    private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
+        guard !isTextFieldFocused() else { return .ignored }
+
+        let store = KeyboardShortcutsStore.shared
+
+        // Check for vim navigation shortcuts
+        if store.matches(press, action: "navigateDown") {
+            NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateUp") {
+            // K key: now ONLY does vim navigation up
+            NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
+            return .handled
+        }
+
+        // S key: Save to Save library (exploration collections only)
+        if store.matches(press, action: "inboxSave") {
+            if isExplorationCollection && !multiSelection.isEmpty {
+                saveSelectedToLibrary()
+                return .handled
+            }
+        }
+
+        if store.matches(press, action: "navigateBack") {
+            NotificationCenter.default.post(name: .navigateBack, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateForward") {
+            NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
+            return .handled
+        }
+
+        return .ignored
+    }
+
     // MARK: - Exploration Triage Handlers
 
-    /// Handle 'K' key - keep selected to default library (exploration collections only)
-    private func handleKeepKey() -> KeyPress.Result {
+    /// Handle 'S' key - save selected to default library (exploration collections only)
+    private func handleSaveKey() -> KeyPress.Result {
         guard !isTextFieldFocused(), isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
-        keepSelectedToLibrary()
+        saveSelectedToLibrary()
         return .handled
     }
 
@@ -1313,13 +1372,13 @@ struct CollectionListView: View {
         return .handled
     }
 
-    /// Keep selected publications to the Keep library
-    private func keepSelectedToLibrary() {
-        let keepLibrary = libraryManager.getOrCreateKeepLibrary()
+    /// Save selected publications to the Save library
+    private func saveSelectedToLibrary() {
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
         let ids = multiSelection
         guard let firstID = ids.first else { return }
 
-        // Show green flash for keep action
+        // Show green flash for save action
         withAnimation(.easeIn(duration: 0.1)) {
             keyboardTriageFlash = (firstID, .green)
         }
@@ -1335,11 +1394,11 @@ struct CollectionListView: View {
                 }
             }
 
-            // Add to Keep library and remove from exploration collection
+            // Add to Save library and remove from exploration collection
             let pubs = publications.filter { ids.contains($0.id) }
             await MainActor.run {
                 for pub in pubs {
-                    pub.addToLibrary(keepLibrary)
+                    pub.addToLibrary(saveLibrary)
                     pub.removeFromCollection(collection)
                 }
                 try? PersistenceController.shared.viewContext.save()
@@ -1437,6 +1496,7 @@ struct NavigationHandlersModifier: ViewModifier {
     let searchViewModel: SearchViewModel
     let onEditSmartSearch: (Notification) -> Void
     let onNavigateToSearchSection: () -> Void
+    let onOpenArxivSearchWithCategory: (Notification) -> Void
     let onNavigateBack: () -> Void
     let onNavigateForward: () -> Void
 
@@ -1478,6 +1538,9 @@ struct NavigationHandlersModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToSearchSection)) { _ in
                 onNavigateToSearchSection()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openArxivSearchWithCategory)) { notification in
+                onOpenArxivSearchWithCategory(notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateBack)) { _ in
                 onNavigateBack()

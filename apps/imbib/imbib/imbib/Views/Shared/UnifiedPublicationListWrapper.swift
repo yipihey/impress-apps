@@ -216,7 +216,7 @@ struct UnifiedPublicationListWrapper: View {
             .toolbar { toolbarContent }
             .focusable()
             .focusEffectDisabled()
-            .onKeyPress(.init("k")) { handleKeepKey() }
+            .onKeyPress { press in handleVimNavigation(press) }
             .onKeyPress(.init("d")) { handleDismissKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
@@ -270,7 +270,9 @@ struct UnifiedPublicationListWrapper: View {
             .modifier(InboxTriageModifier(
                 isInboxView: isInboxView,
                 hasSelection: !selectedPublicationIDs.isEmpty,
-                onKeep: keepSelectedToDefaultLibrary,
+                onSave: saveSelectedToDefaultLibrary,
+                onSaveAndStar: saveAndStarSelected,
+                onToggleStar: toggleStarForSelected,
                 onDismiss: dismissSelectedFromInbox
             ))
             .alert("Duplicate File", isPresented: $showDuplicateAlert) {
@@ -393,7 +395,7 @@ struct UnifiedPublicationListWrapper: View {
             listID: listID,
             disableUnreadFilter: isInboxView,
             isInInbox: isInboxView,
-            keepLibrary: isInboxView ? libraryManager.getOrCreateKeepLibrary() : nil,
+            saveLibrary: isInboxView ? libraryManager.getOrCreateSaveLibrary() : nil,
             filterScope: $filterScope,
             libraryNameMapping: libraryNameMapping,
             sortOrder: $currentSortOrder,
@@ -481,14 +483,16 @@ struct UnifiedPublicationListWrapper: View {
             },
             onDownloadPDFs: onDownloadPDFs,
             // Keep callback - only available in Inbox (implied once in library)
-            onKeepToLibrary: isInboxView ? { ids, targetLibrary in
-                await keepToLibrary(ids: ids, targetLibrary: targetLibrary)
+            onSaveToLibrary: isInboxView ? { ids, targetLibrary in
+                await saveToLibrary(ids: ids, targetLibrary: targetLibrary)
             } : nil,
             // Dismiss callback - available for all views (moves papers to dismissed library)
             onDismiss: { ids in
                 await dismissFromInbox(ids: ids)
             },
-            onToggleStar: nil,
+            onToggleStar: { ids in
+                await toggleStarForIDs(ids)
+            },
             onMuteAuthor: isInboxView ? { authorName in
                 muteAuthor(authorName)
             } : nil,
@@ -834,10 +838,10 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Inbox Triage Handlers
 
-    /// Handle 'K' key - keep selected to default library
-    private func handleKeepKey() -> KeyPress.Result {
+    /// Handle 'S' key - save selected to default library
+    private func handleSaveKey() -> KeyPress.Result {
         guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
-        keepSelectedToDefaultLibrary()
+        saveSelectedToDefaultLibrary()
         return .handled
     }
 
@@ -848,15 +852,70 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Keep selected publications to the Keep library (created on first use if needed)
-    private func keepSelectedToDefaultLibrary() {
-        // Use the Keep library (created automatically on first use)
-        let keepLibrary = libraryManager.getOrCreateKeepLibrary()
+    /// Handle vim-style navigation keys (h/j/k/l) and inbox triage keys (s/S/t)
+    private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
+        guard !isTextFieldFocused() else { return .ignored }
+
+        let store = KeyboardShortcutsStore.shared
+
+        // Check for vim navigation shortcuts
+        if store.matches(press, action: "navigateDown") {
+            NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateUp") {
+            // K key: now ONLY does vim navigation up (no longer dual-purpose)
+            NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateBack") {
+            NotificationCenter.default.post(name: .navigateBack, object: nil)
+            return .handled
+        }
+
+        if store.matches(press, action: "navigateForward") {
+            NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
+            return .handled
+        }
+
+        // S key: Save to Save library (inbox only)
+        if store.matches(press, action: "inboxSave") {
+            if isInboxView && !selectedPublicationIDs.isEmpty {
+                saveSelectedToDefaultLibrary()
+                return .handled
+            }
+        }
+
+        // Shift+S: Save and Star (inbox only)
+        if store.matches(press, action: "inboxSaveAndStar") {
+            if isInboxView && !selectedPublicationIDs.isEmpty {
+                saveAndStarSelected()
+                return .handled
+            }
+        }
+
+        // T key: Toggle star (works anywhere)
+        if store.matches(press, action: "inboxToggleStar") {
+            if !selectedPublicationIDs.isEmpty {
+                toggleStarForSelected()
+                return .handled
+            }
+        }
+
+        return .ignored
+    }
+
+    /// Save selected publications to the Save library (created on first use if needed)
+    private func saveSelectedToDefaultLibrary() {
+        // Use the Save library (created automatically on first use)
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
 
         let ids = selectedPublicationIDs
         guard let firstID = ids.first else { return }
 
-        // Show green flash for keep action
+        // Show green flash for save action
         withAnimation(.easeIn(duration: 0.1)) {
             keyboardTriageFlash = (firstID, .green)
         }
@@ -869,8 +928,83 @@ struct UnifiedPublicationListWrapper: View {
                     keyboardTriageFlash = nil
                 }
             }
-            await keepToLibrary(ids: ids, targetLibrary: keepLibrary)
+            await saveToLibrary(ids: ids, targetLibrary: saveLibrary)
         }
+    }
+
+    /// Save and star selected publications to the Save library
+    private func saveAndStarSelected() {
+        // Use the Save library (created automatically on first use)
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+
+        let ids = selectedPublicationIDs
+        guard let firstID = ids.first else { return }
+
+        // Show gold flash for save+star action
+        withAnimation(.easeIn(duration: 0.1)) {
+            keyboardTriageFlash = (firstID, .yellow)
+        }
+
+        Task {
+            // Brief delay to show flash
+            try? await Task.sleep(for: .milliseconds(200))
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    keyboardTriageFlash = nil
+                }
+
+                // Star the selected publications
+                for id in ids {
+                    if let pub = publications.first(where: { $0.id == id }) {
+                        pub.isStarred = true
+                    }
+                }
+                PersistenceController.shared.save()
+            }
+            await saveToLibrary(ids: ids, targetLibrary: saveLibrary)
+        }
+    }
+
+    /// Toggle star for selected publications
+    private func toggleStarForSelected() {
+        let ids = selectedPublicationIDs
+        guard !ids.isEmpty else { return }
+
+        // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
+        let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
+        let newStarred = anyUnstarred
+
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.isStarred = newStarred
+            }
+        }
+        PersistenceController.shared.save()
+        refreshPublicationsList()
+    }
+
+    /// Toggle star for a single publication
+    private func toggleStar(for publication: CDPublication) async {
+        publication.isStarred = !publication.isStarred
+        PersistenceController.shared.save()
+        refreshPublicationsList()
+    }
+
+    /// Toggle star for publications by IDs (used by PublicationListView callback)
+    private func toggleStarForIDs(_ ids: Set<UUID>) async {
+        guard !ids.isEmpty else { return }
+
+        // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
+        let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
+        let newStarred = anyUnstarred
+
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.isStarred = newStarred
+            }
+        }
+        PersistenceController.shared.save()
+        refreshPublicationsList()
     }
 
     /// Compute the visual order of publications synchronously.
@@ -917,6 +1051,13 @@ struct UnifiedPublicationListWrapper: View {
                 lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending  // Default ascending (A-Z)
             case .citationCount:
                 (lhs.citationCount ?? 0) > (rhs.citationCount ?? 0)  // Default descending (highest first)
+            case .starred:
+                // Starred first, then by dateAdded as tie-breaker
+                if lhs.isStarred != rhs.isStarred {
+                    lhs.isStarred  // Starred papers first (true > false)
+                } else {
+                    lhs.dateAdded > rhs.dateAdded  // Tie-breaker: newest first
+                }
             case .recommended:
                 true  // Handled above, this won't be reached
             }
@@ -975,16 +1116,16 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
-    // MARK: - Keep Implementation
+    // MARK: - Save Implementation
 
-    /// Keep publications to a target library (adds to target AND removes from current).
+    /// Save publications to a target library (adds to target AND removes from current).
     /// Advances selection to next paper for rapid triage.
-    private func keepToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+    private func saveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
         // Use computed visual order for proper selection advancement
-        let result = InboxTriageService.shared.keepToLibrary(
+        let result = InboxTriageService.shared.saveToLibrary(
             ids: ids,
             from: visualOrder,
             currentSelection: selectedPublication,
@@ -1166,14 +1307,26 @@ private struct SmartSearchRefreshModifier: ViewModifier {
 private struct InboxTriageModifier: ViewModifier {
     let isInboxView: Bool
     let hasSelection: Bool
-    let onKeep: () -> Void
+    let onSave: () -> Void
+    let onSaveAndStar: () -> Void
+    let onToggleStar: () -> Void
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .inboxKeep)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .inboxSave)) { _ in
                 if isInboxView && hasSelection {
-                    onKeep()
+                    onSave()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxSaveAndStar)) { _ in
+                if isInboxView && hasSelection {
+                    onSaveAndStar()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
+                if hasSelection {
+                    onToggleStar()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in

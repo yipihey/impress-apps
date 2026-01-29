@@ -356,47 +356,47 @@ public final class LibraryManager {
         return createLibrary(name: "My Library")
     }
 
-    // MARK: - Keep Library (Inbox Triage)
+    // MARK: - Save Library (Inbox Triage)
 
-    /// Get or create the Keep library for Inbox triage.
+    /// Get or create the Save library for Inbox triage.
     ///
-    /// The Keep library is used by the "K" keyboard shortcut in the Inbox.
-    /// If a user-configured keep library is set in preferences, that library is used.
-    /// Otherwise, if no keep library exists, one is created automatically on first use.
+    /// The Save library is used by the "S" keyboard shortcut in the Inbox.
+    /// If a user-configured save library is set in preferences, that library is used.
+    /// Otherwise, if no save library exists, one is created automatically on first use.
     @discardableResult
-    public func getOrCreateKeepLibrary() -> CDLibrary {
-        // Check if user has configured a specific keep library (synced across devices)
-        if let configuredID = SyncedSettingsStore.shared.string(forKey: .inboxKeepLibraryID),
+    public func getOrCreateSaveLibrary() -> CDLibrary {
+        // Check if user has configured a specific save library (synced across devices)
+        if let configuredID = SyncedSettingsStore.shared.string(forKey: .inboxSaveLibraryID),
            let uuid = UUID(uuidString: configuredID),
            let configuredLibrary = libraries.first(where: { $0.id == uuid && !$0.isDeleted }) {
-            Logger.library.debugCapture("Using user-configured keep library: \(configuredLibrary.displayName)", category: "library")
+            Logger.library.debugCapture("Using user-configured save library: \(configuredLibrary.displayName)", category: "library")
             return configuredLibrary
         }
 
-        // Return existing keep library if available (validate it's not deleted)
-        if let keepLib = libraries.first(where: { $0.isKeepLibrary && !$0.isDeleted }) {
-            return keepLib
+        // Return existing save library if available (validate it's not deleted)
+        if let saveLib = libraries.first(where: { $0.isSaveLibrary && !$0.isDeleted }) {
+            return saveLib
         }
 
         // Query database directly to avoid stale cache issues
         let context = persistenceController.viewContext
         let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isKeepLibrary == YES")
+        request.predicate = NSPredicate(format: "isSaveLibrary == YES")
         request.fetchLimit = 1
 
-        if let existingKeep = try? context.fetch(request).first {
-            Logger.library.debugCapture("Found existing Keep library in database", category: "library")
+        if let existingSave = try? context.fetch(request).first {
+            Logger.library.debugCapture("Found existing Save library in database", category: "library")
             loadLibraries()  // Refresh cache
-            return existingKeep
+            return existingSave
         }
 
-        // Create new Keep library
-        Logger.library.infoCapture("Creating Keep library for Inbox triage", category: "library")
+        // Create new Save library
+        Logger.library.infoCapture("Creating Save library for Inbox triage", category: "library")
 
         let library = CDLibrary(context: context)
         library.id = UUID()
-        library.name = "Keep"
-        library.isKeepLibrary = true
+        library.name = "Save"
+        library.isSaveLibrary = true
         library.isDefault = false
         library.dateCreated = Date()
         library.sortOrder = Int16(libraries.count)  // After existing libraries
@@ -404,13 +404,13 @@ public final class LibraryManager {
         persistenceController.save()
         loadLibraries()
 
-        Logger.library.infoCapture("Created Keep library with ID: \(library.id)", category: "library")
+        Logger.library.infoCapture("Created Save library with ID: \(library.id)", category: "library")
         return library
     }
 
-    /// Get the Keep library (for UI display purposes)
-    public var keepLibrary: CDLibrary? {
-        libraries.first { $0.isKeepLibrary }
+    /// Get the Save library (for UI display purposes)
+    public var saveLibrary: CDLibrary? {
+        libraries.first { $0.isSaveLibrary }
     }
 
     // MARK: - Dismissed Library (Inbox Triage)

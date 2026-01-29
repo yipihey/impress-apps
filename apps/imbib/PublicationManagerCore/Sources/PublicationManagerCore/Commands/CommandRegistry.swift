@@ -151,7 +151,7 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "openPaper", title: "Open Paper", category: .paper, shortcut: "↩", notificationName: .openSelectedPaper))
         register(Command(id: "toggleReadStatus", title: "Toggle Read/Unread", category: .paper, shortcut: "⇧⌘U", notificationName: .toggleReadStatus))
         register(Command(id: "markAllAsRead", title: "Mark All as Read", category: .paper, shortcut: "⌥⌘U", notificationName: .markAllAsRead))
-        register(Command(id: "keepToLibrary", title: "Keep to Library", category: .paper, shortcut: "⌃⌘K", notificationName: .keepToLibrary))
+        register(Command(id: "saveToLibrary", title: "Save to Library", category: .paper, shortcut: "⌃⌘S", notificationName: .saveToLibrary))
         register(Command(id: "dismissFromInbox", title: "Dismiss from Inbox", category: .paper, shortcut: "⇧⌘J", notificationName: .dismissFromInbox))
         register(Command(id: "addToCollection", title: "Add to Collection...", category: .paper, shortcut: "⌘L", notificationName: .addToCollection))
         register(Command(id: "removeFromCollection", title: "Remove from Collection", category: .paper, shortcut: "⇧⌘L", notificationName: .removeFromCollection))

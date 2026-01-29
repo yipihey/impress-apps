@@ -220,13 +220,13 @@ public final class InboxManager {
         }
     }
 
-    // MARK: - Auto-Remove on Keep
+    // MARK: - Auto-Remove on Save
 
     /// Set up observers for auto-remove behavior
     private func setupObservers() {
         // Listen for publications being added to libraries
         NotificationCenter.default.addObserver(
-            forName: .publicationKeptToLibrary,
+            forName: .publicationSavedToLibrary,
             object: nil,
             queue: .main
         ) { [weak self] notification in
@@ -234,13 +234,13 @@ public final class InboxManager {
                   let publication = notification.object as? CDPublication else { return }
 
             Task { @MainActor in
-                self.handleKeep(publication)
+                self.handleSave(publication)
             }
         }
     }
 
-    /// Handle when a paper is kept to another library
-    private func handleKeep(_ publication: CDPublication) {
+    /// Handle when a paper is saved to another library
+    private func handleSave(_ publication: CDPublication) {
         guard let inbox = inboxLibrary else { return }
 
         // Check if paper is in Inbox
@@ -459,9 +459,9 @@ public final class InboxManager {
         updateUnreadCount()
     }
 
-    /// Keep a paper from Inbox to a target library
-    public func keepToLibrary(_ publication: CDPublication, library: CDLibrary) {
-        Logger.inbox.infoCapture("Keeping paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
+    /// Save a paper from Inbox to a target library
+    public func saveToLibrary(_ publication: CDPublication, library: CDLibrary) {
+        Logger.inbox.infoCapture("Saving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
 
         // Track dismissal so paper won't reappear in Inbox
         trackDismissal(publication)
@@ -479,7 +479,7 @@ public final class InboxManager {
         updateUnreadCount()
 
         // Post notification for auto-remove
-        NotificationCenter.default.post(name: .publicationKeptToLibrary, object: publication)
+        NotificationCenter.default.post(name: .publicationSavedToLibrary, object: publication)
     }
 
     /// Get all papers in the Inbox, filtered by age limit

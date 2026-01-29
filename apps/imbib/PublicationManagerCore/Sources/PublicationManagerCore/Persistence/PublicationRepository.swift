@@ -1324,7 +1324,7 @@ public actor PublicationRepository {
             await MainActor.run {
                 for publication in publications {
                     NotificationCenter.default.post(
-                        name: .publicationKeptToLibrary,
+                        name: .publicationSavedToLibrary,
                         object: publication
                     )
                 }

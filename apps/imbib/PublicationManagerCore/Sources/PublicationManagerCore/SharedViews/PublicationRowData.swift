@@ -50,6 +50,9 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Whether the publication has been read
     public let isRead: Bool
 
+    /// Whether the publication is starred/flagged
+    public let isStarred: Bool
+
     /// Whether a PDF is downloaded locally (or available in iCloud on iOS)
     /// Shows paperclip icon in list view
     public let hasDownloadedPDF: Bool
@@ -132,6 +135,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.year = publication.year > 0 ? Int(publication.year) : Self.parseYearFromFields(fields)
         self.abstract = publication.abstract
         self.isRead = publication.isRead
+        self.isStarred = publication.isStarred
         let attachmentStatus = Self.checkAttachments(publication)
         self.hasDownloadedPDF = attachmentStatus.hasDownloadedPDF
         self.hasOtherAttachments = attachmentStatus.hasOtherAttachments

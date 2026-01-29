@@ -221,6 +221,34 @@ public struct KeyboardShortcutBinding: Codable, Identifiable, Equatable, Hashabl
     public func keyboardShortcut() -> KeyboardShortcut {
         KeyboardShortcut(key.keyEquivalent, modifiers: modifiers.eventModifiers)
     }
+
+    /// Check if this binding matches a KeyPress event.
+    /// Used for `.onKeyPress` handlers to support customizable shortcuts.
+    public func matches(_ press: KeyPress) -> Bool {
+        let keyMatches: Bool
+        switch key {
+        case .character(let char):
+            keyMatches = press.characters.lowercased() == char.lowercased()
+        case .special(let special):
+            keyMatches = press.key == special.keyEquivalent
+        }
+        guard keyMatches else { return false }
+        return ShortcutModifiers(press.modifiers) == modifiers
+    }
+}
+
+// MARK: - ShortcutModifiers + KeyPress
+
+extension ShortcutModifiers {
+    /// Initialize from SwiftUI EventModifiers (used for KeyPress matching)
+    public init(_ modifiers: EventModifiers) {
+        var result: ShortcutModifiers = []
+        if modifiers.contains(.command) { result.insert(.command) }
+        if modifiers.contains(.shift) { result.insert(.shift) }
+        if modifiers.contains(.option) { result.insert(.option) }
+        if modifiers.contains(.control) { result.insert(.control) }
+        self = result
+    }
 }
 
 // MARK: - Keyboard Shortcuts Settings
@@ -279,7 +307,40 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
 
     /// Default keyboard shortcuts
     public static let defaults = KeyboardShortcutsSettings(bindings: [
-        // MARK: Navigation
+        // MARK: Navigation (Vim-style)
+        KeyboardShortcutBinding(
+            id: "navigateDown",
+            displayName: "Down (Vim)",
+            category: .navigation,
+            key: .character("j"),
+            modifiers: .none,
+            notificationName: "navigateNextPaper"
+        ),
+        KeyboardShortcutBinding(
+            id: "navigateUp",
+            displayName: "Up (Vim)",
+            category: .navigation,
+            key: .character("k"),
+            modifiers: .none,
+            notificationName: "navigatePreviousPaper"
+        ),
+        KeyboardShortcutBinding(
+            id: "navigateBack",
+            displayName: "Back (Vim)",
+            category: .navigation,
+            key: .character("h"),
+            modifiers: .none,
+            notificationName: "navigateBack"
+        ),
+        KeyboardShortcutBinding(
+            id: "navigateForward",
+            displayName: "Forward/Open (Vim)",
+            category: .navigation,
+            key: .character("l"),
+            modifiers: .none,
+            notificationName: "openSelectedPaper"
+        ),
+        // MARK: Navigation (Arrow Keys)
         KeyboardShortcutBinding(
             id: "navigateNextPaper",
             displayName: "Next Paper",
@@ -471,12 +532,12 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "markAllAsRead"
         ),
         KeyboardShortcutBinding(
-            id: "keepToLibrary",
-            displayName: "Keep to Library",
+            id: "saveToLibrary",
+            displayName: "Save to Library",
             category: .paperActions,
-            key: .character("k"),
+            key: .character("s"),
             modifiers: [.control, .command],
-            notificationName: "keepToLibrary"
+            notificationName: "saveToLibrary"
         ),
         KeyboardShortcutBinding(
             id: "dismissFromInbox",
@@ -597,12 +658,28 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
 
         // MARK: Inbox Triage (Single Keys)
         KeyboardShortcutBinding(
-            id: "inboxKeep",
-            displayName: "Keep",
+            id: "inboxSave",
+            displayName: "Save",
             category: .inboxTriage,
-            key: .character("k"),
+            key: .character("s"),
             modifiers: .none,
-            notificationName: "inboxKeep"
+            notificationName: "inboxSave"
+        ),
+        KeyboardShortcutBinding(
+            id: "inboxSaveAndStar",
+            displayName: "Save and Star",
+            category: .inboxTriage,
+            key: .character("s"),
+            modifiers: .shift,
+            notificationName: "inboxSaveAndStar"
+        ),
+        KeyboardShortcutBinding(
+            id: "inboxToggleStar",
+            displayName: "Toggle Star",
+            category: .inboxTriage,
+            key: .character("t"),
+            modifiers: .none,
+            notificationName: "inboxToggleStar"
         ),
         KeyboardShortcutBinding(
             id: "inboxDismiss",

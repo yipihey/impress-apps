@@ -57,7 +57,7 @@ public final class ShareExtensionContentExtractor {
 
     /// Queue a shared item for processing by the main app.
     ///
-    /// This method handles all item types (smart search, paper, docs selection).
+    /// This method handles all item types (smart search, paper, docs selection, arXiv search).
     ///
     /// - Parameter item: The shared item to queue
     public func queueItem(_ item: ShareExtensionService.SharedItem) {
@@ -77,6 +77,10 @@ public final class ShareExtensionContentExtractor {
             ShareExtensionService.shared.queueDocsSelection(
                 url: item.url,
                 query: item.query ?? ""
+            )
+        case .openArxivSearch:
+            ShareExtensionService.shared.queueOpenArxivSearch(
+                category: item.query ?? ""
             )
         }
     }
@@ -105,7 +109,15 @@ public final class ShareExtensionContentExtractor {
                     let urlString = results["url"] as? String
                     let url = urlString.flatMap { URL(string: $0) }
 
-                    completion(url, title)
+                    // If JavaScript preprocessing didn't yield a valid URL, fall back
+                    if let url = url {
+                        completion(url, title)
+                    } else {
+                        // Keep the title from JS but try to get URL from other sources
+                        self?.extractURLOnly(from: attachments) { extractedURL, _ in
+                            completion(extractedURL, title)
+                        }
+                    }
                 }
                 return
             }
@@ -120,22 +132,36 @@ public final class ShareExtensionContentExtractor {
         from attachments: [NSItemProvider],
         completion: @escaping (URL?, String?) -> Void
     ) {
-        // Look for URL attachment
-        let urlType = UTType.url.identifier
+        // Try multiple URL type identifiers - Safari uses different ones
+        let urlTypes = [
+            UTType.url.identifier,           // public.url
+            "public.url",                    // Explicit fallback
+            "com.apple.url",                 // Apple's URL type
+        ]
 
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(urlType) {
-                attachment.loadItem(forTypeIdentifier: urlType, options: nil) { item, error in
-                    if let url = item as? URL {
-                        completion(url, nil)
-                    } else if let urlData = item as? Data,
-                              let url = URL(dataRepresentation: urlData, relativeTo: nil) {
-                        completion(url, nil)
-                    } else {
-                        completion(nil, nil)
+        for urlType in urlTypes {
+            for attachment in attachments {
+                if attachment.hasItemConformingToTypeIdentifier(urlType) {
+                    attachment.loadItem(forTypeIdentifier: urlType, options: nil) { item, error in
+                        if let url = item as? URL {
+                            completion(url, nil)
+                        } else if let urlData = item as? Data,
+                                  let url = URL(dataRepresentation: urlData, relativeTo: nil) {
+                            completion(url, nil)
+                        } else if let nsURL = item as? NSURL,
+                                  let url = nsURL as URL? {
+                            // Handle NSURL bridging
+                            completion(url, nil)
+                        } else if let urlString = item as? String,
+                                  let url = URL(string: urlString) {
+                            // Sometimes URL is shared as string
+                            completion(url, nil)
+                        } else {
+                            completion(nil, nil)
+                        }
                     }
+                    return
                 }
-                return
             }
         }
 
@@ -144,9 +170,14 @@ public final class ShareExtensionContentExtractor {
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(textType) {
                 attachment.loadItem(forTypeIdentifier: textType, options: nil) { item, error in
-                    if let urlString = item as? String,
-                       let url = URL(string: urlString) {
-                        completion(url, nil)
+                    if let urlString = item as? String {
+                        // Trim whitespace and try to parse as URL
+                        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let url = URL(string: trimmed), url.scheme != nil {
+                            completion(url, nil)
+                        } else {
+                            completion(nil, nil)
+                        }
                     } else {
                         completion(nil, nil)
                     }

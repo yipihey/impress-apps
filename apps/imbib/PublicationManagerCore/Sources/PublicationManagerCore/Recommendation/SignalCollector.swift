@@ -14,7 +14,7 @@ import OSLog
 /// Collects user interaction signals for the recommendation engine.
 ///
 /// Hooks into existing services (InboxTriageService, LibraryViewModel, PDFManager)
-/// to capture keep/dismiss/star/read/download actions.
+/// to capture save/dismiss/star/read/download actions.
 public actor SignalCollector {
 
     // MARK: - Singleton
@@ -35,9 +35,9 @@ public actor SignalCollector {
 
     // MARK: - Signal Recording
 
-    /// Record when a paper is kept from Inbox.
-    public func recordKeep(_ publication: CDPublication) async {
-        await recordAction(.kept, for: publication)
+    /// Record when a paper is saved from Inbox.
+    public func recordSave(_ publication: CDPublication) async {
+        await recordAction(.saved, for: publication)
     }
 
     /// Record when a paper is dismissed from Inbox.

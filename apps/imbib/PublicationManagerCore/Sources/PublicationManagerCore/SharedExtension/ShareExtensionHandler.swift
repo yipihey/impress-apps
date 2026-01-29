@@ -87,6 +87,8 @@ public final class ShareExtensionHandler {
                     try await importPaperFromSharedItem(item)
                 case .docsSelection:
                     try await importDocsSelectionFromSharedItem(item)
+                case .openArxivSearch:
+                    openArxivSearchInterface(item)
                 }
                 ShareExtensionService.shared.removeItem(item)
                 Logger.shareExtension.infoCapture("Successfully processed shared item: \(item.type.rawValue)", category: "shareext")
@@ -335,6 +337,21 @@ public final class ShareExtensionHandler {
             return bibcode
         }
         return nil
+    }
+
+    /// Open the arXiv search interface with a category pre-filled.
+    ///
+    /// Posts a notification that the main app handles to navigate to the arXiv search form.
+    private func openArxivSearchInterface(_ item: ShareExtensionService.SharedItem) {
+        let category = item.query ?? ""
+        Logger.shareExtension.infoCapture("Opening arXiv search interface with category: \(category)", category: "shareext")
+
+        // Post notification for main app to handle navigation
+        NotificationCenter.default.post(
+            name: .openArxivSearchWithCategory,
+            object: nil,
+            userInfo: ["category": category]
+        )
     }
 
     /// Extract a paper identifier from any supported URL.

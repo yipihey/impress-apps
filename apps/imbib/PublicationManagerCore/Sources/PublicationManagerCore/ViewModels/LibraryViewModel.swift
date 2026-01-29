@@ -609,6 +609,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
     case year
     case citeKey
     case citationCount
+    case starred      // Starred papers first
     case recommended  // ADR-020: Recommendation-based sorting
 
     public var id: String { rawValue }
@@ -621,6 +622,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .year: return "Year"
         case .citeKey: return "Cite Key"
         case .citationCount: return "Citation Count"
+        case .starred: return "Starred First"
         case .recommended: return "Recommended"
         }
     }
@@ -633,6 +635,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .year: return "year"
         case .citeKey: return "citeKey"
         case .citationCount: return "citationCount"
+        case .starred: return "isStarred"
         case .recommended: return "dateAdded"  // Fallback for Core Data sort
         }
     }
@@ -642,8 +645,8 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
     /// Text fields default to ascending (A-Z).
     public var defaultAscending: Bool {
         switch self {
-        case .dateAdded, .dateModified, .year, .citationCount, .recommended:
-            return false  // Descending (newest/highest first, highest score first)
+        case .dateAdded, .dateModified, .year, .citationCount, .starred, .recommended:
+            return false  // Descending (newest/highest first, highest score first, starred first)
         case .title, .citeKey:
             return true   // Ascending (A-Z)
         }

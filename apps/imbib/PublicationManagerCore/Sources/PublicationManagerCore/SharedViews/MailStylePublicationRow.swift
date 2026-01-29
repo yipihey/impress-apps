@@ -119,11 +119,14 @@ public struct MailStylePublicationRow: View, Equatable {
     /// Action when delete is requested (swipe left)
     public var onDelete: (() -> Void)?
 
-    /// Action when keep is requested (swipe right)
-    public var onKeep: (() -> Void)?
+    /// Action when save is requested (swipe right)
+    public var onSave: (() -> Void)?
 
     /// Action when dismiss is requested (swipe left, Inbox only)
     public var onDismiss: (() -> Void)?
+
+    /// Action when toggling star is requested
+    public var onToggleStar: (() -> Void)?
 
     /// Whether this paper is in the Inbox (enables Inbox-specific actions)
     public var isInInbox: Bool = false
@@ -232,8 +235,9 @@ public struct MailStylePublicationRow: View, Equatable {
         onFileDrop: (([NSItemProvider]) -> Void)? = nil,
         // Swipe actions (iOS)
         onDelete: (() -> Void)? = nil,
-        onKeep: (() -> Void)? = nil,
+        onSave: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
+        onToggleStar: (() -> Void)? = nil,
         isInInbox: Bool = false,
         // Context menu actions
         onOpenPDF: (() -> Void)? = nil,
@@ -266,8 +270,9 @@ public struct MailStylePublicationRow: View, Equatable {
         self.onFileDrop = onFileDrop
         // Swipe actions
         self.onDelete = onDelete
-        self.onKeep = onKeep
+        self.onSave = onSave
         self.onDismiss = onDismiss
+        self.onToggleStar = onToggleStar
         self.isInInbox = isInInbox
         // Context menu
         self.onOpenPDF = onOpenPDF
@@ -303,15 +308,24 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Themed dot for unread (conditional)
+            // Indicators column: unread dot and star
             if settings.showUnreadIndicator {
-                Circle()
-                    .fill(isUnread ? MailStyleTokens.unreadDotColor(from: theme) : .clear)
-                    .frame(
-                        width: MailStyleTokens.unreadDotSize,
-                        height: MailStyleTokens.unreadDotSize
-                    )
-                    .padding(.top, 6)
+                VStack(spacing: 2) {
+                    Circle()
+                        .fill(isUnread ? MailStyleTokens.unreadDotColor(from: theme) : .clear)
+                        .frame(
+                            width: MailStyleTokens.unreadDotSize,
+                            height: MailStyleTokens.unreadDotSize
+                        )
+
+                    // Star indicator
+                    if data.isStarred {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 10 * fontScale))
+                            .foregroundStyle(.yellow)
+                    }
+                }
+                .padding(.top, 6)
             }
 
             // Content
@@ -446,16 +460,29 @@ public struct MailStylePublicationRow: View, Equatable {
                 .tint(.orange)
             }
         }
-        // Swipe RIGHT (.leading) = Keep + Toggle Read
+        // Swipe RIGHT (.leading) = Save + Star + Toggle Read
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            // Keep (green, leftmost)
-            if let onKeep = onKeep {
+            // Save (green, leftmost)
+            if let onSave = onSave {
                 Button {
-                    onKeep()
+                    onSave()
                 } label: {
-                    Label("Keep", systemImage: "checkmark.circle")
+                    Label("Save", systemImage: "checkmark.circle")
                 }
                 .tint(.green)
+            }
+
+            // Star (yellow)
+            if let onToggleStar = onToggleStar {
+                Button {
+                    onToggleStar()
+                } label: {
+                    Label(
+                        data.isStarred ? "Unstar" : "Star",
+                        systemImage: data.isStarred ? "star.slash" : "star"
+                    )
+                }
+                .tint(.yellow)
             }
 
             // Toggle Read (blue)
@@ -504,7 +531,7 @@ public struct MailStylePublicationRow: View, Equatable {
 
         Divider()
 
-        // SECTION 4: Read Status
+        // SECTION 4: Read Status & Star
         if let onToggleRead = onToggleRead {
             Button {
                 onToggleRead()
@@ -512,6 +539,17 @@ public struct MailStylePublicationRow: View, Equatable {
                 Label(
                     isUnread ? "Mark as Read" : "Mark as Unread",
                     systemImage: isUnread ? "envelope.open" : "envelope.badge"
+                )
+            }
+        }
+
+        if let onToggleStar = onToggleStar {
+            Button {
+                onToggleStar()
+            } label: {
+                Label(
+                    data.isStarred ? "Unstar" : "Star",
+                    systemImage: data.isStarred ? "star.slash" : "star"
                 )
             }
         }
@@ -732,11 +770,11 @@ public struct MailStylePublicationRow: View, Equatable {
 
     @ViewBuilder
     private var inboxActionsSection: some View {
-        if let onKeep = onKeep {
+        if let onSave = onSave {
             Button {
-                onKeep()
+                onSave()
             } label: {
-                Label("Keep to Library", systemImage: "checkmark.circle")
+                Label("Save to Library", systemImage: "checkmark.circle")
             }
         }
 
@@ -842,6 +880,7 @@ extension PublicationRowData {
         year: Int?,
         abstract: String?,
         isRead: Bool,
+        isStarred: Bool = false,
         hasDownloadedPDF: Bool = false,
         hasOtherAttachments: Bool = false,
         citationCount: Int,
@@ -864,6 +903,7 @@ extension PublicationRowData {
         self.year = year
         self.abstract = abstract
         self.isRead = isRead
+        self.isStarred = isStarred
         self.hasDownloadedPDF = hasDownloadedPDF
         self.hasOtherAttachments = hasOtherAttachments
         self.citationCount = citationCount

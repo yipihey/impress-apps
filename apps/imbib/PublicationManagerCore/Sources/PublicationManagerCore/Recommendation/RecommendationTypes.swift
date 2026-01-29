@@ -36,11 +36,11 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
 
     // MARK: - Implicit Signals (Behavioral)
 
-    /// User's historical keep rate for this author
-    case keepRateAuthor
+    /// User's historical save rate for this author
+    case saveRateAuthor
 
-    /// User's historical keep rate for this venue
-    case keepRateVenue
+    /// User's historical save rate for this venue
+    case saveRateVenue
 
     /// User's historical dismiss rate for this author (negative signal)
     case dismissRateAuthor
@@ -85,8 +85,8 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
         case .mutedAuthor: return "Muted Author"
         case .mutedCategory: return "Muted Category"
         case .mutedVenue: return "Muted Venue"
-        case .keepRateAuthor: return "Author Keep Rate"
-        case .keepRateVenue: return "Venue Keep Rate"
+        case .saveRateAuthor: return "Author Save Rate"
+        case .saveRateVenue: return "Venue Save Rate"
         case .dismissRateAuthor: return "Author Dismiss Rate"
         case .readingTimeTopic: return "Reading Time (Topic)"
         case .pdfDownloadAuthor: return "PDF Downloads (Author)"
@@ -115,10 +115,10 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
             return "Papers in categories you've muted (reduces score)"
         case .mutedVenue:
             return "Papers from venues you've muted (reduces score)"
-        case .keepRateAuthor:
-            return "Your historical rate of keeping papers by this author"
-        case .keepRateVenue:
-            return "Your historical rate of keeping papers from this venue"
+        case .saveRateAuthor:
+            return "Your historical rate of saving papers by this author"
+        case .saveRateVenue:
+            return "Your historical rate of saving papers from this venue"
         case .dismissRateAuthor:
             return "Your historical rate of dismissing papers by this author (reduces score)"
         case .readingTimeTopic:
@@ -157,8 +157,8 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
         case .mutedVenue: return -0.6
 
         // Behavioral signals: moderate weight
-        case .keepRateAuthor: return 0.5
-        case .keepRateVenue: return 0.3
+        case .saveRateAuthor: return 0.5
+        case .saveRateVenue: return 0.3
         case .dismissRateAuthor: return -0.4
         case .readingTimeTopic: return 0.4
         case .pdfDownloadAuthor: return 0.5
@@ -188,7 +188,7 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
         switch self {
         case .authorStarred, .collectionMatch, .tagMatch, .mutedAuthor, .mutedCategory, .mutedVenue:
             return .explicit
-        case .keepRateAuthor, .keepRateVenue, .dismissRateAuthor, .readingTimeTopic, .pdfDownloadAuthor:
+        case .saveRateAuthor, .saveRateVenue, .dismissRateAuthor, .readingTimeTopic, .pdfDownloadAuthor:
             return .implicit
         case .citationOverlap, .authorCoauthorship, .venueFrequency, .recency, .fieldCitationVelocity, .smartSearchMatch, .librarySimilarity:
             return .content
@@ -254,8 +254,8 @@ public struct TrainingEvent: Codable, Sendable, Identifiable {
 
 /// Actions that generate training events
 public enum TrainingAction: String, Codable, Sendable {
-    /// User kept the paper (moved from inbox to library)
-    case kept
+    /// User saved the paper (moved from inbox to library)
+    case saved
 
     /// User dismissed the paper
     case dismissed
@@ -284,7 +284,7 @@ public enum TrainingAction: String, Codable, Sendable {
     /// Display name for UI
     public var displayName: String {
         switch self {
-        case .kept: return "Kept"
+        case .saved: return "Saved"
         case .dismissed: return "Dismissed"
         case .starred: return "Starred"
         case .unstarred: return "Unstarred"
@@ -299,7 +299,7 @@ public enum TrainingAction: String, Codable, Sendable {
     /// Learning rate multiplier for this action
     public var learningMultiplier: Double {
         switch self {
-        case .kept: return 1.0
+        case .saved: return 1.0
         case .dismissed: return -1.0
         case .starred: return 2.0        // Stronger positive signal
         case .unstarred: return -1.0     // Reverse the star signal
@@ -314,7 +314,7 @@ public enum TrainingAction: String, Codable, Sendable {
     /// Whether this is a positive action
     public var isPositive: Bool {
         switch self {
-        case .kept, .starred, .read, .pdfDownloaded, .moreLikeThis, .addedToCollection:
+        case .saved, .starred, .read, .pdfDownloaded, .moreLikeThis, .addedToCollection:
             return true
         case .dismissed, .unstarred, .lessLikeThis:
             return false
@@ -324,7 +324,7 @@ public enum TrainingAction: String, Codable, Sendable {
     /// SF Symbol for this action
     public var icon: String {
         switch self {
-        case .kept: return "tray.and.arrow.down"
+        case .saved: return "tray.and.arrow.down"
         case .dismissed: return "xmark.circle"
         case .starred: return "star.fill"
         case .unstarred: return "star"
@@ -477,7 +477,7 @@ public enum RecommendationPreset: String, CaseIterable, Sendable {
             return [
                 .authorStarred: 1.0,
                 .collectionMatch: 0.9,
-                .keepRateAuthor: 0.8,
+                .saveRateAuthor: 0.8,
                 .venueFrequency: 0.7,
                 .recency: 0.2,
                 .citationOverlap: 0.3,
@@ -495,7 +495,7 @@ public enum RecommendationPreset: String, CaseIterable, Sendable {
             return [
                 .authorStarred: 0.3,
                 .collectionMatch: 0.3,
-                .keepRateAuthor: 0.2,
+                .saveRateAuthor: 0.2,
                 .venueFrequency: 0.1,
                 .recency: 0.6,
                 .citationOverlap: 0.5,

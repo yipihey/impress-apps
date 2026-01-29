@@ -834,7 +834,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
     @NSManaged public var isInbox: Bool                // Is this the special Inbox library?
     @NSManaged public var isSystemLibrary: Bool        // Is this a system library? (e.g., Exploration)
-    @NSManaged public var isKeepLibrary: Bool           // Is this the Keep library for Inbox triage?
+    @NSManaged public var isSaveLibrary: Bool            // Is this the Save library for Inbox triage?
     @NSManaged public var isDismissedLibrary: Bool     // Is this the Dismissed library for Inbox triage?
     @NSManaged public var isLocalOnly: Bool            // Is this local-only? (e.g., Exploration - not synced)
     @NSManaged public var deviceIdentifier: String?    // Device that created this local-only library

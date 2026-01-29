@@ -42,8 +42,8 @@ public struct FeatureExtractor {
         features[.mutedVenue] = mutedVenuePenalty(publication)
 
         // Behavioral signals
-        features[.keepRateAuthor] = keepRateAuthorScore(publication, profile: profile)
-        features[.keepRateVenue] = keepRateVenueScore(publication, profile: profile)
+        features[.saveRateAuthor] = saveRateAuthorScore(publication, profile: profile)
+        features[.saveRateVenue] = saveRateVenueScore(publication, profile: profile)
         features[.dismissRateAuthor] = dismissRateAuthorPenalty(publication, profile: profile)
         features[.readingTimeTopic] = readingTimeTopicScore(publication, profile: profile)
         features[.pdfDownloadAuthor] = pdfDownloadAuthorScore(publication, profile: profile)
@@ -174,14 +174,14 @@ public struct FeatureExtractor {
 
     // MARK: - Behavioral Signals
 
-    /// Score based on historical keep rate for this author.
-    public static func keepRateAuthorScore(
+    /// Score based on historical save rate for this author.
+    public static func saveRateAuthorScore(
         _ publication: CDPublication,
         profile: CDRecommendationProfile?
     ) -> Double {
         guard let profile = profile else { return 0.0 }
 
-        // Use author affinity as proxy (positive affinity = high keep rate)
+        // Use author affinity as proxy (positive affinity = high save rate)
         var maxAffinity = 0.0
         for author in publication.sortedAuthors {
             let affinity = profile.authorAffinity(for: author.familyName)
@@ -193,8 +193,8 @@ public struct FeatureExtractor {
         return tanh(maxAffinity)
     }
 
-    /// Score based on historical keep rate for this venue.
-    public static func keepRateVenueScore(
+    /// Score based on historical save rate for this venue.
+    public static func saveRateVenueScore(
         _ publication: CDPublication,
         profile: CDRecommendationProfile?
     ) -> Double {
@@ -249,8 +249,8 @@ public struct FeatureExtractor {
         _ publication: CDPublication,
         profile: CDRecommendationProfile?
     ) -> Double {
-        // Similar to keepRateAuthor - uses author affinity
-        return keepRateAuthorScore(publication, profile: profile) * 0.8
+        // Similar to saveRateAuthor - uses author affinity
+        return saveRateAuthorScore(publication, profile: profile) * 0.8
     }
 
     // MARK: - Content Signals
