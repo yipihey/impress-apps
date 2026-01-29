@@ -33,7 +33,7 @@ struct AIChatSidebar: View {
 
             Divider()
 
-            if !aiService.isConfigured {
+            if !aiService.isConfiguredSync {
                 configurationPrompt
             } else {
                 // Main content
@@ -417,6 +417,8 @@ struct AISettingsSheet: View {
 
     @State private var claudeKey = ""
     @State private var openaiKey = ""
+    @State private var claudeMaskedKey = ""
+    @State private var openaiMaskedKey = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -451,18 +453,18 @@ struct AISettingsSheet: View {
                         }
                         .onSubmit {
                             if !claudeKey.isEmpty {
-                                aiService.setAPIKey(claudeKey, for: .claude)
+                                Task { try? await aiService.setAPIKey(claudeKey, for: .claude) }
                             }
                         }
 
-                    if !aiService.maskedAPIKey(for: .claude).isEmpty {
+                    if !claudeMaskedKey.isEmpty {
                         HStack {
-                            Text("Current: \(aiService.maskedAPIKey(for: .claude))")
+                            Text("Current: \(claudeMaskedKey)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Clear") {
-                                aiService.setAPIKey("", for: .claude)
+                                Task { try? await aiService.setAPIKey("", for: .claude) }
                             }
                             .font(.caption)
                         }
@@ -476,18 +478,18 @@ struct AISettingsSheet: View {
                     SecureField("sk-...", text: $openaiKey)
                         .onSubmit {
                             if !openaiKey.isEmpty {
-                                aiService.setAPIKey(openaiKey, for: .openai)
+                                Task { try? await aiService.setAPIKey(openaiKey, for: .openai) }
                             }
                         }
 
-                    if !aiService.maskedAPIKey(for: .openai).isEmpty {
+                    if !openaiMaskedKey.isEmpty {
                         HStack {
-                            Text("Current: \(aiService.maskedAPIKey(for: .openai))")
+                            Text("Current: \(openaiMaskedKey)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Clear") {
-                                aiService.setAPIKey("", for: .openai)
+                                Task { try? await aiService.setAPIKey("", for: .openai) }
                             }
                             .font(.caption)
                         }
@@ -507,6 +509,10 @@ struct AISettingsSheet: View {
             .padding()
         }
         .frame(width: 450, height: 500)
+        .task {
+            claudeMaskedKey = await aiService.maskedAPIKey(for: .claude)
+            openaiMaskedKey = await aiService.maskedAPIKey(for: .openai)
+        }
     }
 }
 

@@ -28,7 +28,7 @@ struct IOSNotesTab: View {
     // Helix mode settings
     @AppStorage("helixModeEnabled") private var helixModeEnabled = false
     @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
-    @StateObject private var helixState = HelixState()
+    @State private var helixState = HelixState()
 
     var body: some View {
         Group {

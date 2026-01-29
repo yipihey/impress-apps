@@ -97,7 +97,7 @@ public final class AIContextMenuService {
 
         // Pre-validate API key (skip for imbib actions)
         if !action.opensImbib {
-            guard aiService.isConfigured else {
+            guard await aiService.isConfigured else {
                 throw AIContextMenuError.apiKeyNotConfigured
             }
         }
@@ -272,7 +272,7 @@ public final class AIContextMenuService {
 
     /// Check if the AI service is configured with an API key.
     public var isAPIConfigured: Bool {
-        aiService.isConfigured
+        aiService.isConfiguredSync
     }
 
     /// Get the current AI provider name for display.

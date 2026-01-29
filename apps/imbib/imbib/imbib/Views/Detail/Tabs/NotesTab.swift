@@ -301,7 +301,7 @@ struct NotesPanel: View {
     @AppStorage("helixModeEnabled") private var helixModeEnabled = false
     @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
     #if os(macOS)
-    @StateObject private var helixState = HelixState()
+    @State private var helixState = HelixState()
     #endif
 
     private let minSize: CGFloat = 80

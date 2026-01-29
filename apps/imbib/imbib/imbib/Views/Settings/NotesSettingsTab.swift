@@ -17,7 +17,7 @@ struct NotesSettingsTab: View {
     @State private var settings = QuickAnnotationSettings.defaults
     @State private var isLoading = true
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @ObservedObject private var modalSettings = ModalEditingSettings.shared
+    @Bindable private var modalSettings = ModalEditingSettings.shared
 
     // Notes position options
     private let notesPositionOptions: [(value: String, label: String)] = [

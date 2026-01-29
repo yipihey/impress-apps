@@ -13,7 +13,7 @@ struct IOSKeyboardShortcutsSettingsView: View {
 
     // MARK: - State
 
-    @StateObject private var store = KeyboardShortcutsStore.shared
+    private var store: KeyboardShortcutsStore { KeyboardShortcutsStore.shared }
     @State private var searchText = ""
     @State private var editingBinding: KeyboardShortcutBinding?
     @State private var showingResetAlert = false
