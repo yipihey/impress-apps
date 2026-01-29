@@ -17,88 +17,110 @@ struct SettingsView: View {
     // MARK: - Body
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            GeneralSettingsTab()
-                .tabItem { Label("General", systemImage: "gear") }
-                .tag(SettingsTab.general)
-                .help("App preferences")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.general)
+        NavigationSplitView {
+            List(selection: $selectedTab) {
+                Section("General") {
+                    SettingsSidebarRow(tab: .general)
+                    SettingsSidebarRow(tab: .appearance)
+                    SettingsSidebarRow(tab: .viewing)
+                }
 
-            AppearanceSettingsTab()
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
-                .tag(SettingsTab.appearance)
-                .help("Theme and colors")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.appearance)
+                Section("Content") {
+                    SettingsSidebarRow(tab: .notes)
+                    SettingsSidebarRow(tab: .pdf)
+                    SettingsSidebarRow(tab: .sources)
+                    SettingsSidebarRow(tab: .enrichment)
+                }
 
-            ViewingSettingsTab()
-                .tabItem { Label("Viewing", systemImage: "eye") }
-                .tag(SettingsTab.viewing)
-                .help("List display options")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.viewing)
+                Section("Inbox & Feeds") {
+                    SettingsSidebarRow(tab: .inbox)
+                    SettingsSidebarRow(tab: .recommendations)
+                }
 
-            NotesSettingsTab()
-                .tabItem { Label("Notes", systemImage: "note.text") }
-                .tag(SettingsTab.notes)
-                .help("Note editor settings")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.notes)
+                Section("Sync & Backup") {
+                    SettingsSidebarRow(tab: .sync)
+                    SettingsSidebarRow(tab: .eink)
+                }
 
-            SourcesSettingsTab()
-                .tabItem { Label("Sources", systemImage: "globe") }
-                .tag(SettingsTab.sources)
-                .help("API keys for online sources")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sources)
+                Section("Import & Export") {
+                    SettingsSidebarRow(tab: .importExport)
+                }
 
-            PDFSettingsTab()
-                .tabItem { Label("PDF", systemImage: "doc.richtext") }
-                .tag(SettingsTab.pdf)
-                .help("PDF download settings")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.pdf)
-
-            EnrichmentSettingsTab()
-                .tabItem { Label("Enrichment", systemImage: "arrow.triangle.2.circlepath") }
-                .tag(SettingsTab.enrichment)
-                .help("Citation sources and metadata enrichment")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.enrichment)
-
-            InboxSettingsTab()
-                .tabItem { Label("Inbox", systemImage: "tray") }
-                .tag(SettingsTab.inbox)
-                .help("Feed subscriptions and mute rules")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.inbox)
-
-            RecommendationSettingsTab()
-                .tabItem { Label("Recs", systemImage: "sparkles") }
-                .tag(SettingsTab.recommendations)
-                .help("Configure transparent recommendation engine")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
-
-            SyncSettingsTab()
-                .tabItem { Label("Sync", systemImage: "icloud") }
-                .tag(SettingsTab.sync)
-                .help("iCloud sync settings")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sync)
-
-            ImportExportSettingsTab()
-                .tabItem { Label("Import", systemImage: "arrow.up.arrow.down") }
-                .tag(SettingsTab.importExport)
-                .help("File format options")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.importExport)
-
-            KeyboardShortcutsSettingsTab()
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
-                .tag(SettingsTab.keyboardShortcuts)
-                .help("Customize keyboard shortcuts")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.shortcuts)
-
-            AdvancedSettingsTab()
-                .tabItem { Label("Advanced", systemImage: "gearshape.2") }
-                .tag(SettingsTab.advanced)
-                .help("Developer tools and advanced settings")
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.advanced)
+                Section("System") {
+                    SettingsSidebarRow(tab: .keyboardShortcuts)
+                    SettingsSidebarRow(tab: .advanced)
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
+        } detail: {
+            selectedSettingsView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .accessibilityIdentifier(AccessibilityID.Settings.tabView)
-        .frame(minWidth: 750, idealWidth: 800, maxWidth: 1200,
-               minHeight: 500, idealHeight: 600, maxHeight: 900)
+        .frame(minWidth: 700, idealWidth: 850, maxWidth: 1200,
+               minHeight: 500, idealHeight: 650, maxHeight: 900)
+    }
+
+    // MARK: - Detail View
+
+    @ViewBuilder
+    private var selectedSettingsView: some View {
+        switch selectedTab {
+        case .general:
+            GeneralSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.general)
+        case .appearance:
+            AppearanceSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.appearance)
+        case .viewing:
+            ViewingSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.viewing)
+        case .notes:
+            NotesSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.notes)
+        case .sources:
+            SourcesSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sources)
+        case .pdf:
+            PDFSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.pdf)
+        case .enrichment:
+            EnrichmentSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.enrichment)
+        case .inbox:
+            InboxSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.inbox)
+        case .recommendations:
+            RecommendationSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
+        case .sync:
+            SyncSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sync)
+        case .eink:
+            EInkSettingsTab()
+        case .importExport:
+            ImportExportSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.importExport)
+        case .keyboardShortcuts:
+            KeyboardShortcutsSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.shortcuts)
+        case .advanced:
+            AdvancedSettingsTab()
+                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.advanced)
+        }
+    }
+}
+
+// MARK: - Settings Sidebar Row
+
+private struct SettingsSidebarRow: View {
+    let tab: SettingsTab
+
+    var body: some View {
+        Label(tab.displayName, systemImage: tab.icon)
+            .tag(tab)
+            .help(tab.helpText)
     }
 }
 
@@ -115,9 +137,67 @@ enum SettingsTab: String, CaseIterable {
     case inbox
     case recommendations  // ADR-020
     case sync
+    case eink  // ADR-019: E-Ink device integration
     case importExport
     case keyboardShortcuts
     case advanced
+
+    var displayName: String {
+        switch self {
+        case .general: return "General"
+        case .appearance: return "Appearance"
+        case .viewing: return "Viewing"
+        case .notes: return "Notes"
+        case .sources: return "Sources"
+        case .pdf: return "PDF"
+        case .enrichment: return "Enrichment"
+        case .inbox: return "Inbox"
+        case .recommendations: return "Recommendations"
+        case .sync: return "Sync"
+        case .eink: return "E-Ink Devices"
+        case .importExport: return "Import & Export"
+        case .keyboardShortcuts: return "Keyboard Shortcuts"
+        case .advanced: return "Advanced"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: return "gear"
+        case .appearance: return "paintbrush"
+        case .viewing: return "eye"
+        case .notes: return "note.text"
+        case .sources: return "globe"
+        case .pdf: return "doc.richtext"
+        case .enrichment: return "arrow.triangle.2.circlepath"
+        case .inbox: return "tray"
+        case .recommendations: return "sparkles"
+        case .sync: return "icloud"
+        case .eink: return "rectangle.portrait"
+        case .importExport: return "arrow.up.arrow.down"
+        case .keyboardShortcuts: return "keyboard"
+        case .advanced: return "gearshape.2"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .general: return "App preferences"
+        case .appearance: return "Theme and colors"
+        case .viewing: return "List display options"
+        case .notes: return "Note editor settings"
+        case .sources: return "API keys for online sources"
+        case .pdf: return "PDF download settings"
+        case .enrichment: return "Citation sources and metadata enrichment"
+        case .inbox: return "Feed subscriptions and mute rules"
+        case .recommendations: return "Configure transparent recommendation engine"
+        case .sync: return "iCloud sync settings"
+        case .eink: return "reMarkable, Supernote, and Kindle Scribe integration"
+        case .importExport: return "File format options"
+        case .keyboardShortcuts: return "Customize keyboard shortcuts"
+        case .advanced: return "Developer tools and advanced settings"
+        }
+    }
 }
 
 // MARK: - General Settings
@@ -827,6 +907,10 @@ struct BackupSettingsSection: View {
     @State private var lastBackupDate: Date?
     @State private var availableBackups: [BackupInfo] = []
 
+    // Restore state
+    @State private var selectedBackupForRestore: BackupInfo?
+    @State private var showRestoreResult: BackupRestoreService.RestoreResult?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Export button
@@ -877,25 +961,50 @@ struct BackupSettingsSection: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                ForEach(availableBackups.prefix(3)) { backup in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(backup.url.lastPathComponent)
-                                .font(.caption)
-                            Text("\(backup.publicationCount) publications, \(backup.pdfCount) PDFs")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                ForEach(Array(availableBackups.prefix(3))) { backup in
+                    BackupRow(
+                        backup: backup,
+                        onRestore: {
+                            selectedBackupForRestore = backup
+                        },
+                        onShowInFinder: {
+                            showBackupInFinder(backup)
                         }
-                        Spacer()
-                        Text(backup.sizeString)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    )
                 }
+            } else {
+                Text("No backups found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .italic()
             }
         }
         .onAppear {
             loadBackupInfo()
+        }
+        .sheet(item: $selectedBackupForRestore) { backup in
+            RestoreOptionsView(
+                backupInfo: backup,
+                onDismiss: {
+                    selectedBackupForRestore = nil
+                },
+                onComplete: { result in
+                    selectedBackupForRestore = nil
+                    showRestoreResult = result
+                    loadBackupInfo()
+                }
+            )
+        }
+        .sheet(item: Binding(
+            get: { showRestoreResult.map { RestoreResultWrapper(result: $0) } },
+            set: { showRestoreResult = $0?.result }
+        )) { wrapper in
+            RestoreResultView(
+                result: wrapper.result,
+                onDismiss: {
+                    showRestoreResult = nil
+                }
+            )
         }
     }
 
@@ -912,6 +1021,7 @@ struct BackupSettingsSection: View {
             }
             exportProgress = nil
             lastBackupDate = Date()
+            loadBackupInfo()
 
             // Show in Finder
             #if os(macOS)
@@ -933,6 +1043,64 @@ struct BackupSettingsSection: View {
             }
         }
     }
+
+    private func showBackupInFinder(_ backup: BackupInfo) {
+        #if os(macOS)
+        NSWorkspace.shared.selectFile(
+            backup.url.path,
+            inFileViewerRootedAtPath: backup.url.deletingLastPathComponent().path
+        )
+        #endif
+    }
+}
+
+// MARK: - Backup Row
+
+private struct BackupRow: View {
+    let backup: BackupInfo
+    let onRestore: () -> Void
+    let onShowInFinder: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(backup.url.lastPathComponent)
+                    .font(.caption)
+                Text("\(backup.publicationCount) publications, \(backup.attachmentCount) files")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(backup.sizeString)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("Restore") {
+                onRestore()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Restore from this backup")
+
+            Button {
+                onShowInFinder()
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Show in Finder")
+        }
+    }
+}
+
+// MARK: - Restore Result Wrapper
+
+/// Wrapper to make RestoreResult identifiable for sheet presentation.
+private struct RestoreResultWrapper: Identifiable {
+    let id = UUID()
+    let result: BackupRestoreService.RestoreResult
 }
 
 // MARK: - Advanced Settings
@@ -1195,6 +1363,15 @@ struct ImportExportSettingsTab: View {
     private var citeKeyPreview: String {
         let generator = FormatBasedCiteKeyGenerator(settings: citeKeySettings)
         return generator.preview()
+    }
+}
+
+// MARK: - E-Ink Settings
+
+struct EInkSettingsTab: View {
+    var body: some View {
+        EInkSettingsView()
+            .padding()
     }
 }
 
