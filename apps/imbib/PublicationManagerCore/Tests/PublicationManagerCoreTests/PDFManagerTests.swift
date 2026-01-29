@@ -10,7 +10,7 @@ import XCTest
 
 final class PDFManagerTests: XCTestCase {
 
-    var pdfManager: PDFManager!
+    var pdfManager: AttachmentManager!
     var tempDirectory: URL!
 
     @MainActor
@@ -23,7 +23,7 @@ final class PDFManagerTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
 
         // Use preview persistence controller to avoid Core Data entity conflicts in tests
-        pdfManager = PDFManager(persistenceController: .preview)
+        pdfManager = AttachmentManager(persistenceController: .preview)
     }
 
     override func tearDown() {

@@ -825,10 +825,10 @@ struct IOSSidebarView: View {
     }
 
     /// Whether a library should always show "All Publications" even without children.
-    /// Keep and Dismissed libraries need this since they have no children but users
+    /// Save and Dismissed libraries need this since they have no children but users
     /// need to navigate to them to see triaged papers.
     private func shouldAlwaysShowAllPublications(_ library: CDLibrary) -> Bool {
-        library.isKeepLibrary || library.isDismissedLibrary
+        library.isSaveLibrary || library.isDismissedLibrary
     }
 
     @ViewBuilder

@@ -541,10 +541,10 @@ struct InboxSettingsTab: View {
 
     var body: some View {
         Form {
-            Section("Keep Destination") {
-                Picker("Keep to", selection: $selectedSaveLibraryID) {
-                    Text("Auto (create Keep library)").tag(nil as UUID?)
-                    ForEach(availableKeepLibraries, id: \.id) { library in
+            Section("Save Destination") {
+                Picker("Save to", selection: $selectedSaveLibraryID) {
+                    Text("Auto (create Save library)").tag(nil as UUID?)
+                    ForEach(availableSaveLibraries, id: \.id) { library in
                         Text(library.displayName).tag(library.id as UUID?)
                     }
                 }
@@ -552,7 +552,7 @@ struct InboxSettingsTab: View {
                     saveSaveLibrarySetting(newValue)
                 }
 
-                Text("When you press K on a paper in the Inbox, it will be moved to this library")
+                Text("When you press S on a paper in the Inbox, it will be moved to this library")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -651,10 +651,10 @@ struct InboxSettingsTab: View {
         }
     }
 
-    // MARK: - Keep Library
+    // MARK: - Save Library
 
-    /// Libraries available as keep destinations (excludes Inbox, Dismissed, system libraries)
-    private var availableKeepLibraries: [CDLibrary] {
+    /// Libraries available as save destinations (excludes Inbox, Dismissed, system libraries)
+    private var availableSaveLibraries: [CDLibrary] {
         libraryManager.libraries.filter { library in
             !library.isInbox &&
             !library.isDismissedLibrary &&

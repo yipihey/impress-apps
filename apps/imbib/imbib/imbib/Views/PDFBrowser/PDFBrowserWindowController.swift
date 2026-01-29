@@ -19,7 +19,7 @@ import OSLog
 /// ```swift
 /// let viewModel = PDFBrowserViewModel(publication: pub, initialURL: url, libraryID: id)
 /// viewModel.onPDFCaptured = { data in
-///     try? await PDFManager.shared.importPDF(data: data, for: pub)
+///     try? await AttachmentManager.shared.importPDF(data: data, for: pub)
 /// }
 /// await PDFBrowserWindowController.shared.openWindow(with: viewModel)
 /// ```

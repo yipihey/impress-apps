@@ -273,12 +273,12 @@ final class KeyboardShortcutsTests: XCTestCase {
         // All should be marked as read
     }
 
-    /// Test Ctrl+Cmd+K - Keep to Library (Inbox)
-    func testCtrlCmdK_KeepToLibrary() throws {
+    /// Test Ctrl+Cmd+K - Save to Library (Inbox)
+    func testCtrlCmdK_SaveToLibrary() throws {
         sidebar.selectInbox()
 
         app.typeKey("k", modifierFlags: [.control, .command])
-        // Paper should be kept to library (or library picker shown)
+        // Paper should be saved to library (or library picker shown)
     }
 
     /// Test Cmd+Shift+J - Dismiss from Inbox

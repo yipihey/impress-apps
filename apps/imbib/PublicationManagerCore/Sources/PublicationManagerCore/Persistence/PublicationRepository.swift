@@ -183,7 +183,7 @@ public actor PublicationRepository {
         // Process linked files on MainActor
         if processLinkedFiles {
             await MainActor.run {
-                PDFManager.shared.processBdskFiles(from: processedEntry, for: publication, in: library)
+                AttachmentManager.shared.processBdskFiles(from: processedEntry, for: publication, in: library)
             }
         }
 

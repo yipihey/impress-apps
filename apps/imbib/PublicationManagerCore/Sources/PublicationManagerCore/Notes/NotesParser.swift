@@ -152,25 +152,4 @@ public enum NotesParser {
         }
         return value
     }
-
-    // MARK: - Migration
-
-    /// Migrate from old format (separate JSON + note fields) to new unified format.
-    /// - Parameters:
-    ///   - structuredJSON: The old notes_structured JSON string
-    ///   - freeformNote: The old note field value
-    /// - Returns: Unified notes string with YAML front matter
-    public static func migrateFromLegacy(structuredJSON: String?, freeformNote: String?) -> String {
-        var annotations: [String: String] = [:]
-
-        // Parse old JSON format
-        if let json = structuredJSON,
-           let data = json.data(using: .utf8),
-           let dict = try? JSONDecoder().decode([String: String].self, from: data) {
-            annotations = dict
-        }
-
-        let notes = ParsedNotes(annotations: annotations, freeform: freeformNote ?? "")
-        return serialize(notes)
-    }
 }

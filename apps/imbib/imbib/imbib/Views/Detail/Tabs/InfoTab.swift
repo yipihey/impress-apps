@@ -60,6 +60,10 @@ struct InfoTab: View {
     // Refresh trigger for when enrichment completes
     @State private var enrichmentRefreshID = UUID()
 
+    // Author annotation state
+    @State private var annotationSettings: QuickAnnotationSettings = .defaults
+    @State private var annotations: [String: String] = [:]
+
     var body: some View {
         let bodyStart = CFAbsoluteTimeGetCurrent()
 
@@ -133,6 +137,13 @@ struct InfoTab: View {
                 proxy.scrollTo("top", anchor: .top)
             }
             .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
+        }
+        .task {
+            // Load annotation field settings
+            annotationSettings = await QuickAnnotationSettingsStore.shared.settings
+        }
+        .onChange(of: publication?.id, initial: true) { _, _ in
+            loadAnnotations()
         }
         .onAppear {
             let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
@@ -217,8 +228,13 @@ struct InfoTab: View {
         VStack(alignment: .leading, spacing: 8) {
             // From: Authors (expandable if more than 10)
             infoRow("From") {
-                ExpandableAuthorList(authors: paper.authors)
-                    .font(.system(size: 21 * fontScale))
+                VStack(alignment: .leading, spacing: 4) {
+                    ExpandableAuthorList(authors: paper.authors)
+                        .font(.system(size: 21 * fontScale))
+
+                    // Author annotation chips (if any populated)
+                    authorAnnotationChips
+                }
             }
 
             // Year
@@ -840,6 +856,39 @@ struct InfoTab: View {
         }
     }
 
+    // MARK: - Author Annotations
+
+    /// Load annotations from the publication's note field
+    private func loadAnnotations() {
+        guard let pub = publication else {
+            annotations = [:]
+            return
+        }
+
+        // Get raw note content
+        let rawNote = pub.fields["note"] ?? ""
+
+        // Parse YAML front matter
+        let parsed = NotesParser.parse(rawNote)
+        // Convert label-keyed annotations to ID-keyed
+        annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
+    }
+
+    /// Author annotation chips displayed below the author list
+    @ViewBuilder
+    private var authorAnnotationChips: some View {
+        let authorFields = annotationSettings.enabledAuthorFields
+        let populated = authorFields.filter { annotations[$0.id]?.isEmpty == false }
+
+        if !populated.isEmpty {
+            FlowLayout(spacing: 4) {
+                ForEach(populated) { field in
+                    AuthorAnnotationChip(label: field.label, value: annotations[field.id] ?? "")
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     @ViewBuilder
@@ -865,7 +914,7 @@ struct InfoTab: View {
     }
 
     private func getFileSize(for file: CDLinkedFile) -> Int64? {
-        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
             return nil
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
@@ -916,7 +965,7 @@ struct InfoTab: View {
     }
 
     private func openFile(_ file: CDLinkedFile) {
-        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
             return
         }
         #if os(macOS)
@@ -926,7 +975,7 @@ struct InfoTab: View {
 
     #if os(macOS)
     private func showInFinder(_ file: CDLinkedFile) {
-        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -935,7 +984,7 @@ struct InfoTab: View {
 
     private func deleteFile(_ file: CDLinkedFile) {
         do {
-            try PDFManager.shared.delete(file, in: libraryManager.activeLibrary)
+            try AttachmentManager.shared.delete(file, in: libraryManager.activeLibrary)
             Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
         } catch {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")
@@ -1090,7 +1139,7 @@ struct InfoTab: View {
             libraryID: library.id
         ) { [self] data in
             // Check for duplicates first
-            let result = PDFManager.shared.checkForDuplicate(data: data, in: publication)
+            let result = AttachmentManager.shared.checkForDuplicate(data: data, in: publication)
 
             switch result {
             case .duplicate(let existingFile, _):
@@ -1106,7 +1155,7 @@ struct InfoTab: View {
             case .noDuplicate:
                 // Import directly
                 do {
-                    try PDFManager.shared.importPDF(data: data, for: publication, in: library)
+                    try AttachmentManager.shared.importPDF(data: data, for: publication, in: library)
                     Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
 
                     await MainActor.run {
@@ -1128,7 +1177,7 @@ struct InfoTab: View {
         }
 
         do {
-            try PDFManager.shared.importPDF(data: data, for: publication, in: library)
+            try AttachmentManager.shared.importPDF(data: data, for: publication, in: library)
             Logger.files.infoCapture("[InfoTab] Duplicate PDF imported after user confirmation", category: "pdf")
 
             NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
@@ -1141,4 +1190,27 @@ struct InfoTab: View {
         browserDuplicatePublication = nil
     }
     #endif
+}
+
+// MARK: - Author Annotation Chip
+
+/// A read-only chip for displaying author annotations in InfoTab.
+struct AuthorAnnotationChip: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(label + ":")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.caption)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color.secondary.opacity(0.1))
+        .clipShape(Capsule())
+    }
 }

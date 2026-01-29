@@ -36,7 +36,7 @@ public actor FullTextSearchService {
 
     // MARK: - Properties
 
-    private var searchIndex: RustSearchIndex?
+    private var searchIndex: RustSearchIndexSession?
     private var isIndexReady = false
     private var indexPath: URL?
     private let persistenceController: PersistenceController
@@ -95,7 +95,7 @@ public actor FullTextSearchService {
             do {
                 // Create parent directory if needed (Rust will create the index dir)
                 try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let index = RustSearchIndex()
+                let index = RustSearchIndexSession()
                 try await index.initialize(path: path)
                 searchIndex = index
             } catch {
@@ -108,7 +108,7 @@ public actor FullTextSearchService {
                     try? FileManager.default.removeItem(at: path)
 
                     // Let Rust create the directory and index from scratch
-                    let index = RustSearchIndex()
+                    let index = RustSearchIndexSession()
                     try await index.initialize(path: path)
                     searchIndex = index
                     Logger.search.infoCapture("Fresh index created after deleting corrupted directory", category: "search")
@@ -334,7 +334,7 @@ public actor FullTextSearchService {
 
     // MARK: - Private Methods
 
-    private func indexPublication(_ publication: CDPublication, using index: RustSearchIndex, fullText: String? = nil) async {
+    private func indexPublication(_ publication: CDPublication, using index: RustSearchIndexSession, fullText: String? = nil) async {
         // Extract data on main actor since CDPublication isn't thread-safe
         let input = await MainActor.run {
             SearchIndexInput(

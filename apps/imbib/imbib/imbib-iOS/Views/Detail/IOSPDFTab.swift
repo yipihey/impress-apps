@@ -279,22 +279,10 @@ struct IOSPDFTab: View {
 
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
 
         // Check container path (iCloud-only storage)
         let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) {
-            return true
-        }
-
-        // Check legacy path (pre-v1.3.0)
-        let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: legacyURL.path) {
-            return true
-        }
-
-        return false
+        return fileManager.fileExists(atPath: containerURL.path)
     }
 
     /// Remove the stale linked file record and attempt re-download
@@ -385,7 +373,7 @@ struct IOSPDFTab: View {
                 state = .downloading(progress: 0.8)
 
                 // Save the PDF
-                try PDFManager.shared.importPDF(
+                try AttachmentManager.shared.importPDF(
                     data: data,
                     for: publication,
                     in: libraryManager.find(id: libraryID)

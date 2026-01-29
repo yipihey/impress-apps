@@ -317,8 +317,3 @@ public enum RustSearchIndexInfo {
     public static var isAvailable: Bool { true }
 }
 
-// MARK: - Legacy Type Alias
-
-/// Type alias for backwards compatibility
-@available(*, deprecated, renamed: "RustSearchIndexSession")
-public typealias RustSearchIndex = RustSearchIndexSession

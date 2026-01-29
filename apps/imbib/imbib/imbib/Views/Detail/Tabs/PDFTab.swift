@@ -456,7 +456,7 @@ struct PDFTab: View {
             }
 
             logger.info("[PDFTab] Importing PDF via PDFManager...")
-            try PDFManager.shared.importPDF(from: tempURL, for: pub, in: library)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library)
             logger.info("[PDFTab] PDF import SUCCESS")
 
             // Clean up temp file
@@ -506,7 +506,7 @@ struct PDFTab: View {
                     }
 
                     // Import the PDF - PDFManager takes CDPublication directly
-                    try PDFManager.shared.importPDF(from: url, for: pub, in: library)
+                    try AttachmentManager.shared.importPDF(from: url, for: pub, in: library)
 
                     // Refresh to show the new PDF
                     await MainActor.run {
@@ -540,7 +540,7 @@ struct PDFTab: View {
             // This is called when user saves the detected PDF
             guard let library = libraryManager?.activeLibrary else { return }
             do {
-                try PDFManager.shared.importPDF(data: data, for: pub, in: library)
+                try AttachmentManager.shared.importPDF(data: data, for: pub, in: library)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
                 // Post notification to refresh PDF view
@@ -568,7 +568,7 @@ struct PDFTab: View {
             // This is called when user saves the detected PDF
             guard let library = libraryManager?.activeLibrary else { return }
             do {
-                try PDFManager.shared.importPDF(data: data, for: pub, in: library)
+                try AttachmentManager.shared.importPDF(data: data, for: pub, in: library)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
                 // Post notification to refresh PDF view
@@ -587,7 +587,7 @@ struct PDFTab: View {
 
         do {
             // 1. Delete corrupt file from disk and Core Data
-            try PDFManager.shared.delete(corruptFile, in: libraryManager.activeLibrary)
+            try AttachmentManager.shared.delete(corruptFile, in: libraryManager.activeLibrary)
 
             // 2. Reset state and trigger re-download
             await MainActor.run {

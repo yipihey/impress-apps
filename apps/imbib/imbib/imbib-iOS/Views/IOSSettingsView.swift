@@ -643,25 +643,25 @@ struct IOSInboxSettingsView: View {
 
     @State private var mutedItems: [CDMutedItem] = []
     @State private var showAddMute = false
-    @State private var selectedKeepLibraryID: UUID?
+    @State private var selectedSaveLibraryID: UUID?
 
     var body: some View {
         List {
-            // Keep Destination Section
+            // Save Destination Section
             Section {
-                Picker("Keep to", selection: $selectedKeepLibraryID) {
-                    Text("Auto (create Keep library)").tag(nil as UUID?)
-                    ForEach(availableKeepLibraries, id: \.id) { library in
+                Picker("Save to", selection: $selectedSaveLibraryID) {
+                    Text("Auto (create Save library)").tag(nil as UUID?)
+                    ForEach(availableSaveLibraries, id: \.id) { library in
                         Text(library.displayName).tag(library.id as UUID?)
                     }
                 }
-                .onChange(of: selectedKeepLibraryID) { _, newValue in
-                    saveKeepLibrarySetting(newValue)
+                .onChange(of: selectedSaveLibraryID) { _, newValue in
+                    saveSaveLibrarySetting(newValue)
                 }
             } header: {
-                Text("Keep Destination")
+                Text("Save Destination")
             } footer: {
-                Text("When you swipe right to keep a paper in the Inbox, it will be moved to this library")
+                Text("When you swipe right to save a paper in the Inbox, it will be moved to this library")
             }
 
             // Age Limit Section
@@ -729,7 +729,7 @@ struct IOSInboxSettingsView: View {
         .task {
             await viewModel.loadInboxSettings()
             loadMutedItems()
-            loadKeepLibrarySetting()
+            loadSaveLibrarySetting()
         }
         .sheet(isPresented: $showAddMute) {
             AddMuteRuleSheet { type, value in
@@ -743,9 +743,9 @@ struct IOSInboxSettingsView: View {
         mutedItems = InboxManager.shared.mutedItems
     }
 
-    // MARK: - Keep Library Setting
+    // MARK: - Save Library Setting
 
-    private var availableKeepLibraries: [CDLibrary] {
+    private var availableSaveLibraries: [CDLibrary] {
         libraryManager.libraries.filter { library in
             !library.isInbox &&
             !library.isDismissedLibrary &&
@@ -753,16 +753,16 @@ struct IOSInboxSettingsView: View {
         }.sorted { $0.displayName < $1.displayName }
     }
 
-    private func loadKeepLibrarySetting() {
-        selectedKeepLibraryID = SyncedSettingsStore.shared.string(forKey: .inboxKeepLibraryID)
+    private func loadSaveLibrarySetting() {
+        selectedSaveLibraryID = SyncedSettingsStore.shared.string(forKey: .inboxSaveLibraryID)
             .flatMap { UUID(uuidString: $0) }
     }
 
-    private func saveKeepLibrarySetting(_ id: UUID?) {
+    private func saveSaveLibrarySetting(_ id: UUID?) {
         if let id = id {
-            SyncedSettingsStore.shared.set(id.uuidString, forKey: .inboxKeepLibraryID)
+            SyncedSettingsStore.shared.set(id.uuidString, forKey: .inboxSaveLibraryID)
         } else {
-            SyncedSettingsStore.shared.set(nil as String?, forKey: .inboxKeepLibraryID)
+            SyncedSettingsStore.shared.set(nil as String?, forKey: .inboxSaveLibraryID)
         }
     }
 

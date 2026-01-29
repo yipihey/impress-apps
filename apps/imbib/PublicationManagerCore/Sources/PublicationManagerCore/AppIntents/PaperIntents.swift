@@ -226,16 +226,16 @@ public struct DeleteSelectedPapersIntent: AppIntent, AutomationIntent {
     }
 }
 
-// MARK: - Keep Selected Papers Intent
+// MARK: - Save Selected Papers Intent
 
-/// Keep selected papers to the library.
+/// Save selected papers to the library.
 @available(iOS 16.0, macOS 13.0, *)
 public struct KeepSelectedPapersIntent: AppIntent, AutomationIntent {
 
-    public static var title: LocalizedStringResource = "Keep to Library"
+    public static var title: LocalizedStringResource = "Save to Library"
 
     public static var description = IntentDescription(
-        "Keep selected papers from inbox to your library.",
+        "Save selected papers from inbox to your library.",
         categoryName: "Papers"
     )
 

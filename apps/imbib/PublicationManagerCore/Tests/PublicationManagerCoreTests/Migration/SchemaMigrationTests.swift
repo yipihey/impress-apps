@@ -208,39 +208,6 @@ final class SafeMigrationServiceTests: XCTestCase {
         XCTAssertTrue(expectedPath.path.contains("Backups"))
     }
 
-    // MARK: - MigrationError Tests (LibraryMigrationService)
-
-    func testLibraryMigrationErrorDescriptions() {
-        // Verify all LibraryMigrationService.MigrationError cases have meaningful descriptions
-        let errors: [MigrationError] = [
-            .alreadyInProgress,
-            .sourceNotAccessible(URL(fileURLWithPath: "/test/path")),
-            .copyFailed(URL(fileURLWithPath: "/test/file"), NSError(domain: "test", code: 1))
-        ]
-
-        for error in errors {
-            XCTAssertNotNil(error.errorDescription)
-            XCTAssertFalse(error.errorDescription!.isEmpty)
-        }
-    }
-
-    func testLibraryMigrationErrorAlreadyInProgress() {
-        let error = MigrationError.alreadyInProgress
-        XCTAssertTrue(error.errorDescription!.contains("already in progress"))
-    }
-
-    func testLibraryMigrationErrorSourceNotAccessible() {
-        let url = URL(fileURLWithPath: "/test/source")
-        let error = MigrationError.sourceNotAccessible(url)
-        XCTAssertTrue(error.errorDescription!.contains("source"))
-    }
-
-    func testLibraryMigrationErrorCopyFailed() {
-        let url = URL(fileURLWithPath: "/test/file.pdf")
-        let underlying = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "disk full"])
-        let error = MigrationError.copyFailed(url, underlying)
-        XCTAssertTrue(error.errorDescription!.contains("copy") || error.errorDescription!.contains("Copy"))
-    }
 }
 
 // MARK: - Sync Health Monitor Tests

@@ -192,23 +192,15 @@ struct imbibApp: App {
         #endif
     }
 
-    /// Phase 2: Set up the data layer - run migrations, create shared dependencies.
+    /// Phase 2: Set up the data layer and create shared dependencies.
     private static func setupDataLayer() -> AppDependencies {
-        var stepStart = CFAbsoluteTimeGetCurrent()
-
-        // Run data migrations (backfill indexed fields, year from rawFields, etc.)
-        // Skip migrations in UI testing mode to avoid interference with test data
-        if !UITestingEnvironment.isUITesting {
-            PersistenceController.shared.runMigrations()
-            appLogger.info("⏱ Migrations complete: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
-        } else {
-            appLogger.info("UI testing mode: skipping migrations")
-            // Seed test data if requested
+        // Seed test data if requested in UI testing mode
+        if UITestingEnvironment.isUITesting {
             TestDataSeeder.seedIfNeeded(context: PersistenceController.shared.viewContext)
         }
 
         // Create shared dependencies
-        stepStart = CFAbsoluteTimeGetCurrent()
+        let stepStart = CFAbsoluteTimeGetCurrent()
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()

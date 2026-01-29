@@ -595,7 +595,7 @@ struct DetailView: View {
         // Add PDF attachments
         if let linkedFiles = pub.linkedFiles {
             for file in linkedFiles where file.isPDF {
-                if let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) {
+                if let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) {
                     items.append(url)
                 }
             }

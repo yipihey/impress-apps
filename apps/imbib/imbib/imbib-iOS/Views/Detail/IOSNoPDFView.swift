@@ -119,7 +119,7 @@ struct IOSNoPDFView: View {
                 let data = try Data(contentsOf: url)
 
                 // Import via PDFManager
-                try PDFManager.shared.importPDF(
+                try AttachmentManager.shared.importPDF(
                     data: data,
                     for: publication,
                     in: libraryManager.find(id: libraryID)

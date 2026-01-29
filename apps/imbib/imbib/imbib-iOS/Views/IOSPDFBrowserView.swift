@@ -203,7 +203,7 @@ struct IOSPDFBrowserView: View {
         Task {
             do {
                 // Save via PDFManager
-                try PDFManager.shared.importPDF(
+                try AttachmentManager.shared.importPDF(
                     data: data,
                     for: publication,
                     in: library

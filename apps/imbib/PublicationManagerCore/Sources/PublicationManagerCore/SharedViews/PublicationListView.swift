@@ -1599,16 +1599,16 @@ public struct PublicationListView: View {
             }
         }
 
-        // MARK: Keep/Triage Actions
+        // MARK: Save/Triage Actions
 
-        // Keep to Library (adds to target library AND removes from current library)
+        // Save to Library (adds to target library AND removes from current library)
         // Available for all views, not just Inbox
         if let onSaveToLibrary = onSaveToLibrary, !allLibraries.isEmpty {
-            // Filter out current library and Inbox from keep targets
-            let keepLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
-            if !keepLibraries.isEmpty {
-                Menu("Keep to Library") {
-                    ForEach(keepLibraries, id: \.id) { targetLibrary in
+            // Filter out current library and Inbox from save targets
+            let saveLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
+            if !saveLibraries.isEmpty {
+                Menu("Save to Library") {
+                    ForEach(saveLibraries, id: \.id) { targetLibrary in
                         Button(targetLibrary.displayName) {
                             Task {
                                 await onSaveToLibrary(ids, targetLibrary)

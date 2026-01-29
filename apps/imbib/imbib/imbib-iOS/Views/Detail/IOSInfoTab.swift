@@ -639,27 +639,13 @@ struct IOSInfoTab: View {
             return
         }
 
-        // Try container path first (iCloud-only storage), then legacy path
         let normalizedPath = file.relativePath.precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
 
+        // Check container path (iCloud-only storage)
         let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-        // Check all possible locations
         if fileManager.fileExists(atPath: containerURL.path) {
             fileToPreview = containerURL
-        } else if fileManager.fileExists(atPath: legacyURL.path) {
-            fileToPreview = legacyURL
-        } else if let folderURL = library.folderURL {
-            let folderPath = folderURL.appendingPathComponent(file.relativePath)
-            if fileManager.fileExists(atPath: folderPath.path) {
-                fileToPreview = folderPath
-            } else {
-                fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
-            }
         } else {
             fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
         }
@@ -671,30 +657,14 @@ struct IOSInfoTab: View {
             return
         }
 
-        // Try container path first (iCloud-only storage), then legacy path
         let normalizedPath = file.relativePath.precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
 
+        // Check container path (iCloud-only storage)
         let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-        // Check all possible locations
         if fileManager.fileExists(atPath: containerURL.path) {
             fileToShare = containerURL
             showShareSheet = true
-        } else if fileManager.fileExists(atPath: legacyURL.path) {
-            fileToShare = legacyURL
-            showShareSheet = true
-        } else if let folderURL = library.folderURL {
-            let folderPath = folderURL.appendingPathComponent(file.relativePath)
-            if fileManager.fileExists(atPath: folderPath.path) {
-                fileToShare = folderPath
-                showShareSheet = true
-            } else {
-                fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
-            }
         } else {
             fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
         }
@@ -702,7 +672,7 @@ struct IOSInfoTab: View {
 
     private func deleteFile(_ file: CDLinkedFile) {
         do {
-            try PDFManager.shared.delete(file, in: libraryManager.find(id: libraryID))
+            try AttachmentManager.shared.delete(file, in: libraryManager.find(id: libraryID))
         } catch {
             print("Failed to delete file: \(error)")
         }
@@ -726,7 +696,7 @@ struct IOSInfoTab: View {
                     return
                 }
 
-                try PDFManager.shared.importPDF(
+                try AttachmentManager.shared.importPDF(
                     data: data,
                     for: publication,
                     in: libraryManager.find(id: libraryID)
@@ -754,7 +724,7 @@ struct IOSInfoTab: View {
                 do {
                     let data = try Data(contentsOf: url)
                     let fileExtension = url.pathExtension.isEmpty ? "pdf" : url.pathExtension
-                    try PDFManager.shared.importAttachment(
+                    try AttachmentManager.shared.importAttachment(
                         data: data,
                         for: publication,
                         in: libraryManager.find(id: libraryID),

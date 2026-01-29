@@ -56,7 +56,7 @@ struct KeyboardShortcutsView: View {
                     ("Open References", "⇧⌘R"),
                     ("Toggle Read/Unread", "⇧⌘U"),
                     ("Mark All as Read", "⌥⌘U"),
-                    ("Keep to Library", "⌃⌘K"),
+                    ("Save to Library", "⌃⌘K"),
                     ("Dismiss from Inbox", "⇧⌘J"),
                     ("Add to Collection", "⌘L"),
                     ("Remove from Collection", "⇧⌘L"),

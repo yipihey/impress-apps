@@ -210,7 +210,7 @@ public final class LibraryViewModel {
     public func importPDF(from url: URL, for publication: CDPublication, in library: CDLibrary? = nil) async throws {
         Logger.viewModels.infoCapture("Importing PDF for: \(publication.citeKey)", category: "import")
 
-        try PDFManager.shared.importPDF(from: url, for: publication, in: library)
+        try AttachmentManager.shared.importPDF(from: url, for: publication, in: library)
         await loadPublications()
     }
 

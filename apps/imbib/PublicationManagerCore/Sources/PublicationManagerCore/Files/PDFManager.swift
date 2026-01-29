@@ -11,11 +11,6 @@ import CryptoKit
 import OSLog
 import UniformTypeIdentifiers
 
-// MARK: - Backward Compatibility
-
-/// Type alias for backward compatibility with existing code.
-public typealias PDFManager = AttachmentManager
-
 // MARK: - Attachment Manager
 
 /// Manages attached files (PDFs, images, code, data files, etc.) for publications.
@@ -443,7 +438,7 @@ public final class AttachmentManager {
         if let httpResponse = response as? HTTPURLResponse {
             guard httpResponse.statusCode == 200 else {
                 Logger.files.errorCapture("HTTP error: \(httpResponse.statusCode)", category: "files")
-                throw PDFError.downloadFailed(url, nil)
+                throw AttachmentError.downloadFailed(url, nil)
             }
 
             let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
@@ -453,7 +448,7 @@ public final class AttachmentManager {
         }
 
         guard !data.isEmpty else {
-            throw PDFError.emptyDownload(url)
+            throw AttachmentError.emptyDownload(url)
         }
 
         Logger.files.infoCapture("Downloaded \(data.count) bytes", category: "files")
@@ -721,7 +716,7 @@ public final class AttachmentManager {
         } else {
             // Fall back to default Papers directory in app support
             guard let appSupport = applicationSupportURL else {
-                throw PDFError.noPapersDirectory
+                throw AttachmentError.noPapersDirectory
             }
             papersURL = appSupport.appendingPathComponent("DefaultLibrary/\(papersFolderName)")
         }
@@ -970,7 +965,3 @@ public enum AttachmentError: LocalizedError {
     }
 }
 
-// MARK: - PDF Error (Backward Compatible)
-
-/// Type alias for backward compatibility.
-public typealias PDFError = AttachmentError

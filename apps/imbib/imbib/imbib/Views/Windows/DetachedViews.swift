@@ -228,7 +228,7 @@ struct DetachedPDFView: View {
                 throw PDFDownloadError.noActiveLibrary
             }
 
-            try PDFManager.shared.importPDF(from: tempURL, for: publication, in: lib)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication, in: lib)
             detachedPDFLogger.info("[DetachedPDF] PDF imported successfully")
 
             // Clean up temp file

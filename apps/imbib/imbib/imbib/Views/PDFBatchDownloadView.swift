@@ -175,7 +175,7 @@ struct PDFBatchDownloadView: View {
             }
 
             // Import into library using PDFManager
-            try PDFManager.shared.importPDF(from: tempURL, for: publication, in: library)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication, in: library)
 
             // Clean up temp file
             try? FileManager.default.removeItem(at: tempURL)

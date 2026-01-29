@@ -253,7 +253,7 @@ struct NotesTab: View {
             }
 
             Logger.files.infoCapture("[NotesTab] Importing PDF via PDFManager...", category: "pdf")
-            try PDFManager.shared.importPDF(from: tempURL, for: publication, in: library)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication, in: library)
             Logger.files.infoCapture("[NotesTab] PDF import SUCCESS", category: "pdf")
 
             // Refresh linkedFile
@@ -495,44 +495,45 @@ struct NotesPanel: View {
         }
     }
 
-    // MARK: - Structured Fields
+    // MARK: - Structured Fields (Compact Chips)
 
     @ViewBuilder
     private var structuredFieldsSection: some View {
-        let enabledFields = annotationSettings.enabledFields
+        // Filter OUT author fields (those are shown in InfoTab now)
+        let noteFields = annotationSettings.enabledNoteFields
+        let populatedFields = noteFields.filter { annotations[$0.id]?.isEmpty == false }
 
-        if !enabledFields.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Quick Annotations")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .textCase(.uppercase)
+        if !noteFields.isEmpty && (!populatedFields.isEmpty || !noteFields.isEmpty) {
+            NotesFlowLayout(spacing: 6) {
+                // Show populated annotation chips
+                ForEach(populatedFields) { field in
+                    AnnotationChip(
+                        field: field,
+                        value: annotationBinding(for: field.id),
+                        theme: theme
+                    )
+                }
 
-                // Compact inline layout
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(enabledFields) { field in
-                        noteField(field)
+                // "+" button when there are unpopulated fields
+                let unpopulatedFields = noteFields.filter { annotations[$0.id]?.isEmpty != false }
+                if !unpopulatedFields.isEmpty {
+                    Menu {
+                        ForEach(unpopulatedFields) { field in
+                            Button(field.label) {
+                                // Initialize the field with empty string to show it
+                                annotations[field.id] = ""
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    .menuStyle(.borderlessButton)
+                    .help("Add annotation")
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func noteField(_ field: QuickAnnotationField) -> some View {
-        HStack(spacing: 4) {
-            Text(field.label + ":")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 70, alignment: .trailing)
-            TextField(field.placeholder, text: annotationBinding(for: field.id))
-                .textFieldStyle(.plain)
-                .font(.callout)
-                .lineLimit(1)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(theme.contentBackground)
-                .clipShape(.rect(cornerRadius: 3))
+            .padding(.bottom, 4)
         }
     }
 
@@ -714,23 +715,11 @@ struct NotesPanel: View {
         // Get raw note content
         let rawNote = publication.fields["note"] ?? ""
 
-        // Check if this is legacy format (has separate notes_structured)
-        if let jsonString = publication.fields["notes_structured"],
-           let data = jsonString.data(using: .utf8),
-           let dict = try? JSONDecoder().decode([String: String].self, from: data),
-           !dict.isEmpty {
-            // Legacy format: migrate to unified format
-            let migrated = NotesParser.migrateFromLegacy(structuredJSON: jsonString, freeformNote: rawNote)
-            let parsed = NotesParser.parse(migrated)
-            annotations = parsed.annotations
-            freeformNotes = parsed.freeform
-        } else {
-            // New unified format: parse YAML front matter
-            let parsed = NotesParser.parse(rawNote)
-            // Convert label-keyed annotations to ID-keyed
-            annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
-            freeformNotes = parsed.freeform
-        }
+        // Parse YAML front matter
+        let parsed = NotesParser.parse(rawNote)
+        // Convert label-keyed annotations to ID-keyed
+        annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
+        freeformNotes = parsed.freeform
     }
 
     private func scheduleSave() {
@@ -751,11 +740,6 @@ struct NotesPanel: View {
 
             // Save to single "note" field
             await viewModel.updateField(targetPublication, field: "note", value: serialized)
-
-            // Clear legacy field if it exists (migration cleanup)
-            if targetPublication.fields["notes_structured"] != nil {
-                await viewModel.updateField(targetPublication, field: "notes_structured", value: "")
-            }
         }
     }
 }
@@ -852,3 +836,123 @@ struct HelixNotesTextEditor: NSViewRepresentable {
     }
 }
 #endif
+
+// MARK: - Annotation Chip
+
+/// A compact chip for displaying and editing annotation values.
+struct AnnotationChip: View {
+    let field: QuickAnnotationField
+    @Binding var value: String
+    var theme: ThemeColors? = nil
+    @State private var isEditing = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        if isEditing {
+            // Edit mode: inline text field
+            HStack(spacing: 2) {
+                Text(field.label + ":")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                TextField("", text: $value)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .frame(minWidth: 60, maxWidth: 150)
+                    .focused($isFocused)
+                    .onSubmit {
+                        isEditing = false
+                    }
+                // Remove button
+                Button {
+                    value = ""
+                    isEditing = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            #if os(macOS)
+            .background(theme?.contentBackground ?? Color(nsColor: .textBackgroundColor))
+            #else
+            .background(theme?.contentBackground ?? Color(.systemBackground))
+            #endif
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1))
+            .onAppear {
+                isFocused = true
+            }
+            .onChange(of: isFocused) { _, focused in
+                if !focused {
+                    isEditing = false
+                }
+            }
+        } else {
+            // Display mode: clickable chip
+            Button {
+                isEditing = true
+            } label: {
+                HStack(spacing: 2) {
+                    Text(field.label + ":")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(value)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.15))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+// MARK: - Flow Layout (for chips)
+
+/// A layout that arranges views in a horizontal flow, wrapping to new lines as needed.
+struct NotesFlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
+
+        for (subview, offset) in zip(subviews, offsets) {
+            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
+        }
+    }
+
+    private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {
+        var offsets: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var maxWidth: CGFloat = 0
+
+        for size in sizes {
+            if currentX + size.width > containerWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            offsets.append(CGPoint(x: currentX, y: currentY))
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            maxWidth = max(maxWidth, currentX - spacing)
+        }
+
+        return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
+    }
+}
