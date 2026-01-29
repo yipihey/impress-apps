@@ -136,9 +136,11 @@ final class SafeMigrationServiceTests: XCTestCase {
         super.tearDown()
     }
 
-    func testMigrationErrorDescriptions() {
+    // MARK: - SafeMigrationError Tests
+
+    func testSafeMigrationErrorDescriptions() {
         // Verify all error cases have meaningful descriptions
-        let errors: [MigrationError] = [
+        let errors: [SafeMigrationError] = [
             .storeNotFound,
             .backupFailed(underlying: NSError(domain: "test", code: 1)),
             .migrationFailed(underlying: NSError(domain: "test", code: 1)),
@@ -152,12 +154,101 @@ final class SafeMigrationServiceTests: XCTestCase {
             XCTAssertFalse(error.errorDescription!.isEmpty)
         }
     }
+
+    func testSafeMigrationErrorStoreNotFound() {
+        let error = SafeMigrationError.storeNotFound
+        XCTAssertTrue(error.errorDescription!.contains("not found"))
+    }
+
+    func testSafeMigrationErrorBackupFailed() {
+        let underlying = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "test error"])
+        let error = SafeMigrationError.backupFailed(underlying: underlying)
+        XCTAssertTrue(error.errorDescription!.contains("Backup"))
+        XCTAssertTrue(error.errorDescription!.contains("test error"))
+    }
+
+    func testSafeMigrationErrorDataLoss() {
+        let error = SafeMigrationError.dataLoss(expected: 100, actual: 50)
+        XCTAssertTrue(error.errorDescription!.contains("100"))
+        XCTAssertTrue(error.errorDescription!.contains("50"))
+    }
+
+    func testSafeMigrationErrorValidationFailed() {
+        let error = SafeMigrationError.validationFailed(reason: "schema mismatch")
+        XCTAssertTrue(error.errorDescription!.contains("schema mismatch"))
+    }
+
+    // MARK: - MigrationState Tests
+
+    func testMigrationStateValues() {
+        // Ensure all states can be created
+        let states: [SafeMigrationService.MigrationState] = [
+            .idle,
+            .backingUp,
+            .validatingPre,
+            .migrating,
+            .validatingPost,
+            .enablingSync,
+            .completed,
+            .failed(SafeMigrationError.storeNotFound)
+        ]
+
+        XCTAssertEqual(states.count, 8)
+    }
+
+    // MARK: - Backup Directory Tests
+
+    func testBackupDirectoryCreation() async throws {
+        // This test verifies the backup directory path construction
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let expectedPath = appSupport.appendingPathComponent("imbib/Backups", isDirectory: true)
+
+        // The path should be valid and constructible
+        XCTAssertTrue(expectedPath.path.contains("imbib"))
+        XCTAssertTrue(expectedPath.path.contains("Backups"))
+    }
+
+    // MARK: - MigrationError Tests (LibraryMigrationService)
+
+    func testLibraryMigrationErrorDescriptions() {
+        // Verify all LibraryMigrationService.MigrationError cases have meaningful descriptions
+        let errors: [MigrationError] = [
+            .alreadyInProgress,
+            .sourceNotAccessible(URL(fileURLWithPath: "/test/path")),
+            .copyFailed(URL(fileURLWithPath: "/test/file"), NSError(domain: "test", code: 1))
+        ]
+
+        for error in errors {
+            XCTAssertNotNil(error.errorDescription)
+            XCTAssertFalse(error.errorDescription!.isEmpty)
+        }
+    }
+
+    func testLibraryMigrationErrorAlreadyInProgress() {
+        let error = MigrationError.alreadyInProgress
+        XCTAssertTrue(error.errorDescription!.contains("already in progress"))
+    }
+
+    func testLibraryMigrationErrorSourceNotAccessible() {
+        let url = URL(fileURLWithPath: "/test/source")
+        let error = MigrationError.sourceNotAccessible(url)
+        XCTAssertTrue(error.errorDescription!.contains("source"))
+    }
+
+    func testLibraryMigrationErrorCopyFailed() {
+        let url = URL(fileURLWithPath: "/test/file.pdf")
+        let underlying = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "disk full"])
+        let error = MigrationError.copyFailed(url, underlying)
+        XCTAssertTrue(error.errorDescription!.contains("copy") || error.errorDescription!.contains("Copy"))
+    }
 }
 
 // MARK: - Sync Health Monitor Tests
 
 /// Tests for SyncHealthMonitor.
 final class SyncHealthMonitorTests: XCTestCase {
+
+    // MARK: - SyncHealthStatus Tests
 
     func testSyncHealthStatusIcons() {
         XCTAssertEqual(SyncHealthStatus.healthy.iconName, "checkmark.icloud")
@@ -175,11 +266,46 @@ final class SyncHealthMonitorTests: XCTestCase {
         XCTAssertFalse(SyncHealthStatus.disabled.description.isEmpty)
     }
 
+    func testSyncHealthStatusColors() {
+        XCTAssertEqual(SyncHealthStatus.healthy.color, "green")
+        XCTAssertEqual(SyncHealthStatus.attention.color, "yellow")
+        XCTAssertEqual(SyncHealthStatus.degraded.color, "orange")
+        XCTAssertEqual(SyncHealthStatus.critical.color, "red")
+        XCTAssertEqual(SyncHealthStatus.disabled.color, "gray")
+    }
+
+    func testSyncHealthStatusRawValues() {
+        // Verify raw values exist for all cases
+        XCTAssertEqual(SyncHealthStatus.healthy.rawValue, "healthy")
+        XCTAssertEqual(SyncHealthStatus.attention.rawValue, "attention")
+        XCTAssertEqual(SyncHealthStatus.degraded.rawValue, "degraded")
+        XCTAssertEqual(SyncHealthStatus.critical.rawValue, "critical")
+        XCTAssertEqual(SyncHealthStatus.disabled.rawValue, "disabled")
+    }
+
+    // MARK: - SyncHealthIssue.Severity Tests
+
     func testSyncHealthIssueSeverityComparable() {
         XCTAssertLessThan(SyncHealthIssue.Severity.info, SyncHealthIssue.Severity.attention)
         XCTAssertLessThan(SyncHealthIssue.Severity.attention, SyncHealthIssue.Severity.warning)
         XCTAssertLessThan(SyncHealthIssue.Severity.warning, SyncHealthIssue.Severity.critical)
     }
+
+    func testSyncHealthIssueSeverityRawValues() {
+        XCTAssertEqual(SyncHealthIssue.Severity.info.rawValue, 0)
+        XCTAssertEqual(SyncHealthIssue.Severity.attention.rawValue, 1)
+        XCTAssertEqual(SyncHealthIssue.Severity.warning.rawValue, 2)
+        XCTAssertEqual(SyncHealthIssue.Severity.critical.rawValue, 3)
+    }
+
+    func testSyncHealthIssueSeverityOrdering() {
+        // Test sorting by severity
+        let severities: [SyncHealthIssue.Severity] = [.critical, .info, .warning, .attention]
+        let sorted = severities.sorted()
+        XCTAssertEqual(sorted, [.info, .attention, .warning, .critical])
+    }
+
+    // MARK: - SyncHealthIssue Tests
 
     func testSyncHealthIssueCreation() {
         let issue = SyncHealthIssue(
@@ -195,6 +321,65 @@ final class SyncHealthMonitorTests: XCTestCase {
         XCTAssertEqual(issue.title, "Test Conflict")
         XCTAssertFalse(issue.description.isEmpty)
         XCTAssertFalse(issue.suggestedAction.isEmpty)
+    }
+
+    func testSyncHealthIssueHasUniqueId() {
+        let issue1 = SyncHealthIssue(
+            type: .conflict,
+            severity: .warning,
+            title: "Issue 1",
+            description: "Description",
+            suggestedAction: "Action"
+        )
+
+        let issue2 = SyncHealthIssue(
+            type: .conflict,
+            severity: .warning,
+            title: "Issue 2",
+            description: "Description",
+            suggestedAction: "Action"
+        )
+
+        XCTAssertNotEqual(issue1.id, issue2.id)
+    }
+
+    func testSyncHealthIssueTimestamp() {
+        let beforeCreation = Date()
+        let issue = SyncHealthIssue(
+            type: .networkError,
+            severity: .attention,
+            title: "Network Issue",
+            description: "Cannot reach server",
+            suggestedAction: "Check connection"
+        )
+        let afterCreation = Date()
+
+        XCTAssertGreaterThanOrEqual(issue.createdAt, beforeCreation)
+        XCTAssertLessThanOrEqual(issue.createdAt, afterCreation)
+    }
+
+    func testSyncHealthIssueTypeValues() {
+        // Verify all issue types can be created
+        let types: [SyncHealthIssue.IssueType] = [
+            .conflict,
+            .syncPaused,
+            .quotaWarning,
+            .quotaExceeded,
+            .networkError,
+            .schemaVersionMismatch,
+            .outdatedBackup
+        ]
+
+        XCTAssertEqual(types.count, 7)
+    }
+
+    // MARK: - Notification Names Tests
+
+    func testNotificationNamesExist() {
+        // Verify notification names are unique
+        XCTAssertNotEqual(Notification.Name.syncDidComplete, .syncDidFail)
+        XCTAssertNotEqual(Notification.Name.syncDidComplete, .syncDidStart)
+        XCTAssertNotEqual(Notification.Name.syncDidFail, .syncDidStart)
     }
 }
 

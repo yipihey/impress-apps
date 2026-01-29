@@ -207,16 +207,52 @@ extension SyncConflictQueue {
     ) async throws {
         Logger.sync.info("Resolving PDF conflict \(conflict.id) with \(resolution)")
 
+        // Fetch the publication and its linked file
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        request.predicate = NSPredicate(format: "id == %@", conflict.publicationID as CVarArg)
+        request.fetchLimit = 1
+
+        guard let publication = try context.fetch(request).first,
+              let library = publication.libraries?.first else {
+            throw SyncError.publicationNotFound(conflict.publicationID)
+        }
+
+        // Find the linked file with the remote data
+        let linkedFile = publication.linkedFiles?.first { $0.relativePath == conflict.remoteFilePath }
+
         switch resolution {
         case .keepLocal:
             // Nothing to do - local file is already in place
-            break
+            // Just clear the remote fileData to save space
+            if let linkedFile = linkedFile {
+                linkedFile.fileData = nil
+            }
+            Logger.sync.info("PDF conflict resolved: kept local file")
 
         case .keepRemote:
-            // Replace local with remote
-            // This would require downloading the remote file
-            // For now, we'll handle this at the file sync level
-            break
+            // Replace local with remote file data
+            guard let linkedFile = linkedFile,
+                  let remoteData = linkedFile.fileData else {
+                Logger.sync.error("Cannot resolve keepRemote: no remote file data available")
+                throw SyncError.fileNotFound(conflict.remoteFilePath)
+            }
+
+            // Get the local file path
+            let localURL = library.containerURL.appendingPathComponent(conflict.localFilePath)
+
+            // Write the remote data to the local path
+            do {
+                try remoteData.write(to: localURL)
+                Logger.sync.info("PDF conflict resolved: replaced local with remote (\(remoteData.count) bytes)")
+
+                // Update the linked file to point to local path and clear remote data
+                linkedFile.relativePath = conflict.localFilePath
+                linkedFile.fileData = nil
+                linkedFile.dateAdded = conflict.remoteModifiedDate
+            } catch {
+                Logger.sync.error("Failed to write remote PDF data: \(error.localizedDescription)")
+                throw SyncError.fileNotFound(conflict.localFilePath)
+            }
 
         case .keepBoth:
             // Create a conflict copy with timestamp in filename
@@ -225,14 +261,51 @@ extension SyncConflictQueue {
             let timestamp = dateFormatter.string(from: conflict.remoteModifiedDate)
                 .replacingOccurrences(of: ":", with: "-")
 
-            let basePath = conflict.localFilePath.dropLast(4) // Remove .pdf
-            let conflictPath = "\(basePath)_conflict_\(timestamp).pdf"
+            // Build conflict filename: Einstein_1905_Paper_conflict_2026-01-28T14-30-45Z.pdf
+            let localPathStr = conflict.localFilePath
+            let basePath = String(localPathStr.dropLast(4)) // Remove .pdf
+            let conflictRelativePath = "\(basePath)_conflict_\(timestamp).pdf"
+            let conflictURL = library.containerURL.appendingPathComponent(conflictRelativePath)
 
-            // The actual file copy would be handled by the file sync system
-            Logger.sync.info("PDF conflict resolved with keepBoth: \(conflictPath)")
+            // If we have remote data, write it to the conflict path
+            if let linkedFile = linkedFile,
+               let remoteData = linkedFile.fileData {
+                do {
+                    // Ensure parent directory exists
+                    let parentDir = conflictURL.deletingLastPathComponent()
+                    try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+
+                    // Write the remote data to the conflict path
+                    try remoteData.write(to: conflictURL)
+                    Logger.sync.info("PDF conflict resolved with keepBoth: created \(conflictURL.lastPathComponent)")
+
+                    // Create a new CDLinkedFile for the conflict copy
+                    let conflictFile = CDLinkedFile(context: context)
+                    conflictFile.id = UUID()
+                    conflictFile.relativePath = conflictRelativePath
+                    conflictFile.filename = conflictURL.lastPathComponent
+                    conflictFile.fileType = "pdf"
+                    conflictFile.dateAdded = conflict.remoteModifiedDate
+                    conflictFile.publication = publication
+                    conflictFile.fileSize = Int64(remoteData.count)
+
+                    // Clear the original file's remote data since we've saved it
+                    linkedFile.fileData = nil
+                } catch {
+                    Logger.sync.error("Failed to create conflict copy: \(error.localizedDescription)")
+                    throw SyncError.fileNotFound(conflictRelativePath)
+                }
+            } else {
+                // No remote data available - just log the intended path
+                Logger.sync.warning("PDF conflict keepBoth: no remote data to copy, path would be \(conflictRelativePath)")
+            }
         }
 
+        try context.save()
         dequeue(.pdf(conflict))
+
+        // Post notification for conflict resolved
+        NotificationCenter.default.post(name: .syncConflictResolved, object: conflict)
     }
 }
 

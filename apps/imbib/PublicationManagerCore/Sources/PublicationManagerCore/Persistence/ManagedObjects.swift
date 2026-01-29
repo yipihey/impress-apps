@@ -1659,3 +1659,177 @@ public extension CDLinkedFile {
         annotationCount > 0
     }
 }
+
+// MARK: - reMarkable Document (ADR-019)
+
+/// Core Data entity for tracking publications synced to reMarkable.
+///
+/// Stores the mapping between a publication and its reMarkable document ID,
+/// along with sync state and annotation tracking.
+@objc(CDRemarkableDocument)
+public class CDRemarkableDocument: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var remarkableDocumentID: String      // ID on reMarkable device
+    @NSManaged public var remarkableFolderID: String?       // Parent folder on reMarkable
+    @NSManaged public var remarkableVersion: Int32          // Document version for sync
+    @NSManaged public var localFileHash: String?            // SHA256 of local PDF for change detection
+    @NSManaged public var dateUploaded: Date                // When first uploaded
+    @NSManaged public var lastSyncDate: Date?               // Last successful sync
+    @NSManaged public var syncState: String                 // pending, synced, conflict, error
+    @NSManaged public var syncError: String?                // Error message if syncState == error
+    @NSManaged public var annotationCount: Int32            // Number of imported annotations
+
+    // Relationships
+    @NSManaged public var publication: CDPublication?       // The source publication
+    @NSManaged public var linkedFile: CDLinkedFile?         // The PDF that was uploaded
+    @NSManaged public var remarkableAnnotations: Set<CDRemarkableAnnotation>?  // Imported annotations
+}
+
+// MARK: - reMarkable Document Helpers
+
+public extension CDRemarkableDocument {
+
+    /// Sync state as enum
+    enum SyncState: String, CaseIterable, Sendable {
+        case pending = "pending"
+        case synced = "synced"
+        case conflict = "conflict"
+        case error = "error"
+
+        public var icon: String {
+            switch self {
+            case .pending: return "arrow.triangle.2.circlepath"
+            case .synced: return "checkmark.circle.fill"
+            case .conflict: return "exclamationmark.triangle.fill"
+            case .error: return "xmark.circle.fill"
+            }
+        }
+    }
+
+    /// Get sync state as enum
+    var syncStateEnum: SyncState {
+        SyncState(rawValue: syncState) ?? .pending
+    }
+
+    /// Whether this document needs to be synced
+    var needsSync: Bool {
+        syncStateEnum == .pending || syncStateEnum == .conflict
+    }
+
+    /// Whether this document has annotations from reMarkable
+    var hasRemarkableAnnotations: Bool {
+        annotationCount > 0
+    }
+
+    /// Sorted annotations by page number
+    var sortedAnnotations: [CDRemarkableAnnotation] {
+        (remarkableAnnotations ?? []).sorted { $0.pageNumber < $1.pageNumber }
+    }
+}
+
+// MARK: - reMarkable Annotation (ADR-019)
+
+/// Core Data entity for annotations imported from reMarkable.
+///
+/// Stores both raw stroke data (for rendering) and converted annotation data
+/// (for PDF embedding). Separate from CDAnnotation to preserve the original
+/// reMarkable data format.
+@objc(CDRemarkableAnnotation)
+public class CDRemarkableAnnotation: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var pageNumber: Int32                 // 0-indexed page number
+    @NSManaged public var annotationType: String            // highlight, ink, text
+    @NSManaged public var layerName: String?                // reMarkable layer name
+    @NSManaged public var boundsJSON: String                // JSON-encoded CGRect
+    @NSManaged public var strokeDataCompressed: Data?       // Compressed raw stroke data
+    @NSManaged public var color: String?                    // Hex color (e.g., "#FFFF00")
+    @NSManaged public var ocrText: String?                  // OCR result for handwritten notes
+    @NSManaged public var ocrConfidence: Double             // OCR confidence score (0-1)
+    @NSManaged public var dateImported: Date                // When imported from reMarkable
+    @NSManaged public var remarkableVersion: Int32          // Version when imported
+
+    // Relationships
+    @NSManaged public var remarkableDocument: CDRemarkableDocument?  // Parent document
+}
+
+// MARK: - reMarkable Annotation Helpers
+
+public extension CDRemarkableAnnotation {
+
+    /// Annotation type as enum
+    enum AnnotationType: String, CaseIterable, Sendable {
+        case highlight = "highlight"
+        case ink = "ink"
+        case text = "text"
+
+        public var icon: String {
+            switch self {
+            case .highlight: return "highlighter"
+            case .ink: return "pencil.tip"
+            case .text: return "text.cursor"
+            }
+        }
+
+        public var displayName: String {
+            switch self {
+            case .highlight: return "Highlight"
+            case .ink: return "Handwritten"
+            case .text: return "Text"
+            }
+        }
+    }
+
+    /// Get annotation type as enum
+    var typeEnum: AnnotationType {
+        AnnotationType(rawValue: annotationType) ?? .ink
+    }
+
+    /// Bounds as CGRect (decoded from JSON)
+    var bounds: CGRect {
+        get {
+            guard let data = boundsJSON.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(BoundsData.self, from: data)
+            else { return .zero }
+            return decoded.cgRect
+        }
+        set {
+            let bounds = BoundsData(rect: newValue)
+            if let data = try? JSONEncoder().encode(bounds),
+               let json = String(data: data, encoding: .utf8) {
+                boundsJSON = json
+            }
+        }
+    }
+
+    /// Helper struct for JSON encoding bounds
+    private struct BoundsData: Codable {
+        var x: CGFloat
+        var y: CGFloat
+        var width: CGFloat
+        var height: CGFloat
+
+        init(rect: CGRect) {
+            self.x = rect.origin.x
+            self.y = rect.origin.y
+            self.width = rect.size.width
+            self.height = rect.size.height
+        }
+
+        var cgRect: CGRect {
+            CGRect(x: x, y: y, width: width, height: height)
+        }
+    }
+
+    /// Whether this annotation has OCR text
+    var hasOCRText: Bool {
+        ocrText != nil && !ocrText!.isEmpty
+    }
+
+    /// Preview text (OCR text or type name)
+    var previewText: String {
+        if let text = ocrText, !text.isEmpty {
+            return String(text.prefix(100))
+        }
+        return typeEnum.displayName
+    }
+}

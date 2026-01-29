@@ -552,6 +552,8 @@ public final class PersistenceController: @unchecked Sendable {
         let scixPendingChangeEntity = createSciXPendingChangeEntity()
         let annotationEntity = createAnnotationEntity()
         let recommendationProfileEntity = createRecommendationProfileEntity()
+        let remarkableDocumentEntity = createRemarkableDocumentEntity()
+        let remarkableAnnotationEntity = createRemarkableAnnotationEntity()
 
         // Set up relationships
         setupRelationships(
@@ -627,6 +629,14 @@ public final class PersistenceController: @unchecked Sendable {
             library: libraryEntity
         )
 
+        // Set up reMarkable document relationships (ADR-019)
+        setupRemarkableDocumentRelationships(
+            remarkableDocument: remarkableDocumentEntity,
+            remarkableAnnotation: remarkableAnnotationEntity,
+            publication: publicationEntity,
+            linkedFile: linkedFileEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
@@ -643,6 +653,8 @@ public final class PersistenceController: @unchecked Sendable {
             scixPendingChangeEntity,
             annotationEntity,
             recommendationProfileEntity,
+            remarkableDocumentEntity,
+            remarkableAnnotationEntity,
         ]
 
         return model
@@ -1744,6 +1756,180 @@ public final class PersistenceController: @unchecked Sendable {
         return entity
     }
 
+    // MARK: - reMarkable Document Entity (ADR-019)
+
+    private static func createRemarkableDocumentEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "RemarkableDocument"
+        entity.managedObjectClassName = "PublicationManagerCore.CDRemarkableDocument"
+
+        var properties: [NSPropertyDescription] = []
+
+        // Primary key
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        id.defaultValue = UUID()
+        properties.append(id)
+
+        // reMarkable identifiers
+        let remarkableDocumentID = NSAttributeDescription()
+        remarkableDocumentID.name = "remarkableDocumentID"
+        remarkableDocumentID.attributeType = .stringAttributeType
+        remarkableDocumentID.isOptional = false
+        remarkableDocumentID.defaultValue = ""
+        properties.append(remarkableDocumentID)
+
+        let remarkableFolderID = NSAttributeDescription()
+        remarkableFolderID.name = "remarkableFolderID"
+        remarkableFolderID.attributeType = .stringAttributeType
+        remarkableFolderID.isOptional = true
+        properties.append(remarkableFolderID)
+
+        let remarkableVersion = NSAttributeDescription()
+        remarkableVersion.name = "remarkableVersion"
+        remarkableVersion.attributeType = .integer32AttributeType
+        remarkableVersion.isOptional = false
+        remarkableVersion.defaultValue = Int32(0)
+        properties.append(remarkableVersion)
+
+        // Local state tracking
+        let localFileHash = NSAttributeDescription()
+        localFileHash.name = "localFileHash"
+        localFileHash.attributeType = .stringAttributeType
+        localFileHash.isOptional = true
+        properties.append(localFileHash)
+
+        let dateUploaded = NSAttributeDescription()
+        dateUploaded.name = "dateUploaded"
+        dateUploaded.attributeType = .dateAttributeType
+        dateUploaded.isOptional = false
+        dateUploaded.defaultValue = Date()
+        properties.append(dateUploaded)
+
+        let lastSyncDate = NSAttributeDescription()
+        lastSyncDate.name = "lastSyncDate"
+        lastSyncDate.attributeType = .dateAttributeType
+        lastSyncDate.isOptional = true
+        properties.append(lastSyncDate)
+
+        let syncState = NSAttributeDescription()
+        syncState.name = "syncState"
+        syncState.attributeType = .stringAttributeType
+        syncState.isOptional = false
+        syncState.defaultValue = "pending"
+        properties.append(syncState)
+
+        let syncError = NSAttributeDescription()
+        syncError.name = "syncError"
+        syncError.attributeType = .stringAttributeType
+        syncError.isOptional = true
+        properties.append(syncError)
+
+        let annotationCount = NSAttributeDescription()
+        annotationCount.name = "annotationCount"
+        annotationCount.attributeType = .integer32AttributeType
+        annotationCount.isOptional = false
+        annotationCount.defaultValue = Int32(0)
+        properties.append(annotationCount)
+
+        entity.properties = properties
+        return entity
+    }
+
+    // MARK: - reMarkable Annotation Entity (ADR-019)
+
+    private static func createRemarkableAnnotationEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "RemarkableAnnotation"
+        entity.managedObjectClassName = "PublicationManagerCore.CDRemarkableAnnotation"
+
+        var properties: [NSPropertyDescription] = []
+
+        // Primary key
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        id.defaultValue = UUID()
+        properties.append(id)
+
+        // Annotation data
+        let pageNumber = NSAttributeDescription()
+        pageNumber.name = "pageNumber"
+        pageNumber.attributeType = .integer32AttributeType
+        pageNumber.isOptional = false
+        pageNumber.defaultValue = Int32(0)
+        properties.append(pageNumber)
+
+        let annotationType = NSAttributeDescription()
+        annotationType.name = "annotationType"
+        annotationType.attributeType = .stringAttributeType
+        annotationType.isOptional = false
+        annotationType.defaultValue = "ink"
+        properties.append(annotationType)
+
+        let layerName = NSAttributeDescription()
+        layerName.name = "layerName"
+        layerName.attributeType = .stringAttributeType
+        layerName.isOptional = true
+        properties.append(layerName)
+
+        let boundsJSON = NSAttributeDescription()
+        boundsJSON.name = "boundsJSON"
+        boundsJSON.attributeType = .stringAttributeType
+        boundsJSON.isOptional = false
+        boundsJSON.defaultValue = "{}"
+        properties.append(boundsJSON)
+
+        // Stroke data (compressed)
+        let strokeDataCompressed = NSAttributeDescription()
+        strokeDataCompressed.name = "strokeDataCompressed"
+        strokeDataCompressed.attributeType = .binaryDataAttributeType
+        strokeDataCompressed.isOptional = true
+        strokeDataCompressed.allowsExternalBinaryDataStorage = true
+        properties.append(strokeDataCompressed)
+
+        let color = NSAttributeDescription()
+        color.name = "color"
+        color.attributeType = .stringAttributeType
+        color.isOptional = true
+        properties.append(color)
+
+        // OCR results
+        let ocrText = NSAttributeDescription()
+        ocrText.name = "ocrText"
+        ocrText.attributeType = .stringAttributeType
+        ocrText.isOptional = true
+        properties.append(ocrText)
+
+        let ocrConfidence = NSAttributeDescription()
+        ocrConfidence.name = "ocrConfidence"
+        ocrConfidence.attributeType = .doubleAttributeType
+        ocrConfidence.isOptional = false
+        ocrConfidence.defaultValue = Double(0)
+        properties.append(ocrConfidence)
+
+        // Metadata
+        let dateImported = NSAttributeDescription()
+        dateImported.name = "dateImported"
+        dateImported.attributeType = .dateAttributeType
+        dateImported.isOptional = false
+        dateImported.defaultValue = Date()
+        properties.append(dateImported)
+
+        let remarkableVersion = NSAttributeDescription()
+        remarkableVersion.name = "remarkableVersion"
+        remarkableVersion.attributeType = .integer32AttributeType
+        remarkableVersion.isOptional = false
+        remarkableVersion.defaultValue = Int32(0)
+        properties.append(remarkableVersion)
+
+        entity.properties = properties
+        return entity
+    }
+
     // MARK: - Recommendation Profile Relationship
 
     private static func setupRecommendationProfileRelationship(
@@ -2163,6 +2349,58 @@ public final class PersistenceController: @unchecked Sendable {
 
         // Add to entity
         collection.properties.append(contentsOf: [collectionToParent, collectionToChildren])
+    }
+
+    // MARK: - reMarkable Document Relationships (ADR-019)
+
+    private static func setupRemarkableDocumentRelationships(
+        remarkableDocument: NSEntityDescription,
+        remarkableAnnotation: NSEntityDescription,
+        publication: NSEntityDescription,
+        linkedFile: NSEntityDescription
+    ) {
+        // RemarkableDocument -> publication (many-to-one)
+        let docToPublication = NSRelationshipDescription()
+        docToPublication.name = "publication"
+        docToPublication.destinationEntity = publication
+        docToPublication.maxCount = 1
+        docToPublication.isOptional = true
+        docToPublication.deleteRule = .nullifyDeleteRule
+
+        // RemarkableDocument -> linkedFile (many-to-one)
+        let docToLinkedFile = NSRelationshipDescription()
+        docToLinkedFile.name = "linkedFile"
+        docToLinkedFile.destinationEntity = linkedFile
+        docToLinkedFile.maxCount = 1
+        docToLinkedFile.isOptional = true
+        docToLinkedFile.deleteRule = .nullifyDeleteRule
+
+        // RemarkableDocument -> remarkableAnnotations (one-to-many)
+        let docToAnnotations = NSRelationshipDescription()
+        docToAnnotations.name = "remarkableAnnotations"
+        docToAnnotations.destinationEntity = remarkableAnnotation
+        docToAnnotations.isOptional = true
+        docToAnnotations.deleteRule = .cascadeDeleteRule  // Delete annotations when document is deleted
+
+        // RemarkableAnnotation -> remarkableDocument (many-to-one)
+        let annotationToDoc = NSRelationshipDescription()
+        annotationToDoc.name = "remarkableDocument"
+        annotationToDoc.destinationEntity = remarkableDocument
+        annotationToDoc.maxCount = 1
+        annotationToDoc.isOptional = true
+        annotationToDoc.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        docToAnnotations.inverseRelationship = annotationToDoc
+        annotationToDoc.inverseRelationship = docToAnnotations
+
+        // Add to entities
+        remarkableDocument.properties.append(contentsOf: [
+            docToPublication,
+            docToLinkedFile,
+            docToAnnotations
+        ])
+        remarkableAnnotation.properties.append(annotationToDoc)
     }
 
     // MARK: - Save

@@ -101,8 +101,8 @@ final class CloudKitSyncSimulatorTests: XCTestCase {
 
         // After sync, both changes should be preserved
         // (In real CloudKit, this would merge automatically)
-        XCTAssertEqual(pub1.fields?["title"], "New Title from iPhone")
-        XCTAssertEqual(pub2.fields?["abstract"], "Abstract from Mac")
+        XCTAssertEqual(pub1.fields["title"], "New Title from iPhone")
+        XCTAssertEqual(pub2.fields["abstract"], "Abstract from Mac")
     }
 
     func testConcurrentEdits_sameField_lastWriteWins() throws {
@@ -111,7 +111,7 @@ final class CloudKitSyncSimulatorTests: XCTestCase {
 
         // Device 1 edits title first
         device1.editTitle(pub1, newTitle: "Title from iPhone")
-        let time1 = pub1.dateModified!
+        let time1 = pub1.dateModified
 
         // Small delay to ensure different timestamps
         Thread.sleep(forTimeInterval: 0.1)
@@ -119,7 +119,7 @@ final class CloudKitSyncSimulatorTests: XCTestCase {
         // Device 2 edits same field later
         let pub2 = device2.createPublication(citeKey: "Smith2026", title: "Original Title")
         device2.editTitle(pub2, newTitle: "Title from Mac")
-        let time2 = pub2.dateModified!
+        let time2 = pub2.dateModified
 
         // Verify timestamps are different
         XCTAssertTrue(time2 > time1, "Mac edit should have later timestamp")
@@ -173,7 +173,7 @@ final class CloudKitSyncSimulatorTests: XCTestCase {
         device1.editTitle(pub, newTitle: "Final offline edit")
 
         // Verify all edits applied locally
-        XCTAssertEqual(pub.fields?["title"], "Final offline edit")
+        XCTAssertEqual(pub.fields["title"], "Final offline edit")
     }
 
     // MARK: - Large Batch Sync Tests
@@ -255,7 +255,7 @@ final class SyncStressTests: XCTestCase {
         }
 
         // Verify final state
-        XCTAssertEqual(pub.fields?["title"], "Edit 100")
+        XCTAssertEqual(pub.fields["title"], "Edit 100")
     }
 
     func testConcurrentOperations_multipleThreads() async throws {
@@ -304,8 +304,7 @@ extension PersistenceConfiguration {
     static var inMemoryForTesting: PersistenceConfiguration {
         PersistenceConfiguration(
             inMemory: true,
-            cloudKitEnabled: false,
-            customStoreURL: nil
+            enableCloudKit: false
         )
     }
 }
