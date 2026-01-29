@@ -103,11 +103,11 @@ public enum ShortcutKey: Codable, Equatable, Hashable, Sendable {
         }
     }
 
-    /// Display string for the key
+    /// Display string for the key (lowercase for clarity)
     public var displayString: String {
         switch self {
         case .character(let char):
-            return char.uppercased()
+            return char.lowercased()
         case .special(let special):
             return special.displaySymbol
         }
@@ -159,7 +159,13 @@ public struct ShortcutModifiers: OptionSet, Codable, Equatable, Hashable, Sendab
     }
 
     /// Display string with modifier symbols
+    /// Uses "Shift+" for shift-only shortcuts (clearer), symbols otherwise
     public var displayString: String {
+        // For shift-only modifier, use readable format "Shift+"
+        if self == .shift {
+            return "Shift+"
+        }
+        // For other combinations, use symbol format
         var symbols: [String] = []
         if contains(.control) { symbols.append("⌃") }
         if contains(.option) { symbols.append("⌥") }
@@ -325,20 +331,52 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "navigatePreviousPaper"
         ),
         KeyboardShortcutBinding(
-            id: "navigateBack",
-            displayName: "Back (Vim)",
+            id: "previousDetailTab",
+            displayName: "Previous Tab",
             category: .navigation,
             key: .character("h"),
             modifiers: .none,
-            notificationName: "navigateBack"
+            notificationName: "showPreviousDetailTab"
         ),
         KeyboardShortcutBinding(
-            id: "navigateForward",
-            displayName: "Forward/Open (Vim)",
+            id: "nextDetailTab",
+            displayName: "Next Tab",
             category: .navigation,
             key: .character("l"),
             modifiers: .none,
-            notificationName: "openSelectedPaper"
+            notificationName: "showNextDetailTab"
+        ),
+        KeyboardShortcutBinding(
+            id: "showInfoTabVim",
+            displayName: "Info Tab",
+            category: .navigation,
+            key: .character("i"),
+            modifiers: .none,
+            notificationName: "showInfoTab"
+        ),
+        KeyboardShortcutBinding(
+            id: "showPDFTabVim",
+            displayName: "PDF Tab",
+            category: .navigation,
+            key: .character("p"),
+            modifiers: .none,
+            notificationName: "showPDFTab"
+        ),
+        KeyboardShortcutBinding(
+            id: "showNotesTabVim",
+            displayName: "Notes Tab",
+            category: .navigation,
+            key: .character("n"),
+            modifiers: .none,
+            notificationName: "showNotesTab"
+        ),
+        KeyboardShortcutBinding(
+            id: "showBibTeXTabVim",
+            displayName: "BibTeX Tab",
+            category: .navigation,
+            key: .character("b"),
+            modifiers: .none,
+            notificationName: "showBibTeXTab"
         ),
         // MARK: Navigation (Arrow Keys)
         KeyboardShortcutBinding(
@@ -386,6 +424,22 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             displayName: "Previous Unread",
             category: .navigation,
             key: .special(.upArrow),
+            modifiers: .option,
+            notificationName: "navigatePreviousUnread"
+        ),
+        KeyboardShortcutBinding(
+            id: "navigateNextUnreadVim",
+            displayName: "Next Unread (Vim)",
+            category: .navigation,
+            key: .character("j"),
+            modifiers: .option,
+            notificationName: "navigateNextUnread"
+        ),
+        KeyboardShortcutBinding(
+            id: "navigatePreviousUnreadVim",
+            displayName: "Previous Unread (Vim)",
+            category: .navigation,
+            key: .character("k"),
             modifiers: .option,
             notificationName: "navigatePreviousUnread"
         ),
@@ -808,4 +862,129 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "showKeyboardShortcuts"
         ),
     ])
+
+    // MARK: - Documentation Export
+
+    /// A simplified shortcut structure for documentation generation.
+    /// This serves as the single source of truth for all shortcut documentation.
+    public struct DocumentationShortcut: Codable, Sendable {
+        public let id: String
+        public let displayName: String
+        public let category: String
+        public let shortcut: String
+        public let notificationName: String
+    }
+
+    /// Export all default shortcuts as documentation-ready structures.
+    /// This is the single source of truth for keyboard shortcuts documentation.
+    public static func exportForDocumentation() -> [DocumentationShortcut] {
+        defaults.bindings.map { binding in
+            DocumentationShortcut(
+                id: binding.id,
+                displayName: binding.displayName,
+                category: binding.category.displayName,
+                shortcut: binding.displayShortcut,
+                notificationName: binding.notificationName
+            )
+        }
+    }
+
+    /// Export shortcuts as JSON for external tools.
+    /// Usage: `print(KeyboardShortcutsSettings.exportJSON())`
+    public static func exportJSON() -> String {
+        let shortcuts = exportForDocumentation()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(shortcuts),
+              let json = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return json
+    }
+
+    /// Export shortcuts grouped by category as JSON.
+    public static func exportGroupedJSON() -> String {
+        let shortcuts = exportForDocumentation()
+        var grouped: [String: [[String: String]]] = [:]
+
+        for shortcut in shortcuts {
+            let entry: [String: String] = [
+                "action": shortcut.displayName,
+                "shortcut": shortcut.shortcut
+            ]
+            grouped[shortcut.category, default: []].append(entry)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(grouped),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return json
+    }
+
+    /// Generate markdown documentation directly.
+    /// This ensures documentation is always in sync with code.
+    public static func generateMarkdown() -> String {
+        let shortcuts = exportForDocumentation()
+        var grouped: [String: [DocumentationShortcut]] = [:]
+
+        for shortcut in shortcuts {
+            grouped[shortcut.category, default: []].append(shortcut)
+        }
+
+        // Category order
+        let categoryOrder = [
+            "Navigation", "Views", "Focus", "Paper Actions",
+            "Clipboard", "Filtering", "Inbox Triage",
+            "PDF Viewer", "File Operations", "App"
+        ]
+
+        var markdown = """
+        ---
+        layout: default
+        title: Keyboard Shortcuts
+        nav_order: 5
+        ---
+
+        # Keyboard Shortcuts
+
+        imbib provides extensive keyboard shortcuts for efficient paper management.
+
+        {: .note }
+        > **Vim-style navigation**: Use `j`/`k` for down/up, `h`/`l` for previous/next tab.
+        > **Single-key shortcuts** (in Inbox Triage) only work when the Inbox is focused.
+
+        ---
+
+
+        """
+
+        for category in categoryOrder {
+            guard let categoryShortcuts = grouped[category], !categoryShortcuts.isEmpty else {
+                continue
+            }
+
+            markdown += "## \(category)\n\n"
+            markdown += "| Action | Shortcut |\n"
+            markdown += "|--------|----------|\n"
+
+            for shortcut in categoryShortcuts {
+                // Escape pipe characters in shortcut display
+                let escapedShortcut = shortcut.shortcut.replacingOccurrences(of: "|", with: "\\|")
+                markdown += "| \(shortcut.displayName) | \(escapedShortcut) |\n"
+            }
+
+            markdown += "\n"
+        }
+
+        markdown += """
+        ---
+
+        *Auto-generated from `KeyboardShortcutsSettings.defaults` — the single source of truth.*
+        """
+
+        return markdown
+    }
 }

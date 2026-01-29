@@ -6,21 +6,34 @@ nav_order: 5
 
 # Keyboard Shortcuts
 
-imbib provides extensive keyboard shortcuts for efficient paper management. This page is auto-generated from the source code.
+imbib provides extensive keyboard shortcuts for efficient paper management.
 
 {: .note }
-> Single-key shortcuts (K, D, R, U, J, O) only work when the Inbox is focused and no text field has focus.
+> **Vim-style navigation**: Use `j`/`k` for down/up, `h`/`l` for previous/next tab.
+> **Single-key shortcuts** (in Inbox Triage) only work when the Inbox is focused.
+
+---
 
 ## Navigation
 
 | Action | Shortcut |
 |--------|----------|
+| Down (Vim) | J |
+| Up (Vim) | K |
+| Previous Tab | H |
+| Next Tab | L |
+| Info Tab | I |
+| PDF Tab | P |
+| Notes Tab | N |
+| BibTeX Tab | B |
 | Next Paper | ↓ |
 | Previous Paper | ↑ |
 | First Paper | ⌘↑ |
 | Last Paper | ⌘↓ |
 | Next Unread | ⌥↓ |
 | Previous Unread | ⌥↑ |
+| Next Unread (Vim) | ⌥J |
+| Previous Unread (Vim) | ⌥K |
 | Open Paper | ↩ |
 
 ## Views
@@ -53,7 +66,7 @@ imbib provides extensive keyboard shortcuts for efficient paper management. This
 | Open References | ⇧⌘R |
 | Toggle Read/Unread | ⇧⌘U |
 | Mark All as Read | ⌥⌘U |
-| Keep to Library | ⌃⌘K |
+| Save to Library | ⌃⌘S |
 | Dismiss from Inbox | ⇧⌘J |
 | Add to Collection | ⌘L |
 | Remove from Collection | ⇧⌘L |
@@ -76,14 +89,16 @@ imbib provides extensive keyboard shortcuts for efficient paper management. This
 
 | Action | Shortcut |
 |--------|----------|
-| Toggle Unread Filter | ⌘.character("\\") |
-| Toggle PDF Filter | ⇧⌘.character("\\") |
+| Toggle Unread Filter | ⌘`\` |
+| Toggle PDF Filter | ⇧⌘`\` |
 
 ## Inbox Triage
 
 | Action | Shortcut |
 |--------|----------|
-| Keep | K |
+| Save | S |
+| Save and Star | Shift+S |
+| Toggle Star | T |
 | Dismiss | D |
 | Mark as Read | R |
 | Mark as Unread | U |
@@ -96,7 +111,7 @@ imbib provides extensive keyboard shortcuts for efficient paper management. This
 | Action | Shortcut |
 |--------|----------|
 | Page Down | Space |
-| Page Up | ⇧Space |
+| Page Up | Shift+Space |
 | Zoom In | ⇧⌘+ |
 | Zoom Out | ⇧⌘- |
 | Go to Page | ⌘G |
@@ -117,4 +132,51 @@ imbib provides extensive keyboard shortcuts for efficient paper management. This
 
 ---
 
-*This documentation was auto-generated from `KeyboardShortcutsSettings.swift`.*
+## iOS Keyboard Shortcuts (iPad)
+
+These shortcuts are available when using a hardware keyboard with iPad:
+
+### PDF Annotations
+
+| Action | Shortcut |
+|--------|----------|
+| Highlight | H |
+| Underline | U |
+| Strikethrough | S |
+| Add Note | N |
+| Draw/Sketch | D |
+
+### Notes Editor
+
+| Action | Shortcut |
+|--------|----------|
+| Save notes | ⌘S |
+| Bold | ⌘B |
+| Italic | ⌘I |
+| Undo | ⌘Z |
+| Redo | ⇧⌘Z |
+
+---
+
+## Apple Pencil Gestures (iPad)
+
+imbib supports Apple Pencil with Scribble for natural text input:
+
+| Gesture | Action |
+|---------|--------|
+| Write | Insert text at cursor |
+| Scratch out | Delete text |
+| Circle | Select word |
+| Tap and hold | Position cursor |
+
+---
+
+## Customizing Shortcuts
+
+Keyboard shortcuts can be customized in **Settings > Keyboard Shortcuts** (macOS) or **Settings > Keyboard** (iPad).
+
+---
+
+*Auto-generated from `KeyboardShortcutsSettings.defaults` — the single source of truth.*
+
+Last updated: 2026-01-29T18:40:50Z

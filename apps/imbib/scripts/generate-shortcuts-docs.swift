@@ -4,10 +4,14 @@
 //  imbib
 //
 //  Generates keyboard-shortcuts.md from KeyboardShortcutsSettings.swift
-//  Run: swift scripts/generate-shortcuts-docs.swift > docs/keyboard-shortcuts.md
+//
+//  Run: swift scripts/generate-shortcuts-docs.swift > docs/keyboard-shortcuts-generated.md
 //
 //  This script parses the KeyboardShortcutBinding definitions and outputs
 //  a formatted markdown table grouped by category.
+//
+//  NOTE: The source of truth is KeyboardShortcutsSettings.defaults in Swift.
+//  This script extracts that data for documentation purposes.
 //
 
 import Foundation
@@ -54,39 +58,69 @@ let specialKeySymbols: [String: String] = [
 
 /// Parse a key definition like `.character("k")` or `.special(.downArrow)`
 func parseKey(_ keyString: String) -> String {
-    if keyString.contains(".character(") {
-        // Extract character from .character("x")
-        if let match = keyString.range(of: #"\"(.)\""#, options: .regularExpression) {
-            let char = String(keyString[match]).replacingOccurrences(of: "\"", with: "")
+    let trimmed = keyString.trimmingCharacters(in: .whitespaces)
+
+    if trimmed.contains(".character(") {
+        // Extract character from .character("x") or .character("\\")
+        // Handle escaped backslash specially
+        if trimmed.contains("\"\\\\\"") || trimmed.contains("\"\\\"") {
+            return "\\"
+        }
+        // Standard character extraction
+        if let range = trimmed.range(of: #"\"(.)\""#, options: .regularExpression) {
+            var char = String(trimmed[range])
+            char = char.replacingOccurrences(of: "\"", with: "")
             return char.uppercased()
         }
-    } else if keyString.contains(".special(") {
+        // Fallback: extract any single character between quotes
+        if let start = trimmed.firstIndex(of: "\""),
+           let end = trimmed.lastIndex(of: "\""),
+           start < end {
+            let charStart = trimmed.index(after: start)
+            let extracted = String(trimmed[charStart..<end])
+            if extracted == "\\" || extracted == "\\\\" {
+                return "\\"
+            }
+            return extracted.uppercased()
+        }
+    } else if trimmed.contains(".special(") {
         // Extract special key
         for (key, symbol) in specialKeySymbols {
-            if keyString.contains(key) {
+            if trimmed.contains(key) {
                 return symbol
             }
         }
     }
-    return keyString
+    return trimmed
 }
 
 /// Parse modifiers like `.command` or `[.shift, .command]`
 func parseModifiers(_ modString: String) -> String {
+    let trimmed = modString.trimmingCharacters(in: .whitespaces)
+
+    // Handle .none case
+    if trimmed == ".none" {
+        return ""
+    }
+
+    // For shift-only modifier, use "Shift+" for readability
+    if trimmed == ".shift" {
+        return "Shift+"
+    }
+
     // Order: control, option, shift, command (standard macOS order)
     var result = ""
 
-    if modString.contains(".control") { result += "⌃" }
-    if modString.contains(".option") { result += "⌥" }
-    if modString.contains(".shift") { result += "⇧" }
-    if modString.contains(".command") { result += "⌘" }
+    if trimmed.contains(".control") { result += "⌃" }
+    if trimmed.contains(".option") { result += "⌥" }
+    if trimmed.contains(".shift") { result += "⇧" }
+    if trimmed.contains(".command") { result += "⌘" }
 
     return result
 }
 
 /// Parse a category name
 func parseCategory(_ catString: String) -> String {
-    // Remove the leading dot and convert to display format
     let trimmed = catString.trimmingCharacters(in: .whitespaces)
 
     let categoryMap: [String: String] = [
@@ -130,9 +164,10 @@ guard let content = try? String(contentsOf: sourceFile, encoding: .utf8) else {
 // Parse KeyboardShortcutBinding definitions
 var shortcuts: [ShortcutInfo] = []
 
-// Regex to match KeyboardShortcutBinding initializers
-// Handle both single modifiers (.command) and arrays ([.shift, .command])
-let pattern = #"KeyboardShortcutBinding\(\s*id:\s*"([^"]+)",\s*displayName:\s*"([^"]+)",\s*category:\s*(\.\w+),\s*key:\s*([^,]+),\s*modifiers:\s*(\[[^\]]+\]|\.[a-zA-Z]+),"#
+// Multi-line regex to match KeyboardShortcutBinding initializers
+// Handles both single modifiers (.command) and arrays ([.shift, .command])
+// Also handles .none for modifiers
+let pattern = #"KeyboardShortcutBinding\(\s*id:\s*"([^"]+)",\s*displayName:\s*"([^"]+)",\s*category:\s*(\.[a-zA-Z]+),\s*key:\s*([^,]+),\s*modifiers:\s*(\[[^\]]+\]|\.[a-zA-Z]+),"#
 
 let regex = try! NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
 let range = NSRange(content.startIndex..., in: content)
@@ -191,10 +226,13 @@ nav_order: 5
 
 # Keyboard Shortcuts
 
-imbib provides extensive keyboard shortcuts for efficient paper management. This page is auto-generated from the source code.
+imbib provides extensive keyboard shortcuts for efficient paper management.
 
 {: .note }
-> Single-key shortcuts (K, D, R, U, J, O) only work when the Inbox is focused and no text field has focus.
+> **Vim-style navigation**: Use `j`/`k` for down/up, `h`/`l` for previous/next tab.
+> **Single-key shortcuts** (in Inbox Triage) only work when the Inbox is focused.
+
+---
 
 """)
 
@@ -209,14 +247,64 @@ for category in categoryOrder {
     print("|--------|----------|")
 
     for shortcut in categoryShortcuts {
-        print("| \(shortcut.displayName) | \(shortcut.shortcut) |")
+        // Escape backslash for markdown
+        let escapedShortcut = shortcut.shortcut.replacingOccurrences(of: "\\", with: "`\\`")
+        print("| \(shortcut.displayName) | \(escapedShortcut) |")
     }
 
     print()
 }
 
+// Add iOS-specific shortcuts section (hardcoded since not in KeyboardShortcutsSettings)
 print("""
 ---
 
-*This documentation was auto-generated from `KeyboardShortcutsSettings.swift`.*
+## iOS Keyboard Shortcuts (iPad)
+
+These shortcuts are available when using a hardware keyboard with iPad:
+
+### PDF Annotations
+
+| Action | Shortcut |
+|--------|----------|
+| Highlight | H |
+| Underline | U |
+| Strikethrough | S |
+| Add Note | N |
+| Draw/Sketch | D |
+
+### Notes Editor
+
+| Action | Shortcut |
+|--------|----------|
+| Save notes | ⌘S |
+| Bold | ⌘B |
+| Italic | ⌘I |
+| Undo | ⌘Z |
+| Redo | ⇧⌘Z |
+
+---
+
+## Apple Pencil Gestures (iPad)
+
+imbib supports Apple Pencil with Scribble for natural text input:
+
+| Gesture | Action |
+|---------|--------|
+| Write | Insert text at cursor |
+| Scratch out | Delete text |
+| Circle | Select word |
+| Tap and hold | Position cursor |
+
+---
+
+## Customizing Shortcuts
+
+Keyboard shortcuts can be customized in **Settings > Keyboard Shortcuts** (macOS) or **Settings > Keyboard** (iPad).
+
+---
+
+*Auto-generated from `KeyboardShortcutsSettings.defaults` — the single source of truth.*
+
+Last updated: \(ISO8601DateFormatter().string(from: Date()))
 """)

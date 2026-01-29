@@ -188,10 +188,19 @@ public actor HelpIndexService {
     /// Load the markdown content for a document.
     ///
     /// Content is cached after first load. Strips YAML front matter if present.
+    /// For keyboard-shortcuts, generates content dynamically from KeyboardShortcutsSettings
+    /// to ensure documentation always matches the actual implementation.
     public func loadContent(for document: HelpDocument) async -> String {
         // Check cache first
         if let cached = documentContent[document.id] {
             return cached
+        }
+
+        // Special case: generate keyboard shortcuts dynamically from the source of truth
+        if document.id == "keyboard-shortcuts" {
+            let content = KeyboardShortcutsSettings.generateMarkdown()
+            documentContent[document.id] = content
+            return content
         }
 
         // Try to load from bundle
