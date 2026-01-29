@@ -76,3 +76,24 @@ public typealias _AIUsageType = AIUsage
 public typealias _AnySendableType = AnySendable
 
 public typealias _AIErrorType = AIError
+
+// MARK: - Availability Types
+
+public typealias _AIAvailabilityStatusType = AIAvailabilityStatus
+public typealias _AIUnavailableReasonType = AIUnavailableReason
+public typealias _AIAvailabilityCheckerType = AIAvailabilityChecker
+
+// MARK: - Category Types
+
+public typealias _AITaskCategoryType = AITaskCategory
+public typealias _AIModelReferenceType = AIModelReference
+public typealias _AITaskCategoryAssignmentType = AITaskCategoryAssignment
+public typealias _AITaskCategoryManagerType = AITaskCategoryManager
+public typealias _AITaskCategorySettingsType = AITaskCategorySettings
+
+// MARK: - Execution Types
+
+public typealias _AIMultiModelExecutorType = AIMultiModelExecutor
+public typealias _AIModelExecutionResultType = AIModelExecutionResult
+public typealias _AIComparisonResultType = AIComparisonResult
+public typealias _AIStreamingProgressType = AIStreamingProgress

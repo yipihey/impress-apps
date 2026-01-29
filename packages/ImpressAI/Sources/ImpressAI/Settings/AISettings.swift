@@ -197,4 +197,29 @@ import Foundation
 public enum AISettingsKey {
     public static let selectedProviderId = "impressai.selectedProviderId"
     public static let selectedModelId = "impressai.selectedModelId"
+    public static let categoryAssignments = "impressai.categoryAssignments"
+}
+
+// MARK: - Category Integration
+
+extension AISettings {
+    /// Get all available model references for category assignment.
+    public var availableModelReferences: [AIModelReference] {
+        var references: [AIModelReference] = []
+        for provider in availableProviders {
+            for model in provider.models {
+                references.append(AIModelReference.from(provider: provider, model: model))
+            }
+        }
+        return references
+    }
+
+    /// Get the model reference for the current selection.
+    public var currentModelReference: AIModelReference? {
+        guard let provider = selectedProviderMetadata,
+              let modelId = selectedModelId,
+              let model = provider.models.first(where: { $0.id == modelId })
+        else { return nil }
+        return AIModelReference.from(provider: provider, model: model)
+    }
 }

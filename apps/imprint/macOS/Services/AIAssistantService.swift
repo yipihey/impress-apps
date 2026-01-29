@@ -5,9 +5,12 @@
 //  AI writing assistant service using Claude or OpenAI APIs.
 //  Provides rewriting, expansion, summarization, and chat capabilities.
 //
+//  Migrated to use ImpressAI credentials (ADR-020: AI Integration).
+//
 
 import Foundation
 import OSLog
+import ImpressAI
 
 private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant")
 
@@ -24,6 +27,9 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant
 /// - Expand outlines to prose
 /// - Summarize long passages
 /// - General chat for writing help
+///
+/// Note: Credentials are now managed by ImpressAI's AICredentialManager
+/// which stores them securely in the system Keychain.
 @MainActor @Observable
 public final class AIAssistantService {
 
@@ -34,7 +40,11 @@ public final class AIAssistantService {
     // MARK: - Published State
 
     /// Current AI provider
-    public var provider: AIProvider = .claude
+    public var provider: AIProvider = .claude {
+        didSet {
+            UserDefaults.standard.set(provider.rawValue, forKey: "ai.provider")
+        }
+    }
 
     /// Whether a request is in progress
     public private(set) var isLoading = false
@@ -47,10 +57,8 @@ public final class AIAssistantService {
 
     // MARK: - Configuration
 
-    /// API key storage (UserDefaults for simplicity; should use Keychain in production)
-    @ObservationIgnored @AppStorage("ai.claudeApiKey") private var claudeApiKey: String = ""
-    @ObservationIgnored @AppStorage("ai.openaiApiKey") private var openaiApiKey: String = ""
-    @ObservationIgnored @AppStorage("ai.provider") private var storedProvider: String = "claude"
+    /// Credential manager from ImpressAI for secure storage
+    private let credentialManager = AICredentialManager.shared
 
     // API endpoints
     private let claudeEndpoint = "https://api.anthropic.com/v1/messages"
@@ -59,6 +67,7 @@ public final class AIAssistantService {
     // MARK: - Initialization
 
     private init() {
+        let storedProvider = UserDefaults.standard.string(forKey: "ai.provider") ?? "claude"
         provider = AIProvider(rawValue: storedProvider) ?? .claude
     }
 
@@ -66,33 +75,59 @@ public final class AIAssistantService {
 
     /// Check if API key is configured for current provider
     public var isConfigured: Bool {
-        switch provider {
-        case .claude:
-            return !claudeApiKey.isEmpty
-        case .openai:
-            return !openaiApiKey.isEmpty
+        get async {
+            switch provider {
+            case .claude:
+                return await credentialManager.hasCredential(for: "anthropic", field: "apiKey")
+            case .openai:
+                return await credentialManager.hasCredential(for: "openai", field: "apiKey")
+            }
         }
     }
 
-    /// Set API key for a provider
-    public func setAPIKey(_ key: String, for provider: AIProvider) {
+    /// Synchronous check for UI (uses cached state)
+    public var isConfiguredSync: Bool {
+        // Check using a task - for immediate UI this uses a cached approach
         switch provider {
         case .claude:
-            claudeApiKey = key
+            return UserDefaults.standard.bool(forKey: "ai.anthropic.hasKey")
         case .openai:
-            openaiApiKey = key
+            return UserDefaults.standard.bool(forKey: "ai.openai.hasKey")
         }
+    }
+
+    /// Set API key for a provider (uses ImpressAI credential manager)
+    public func setAPIKey(_ key: String, for provider: AIProvider) async throws {
+        let providerId: String
+        switch provider {
+        case .claude:
+            providerId = "anthropic"
+        case .openai:
+            providerId = "openai"
+        }
+
+        try await credentialManager.store(key, for: providerId, field: "apiKey")
+
+        // Update cached state for sync checks
+        UserDefaults.standard.set(!key.isEmpty, forKey: "ai.\(providerId).hasKey")
+    }
+
+    /// Get API key for a provider (from secure storage)
+    private func getAPIKey(for provider: AIProvider) async -> String? {
+        let providerId: String
+        switch provider {
+        case .claude:
+            providerId = "anthropic"
+        case .openai:
+            providerId = "openai"
+        }
+
+        return await credentialManager.retrieve(for: providerId, field: "apiKey")
     }
 
     /// Get API key for a provider (masked for display)
-    public func maskedAPIKey(for provider: AIProvider) -> String {
-        let key: String
-        switch provider {
-        case .claude:
-            key = claudeApiKey
-        case .openai:
-            key = openaiApiKey
-        }
+    public func maskedAPIKey(for provider: AIProvider) async -> String {
+        guard let key = await getAPIKey(for: provider) else { return "" }
 
         if key.isEmpty { return "" }
         if key.count <= 8 { return String(repeating: "•", count: key.count) }
@@ -215,7 +250,7 @@ public final class AIAssistantService {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    guard isConfigured else {
+                    guard await self.isConfigured else {
                         throw AIAssistantError.notConfigured
                     }
 
@@ -268,10 +303,14 @@ public final class AIAssistantService {
             throw AIAssistantError.invalidConfiguration
         }
 
+        guard let apiKey = await getAPIKey(for: .claude) else {
+            throw AIAssistantError.notConfigured
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(claudeApiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         let body: [String: Any] = [
@@ -355,10 +394,14 @@ public final class AIAssistantService {
             throw AIAssistantError.invalidConfiguration
         }
 
+        guard let apiKey = await getAPIKey(for: .openai) else {
+            throw AIAssistantError.notConfigured
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(openaiApiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
             "model": "gpt-4o",
@@ -428,7 +471,7 @@ public final class AIAssistantService {
     // MARK: - API Communication
 
     private func sendRequest(systemPrompt: String, userMessage: String, maxTokens: Int) async throws -> String {
-        guard isConfigured else {
+        guard await isConfigured else {
             throw AIAssistantError.notConfigured
         }
 
@@ -458,10 +501,14 @@ public final class AIAssistantService {
             throw AIAssistantError.invalidConfiguration
         }
 
+        guard let apiKey = await getAPIKey(for: .claude) else {
+            throw AIAssistantError.notConfigured
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(claudeApiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         let body: [String: Any] = [
@@ -507,10 +554,14 @@ public final class AIAssistantService {
             throw AIAssistantError.invalidConfiguration
         }
 
+        guard let apiKey = await getAPIKey(for: .openai) else {
+            throw AIAssistantError.notConfigured
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(openaiApiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
             "model": "gpt-4o",
@@ -685,12 +736,13 @@ public enum AIAssistantError: LocalizedError {
     }
 }
 
-// MARK: - AppStorage Extension
+// MARK: - Migration Note
 
-import SwiftUI
-
-extension AppStorage where Value == String {
-    init(wrappedValue: String, _ key: String) {
-        self.init(wrappedValue: wrappedValue, key, store: .standard)
-    }
-}
+// The @AppStorage keys for API keys have been migrated to ImpressAI's
+// AICredentialManager which stores them securely in the system Keychain.
+// Previous keys were:
+// - "ai.claudeApiKey" -> now "anthropic" provider, "apiKey" field
+// - "ai.openaiApiKey" -> now "openai" provider, "apiKey" field
+//
+// Users will need to re-enter their API keys after this migration.
+// The provider selection ("ai.provider") remains in UserDefaults.

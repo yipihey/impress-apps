@@ -12,11 +12,14 @@ public struct AISettingsView: View {
         _settings = State(wrappedValue: settings)
     }
 
+    @State private var showingCategorySettings = false
+
     public var body: some View {
         Form {
             providerSection
             modelSection
             credentialSection
+            categorySection
 
             if let error = settings.errorMessage {
                 Section {
@@ -33,6 +36,20 @@ public struct AISettingsView: View {
         .formStyle(.grouped)
         .task {
             await settings.load()
+        }
+        .sheet(isPresented: $showingCategorySettings) {
+            NavigationStack {
+                AITaskCategorySettingsView()
+                    .navigationTitle("Task Categories")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                showingCategorySettings = false
+                            }
+                        }
+                    }
+            }
+            .frame(minWidth: 500, minHeight: 500)
         }
     }
 
@@ -333,6 +350,30 @@ public struct AISettingsView: View {
             }
         }
         .font(.callout)
+    }
+
+    // MARK: - Category Section
+
+    private var categorySection: some View {
+        Section {
+            Button {
+                showingCategorySettings = true
+            } label: {
+                HStack {
+                    Label("Configure Task Categories", systemImage: "slider.horizontal.3")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text("Assign AI models to different task types for comparison.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Task Categories")
+        }
     }
 
     // MARK: - Extended Providers Section
