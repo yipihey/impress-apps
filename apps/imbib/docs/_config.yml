@@ -2,6 +2,7 @@ title: imBib
 description: A modern reference manager for macOS built for researchers
 baseurl: "/impress-apps"
 url: "https://yipihey.github.io"
+repository: yipihey/impress-apps
 
 # Theme
 remote_theme: pages-themes/minimal@v0.2.0
