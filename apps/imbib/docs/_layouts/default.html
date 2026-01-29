@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang | default: "en-US" }}">
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+{% seo %}
+    <link rel="stylesheet" href="{{ "/assets/css/style.css?v=" | append: site.github.build_revision | relative_url }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+Pro:wght@400;600&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div class="wrapper">
+      <nav class="top-nav">
+        <div class="nav-brand">
+          {% if site.logo %}
+            <img src="{{site.logo | relative_url}}" alt="Logo" class="site-logo" />
+          {% endif %}
+          <a href="{{ "/" | relative_url }}">{{ site.title | default: site.github.repository_name }}</a>
+        </div>
+        {% if site.header_pages %}
+        <div class="nav-links">
+          {% for path in site.header_pages %}
+            {% assign my_page = site.pages | where: "path", path | first %}
+            {% if my_page %}
+              <a href="{{ my_page.url | relative_url }}"{% if page.url == my_page.url %} class="active"{% endif %}>{{ my_page.title | default: my_page.name | remove: ".md" }}</a>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </nav>
+
+      <main class="main-content">
+        {{ content }}
+      </main>
+
+      <footer>
+        <a href="https://github.com/{{ site.repository }}">GitHub</a>
+      </footer>
+    </div>
+  </body>
+</html>
