@@ -17,7 +17,7 @@ public enum ModeIndicatorPosition {
 
 /// A SwiftUI view that displays the current Helix editing mode.
 public struct HelixModeIndicator: View {
-    @ObservedObject var state: HelixState
+    var state: HelixState
     let position: ModeIndicatorPosition
 
     public init(state: HelixState, position: ModeIndicatorPosition = .bottomLeft) {
@@ -50,7 +50,7 @@ public struct HelixModeIndicator: View {
 
 /// View modifier for adding a mode indicator to any view
 public struct HelixModeIndicatorModifier: ViewModifier {
-    @ObservedObject var state: HelixState
+    var state: HelixState
     let position: ModeIndicatorPosition
     let isVisible: Bool
     let padding: CGFloat

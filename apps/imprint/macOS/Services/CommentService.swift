@@ -23,22 +23,22 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "comments")
 /// - Filter by resolved/unresolved/author
 /// - Range adjustment when document is edited
 /// - Persistence with document
-@MainActor
-public final class CommentService: ObservableObject {
+@MainActor @Observable
+public final class CommentService {
 
     // MARK: - Published State
 
     /// All comments in the document
-    @Published public private(set) var comments: [Comment] = []
+    public private(set) var comments: [Comment] = []
 
     /// Current filter for display
-    @Published public var filter: CommentFilter = .all
+    public var filter: CommentFilter = .all
 
     /// Current sort order
-    @Published public var sortOrder: CommentSort = .position
+    public var sortOrder: CommentSort = .position
 
     /// Currently selected comment (for navigation)
-    @Published public var selectedCommentId: UUID?
+    public var selectedCommentId: UUID?
 
     // MARK: - Private State
 
@@ -46,7 +46,7 @@ public final class CommentService: ObservableObject {
     private let localAuthorId: String
 
     /// Current user's display name
-    @AppStorage("collaboration.displayName") private var localDisplayName: String = NSFullUserName()
+    @ObservationIgnored @AppStorage("collaboration.displayName") private var localDisplayName: String = NSFullUserName()
 
     // MARK: - Computed Properties
 

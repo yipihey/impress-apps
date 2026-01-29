@@ -95,13 +95,13 @@ public struct Template: Identifiable {
 }
 
 /// Service for managing document templates
-@MainActor
-public final class TemplateService: ObservableObject {
+@MainActor @Observable
+public final class TemplateService {
     public static let shared = TemplateService()
 
-    @Published public private(set) var templates: [TemplateMetadata] = []
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
+    public private(set) var templates: [TemplateMetadata] = []
+    public private(set) var isLoading = false
+    public private(set) var error: String?
 
     private init() {
         loadTemplates()

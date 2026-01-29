@@ -6,28 +6,28 @@ import SwiftUI
 ///
 /// This service handles saving, loading, and organizing figures
 /// in the user's library.
-@MainActor
-public final class LibraryManager: ObservableObject {
+@MainActor @Observable
+public final class LibraryManager {
     /// Shared instance
     public static let shared = LibraryManager()
 
     /// The current library
-    @Published public private(set) var library: FigureLibrary
+    public private(set) var library: FigureLibrary
 
     /// Currently selected folder
-    @Published public var selectedFolderId: String?
+    public var selectedFolderId: String?
 
     /// Currently selected figure
-    @Published public var selectedFigureId: String?
+    public var selectedFigureId: String?
 
     /// Search query for filtering
-    @Published public var searchQuery: String = ""
+    public var searchQuery: String = ""
 
     /// Whether the library is currently loading
-    @Published public private(set) var isLoading: Bool = false
+    public private(set) var isLoading: Bool = false
 
     /// Error from last operation
-    @Published public var lastError: Error?
+    public var lastError: Error?
 
     private let libraryURL: URL
 

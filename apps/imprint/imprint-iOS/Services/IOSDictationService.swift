@@ -333,7 +333,7 @@ import SwiftUI
 /// Visual overlay showing dictation status and waveform.
 public struct IOSDictationOverlay: View {
 
-    @ObservedObject var service: IOSDictationService
+    var service: IOSDictationService
 
     public init(service: IOSDictationService) {
         self.service = service

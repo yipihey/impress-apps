@@ -9,7 +9,7 @@ import SwiftUI
 
 /// Settings view for imbib citation manager integration.
 struct ImbibSettingsView: View {
-    @ObservedObject private var imbibService = ImbibIntegrationService.shared
+    private var imbibService = ImbibIntegrationService.shared
 
     @AppStorage("showCitedPapersSidebar") private var showCitedPapersSidebar = true
     @AppStorage("autoSyncBibliography") private var autoSyncBibliography = false
@@ -43,30 +43,30 @@ struct ImbibSettingsView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Checking connection...")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else if imbibService.isAvailable {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                     VStack(alignment: .leading) {
                         Text("imbib is installed")
                         if imbibService.isAutomationEnabled {
                             Text("Automation enabled")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         } else {
                             Text("Automation disabled - enable in imbib Settings")
                                 .font(.caption)
-                                .foregroundColor(.orange)
+                                .foregroundStyle(.orange)
                         }
                     }
                 } else {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                     VStack(alignment: .leading) {
                         Text("imbib is not installed")
                         Text("Install imbib to use citation features")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -83,7 +83,7 @@ struct ImbibSettingsView: View {
             if let lastCheck = lastConnectionCheck {
                 Text("Last checked: \(lastCheck, format: .relative(presentation: .named))")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         } header: {
             Text("Connection")
@@ -128,7 +128,7 @@ struct ImbibSettingsView: View {
                         .font(.headline)
                     Text("Create a .bib file from citations in the current document")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -142,10 +142,10 @@ struct ImbibSettingsView: View {
             if !imbibService.isAutomationEnabled && imbibService.isAvailable {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                     Text("Enable automation in imbib to generate bibliographies")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
         } header: {

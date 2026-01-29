@@ -81,7 +81,7 @@ public struct MboxImportPreviewView: View {
         HStack {
             Image(systemName: "envelope.open")
                 .font(.title2)
-                .foregroundColor(.accentColor)
+                .foregroundStyle(Color.accentColor)
 
             Text("Import mbox Library")
                 .font(.headline)
@@ -104,7 +104,7 @@ public struct MboxImportPreviewView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("Library Name", systemImage: "folder")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text(metadata.name)
                         .fontWeight(.medium)
@@ -113,7 +113,7 @@ public struct MboxImportPreviewView: View {
                 if let bibPath = metadata.bibtexPath {
                     HStack {
                         Label("BibTeX Path", systemImage: "doc.text")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text(bibPath)
                             .font(.caption)
@@ -123,7 +123,7 @@ public struct MboxImportPreviewView: View {
 
                 HStack {
                     Label("Export Date", systemImage: "calendar")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text(metadata.exportDate, style: .date)
                 }
@@ -131,7 +131,7 @@ public struct MboxImportPreviewView: View {
                 if !metadata.collections.isEmpty {
                     HStack {
                         Label("Collections", systemImage: "folder.badge.plus")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text("\(metadata.collections.count)")
                     }
@@ -175,13 +175,13 @@ public struct MboxImportPreviewView: View {
         VStack(spacing: 4) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                 Text("\(count)")
                     .font(.title2.weight(.bold))
             }
             Text(label)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -208,7 +208,7 @@ public struct MboxImportPreviewView: View {
 
                     Text("\(selectedPublications.count) selected")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 8)
 
@@ -244,19 +244,19 @@ public struct MboxImportPreviewView: View {
                 HStack(spacing: 8) {
                     Text(pub.authors)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     if let year = pub.year {
                         Text("(\(year))")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
 
                     if pub.fileCount > 0 {
                         Label("\(pub.fileCount)", systemImage: "paperclip")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -265,7 +265,7 @@ public struct MboxImportPreviewView: View {
 
             Text(pub.citeKey)
                 .font(.caption.monospaced())
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }
@@ -282,7 +282,7 @@ public struct MboxImportPreviewView: View {
         } label: {
             HStack {
                 Image(systemName: "doc.on.doc.fill")
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
                 Text("Duplicates (\(preview.duplicates.count))")
                     .font(.subheadline.weight(.semibold))
             }
@@ -300,13 +300,13 @@ public struct MboxImportPreviewView: View {
                     HStack {
                         Text("Matches existing:")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(dup.existingCiteKey)
                             .font(.caption.monospaced())
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                         Text("by \(dup.matchType.rawValue)")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -336,14 +336,14 @@ public struct MboxImportPreviewView: View {
                 ForEach(preview.parseErrors) { error in
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
 
                         Text("Message \(error.messageIndex):")
                             .font(.caption.weight(.medium))
 
                         Text(error.description)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 2)
                 }
@@ -351,7 +351,7 @@ public struct MboxImportPreviewView: View {
         } label: {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.red)
+                    .foregroundStyle(.red)
                 Text("Parse Errors (\(preview.parseErrors.count))")
                     .font(.subheadline.weight(.semibold))
             }

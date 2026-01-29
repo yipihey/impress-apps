@@ -19,7 +19,7 @@ public struct OnboardingSheet: View {
     // MARK: - Environment
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var onboardingManager = OnboardingManager.shared
+    private let onboardingManager = OnboardingManager.shared
 
     // MARK: - State
 

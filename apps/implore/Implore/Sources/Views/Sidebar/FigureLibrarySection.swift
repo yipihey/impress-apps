@@ -3,11 +3,12 @@ import ImploreCore
 
 /// Library section showing saved figures and folders
 struct FigureLibrarySection: View {
-    @EnvironmentObject var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) var libraryManager
     @State private var showingNewFolderSheet = false
     @State private var newFolderName = ""
 
     var body: some View {
+        @Bindable var libraryManager = libraryManager
         List(selection: $libraryManager.selectedFigureId) {
             // Search field
             Section {
@@ -102,7 +103,7 @@ struct FigureLibrarySection: View {
 /// Row for a folder with disclosure and figures
 struct FolderRow: View {
     let folder: FigureFolder
-    @EnvironmentObject var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) var libraryManager
 
     var body: some View {
         DisclosureGroup(isExpanded: .init(
@@ -134,7 +135,7 @@ struct FolderRow: View {
 /// Row for a single figure
 struct FigureRow: View {
     let figure: LibraryFigure
-    @EnvironmentObject var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) var libraryManager
 
     var body: some View {
         HStack(spacing: 8) {
@@ -277,6 +278,6 @@ struct NewFolderSheet: View {
 
 #Preview {
     FigureLibrarySection()
-        .environmentObject(LibraryManager.shared)
+        .environment(LibraryManager.shared)
         .frame(width: 280, height: 500)
 }

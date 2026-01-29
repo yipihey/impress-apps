@@ -221,7 +221,7 @@ struct CommentBubbleRow: View {
 /// Place this alongside the text view to show comment bubbles
 /// at the appropriate line positions.
 struct CommentGutterView: View {
-    @ObservedObject var commentService: CommentService
+    var commentService: CommentService
     let lineHeight: CGFloat
     let topInset: CGFloat
 
@@ -262,7 +262,7 @@ struct CommentGutterView: View {
 
 /// Overlay view that highlights commented text regions.
 struct CommentHighlightOverlay: View {
-    @ObservedObject var commentService: CommentService
+    var commentService: CommentService
     let textLayoutInfo: TextLayoutInfo
 
     var body: some View {

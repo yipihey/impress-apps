@@ -69,7 +69,7 @@ struct OutlineRow: View {
             }
 
             Image(systemName: iconName)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .frame(width: 20)
 
             Text(item.title)

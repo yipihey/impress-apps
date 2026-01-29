@@ -19,8 +19,8 @@ struct CitedPapersSection: View {
     /// The manuscript source to extract citations from
     let source: String
 
-    @ObservedObject private var imbibService = ImbibIntegrationService.shared
-    @StateObject private var bibliographyGenerator = BibliographyGenerator.shared
+    var imbibService = ImbibIntegrationService.shared
+    var bibliographyGenerator = BibliographyGenerator.shared
 
     @AppStorage("showCitedPapersSidebar") private var showCitedPapersSidebar = true
 
@@ -56,11 +56,11 @@ struct CitedPapersSection: View {
             if !bibliographyGenerator.citedPapers.isEmpty {
                 Text("\(bibliographyGenerator.citedPapers.count)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Color.secondary.opacity(0.2))
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
             }
         }
     }
@@ -72,17 +72,17 @@ struct CitedPapersSection: View {
             if bibliographyGenerator.extractedCiteKeys.isEmpty {
                 Text("No citations found")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text("Add citations using @citeKey (Typst) or \\cite{key} (LaTeX)")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             } else {
                 ProgressView()
                     .controlSize(.small)
                 Text("Loading papers...")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity)
@@ -176,7 +176,7 @@ struct CitedPaperRow: View {
         HStack(spacing: 8) {
             // PDF indicator
             Image(systemName: paper.hasPDF ? "doc.fill" : "doc")
-                .foregroundColor(paper.hasPDF ? .accentColor : .secondary)
+                .foregroundStyle(paper.hasPDF ? Color.accentColor : Color.secondary)
                 .font(.caption)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -189,12 +189,12 @@ struct CitedPaperRow: View {
                 if paper.title != "(Not found in imbib)" && paper.title != "(Failed to load)" {
                     Text(paper.title)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
                     Text(paper.title)
                         .font(.caption2)
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .lineLimit(1)
                 }
             }

@@ -6,40 +6,40 @@
 //
 
 import SwiftUI
-import Combine
 
 /// Observable state wrapper for the Helix modal editor.
 ///
 /// This class wraps `FfiHelixEditor` and publishes mode changes for SwiftUI views.
-/// Use it as a `@StateObject` or `@ObservedObject` in your views.
+/// Use it as a `@State` property for owned instances in your views.
 @MainActor
-public final class HelixState: ObservableObject {
+@Observable
+public final class HelixState {
     /// The underlying FFI editor instance
     private let editor: FfiHelixEditor
 
     /// Current editing mode (normal, insert, select)
-    @Published public private(set) var mode: FfiHelixMode = .normal
+    public private(set) var mode: FfiHelixMode = .normal
 
     /// Whether search mode is currently active
-    @Published public private(set) var isSearching: Bool = false
+    public private(set) var isSearching: Bool = false
 
     /// Current search query text
-    @Published public private(set) var searchQuery: String = ""
+    public private(set) var searchQuery: String = ""
 
     /// Whether space-mode menu is showing
-    @Published public private(set) var isSpaceMode: Bool = false
+    public private(set) var isSpaceMode: Bool = false
 
     /// Available keys in space-mode
-    @Published public private(set) var spaceModeKeys: [FfiWhichKeyItem] = []
+    public private(set) var spaceModeKeys: [FfiWhichKeyItem] = []
 
     /// Whether awaiting a character input (f/t/r operations)
-    @Published public private(set) var isAwaitingCharacter: Bool = false
+    public private(set) var isAwaitingCharacter: Bool = false
 
     /// Whether awaiting a motion (operator pending)
-    @Published public private(set) var isAwaitingMotion: Bool = false
+    public private(set) var isAwaitingMotion: Bool = false
 
     /// Register (clipboard) content
-    @Published public private(set) var registerContent: String = ""
+    public private(set) var registerContent: String = ""
 
     /// Create a new Helix state instance
     public init() {

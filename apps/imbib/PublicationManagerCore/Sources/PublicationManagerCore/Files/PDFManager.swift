@@ -29,7 +29,8 @@ public typealias PDFManager = AttachmentManager
 /// - MIME type detection for accurate file type icons
 /// - File size tracking for UI display
 @MainActor
-public final class AttachmentManager: ObservableObject {
+@Observable
+public final class AttachmentManager {
 
     // MARK: - Singleton
 

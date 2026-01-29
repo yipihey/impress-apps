@@ -6,19 +6,19 @@ import SwiftUI
 ///
 /// This class manages the current parameter values and provides
 /// bindings for SwiftUI form controls.
-@MainActor
-public final class GeneratorFormState: ObservableObject {
+@MainActor @Observable
+public final class GeneratorFormState {
     /// Parameter values keyed by name
-    @Published private var values: [String: ParameterValue] = [:]
+    private var values: [String: ParameterValue] = [:]
 
     /// The parameter specifications for the current generator
-    @Published public private(set) var specs: [ParameterSpec] = []
+    public private(set) var specs: [ParameterSpec] = []
 
     /// The generator ID this form is for
-    @Published public private(set) var generatorId: String?
+    public private(set) var generatorId: String?
 
     /// Validation errors for parameters
-    @Published public private(set) var validationErrors: [String: String] = [:]
+    public private(set) var validationErrors: [String: String] = [:]
 
     public init() {}
 

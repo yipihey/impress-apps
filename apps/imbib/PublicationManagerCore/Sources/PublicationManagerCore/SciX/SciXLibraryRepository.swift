@@ -12,7 +12,8 @@ import OSLog
 /// Repository for managing SciX library entities in Core Data.
 /// Provides local cache operations and queues changes for sync.
 @MainActor
-public final class SciXLibraryRepository: ObservableObject {
+@Observable
+public final class SciXLibraryRepository {
 
     // MARK: - Singleton
 
@@ -22,7 +23,7 @@ public final class SciXLibraryRepository: ObservableObject {
 
     private let context: NSManagedObjectContext
 
-    @Published public private(set) var libraries: [CDSciXLibrary] = []
+    public private(set) var libraries: [CDSciXLibrary] = []
 
     /// Observer for CloudKit remote change notifications
     private var cloudKitObserver: (any NSObjectProtocol)?
@@ -312,7 +313,6 @@ public final class SciXLibraryRepository: ObservableObject {
         library.syncState = CDSciXLibrary.SyncState.pending.rawValue
 
         save()
-        objectWillChange.send()
     }
 
     /// Queue removing documents from a library (for later sync)
@@ -332,7 +332,6 @@ public final class SciXLibraryRepository: ObservableObject {
         library.syncState = CDSciXLibrary.SyncState.pending.rawValue
 
         save()
-        objectWillChange.send()
     }
 
     /// Queue metadata update for a library (for later sync)
@@ -391,7 +390,6 @@ public final class SciXLibraryRepository: ObservableObject {
 
         library.syncState = CDSciXLibrary.SyncState.synced.rawValue
         save()
-        objectWillChange.send()
     }
 
     /// Discard a specific pending change (revert local change)
@@ -417,7 +415,6 @@ public final class SciXLibraryRepository: ObservableObject {
         }
 
         save()
-        objectWillChange.send()
     }
 
     // MARK: - Library Operations

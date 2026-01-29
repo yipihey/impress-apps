@@ -118,7 +118,7 @@ struct IOSConsoleView: View {
     // MARK: - Filter Bar
 
     private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 IOSFilterToggle(label: "Debug", color: .secondary, isOn: $showDebug)
                 IOSFilterToggle(label: "Info", color: .blue, isOn: $showInfo)
@@ -132,6 +132,7 @@ struct IOSConsoleView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollIndicators(.hidden)
     }
 
     // MARK: - Search Bar

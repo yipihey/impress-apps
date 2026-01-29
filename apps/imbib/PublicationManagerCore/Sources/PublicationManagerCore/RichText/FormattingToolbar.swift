@@ -58,7 +58,7 @@ public struct FormattingToolbar: View {
     // MARK: - Body
 
     public var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: compact ? 4 : 8) {
                 // Bold
                 toolbarButton(
@@ -132,6 +132,7 @@ public struct FormattingToolbar: View {
             .padding(.horizontal, compact ? 4 : 8)
             .padding(.vertical, compact ? 2 : 4)
         }
+        .scrollIndicators(.hidden)
         .background(theme.contentBackground)
     }
 

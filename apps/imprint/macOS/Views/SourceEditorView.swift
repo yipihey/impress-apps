@@ -11,7 +11,7 @@ struct SourceEditorView: View {
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
 
-    @StateObject private var helixState = HelixState()
+    @State private var helixState = HelixState()
 
     init(source: Binding<String>, cursorPosition: Binding<Int>, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
         self._source = source

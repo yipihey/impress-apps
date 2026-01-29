@@ -26,8 +26,8 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant
 /// - Uses ImpressAI providers (Claude, OpenAI, Google, Ollama, OpenRouter)
 /// - Maintains chat history
 /// - Provides writing assistance actions
-@MainActor
-public final class AIAssistantServiceCompat: ObservableObject {
+@MainActor @Observable
+public final class AIAssistantServiceCompat {
 
     // MARK: - Singleton
 
@@ -36,13 +36,13 @@ public final class AIAssistantServiceCompat: ObservableObject {
     // MARK: - Published State
 
     /// Whether a request is in progress
-    @Published public private(set) var isLoading = false
+    public private(set) var isLoading = false
 
     /// Last error encountered
-    @Published public var lastError: AIAssistantError?
+    public var lastError: AIAssistantError?
 
     /// Chat history for current session
-    @Published public var chatHistory: [ChatMessageCompat] = []
+    public var chatHistory: [ChatMessageCompat] = []
 
     // MARK: - ImpressAI Integration
 

@@ -345,11 +345,12 @@ public actor SmartSearchProvider {
 ///
 /// Smart searches are library-specific - each library has its own set of smart searches.
 @MainActor
-public final class SmartSearchRepository: ObservableObject {
+@Observable
+public final class SmartSearchRepository {
 
     // MARK: - Properties
 
-    @Published public private(set) var smartSearches: [CDSmartSearch] = []
+    public private(set) var smartSearches: [CDSmartSearch] = []
 
     /// Current library being filtered (nil = show all)
     public private(set) var currentLibrary: CDLibrary?

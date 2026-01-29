@@ -241,7 +241,7 @@ struct IOSSettingsView: View {
                     }
                     .padding(40)
                     .background(.regularMaterial)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                 }
             }
         }

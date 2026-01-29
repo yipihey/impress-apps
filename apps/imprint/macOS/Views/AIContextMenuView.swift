@@ -19,8 +19,9 @@ struct AIContextMenuView: View {
     @Binding var selectedRange: NSRange?
     let documentSource: String
     let onActionResult: (RewriteSuggestion) -> Void
+    var onError: ((String) -> Void)? = nil
 
-    @StateObject private var menuService = AIContextMenuService.shared
+    private var menuService = AIContextMenuService.shared
     @State private var isProcessing = false
     @State private var processingAction: AIAction?
 
@@ -90,7 +91,8 @@ struct AIContextMenuView: View {
         } catch AIContextMenuError.handledByImbib {
             // imbib opened, nothing more to do
         } catch {
-            // Error is handled by the service
+            // Report error to callback
+            onError?(error.localizedDescription)
         }
     }
 
@@ -173,7 +175,7 @@ struct AIContextMenuPopover: View {
         }
         .frame(width: 280)
         .background(VisualEffectView(material: .popover, blendingMode: .behindWindow))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
         .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
     }
 }
@@ -187,11 +189,13 @@ struct AIContextMenuContent: View {
     let documentSource: String
     let onActionResult: (RewriteSuggestion) -> Void
     let onDismiss: () -> Void
+    var onError: ((String) -> Void)? = nil
 
-    @StateObject private var menuService = AIContextMenuService.shared
+    var menuService = AIContextMenuService.shared
     @State private var expandedCategory: AIActionCategory?
     @State private var isProcessing = false
     @State private var processingAction: AIAction?
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -202,7 +206,25 @@ struct AIContextMenuContent: View {
                 Text("AI Assistant")
                     .font(.headline)
                 Spacer()
+
+                // Cancel button (shown during processing)
+                if isProcessing {
+                    Button {
+                        menuService.cancelCurrentAction()
+                        isProcessing = false
+                        processingAction = nil
+                    } label: {
+                        Text("Cancel")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
                 Button {
+                    if isProcessing {
+                        menuService.cancelCurrentAction()
+                    }
                     onDismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -213,6 +235,48 @@ struct AIContextMenuContent: View {
             .padding()
 
             Divider()
+
+            // Error message banner
+            if let error = errorMessage {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        errorMessage = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.1))
+            }
+
+            // API key warning
+            if !menuService.isAPIConfigured {
+                HStack {
+                    Image(systemName: "key.fill")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("API key not configured")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                        Text("Open Settings (Cmd+,) to add your \(menuService.currentProviderName) API key")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.1))
+            }
 
             // Selected text preview
             if !selectedText.isEmpty {
@@ -225,7 +289,7 @@ struct AIContextMenuContent: View {
                         .lineLimit(2)
                         .padding(8)
                         .background(Color(nsColor: .textBackgroundColor))
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
@@ -325,13 +389,11 @@ struct AIContextMenuContent: View {
     private func executeAction(_ action: AIAction) async {
         guard let range = selectedRange else { return }
 
+        // Clear any previous error
+        errorMessage = nil
+
         isProcessing = true
         processingAction = action
-
-        defer {
-            isProcessing = false
-            processingAction = nil
-        }
 
         let context = DocumentContext(
             documentTitle: extractDocumentTitle(from: documentSource),
@@ -339,19 +401,39 @@ struct AIContextMenuContent: View {
             sectionHeading: extractNearestHeading(source: documentSource, position: range.location)
         )
 
+        // Use streaming for real-time updates
+        let stream = menuService.executeActionStreaming(
+            action,
+            selectedText: selectedText,
+            range: range,
+            context: context
+        )
+
         do {
-            let suggestion = try await menuService.executeAction(
-                action,
-                selectedText: selectedText,
-                range: range,
-                context: context
-            )
-            onActionResult(suggestion)
+            var lastSuggestion: RewriteSuggestion?
+            for try await suggestion in stream {
+                lastSuggestion = suggestion
+                // Send intermediate results for live preview
+                if suggestion.isStreaming {
+                    onActionResult(suggestion)
+                }
+            }
+            // Send final result
+            if let final = lastSuggestion {
+                onActionResult(final)
+            }
         } catch AIContextMenuError.handledByImbib {
             onDismiss()
+        } catch is CancellationError {
+            // User cancelled, nothing to do
         } catch {
-            // Error handled by service
+            // Display error to user
+            errorMessage = error.localizedDescription
+            onError?(error.localizedDescription)
         }
+
+        isProcessing = false
+        processingAction = nil
     }
 
     // MARK: - Context Helpers

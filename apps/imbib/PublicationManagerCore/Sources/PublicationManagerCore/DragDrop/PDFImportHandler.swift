@@ -20,25 +20,26 @@ import OSLog
 /// 4. Present preview to user
 /// 5. Create publication and import PDF
 @MainActor
-public final class PDFImportHandler: ObservableObject {
+@Observable
+public final class PDFImportHandler {
 
     // MARK: - Singleton
 
     public static let shared = PDFImportHandler()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// Current previews being prepared
-    @Published public var previews: [PDFImportPreview] = []
+    public var previews: [PDFImportPreview] = []
 
     /// Whether preparation is in progress
-    @Published public var isPreparing = false
+    public var isPreparing = false
 
     /// Current item being processed
-    @Published public var currentItem: Int = 0
+    public var currentItem: Int = 0
 
     /// Total items to process
-    @Published public var totalItems: Int = 0
+    public var totalItems: Int = 0
 
     // MARK: - Dependencies
 

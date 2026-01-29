@@ -66,7 +66,7 @@ struct FocusModeView: View {
                 Text("Exit Focus")
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(

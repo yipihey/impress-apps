@@ -82,14 +82,14 @@ struct DocumentHealthSettingsView: View {
                     Text("Current Format Version")
                     Spacer()
                     Text("v\(DocumentSchemaVersion.current.displayString)")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
 
                 HStack {
                     Text("Minimum Readable Version")
                     Spacer()
                     Text("v\(DocumentSchemaVersion.minimumReadable.displayString)")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -118,7 +118,7 @@ struct DocumentHealthSettingsView: View {
                 if let result = validationResult {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundStyle(.green)
                         Text(result)
                     }
                 }
@@ -197,7 +197,7 @@ struct EditorSettingsView: View {
     @AppStorage("showLineNumbers") private var showLineNumbers = true
     @AppStorage("highlightCurrentLine") private var highlightCurrentLine = true
     @AppStorage("wrapLines") private var wrapLines = true
-    @ObservedObject private var modalSettings = ModalEditingSettings.shared
+    @Bindable private var modalSettings = ModalEditingSettings.shared
 
     var body: some View {
         Form {
@@ -266,7 +266,7 @@ struct ExportSettingsView: View {
     @AppStorage("defaultJournalTemplate") private var defaultJournalTemplate = "generic"
     @AppStorage("includeBibliography") private var includeBibliography = true
     @State private var showingTemplateBrowser = false
-    @StateObject private var templateService = TemplateService.shared
+    private var templateService = TemplateService.shared
 
     var body: some View {
         Form {
@@ -315,20 +315,20 @@ struct AccountSettingsView: View {
                 if isSignedIn {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundStyle(.green)
                         Text("Signed in with iCloud")
                     }
 
                     Toggle("Sync documents", isOn: $syncEnabled)
                 } else {
                     Text("Sign in to iCloud in System Settings to enable sync")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
             Section("Collaboration") {
                 Text("Real-time collaboration uses CloudKit")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 Link("Learn more about collaboration", destination: URL(string: "https://imbib.com/imprint/collaboration")!)
             }

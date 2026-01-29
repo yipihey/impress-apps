@@ -4,7 +4,7 @@ import MetalKit
 /// Main visualization view that hosts the Metal renderer
 struct VisualizationView: View {
     let session: VisualizationSession
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -136,7 +136,7 @@ struct MarginalsPanel: View {
 /// Status bar showing current state
 struct StatusBar: View {
     let session: VisualizationSession
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     private var statusString: String {
         "\(session.pointCount) points | Mode: \(appState.renderMode.rawValue) | Selection: none"
@@ -156,5 +156,5 @@ struct StatusBar: View {
 
 #Preview {
     VisualizationView(session: VisualizationSession(name: "Test"))
-        .environmentObject(AppState())
+        .environment(AppState())
 }

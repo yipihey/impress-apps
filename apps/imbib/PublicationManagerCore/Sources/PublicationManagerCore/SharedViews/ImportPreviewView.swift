@@ -818,7 +818,7 @@ struct ImportPreviewDetail: View {
                 Text("Raw Entry")
                     .font(.headline)
 
-                ScrollView(.horizontal, showsIndicators: true) {
+                ScrollView(.horizontal) {
                     Text(rawContent)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)

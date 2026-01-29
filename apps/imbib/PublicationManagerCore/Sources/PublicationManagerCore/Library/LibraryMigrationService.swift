@@ -22,13 +22,14 @@ import OSLog
 /// 3. Update `CDLinkedFile.relativePath` to reflect new location
 /// 4. Clear deprecated attributes (`bookmarkData`, `bibFilePath`, `papersDirectoryPath`)
 @MainActor
-public final class LibraryMigrationService: ObservableObject {
+@Observable
+public final class LibraryMigrationService {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published public private(set) var isMigrating = false
-    @Published public private(set) var migrationProgress: (current: Int, total: Int) = (0, 0)
-    @Published public private(set) var lastError: Error?
+    public private(set) var isMigrating = false
+    public private(set) var migrationProgress: (current: Int, total: Int) = (0, 0)
+    public private(set) var lastError: Error?
 
     // MARK: - Dependencies
 

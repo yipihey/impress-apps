@@ -13,7 +13,7 @@ import AppKit
 /// A SwiftUI text editor with Helix modal editing support for macOS.
 public struct HelixTextEditor: View {
     @Binding public var text: String
-    @ObservedObject public var helixState: HelixState
+    public var helixState: HelixState
     public var isHelixEnabled: Bool
     public var showModeIndicator: Bool
     public var indicatorPosition: ModeIndicatorPosition
@@ -53,7 +53,7 @@ public struct HelixTextEditor: View {
 /// Internal NSViewRepresentable for the actual text view
 struct HelixTextEditorRepresentable: NSViewRepresentable {
     @Binding var text: String
-    @ObservedObject var helixState: HelixState
+    var helixState: HelixState
     var isHelixEnabled: Bool
     var font: NSFont
 
@@ -146,7 +146,7 @@ import UIKit
 /// key event interception. Full Helix support requires hardware keyboard.
 public struct HelixTextEditor: View {
     @Binding public var text: String
-    @ObservedObject public var helixState: HelixState
+    public var helixState: HelixState
     public var isHelixEnabled: Bool
     public var showModeIndicator: Bool
     public var indicatorPosition: ModeIndicatorPosition
@@ -186,7 +186,7 @@ public struct HelixTextEditor: View {
 /// Internal UIViewRepresentable for the actual text view
 struct HelixTextEditorRepresentable: UIViewRepresentable {
     @Binding var text: String
-    @ObservedObject var helixState: HelixState
+    var helixState: HelixState
     var isHelixEnabled: Bool
     var font: UIFont
 

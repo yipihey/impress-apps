@@ -46,7 +46,7 @@ struct SidebarView: View {
 
     // MARK: - Drag-Drop Coordinator
 
-    @StateObject private var dragDropCoordinator = DragDropCoordinator.shared
+    private let dragDropCoordinator = DragDropCoordinator.shared
 
     // MARK: - Environment
 
@@ -56,10 +56,10 @@ struct SidebarView: View {
     // MARK: - Observed Objects
 
     /// Observe SmartSearchRepository to refresh when smart searches change
-    @ObservedObject private var smartSearchRepository = SmartSearchRepository.shared
+    private let smartSearchRepository = SmartSearchRepository.shared
 
     /// Observe SciXLibraryRepository for SciX libraries
-    @ObservedObject private var scixRepository = SciXLibraryRepository.shared
+    private let scixRepository = SciXLibraryRepository.shared
 
     // MARK: - State
     @State private var newSmartCollectionLibrary: CDLibrary?  // Non-nil triggers sheet for this library
@@ -313,9 +313,10 @@ struct SidebarView: View {
     /// Drop preview sheet content extracted to simplify type-checking
     @ViewBuilder
     private var dropPreviewSheetContent: some View {
+        @Bindable var coordinator = dragDropCoordinator
         if let libraryID = dropPreviewTargetLibraryID {
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: libraryID,
                 coordinator: dragDropCoordinator
             )
@@ -326,7 +327,7 @@ struct SidebarView: View {
         } else if let firstLibrary = libraryManager.libraries.first(where: { !$0.isInbox && !$0.isSystemLibrary }) {
             // Fallback to first user library if no specific library was targeted
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: firstLibrary.id,
                 coordinator: dragDropCoordinator
             )
@@ -1439,7 +1440,7 @@ struct SidebarView: View {
             } label: {
                 Image(systemName: "questionmark.circle")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .help("Learn about SciX Libraries - click to open help page")
@@ -1463,7 +1464,7 @@ struct SidebarView: View {
         HStack {
             // Cloud icon (different from local libraries)
             Image(systemName: "cloud")
-                .foregroundColor(.blue)
+                .foregroundStyle(.blue)
                 .help("Cloud-synced library from NASA ADS/SciX")
 
             Text(library.displayName)
@@ -1473,14 +1474,14 @@ struct SidebarView: View {
             // Permission level indicator
             Image(systemName: library.permissionLevelEnum.icon)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .help(permissionTooltip(library.permissionLevelEnum))
 
             // Pending changes indicator
             if library.hasPendingChanges {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.caption)
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
                     .help("Changes pending sync to SciX")
             }
 
@@ -1965,7 +1966,7 @@ struct SidebarView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Color.blue)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .clipShape(Capsule())
             }
         }
@@ -2403,7 +2404,7 @@ struct CountBadge: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(color.opacity(0.2))
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .clipShape(Capsule())
     }
 }

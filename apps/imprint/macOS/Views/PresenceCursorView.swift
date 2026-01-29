@@ -151,10 +151,11 @@ struct SelectionHighlightView: View {
 ///
 /// This is populated by the text view and provides geometry for
 /// converting character positions to screen coordinates.
-class TextLayoutInfo: ObservableObject {
-    @Published var layoutManager: NSLayoutManager?
-    @Published var textContainer: NSTextContainer?
-    @Published var containerOrigin: CGPoint = .zero
+@Observable
+class TextLayoutInfo {
+    var layoutManager: NSLayoutManager?
+    var textContainer: NSTextContainer?
+    var containerOrigin: CGPoint = .zero
 
     /// Get the rect for a character at the given position.
     func rect(forCharacterAt position: Int) -> CGRect? {
@@ -231,8 +232,8 @@ class TextLayoutInfo: ObservableObject {
 ///
 /// Usage: Add as an overlay to the text editor view.
 struct PresenceCursorsOverlay: View {
-    @ObservedObject var collaborationService: CollaborationService
-    @ObservedObject var textLayoutInfo: TextLayoutInfo
+    var collaborationService: CollaborationService
+    var textLayoutInfo: TextLayoutInfo
 
     var body: some View {
         ZStack {

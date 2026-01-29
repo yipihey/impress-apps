@@ -3,8 +3,8 @@ import ImploreCore
 
 /// Diagnostics section for analyzing generated/loaded data
 struct DiagnosticsSection: View {
-    @EnvironmentObject var appState: AppState
-    @EnvironmentObject var generatorViewModel: GeneratorViewModel
+    @Environment(AppState.self) var appState
+    @Environment(GeneratorViewModel.self) var generatorViewModel
     @State private var selectedDiagnostic: DiagnosticType = .statistics
 
     var body: some View {
@@ -54,7 +54,7 @@ enum DiagnosticType: String, CaseIterable {
 
 /// Statistics view showing basic data statistics
 struct StatisticsView: View {
-    @EnvironmentObject var generatorViewModel: GeneratorViewModel
+    @Environment(GeneratorViewModel.self) var generatorViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -90,7 +90,7 @@ struct StatisticsView: View {
 
 /// Power spectrum analysis view
 struct PowerSpectrumView: View {
-    @EnvironmentObject var generatorViewModel: GeneratorViewModel
+    @Environment(GeneratorViewModel.self) var generatorViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -158,7 +158,7 @@ struct PowerSpectrumView: View {
 
 /// Histogram view for distribution analysis
 struct HistogramView: View {
-    @EnvironmentObject var generatorViewModel: GeneratorViewModel
+    @Environment(GeneratorViewModel.self) var generatorViewModel
     @State private var selectedColumn: String?
     @State private var binCount: Int = 50
 
@@ -277,7 +277,7 @@ struct ColumnStatRow: View {
 
 #Preview {
     DiagnosticsSection()
-        .environmentObject(AppState())
-        .environmentObject(GeneratorViewModel())
+        .environment(AppState())
+        .environment(GeneratorViewModel())
         .frame(width: 280, height: 600)
 }

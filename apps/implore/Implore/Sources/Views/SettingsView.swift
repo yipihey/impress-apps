@@ -37,7 +37,7 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @AppStorage("autoLoadLastDataset") private var autoLoadLastDataset = true
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
-    @ObservedObject private var modalSettings = ModalEditingSettings.shared
+    @State private var modalSettings = ModalEditingSettings.shared
 
     var body: some View {
         Form {

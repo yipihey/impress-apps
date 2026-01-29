@@ -4,7 +4,7 @@ import ImploreCore
 /// Generic form builder from ParameterSpec array
 struct ParameterFormView: View {
     let specs: [ParameterSpec]
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -18,7 +18,7 @@ struct ParameterFormView: View {
 /// Dispatcher to type-specific controls
 struct ParameterField: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -76,7 +76,7 @@ struct ParameterField: View {
 /// Float parameter with slider and text field
 struct FloatParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         let binding = formState.floatBinding(for: spec.name)
@@ -99,7 +99,7 @@ struct FloatParameterView: View {
 /// Int parameter with stepper (optional power-of-2 picker)
 struct IntParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     private var isPowerOfTwo: Bool {
         spec.constraints?.powerOfTwo ?? false
@@ -137,7 +137,7 @@ struct IntParameterView: View {
 /// Bool parameter toggle
 struct BoolParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         Toggle(isOn: formState.boolBinding(for: spec.name)) {
@@ -150,7 +150,7 @@ struct BoolParameterView: View {
 /// String parameter text field
 struct StringParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         TextField("", text: formState.stringBinding(for: spec.name))
@@ -161,7 +161,7 @@ struct StringParameterView: View {
 /// Vec2 parameter with two fields
 struct Vec2ParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var x: Double = 0
     @State private var y: Double = 0
 
@@ -198,7 +198,7 @@ struct Vec2ParameterView: View {
 /// Vec3 parameter with three fields
 struct Vec3ParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var x: Double = 0
     @State private var y: Double = 0
     @State private var z: Double = 0
@@ -246,7 +246,7 @@ struct Vec3ParameterView: View {
 /// Range parameter
 struct RangeParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var minVal: Double = 0
     @State private var maxVal: Double = 1
 
@@ -284,7 +284,7 @@ struct RangeParameterView: View {
 struct ChoiceParameterView: View {
     let spec: ParameterSpec
     let options: [String]
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
 
     var body: some View {
         Picker(selection: formState.stringBinding(for: spec.name)) {
@@ -301,7 +301,7 @@ struct ChoiceParameterView: View {
 /// Color parameter with color picker
 struct ColorParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var color: Color = .white
 
     var body: some View {
@@ -332,7 +332,7 @@ struct ColorParameterView: View {
 /// Polynomial parameter with button to open editor sheet
 struct PolynomialParameterView: View {
     let spec: ParameterSpec
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var showingEditor = false
 
     var body: some View {

@@ -17,8 +17,8 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "bibliograph
 ///
 /// This service extracts cite keys from manuscript source code (supporting both
 /// LaTeX and Typst formats) and fetches the corresponding BibTeX entries from imbib.
-@MainActor
-public final class BibliographyGenerator: ObservableObject {
+@MainActor @Observable
+public final class BibliographyGenerator {
 
     // MARK: - Singleton
 
@@ -31,16 +31,16 @@ public final class BibliographyGenerator: ObservableObject {
     // MARK: - Published State
 
     /// Cite keys currently found in the manuscript
-    @Published public private(set) var extractedCiteKeys: [String] = []
+    public private(set) var extractedCiteKeys: [String] = []
 
     /// Papers with metadata for extracted cite keys
-    @Published public private(set) var citedPapers: [CitationResult] = []
+    public private(set) var citedPapers: [CitationResult] = []
 
     /// Whether bibliography generation is in progress
-    @Published public private(set) var isGenerating = false
+    public private(set) var isGenerating = false
 
     /// Last error encountered
-    @Published public private(set) var lastError: Error?
+    public private(set) var lastError: Error?
 
     // MARK: - Initialization
 

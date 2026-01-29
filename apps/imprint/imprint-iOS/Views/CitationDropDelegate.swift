@@ -248,11 +248,11 @@ struct CitationDragSource: View {
 // MARK: - Citation Insertion Service
 
 /// Service for inserting citations into the document.
-@MainActor
-class CitationInsertionService: ObservableObject {
+@MainActor @Observable
+class CitationInsertionService {
 
-    @Published var pendingCitation: DroppedCitation?
-    @Published var showingCitationSheet = false
+    var pendingCitation: DroppedCitation?
+    var showingCitationSheet = false
 
     /// Handles a dropped citation.
     func handleDroppedCitation(_ citation: DroppedCitation, document: inout ImprintDocument, at position: Int) {

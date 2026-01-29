@@ -68,7 +68,7 @@ struct IOSBibTeXEditorSheet: View {
                 if let error = validationError {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.yellow)
+                            .foregroundStyle(.yellow)
                         Text(error)
                             .font(.caption)
                         Spacer()

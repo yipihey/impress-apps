@@ -13,7 +13,7 @@ struct KeyboardShortcutsSettingsTab: View {
 
     // MARK: - State
 
-    @StateObject private var store = KeyboardShortcutsStore.shared
+    private let store = KeyboardShortcutsStore.shared
     @State private var searchText = ""
     @State private var expandedCategories: Set<ShortcutCategory> = Set(ShortcutCategory.allCases)
     @State private var recordingBinding: KeyboardShortcutBinding?
@@ -84,7 +84,7 @@ struct KeyboardShortcutsSettingsTab: View {
             }
             .padding(8)
             .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
+            .clipShape(.rect(cornerRadius: 8))
             .frame(maxWidth: 300)
 
             Spacer()

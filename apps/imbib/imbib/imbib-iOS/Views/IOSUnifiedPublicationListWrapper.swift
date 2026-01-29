@@ -253,13 +253,13 @@ struct IOSUnifiedPublicationListWrapper: View {
         switch library.syncStateEnum {
         case .synced:
             Image(systemName: "checkmark.circle")
-                .foregroundColor(.green)
+                .foregroundStyle(.green)
         case .pending:
             Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
         case .error:
             Image(systemName: "exclamationmark.circle")
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
         }
     }
 

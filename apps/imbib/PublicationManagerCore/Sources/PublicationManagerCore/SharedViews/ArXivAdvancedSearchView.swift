@@ -552,7 +552,7 @@ struct RadioButton: View {
             HStack(spacing: 6) {
                 Image(systemName: isSelected ? "circle.inset.filled" : "circle")
                     .font(.system(size: 14))
-                    .foregroundColor(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 Text(label)
                     .foregroundStyle(.primary)
             }

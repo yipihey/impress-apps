@@ -195,7 +195,7 @@ public extension View {
 public struct SidebarDropTargetView<Content: View>: View {
 
     let target: DropTarget
-    @ObservedObject var coordinator: DragDropCoordinator
+    var coordinator: DragDropCoordinator
     let content: () -> Content
 
     @State private var isTargeted = false

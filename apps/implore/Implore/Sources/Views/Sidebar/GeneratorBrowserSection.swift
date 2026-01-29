@@ -3,7 +3,7 @@ import ImploreCore
 
 /// Browser section for exploring and using data generators
 struct GeneratorBrowserSection: View {
-    @EnvironmentObject var viewModel: GeneratorViewModel
+    @Environment(GeneratorViewModel.self) var viewModel
     @State private var searchQuery = ""
     @State private var selectedCategory: GeneratorCategory?
     @State private var showingParameters = false
@@ -102,6 +102,9 @@ struct GeneratorBrowserSection: View {
                 .padding(.vertical, 8)
             }
         }
+        .onChange(of: viewModel.manager.selectedGenerator?.id) { _, _ in
+            viewModel.syncFormStateIfNeeded()
+        }
         .accessibilityIdentifier("sidebar.generatorSection")
     }
 
@@ -198,6 +201,6 @@ struct GeneratorRow: View {
 
 #Preview {
     GeneratorBrowserSection()
-        .environmentObject(GeneratorViewModel())
+        .environment(GeneratorViewModel())
         .frame(width: 280, height: 600)
 }

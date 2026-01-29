@@ -20,8 +20,8 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiContextMe
 /// - Substitute variables in prompts
 /// - Execute actions via AIAssistantService
 /// - Handle imbib integration for citation actions
-@MainActor
-public final class AIContextMenuService: ObservableObject {
+@MainActor @Observable
+public final class AIContextMenuService {
 
     // MARK: - Singleton
 
@@ -30,18 +30,21 @@ public final class AIContextMenuService: ObservableObject {
     // MARK: - Published State
 
     /// All available actions (built-in + custom from YAML).
-    @Published public private(set) var actions: [AIAction] = AIAction.allActions
+    public private(set) var actions: [AIAction] = AIAction.allActions
 
     /// Current suggestion being processed or displayed.
-    @Published public var suggestionState: SuggestionState = .idle
+    public var suggestionState: SuggestionState = .idle
 
     /// Whether an action is currently being executed.
-    @Published public private(set) var isProcessing = false
+    public private(set) var isProcessing = false
 
     // MARK: - Dependencies
 
     private let aiService: AIAssistantService
     private let imbibService: ImbibIntegrationService
+
+    /// The current task for cancellation support
+    private var currentTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -90,6 +93,13 @@ public final class AIContextMenuService: ObservableObject {
     ) async throws -> RewriteSuggestion {
         guard !selectedText.isEmpty || !action.requiresSelection else {
             throw AIContextMenuError.noTextSelected
+        }
+
+        // Pre-validate API key (skip for imbib actions)
+        if !action.opensImbib {
+            guard aiService.isConfigured else {
+                throw AIContextMenuError.apiKeyNotConfigured
+            }
         }
 
         // Handle imbib actions
@@ -148,10 +158,18 @@ public final class AIContextMenuService: ObservableObject {
         context: DocumentContext = DocumentContext()
     ) -> AsyncThrowingStream<RewriteSuggestion, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
+                    // Check for cancellation
+                    try Task.checkCancellation()
+
                     guard !selectedText.isEmpty || !action.requiresSelection else {
                         throw AIContextMenuError.noTextSelected
+                    }
+
+                    // Pre-validate API key
+                    guard await aiService.isConfigured else {
+                        throw AIContextMenuError.apiKeyNotConfigured
                     }
 
                     if action.opensImbib {
@@ -177,6 +195,9 @@ public final class AIContextMenuService: ObservableObject {
 
                     // Stream the response
                     for try await chunk in aiService.streamMessage(systemPrompt: prompt, userMessage: selectedText) {
+                        // Check for cancellation between chunks
+                        try Task.checkCancellation()
+
                         suggestion.suggestedText += chunk
                         continuation.yield(suggestion)
 
@@ -196,6 +217,13 @@ public final class AIContextMenuService: ObservableObject {
 
                     continuation.finish()
 
+                } catch is CancellationError {
+                    await MainActor.run {
+                        isProcessing = false
+                        suggestionState = .idle
+                    }
+                    continuation.finish()
+
                 } catch {
                     await MainActor.run {
                         isProcessing = false
@@ -203,6 +231,11 @@ public final class AIContextMenuService: ObservableObject {
                     }
                     continuation.finish(throwing: error)
                 }
+            }
+
+            // Store task for cancellation
+            Task { @MainActor in
+                currentTask = task
             }
         }
     }
@@ -225,6 +258,26 @@ public final class AIContextMenuService: ObservableObject {
     /// Reject the current suggestion.
     public func rejectSuggestion() {
         suggestionState = .idle
+    }
+
+    /// Cancel the current AI action if one is in progress.
+    public func cancelCurrentAction() {
+        guard isProcessing else { return }
+        currentTask?.cancel()
+        currentTask = nil
+        isProcessing = false
+        suggestionState = .idle
+        logger.info("Cancelled current AI action")
+    }
+
+    /// Check if the AI service is configured with an API key.
+    public var isAPIConfigured: Bool {
+        aiService.isConfigured
+    }
+
+    /// Get the current AI provider name for display.
+    public var currentProviderName: String {
+        aiService.provider.displayName
     }
 
     // MARK: - Imbib Integration
@@ -434,6 +487,7 @@ public enum AIContextMenuError: LocalizedError {
     case handledByImbib
     case imbibNotAvailable
     case actionFailed(String)
+    case apiKeyNotConfigured
 
     public var errorDescription: String? {
         switch self {
@@ -445,6 +499,8 @@ public enum AIContextMenuError: LocalizedError {
             return "imbib is not installed. Please install imbib to use citation features."
         case .actionFailed(let message):
             return "Action failed: \(message)"
+        case .apiKeyNotConfigured:
+            return "AI assistant is not configured. Please add your API key in Settings (Cmd+,)."
         }
     }
 }

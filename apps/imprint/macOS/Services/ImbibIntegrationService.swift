@@ -21,8 +21,8 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "imbibIntegr
 /// - Citation search via URL scheme + pasteboard
 /// - BibTeX retrieval for cite keys
 /// - PDF/notes/paper opening via URL scheme
-@MainActor
-public final class ImbibIntegrationService: ObservableObject {
+@MainActor @Observable
+public final class ImbibIntegrationService {
 
     // MARK: - Singleton
 
@@ -31,13 +31,13 @@ public final class ImbibIntegrationService: ObservableObject {
     // MARK: - Published State
 
     /// Whether imbib is installed on the system
-    @Published public private(set) var isAvailable: Bool = false
+    public private(set) var isAvailable: Bool = false
 
     /// Whether imbib automation is enabled (requires user opt-in in imbib settings)
-    @Published public private(set) var isAutomationEnabled: Bool = false
+    public private(set) var isAutomationEnabled: Bool = false
 
     /// Last error encountered during integration
-    @Published public private(set) var lastError: ImbibIntegrationError?
+    public private(set) var lastError: ImbibIntegrationError?
 
     // MARK: - Constants
 

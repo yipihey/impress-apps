@@ -100,7 +100,7 @@ struct SciXLibraryListView: View {
         HStack {
             // Cloud icon
             Image(systemName: "cloud")
-                .foregroundColor(.blue)
+                .foregroundStyle(.blue)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(library.displayName)
@@ -110,7 +110,7 @@ struct SciXLibraryListView: View {
                     // Permission badge
                     Label(library.permissionLevelEnum.rawValue.capitalized, systemImage: library.permissionLevelEnum.icon)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     // Sync status
                     syncStatusBadge
@@ -136,7 +136,7 @@ struct SciXLibraryListView: View {
                     // TODO: Show push confirmation sheet
                 } label: {
                     Label("\(library.pendingChangeCount)", systemImage: "arrow.up.circle.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                 }
                 .buttonStyle(.borderless)
                 .help("Pending changes to sync")
@@ -151,15 +151,15 @@ struct SciXLibraryListView: View {
         case .synced:
             Label("Synced", systemImage: "checkmark.circle")
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundStyle(.green)
         case .pending:
             Label("Pending", systemImage: "arrow.triangle.2.circlepath")
                 .font(.caption)
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
         case .error:
             Label("Error", systemImage: "exclamationmark.circle")
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
         }
     }
 

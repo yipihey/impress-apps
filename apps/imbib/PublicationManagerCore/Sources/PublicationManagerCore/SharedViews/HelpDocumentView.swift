@@ -128,7 +128,7 @@ public extension Theme {
                 BackgroundColor(codeBackground)
             }
             .codeBlock { configuration in
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     configuration.label
                         .markdownTextStyle {
                             FontFamilyVariant(.monospaced)
@@ -136,6 +136,7 @@ public extension Theme {
                         }
                         .padding(12)
                 }
+                .scrollIndicators(.hidden)
                 .background(codeBlockBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .markdownMargin(top: 8, bottom: 8)

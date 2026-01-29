@@ -24,8 +24,8 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant
 /// - Expand outlines to prose
 /// - Summarize long passages
 /// - General chat for writing help
-@MainActor
-public final class AIAssistantService: ObservableObject {
+@MainActor @Observable
+public final class AIAssistantService {
 
     // MARK: - Singleton
 
@@ -34,23 +34,23 @@ public final class AIAssistantService: ObservableObject {
     // MARK: - Published State
 
     /// Current AI provider
-    @Published public var provider: AIProvider = .claude
+    public var provider: AIProvider = .claude
 
     /// Whether a request is in progress
-    @Published public private(set) var isLoading = false
+    public private(set) var isLoading = false
 
     /// Last error encountered
-    @Published public var lastError: AIAssistantError?
+    public var lastError: AIAssistantError?
 
     /// Chat history for current session
-    @Published public var chatHistory: [ChatMessage] = []
+    public var chatHistory: [ChatMessage] = []
 
     // MARK: - Configuration
 
     /// API key storage (UserDefaults for simplicity; should use Keychain in production)
-    @AppStorage("ai.claudeApiKey") private var claudeApiKey: String = ""
-    @AppStorage("ai.openaiApiKey") private var openaiApiKey: String = ""
-    @AppStorage("ai.provider") private var storedProvider: String = "claude"
+    @ObservationIgnored @AppStorage("ai.claudeApiKey") private var claudeApiKey: String = ""
+    @ObservationIgnored @AppStorage("ai.openaiApiKey") private var openaiApiKey: String = ""
+    @ObservationIgnored @AppStorage("ai.provider") private var storedProvider: String = "claude"
 
     // API endpoints
     private let claudeEndpoint = "https://api.anthropic.com/v1/messages"

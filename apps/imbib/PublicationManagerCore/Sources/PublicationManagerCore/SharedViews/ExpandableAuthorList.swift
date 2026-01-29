@@ -118,7 +118,7 @@ public struct ExpandableAuthorList: View {
             // Add separator and ellipsis
             result = result + Text(separator)
             result = result + Text("...")
-                .foregroundColor(.blue)
+                .foregroundStyle(.blue)
                 .underline()
 
             // Add last author if shown

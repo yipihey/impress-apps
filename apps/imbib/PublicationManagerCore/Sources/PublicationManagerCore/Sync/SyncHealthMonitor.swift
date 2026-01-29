@@ -28,7 +28,7 @@ import AppKit
 ///
 /// ```swift
 /// struct SyncHealthView: View {
-///     @StateObject var health = SyncHealthMonitor.shared
+///     var health = SyncHealthMonitor.shared
 ///
 ///     var body: some View {
 ///         if health.hasIssues {
@@ -38,40 +38,41 @@ import AppKit
 /// }
 /// ```
 @MainActor
-public final class SyncHealthMonitor: ObservableObject {
+@Observable
+public final class SyncHealthMonitor {
 
     // MARK: - Singleton
 
     public static let shared = SyncHealthMonitor()
 
-    // MARK: - Published Properties
+    // MARK: - Observable Properties
 
     /// Last successful sync date.
-    @Published public private(set) var lastSyncDate: Date?
+    public private(set) var lastSyncDate: Date?
 
     /// Number of items pending upload.
-    @Published public private(set) var pendingUploadCount: Int = 0
+    public private(set) var pendingUploadCount: Int = 0
 
     /// Number of items pending download.
-    @Published public private(set) var pendingDownloadCount: Int = 0
+    public private(set) var pendingDownloadCount: Int = 0
 
     /// Number of unresolved sync conflicts.
-    @Published public private(set) var unresolvedConflictCount: Int = 0
+    public private(set) var unresolvedConflictCount: Int = 0
 
     /// CloudKit quota usage (0.0 to 1.0, or nil if unknown).
-    @Published public private(set) var quotaUsage: Double?
+    public private(set) var quotaUsage: Double?
 
     /// Whether CloudKit sync is enabled.
-    @Published public private(set) var isSyncEnabled: Bool = true
+    public private(set) var isSyncEnabled: Bool = true
 
     /// Whether sync is currently in progress.
-    @Published public private(set) var isSyncing: Bool = false
+    public private(set) var isSyncing: Bool = false
 
     /// Current issues requiring user attention.
-    @Published public private(set) var issues: [SyncHealthIssue] = []
+    public private(set) var issues: [SyncHealthIssue] = []
 
     /// Overall health status.
-    @Published public private(set) var status: SyncHealthStatus = .healthy
+    public private(set) var status: SyncHealthStatus = .healthy
 
     // MARK: - Private Properties
 

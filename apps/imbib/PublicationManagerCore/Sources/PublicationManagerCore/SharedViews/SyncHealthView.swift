@@ -17,7 +17,7 @@ import SwiftUI
 /// - CloudKit quota usage (if available)
 /// - List of issues with resolution actions
 public struct SyncHealthView: View {
-    @StateObject private var health = SyncHealthMonitor.shared
+    private let health = SyncHealthMonitor.shared
     @State private var isRefreshing = false
 
     public init() {}
@@ -34,7 +34,7 @@ public struct SyncHealthView: View {
                         if let lastSync = health.lastSyncDate {
                             Text("Last synced: \(lastSync, style: .relative) ago")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
@@ -111,7 +111,7 @@ public struct SyncHealthView: View {
                     } label: {
                         Label("Pause Sync", systemImage: "pause.circle")
                     }
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -125,7 +125,7 @@ public struct SyncHealthView: View {
     private var statusIcon: some View {
         Image(systemName: health.status.iconName)
             .font(.largeTitle)
-            .foregroundColor(statusColor)
+            .foregroundStyle(statusColor)
             .symbolEffect(.pulse, isActive: health.isSyncing)
     }
 
@@ -156,12 +156,12 @@ private struct StatusRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(isWarning ? .orange : .secondary)
+                .foregroundStyle(isWarning ? .orange : .secondary)
                 .frame(width: 24)
             Text(title)
             Spacer()
             Text(value)
-                .foregroundColor(isWarning ? .orange : .secondary)
+                .foregroundStyle(isWarning ? .orange : .secondary)
                 .fontWeight(isWarning ? .semibold : .regular)
         }
     }
@@ -183,7 +183,7 @@ private struct IssueRow: View {
 
             Text(issue.description)
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Button(issue.suggestedAction) {
                 onResolve()
@@ -199,16 +199,16 @@ private struct IssueRow: View {
         switch issue.severity {
         case .info:
             Image(systemName: "info.circle")
-                .foregroundColor(.blue)
+                .foregroundStyle(.blue)
         case .attention:
             Image(systemName: "exclamationmark.circle")
-                .foregroundColor(.yellow)
+                .foregroundStyle(.yellow)
         case .warning:
             Image(systemName: "exclamationmark.triangle")
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
         case .critical:
             Image(systemName: "xmark.circle")
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
         }
     }
 }
@@ -217,14 +217,14 @@ private struct IssueRow: View {
 
 /// Compact sync status indicator for use in settings or toolbars.
 public struct SyncStatusIndicator: View {
-    @StateObject private var health = SyncHealthMonitor.shared
+    private let health = SyncHealthMonitor.shared
 
     public init() {}
 
     public var body: some View {
         HStack(spacing: 6) {
             Image(systemName: health.status.iconName)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
                 .symbolEffect(.pulse, isActive: health.isSyncing)
 
             if health.hasIssues {
@@ -233,7 +233,7 @@ public struct SyncStatusIndicator: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Color.orange.opacity(0.2)))
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
             }
         }
     }
@@ -271,7 +271,7 @@ public struct PreUpdateBackupPrompt: View {
         VStack(spacing: 20) {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 48))
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
 
             Text("Backup Recommended")
                 .font(.title2)
@@ -279,7 +279,7 @@ public struct PreUpdateBackupPrompt: View {
 
             Text("A major update is available. We recommend exporting your library before updating to ensure your data is safe.")
                 .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
             VStack(spacing: 12) {

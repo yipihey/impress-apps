@@ -71,15 +71,15 @@ struct PDFPreviewView: View {
         VStack(spacing: 16) {
             Image(systemName: "doc.text")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("No Preview")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Press Cmd+B to compile")
                 .font(.subheadline)
-                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         }
     }
 
@@ -90,7 +90,7 @@ struct PDFPreviewView: View {
 
             Text("Compiling...")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(24)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))

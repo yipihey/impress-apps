@@ -1,9 +1,8 @@
 import Foundation
-import Combine
 
 /// Observable settings model for AI provider configuration.
 @MainActor
-public final class AISettings: ObservableObject {
+@Observable public final class AISettings {
     /// Shared singleton instance.
     public static let shared = AISettings()
 
@@ -12,7 +11,7 @@ public final class AISettings: ObservableObject {
     private var updateTask: Task<Void, Never>?
 
     /// Currently selected provider ID.
-    @Published public var selectedProviderId: String? {
+    public var selectedProviderId: String? {
         didSet {
             if oldValue != selectedProviderId {
                 Task {
@@ -24,7 +23,7 @@ public final class AISettings: ObservableObject {
     }
 
     /// Currently selected model ID.
-    @Published public var selectedModelId: String? {
+    public var selectedModelId: String? {
         didSet {
             if oldValue != selectedModelId {
                 Task {
@@ -35,25 +34,25 @@ public final class AISettings: ObservableObject {
     }
 
     /// Metadata for all available providers.
-    @Published public private(set) var availableProviders: [AIProviderMetadata] = []
+    public private(set) var availableProviders: [AIProviderMetadata] = []
 
     /// Providers grouped by category.
-    @Published public private(set) var providersByCategory: [AIProviderCategory: [AIProviderMetadata]] = [:]
+    public private(set) var providersByCategory: [AIProviderCategory: [AIProviderMetadata]] = [:]
 
     /// Credential status for all providers.
-    @Published public private(set) var credentialStatus: [AIProviderCredentialInfo] = []
+    public private(set) var credentialStatus: [AIProviderCredentialInfo] = []
 
     /// Currently selected provider metadata.
-    @Published public private(set) var selectedProviderMetadata: AIProviderMetadata?
+    public private(set) var selectedProviderMetadata: AIProviderMetadata?
 
     /// Available models for the selected provider.
-    @Published public private(set) var availableModels: [AIModel] = []
+    public private(set) var availableModels: [AIModel] = []
 
     /// Whether the selected provider is ready.
-    @Published public private(set) var isProviderReady: Bool = false
+    public private(set) var isProviderReady: Bool = false
 
     /// Error message if any.
-    @Published public var errorMessage: String?
+    public var errorMessage: String?
 
     /// Creates a new settings instance.
     ///

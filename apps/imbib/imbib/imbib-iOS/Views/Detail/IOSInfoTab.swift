@@ -208,7 +208,7 @@ struct IOSInfoTab: View {
                 .textCase(.uppercase)
 
             // Compact horizontal scroll for identifier links
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 16) {
                     if let doi = publication.doi {
                         identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
@@ -224,6 +224,7 @@ struct IOSInfoTab: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -266,7 +267,7 @@ struct IOSInfoTab: View {
                 .textCase(.uppercase)
 
             // Single row of buttons using ScrollView for horizontal overflow on smaller screens
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     let refAvail = publication.referencesAvailability()
                     Button {
@@ -341,6 +342,7 @@ struct IOSInfoTab: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -508,11 +510,12 @@ struct IOSInfoTab: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 // Allow file name to scroll horizontally if too long
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     Text(file.displayName ?? file.relativePath)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
+                .scrollIndicators(.hidden)
 
                 if file.fileSize > 0 {
                     Text(formatFileSize(file.fileSize))

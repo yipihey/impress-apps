@@ -5,8 +5,8 @@ import SwiftUI
 ///
 /// This service handles URL scheme communication and shared container
 /// management for cross-app figure synchronization.
-@MainActor
-public final class FigureLinkService: ObservableObject {
+@MainActor @Observable
+public final class FigureLinkService {
     /// Shared instance
     public static let shared = FigureLinkService()
 
@@ -14,10 +14,10 @@ public final class FigureLinkService: ObservableObject {
     public static let appGroupIdentifier = "group.com.impress.shared"
 
     /// Currently pending link requests
-    @Published public private(set) var pendingLinks: [PendingLink] = []
+    public private(set) var pendingLinks: [PendingLink] = []
 
     /// Whether linking is available (imprint is installed)
-    @Published public private(set) var isLinkingAvailable: Bool = false
+    public private(set) var isLinkingAvailable: Bool = false
 
     private init() {
         checkLinkingAvailability()

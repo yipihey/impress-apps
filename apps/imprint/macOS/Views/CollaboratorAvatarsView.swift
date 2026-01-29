@@ -18,7 +18,7 @@ import SwiftUI
 /// - Connection status indicator
 /// - Colored rings matching collaborator cursor colors
 struct CollaboratorAvatarsView: View {
-    @ObservedObject private var collaborationService = CollaborationService.shared
+    private var collaborationService = CollaborationService.shared
 
     @State private var isShowingPopover = false
     @State private var isHovering = false
@@ -187,7 +187,7 @@ struct CollaboratorAvatar: View {
 
 /// Popover showing detailed list of collaborators.
 struct CollaboratorListPopover: View {
-    @ObservedObject private var collaborationService = CollaborationService.shared
+    private var collaborationService = CollaborationService.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

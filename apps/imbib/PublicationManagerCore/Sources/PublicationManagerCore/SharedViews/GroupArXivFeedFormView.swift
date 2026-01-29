@@ -219,7 +219,7 @@ public struct GroupArXivFeedFormView: View {
                 .font(.body)
                 .frame(minHeight: 100, maxHeight: 150)
                 .border(Color.gray.opacity(0.3), width: 1)
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
 
             Text("One author per line (Last, First) or comma-separated on a single line")
                 .font(.caption)

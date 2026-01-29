@@ -90,10 +90,10 @@ struct UnifiedPublicationListWrapper: View {
     @State private var filterMode: LibraryFilterMode = .all
     @State private var filterScope: FilterScope = .current
     @State private var provider: SmartSearchProvider?
-    @StateObject private var dropHandler = FileDropHandler()
+    @State private var dropHandler = FileDropHandler()
 
     // Drop preview sheet state (for list background drops)
-    @StateObject private var dragDropCoordinator = DragDropCoordinator.shared
+    private let dragDropCoordinator = DragDropCoordinator.shared
     @State private var showingDropPreview = false
     @State private var dropPreviewTargetLibraryID: UUID?
 
@@ -305,9 +305,10 @@ struct UnifiedPublicationListWrapper: View {
     /// Drop preview sheet content for list background drops
     @ViewBuilder
     private var dropPreviewSheetContent: some View {
+        @Bindable var coordinator = dragDropCoordinator
         if let libraryID = dropPreviewTargetLibraryID {
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: libraryID,
                 coordinator: dragDropCoordinator
             )
@@ -318,7 +319,7 @@ struct UnifiedPublicationListWrapper: View {
         } else if let library = currentLibrary {
             // Fallback: use current library
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: library.id,
                 coordinator: dragDropCoordinator
             )
@@ -328,7 +329,7 @@ struct UnifiedPublicationListWrapper: View {
         } else if let firstLibrary = libraryManager.libraries.first(where: { !$0.isInbox && !$0.isSystemLibrary }) {
             // Fallback: use first user library
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: firstLibrary.id,
                 coordinator: dragDropCoordinator
             )

@@ -228,7 +228,7 @@ struct IOSAppearanceSettingsView: View {
             // Checkmark for selected
             if settings.themeID == themeID {
                 Image(systemName: "checkmark")
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(Color.accentColor)
             }
         }
         .contentShape(Rectangle())

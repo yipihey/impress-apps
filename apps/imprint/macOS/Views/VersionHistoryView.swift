@@ -98,7 +98,7 @@ struct VersionHistoryView: View {
                         }
                     }
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                     Spacer()
                 }
@@ -113,15 +113,15 @@ struct VersionHistoryView: View {
         VStack(spacing: 12) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 36))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("No Snapshots Yet")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Snapshots are created automatically as you work")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -132,15 +132,15 @@ struct VersionHistoryView: View {
         VStack(spacing: 12) {
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Select a Snapshot")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Choose a version from the timeline to preview")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -211,7 +211,7 @@ struct SnapshotRow: View {
             if let label = snapshot.label {
                 Text(label)
                     .font(.caption)
-                    .foregroundColor(.blue)
+                    .foregroundStyle(.blue)
             }
 
             HStack(spacing: 8) {
@@ -219,7 +219,7 @@ struct SnapshotRow: View {
                 Label("\(snapshot.citationCount)", systemImage: "quote.opening")
             }
             .font(.caption)
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }

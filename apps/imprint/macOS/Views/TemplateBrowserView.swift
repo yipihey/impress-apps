@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Browse and manage document templates
 struct TemplateBrowserView: View {
-    @StateObject private var templateService = TemplateService.shared
+    private var templateService = TemplateService.shared
     @State private var selectedCategory: TemplateCategory = .all
     @State private var searchQuery = ""
     @State private var selectedTemplateId: String?
@@ -122,7 +122,7 @@ struct TemplateCard: View {
 
                     Image(systemName: template.category.systemImage)
                         .font(.title2)
-                        .foregroundColor(categoryColor)
+                        .foregroundStyle(categoryColor)
                 }
 
                 Spacer()
@@ -133,7 +133,7 @@ struct TemplateCard: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.2))
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
                 }
             }
 
@@ -145,7 +145,7 @@ struct TemplateCard: View {
             // Publisher or category
             Text(template.displayCategory)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
 
             // Tags
@@ -157,15 +157,15 @@ struct TemplateCard: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.accentColor.opacity(0.1))
-                            .foregroundColor(.accentColor)
-                            .cornerRadius(4)
+                            .foregroundStyle(Color.accentColor)
+                            .clipShape(.rect(cornerRadius: 4))
                     }
                 }
             }
         }
         .padding()
         .background(isSelected ? Color.accentColor.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: isSelected ? 2 : 1)

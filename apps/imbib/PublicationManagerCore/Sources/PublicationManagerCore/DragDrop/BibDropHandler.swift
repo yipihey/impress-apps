@@ -19,19 +19,20 @@ import OSLog
 /// 3. Present preview to user
 /// 4. Import selected entries
 @MainActor
-public final class BibDropHandler: ObservableObject {
+@Observable
+public final class BibDropHandler {
 
     // MARK: - Singleton
 
     public static let shared = BibDropHandler()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// Current preview being prepared
-    @Published public var currentPreview: BibImportPreview?
+    public var currentPreview: BibImportPreview?
 
     /// Whether preparation is in progress
-    @Published public var isPreparing = false
+    public var isPreparing = false
 
     // MARK: - Dependencies
 

@@ -26,7 +26,7 @@ struct SearchResultsListView: View {
     @Binding var selectedPublication: CDPublication?
 
     // Drop preview sheet state (for list background drops)
-    @StateObject private var dragDropCoordinator = DragDropCoordinator.shared
+    private let dragDropCoordinator = DragDropCoordinator.shared
     @State private var showingDropPreview = false
     @State private var dropPreviewTargetLibraryID: UUID?
 
@@ -184,9 +184,10 @@ struct SearchResultsListView: View {
     /// Drop preview sheet content for search list drops
     @ViewBuilder
     private var searchDropPreviewSheetContent: some View {
+        @Bindable var coordinator = dragDropCoordinator
         if let libraryID = dropPreviewTargetLibraryID {
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: libraryID,
                 coordinator: dragDropCoordinator
             )
@@ -196,7 +197,7 @@ struct SearchResultsListView: View {
         } else if let library = libraryManager.activeLibrary {
             // Fallback: use active library
             DropPreviewSheet(
-                preview: $dragDropCoordinator.pendingPreview,
+                preview: $coordinator.pendingPreview,
                 libraryID: library.id,
                 coordinator: dragDropCoordinator
             )

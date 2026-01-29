@@ -144,13 +144,13 @@ struct IOSKeyboardShortcutsSettingsView: View {
         } label: {
             HStack {
                 Text(binding.displayName)
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
                 Text(binding.displayShortcut)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
@@ -253,11 +253,11 @@ private struct IOSShortcutRecorderSheet: View {
                                 Spacer()
                                 if selectedKey == "special:\(special.rawValue)" {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
+                                        .foregroundStyle(Color.accentColor)
                                 }
                             }
                         }
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
                     }
                 }
 

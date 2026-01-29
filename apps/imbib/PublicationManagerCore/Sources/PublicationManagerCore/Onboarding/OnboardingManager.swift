@@ -61,19 +61,20 @@ public enum PreferredDatabase: Sendable {
 /// Tracks whether onboarding should be shown, the current step,
 /// and persists completion state to iCloud via SyncedSettingsStore.
 @MainActor
-public final class OnboardingManager: ObservableObject {
+@Observable
+public final class OnboardingManager {
 
     // MARK: - Shared Instance
 
     public static let shared = OnboardingManager()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// The current step in the onboarding flow.
-    @Published public var currentStep: OnboardingStep = .libraryProxy
+    public var currentStep: OnboardingStep = .libraryProxy
 
     /// The user's preferred database choice from onboarding.
-    @Published public var preferredDatabase: PreferredDatabase = .openAlex
+    public var preferredDatabase: PreferredDatabase = .openAlex
 
     /// Force show onboarding even if already completed (set via --show-welcome-screen flag).
     /// This allows showing the welcome screen without resetting any data.

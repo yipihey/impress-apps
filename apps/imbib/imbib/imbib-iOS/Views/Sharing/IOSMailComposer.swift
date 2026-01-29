@@ -219,14 +219,14 @@ extension View {
                 VStack(spacing: 16) {
                     Image(systemName: "envelope.badge.shield.half.filled")
                         .font(.system(size: 60))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Text("Mail Not Configured")
                         .font(.headline)
 
                     Text("Please configure a mail account in Settings to share papers by email.")
                         .multilineTextAlignment(.center)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Button("OK") {
                         isPresented.wrappedValue = false

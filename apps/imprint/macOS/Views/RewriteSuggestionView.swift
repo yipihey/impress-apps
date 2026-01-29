@@ -19,8 +19,23 @@ struct RewriteSuggestionView: View {
     let onAccept: (String) -> Void
     let onReject: () -> Void
     let onEdit: () -> Void
+    let onCancel: (() -> Void)?
 
     @State private var showDiff = true
+
+    init(
+        suggestion: RewriteSuggestion,
+        onAccept: @escaping (String) -> Void,
+        onReject: @escaping () -> Void,
+        onEdit: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
+    ) {
+        self.suggestion = suggestion
+        self.onAccept = onAccept
+        self.onReject = onReject
+        self.onEdit = onEdit
+        self.onCancel = onCancel
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -48,7 +63,7 @@ struct RewriteSuggestionView: View {
             actionButtons
         }
         .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
         .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
         .frame(width: 450)
     }
@@ -77,6 +92,18 @@ struct RewriteSuggestionView: View {
                 ProgressView()
                     .controlSize(.small)
                     .padding(.leading, 8)
+
+                // Cancel button during streaming
+                if let onCancel = onCancel {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut(.escape, modifiers: [])
+                }
             }
         }
         .padding()
@@ -140,7 +167,7 @@ struct RewriteSuggestionView: View {
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.red.opacity(0.05))
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
                     .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity)
@@ -156,7 +183,7 @@ struct RewriteSuggestionView: View {
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.green.opacity(0.05))
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
                     .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity)

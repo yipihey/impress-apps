@@ -17,7 +17,8 @@ import OSLog
 /// - Signaling the extension when library content changes
 /// - Cross-process communication via Darwin notifications
 @MainActor
-public final class FileProviderDomainManager: ObservableObject {
+@Observable
+public final class FileProviderDomainManager {
 
     // MARK: - Singleton
 
@@ -36,8 +37,8 @@ public final class FileProviderDomainManager: ObservableObject {
 
     // MARK: - Properties
 
-    @Published public private(set) var isRegistered = false
-    @Published public private(set) var lastError: Error?
+    public private(set) var isRegistered = false
+    public private(set) var lastError: Error?
 
     private let logger = Logger(subsystem: "com.imbib.app", category: "fileprovider-domain")
 

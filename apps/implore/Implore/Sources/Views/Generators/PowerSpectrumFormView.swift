@@ -3,7 +3,7 @@ import ImploreCore
 
 /// Custom form view for Power Spectrum generator with polynomial editor and preview
 struct PowerSpectrumFormView: View {
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var showingPolynomialEditor = false
 
     var body: some View {

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 /// Available modal editing styles
 public enum EditorStyleIdentifier: String, CaseIterable, Identifiable, Sendable {
@@ -30,21 +29,56 @@ public enum EditorStyleIdentifier: String, CaseIterable, Identifiable, Sendable 
 /// Access via `ModalEditingSettings.shared` singleton.
 /// Settings are persisted to UserDefaults.
 @MainActor
-public final class ModalEditingSettings: ObservableObject {
+@Observable
+public final class ModalEditingSettings {
     /// Shared singleton instance
     public static let shared = ModalEditingSettings()
 
-    /// Whether modal editing is enabled
-    @AppStorage("modalEditing.isEnabled")
-    public var isEnabled: Bool = false
+    /// UserDefaults keys
+    private enum Keys {
+        static let isEnabled = "modalEditing.isEnabled"
+        static let selectedStyle = "modalEditing.selectedStyle"
+        static let showModeIndicator = "modalEditing.showModeIndicator"
+    }
 
-    /// The selected editing style
-    @AppStorage("modalEditing.selectedStyle")
-    public var selectedStyleRaw: String = EditorStyleIdentifier.helix.rawValue
+    /// Whether modal editing is enabled
+    public var isEnabled: Bool {
+        get {
+            access(keyPath: \.isEnabled)
+            return UserDefaults.standard.bool(forKey: Keys.isEnabled)
+        }
+        set {
+            withMutation(keyPath: \.isEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Keys.isEnabled)
+            }
+        }
+    }
+
+    /// The selected editing style (raw value)
+    public var selectedStyleRaw: String {
+        get {
+            access(keyPath: \.selectedStyleRaw)
+            return UserDefaults.standard.string(forKey: Keys.selectedStyle) ?? EditorStyleIdentifier.helix.rawValue
+        }
+        set {
+            withMutation(keyPath: \.selectedStyleRaw) {
+                UserDefaults.standard.set(newValue, forKey: Keys.selectedStyle)
+            }
+        }
+    }
 
     /// Whether to show the mode indicator
-    @AppStorage("modalEditing.showModeIndicator")
-    public var showModeIndicator: Bool = true
+    public var showModeIndicator: Bool {
+        get {
+            access(keyPath: \.showModeIndicator)
+            return UserDefaults.standard.object(forKey: Keys.showModeIndicator) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.showModeIndicator) {
+                UserDefaults.standard.set(newValue, forKey: Keys.showModeIndicator)
+            }
+        }
+    }
 
     /// The selected editing style (computed from raw value)
     public var selectedStyle: EditorStyleIdentifier {

@@ -48,7 +48,7 @@ struct DirectPDFView: View {
             Text("Direct Edit")
             if !sourceMapEntries.isEmpty {
                 Text("(\(sourceMapEntries.count) regions)")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
         .font(.caption)
@@ -62,15 +62,15 @@ struct DirectPDFView: View {
         VStack(spacing: 16) {
             Image(systemName: "doc.richtext")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Compile to enable Direct PDF editing")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Press Cmd+B to compile the document")
                 .font(.subheadline)
-                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         }
     }
 

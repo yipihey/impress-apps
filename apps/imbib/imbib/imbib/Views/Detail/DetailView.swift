@@ -58,7 +58,7 @@ struct DetailView: View {
 
     // MARK: - File Drop State
 
-    @StateObject private var dropHandler = FileDropHandler()
+    @State private var dropHandler = FileDropHandler()
     @State private var isDropTargeted = false
     @State private var dropRefreshID = UUID()
 
@@ -699,7 +699,7 @@ struct InfoTab: View {
     @State private var showDeleteConfirmation = false
 
     // State for file drop
-    @StateObject private var dropHandler = FileDropHandler()
+    @State private var dropHandler = FileDropHandler()
     @State private var isDropTargeted = false
     @State private var showFileImporter = false
 
@@ -1351,7 +1351,7 @@ struct InfoTab: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .background(Color.secondary.opacity(0.1))
-        .cornerRadius(6)
+        .clipShape(.rect(cornerRadius: 6))
         .contextMenu {
             Button("Open") { openFile(file) }
             #if os(macOS)
@@ -1433,7 +1433,7 @@ struct InfoTab: View {
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .background(Color.secondary.opacity(0.1))
-        .cornerRadius(6)
+        .clipShape(.rect(cornerRadius: 6))
     }
 
     // MARK: - Record Info Section
@@ -3141,7 +3141,7 @@ struct NotesPanel: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(theme.contentBackground)
-                .cornerRadius(3)
+                .clipShape(.rect(cornerRadius: 3))
         }
     }
 
@@ -3185,7 +3185,7 @@ struct NotesPanel: View {
                     VStack(spacing: 0) {
                         // Formatting toolbar
                         CompactFormattingBar(text: $freeformNotes)
-                            .cornerRadius(4)
+                            .clipShape(.rect(cornerRadius: 4))
 
                         // Text editor with theme background
                         #if os(macOS)
@@ -3228,7 +3228,7 @@ struct NotesPanel: View {
                             }
                         #endif
                     }
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
@@ -3263,7 +3263,7 @@ struct NotesPanel: View {
                         .padding(.bottom, 6)
                 }
                 .background(theme.contentBackground)
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
@@ -3442,12 +3442,13 @@ struct FlowLayout: Layout {
 private struct FileDropModifier: ViewModifier {
     let publication: CDPublication?
     let library: CDLibrary?
-    @ObservedObject var handler: FileDropHandler
+    var handler: FileDropHandler
     @Binding var isTargeted: Bool
     var onPDFImported: (() -> Void)?
 
     func body(content: Content) -> some View {
-        content
+        @Bindable var dropHandler = handler
+        return content
             .overlay(dropOverlay)
             .modifier(FileDropTargetModifier(
                 publication: publication,
@@ -3455,7 +3456,7 @@ private struct FileDropModifier: ViewModifier {
                 handler: handler,
                 isTargeted: $isTargeted
             ))
-            .alert(item: $handler.pendingDuplicate) { pending in
+            .alert(item: $dropHandler.pendingDuplicate) { (pending: PendingDuplicateInfo) in
                 Alert(
                     title: Text("Duplicate File"),
                     message: Text("'\(pending.sourceURL.lastPathComponent)' appears to be identical to '\(pending.existingFilename)'. Import anyway?"),
@@ -3505,7 +3506,7 @@ private struct FileDropModifier: ViewModifier {
 private struct FileDropTargetModifier: ViewModifier {
     let publication: CDPublication?
     let library: CDLibrary?
-    @ObservedObject var handler: FileDropHandler
+    var handler: FileDropHandler
     @Binding var isTargeted: Bool
 
     func body(content: Content) -> some View {

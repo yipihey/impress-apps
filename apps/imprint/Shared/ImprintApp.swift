@@ -35,7 +35,7 @@ extension View {
 /// - imbib integration for citation management
 @main
 struct ImprintApp: App {
-    @StateObject private var appState = AppState()
+    @State private var appState = AppState()
 
     /// Whether running in UI testing mode
     private static let isUITesting = CommandLine.arguments.contains("--ui-testing")
@@ -85,7 +85,7 @@ struct ImprintApp: App {
         // Document-based app for .imprint files
         DocumentGroup(newDocument: Self.createInitialDocument()) { file in
             ContentView(document: file.$document)
-                .environmentObject(appState)
+                .environment(appState)
                 .withAppearance()
                 .onAppear {
                     // In UI testing mode, auto-create an untitled document if none open
@@ -238,31 +238,31 @@ struct ImprintApp: App {
 // MARK: - App State
 
 /// Global application state
-@MainActor
-class AppState: ObservableObject {
+@MainActor @Observable
+class AppState {
     /// Current edit mode (cycles with Tab)
-    @Published var editMode: EditMode = .splitView
+    var editMode: EditMode = .splitView
 
     /// Whether the citation picker is showing
-    @Published var showingCitationPicker = false
+    var showingCitationPicker = false
 
     /// Whether version history is showing
-    @Published var showingVersionHistory = false
+    var showingVersionHistory = false
 
     /// Whether focus mode is active (distraction-free editing)
-    @Published var isFocusMode = false
+    var isFocusMode = false
 
     /// Whether the AI assistant sidebar is visible
-    @Published var showingAIAssistant = false
+    var showingAIAssistant = false
 
     /// Whether the comments sidebar is visible
-    @Published var showingComments = false
+    var showingComments = false
 
     /// Currently selected text (for AI actions)
-    @Published var selectedText = ""
+    var selectedText = ""
 
     /// Currently selected text range (for comments)
-    @Published var selectedRange: NSRange?
+    var selectedRange: NSRange?
 }
 
 /// Editing modes for imprint

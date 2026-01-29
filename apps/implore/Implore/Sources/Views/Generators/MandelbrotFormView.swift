@@ -3,7 +3,7 @@ import ImploreCore
 
 /// Custom form view for Mandelbrot set generator with interactive zoom and presets
 struct MandelbrotFormView: View {
-    @ObservedObject var formState: GeneratorFormState
+    var formState: GeneratorFormState
     @State private var selectedPreset: MandelbrotPreset?
 
     var body: some View {
@@ -22,7 +22,7 @@ struct MandelbrotFormView: View {
 
             // Presets
             Section {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(MandelbrotPreset.allPresets, id: \.name) { preset in
                             PresetButton(preset: preset, isSelected: selectedPreset?.name == preset.name) {
@@ -31,6 +31,7 @@ struct MandelbrotFormView: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
             } header: {
                 Text("Presets")
                     .font(.subheadline)

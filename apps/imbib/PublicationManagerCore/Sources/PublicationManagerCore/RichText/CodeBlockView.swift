@@ -139,7 +139,7 @@ public struct CodeBlockView: View {
     // MARK: - Body
 
     public var body: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
+        ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 0) {
                 // Line numbers
                 if showLineNumbers {

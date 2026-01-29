@@ -59,8 +59,8 @@ public struct CollaboratorPresence: Identifiable, Equatable {
 /// - Broadcast local cursor/selection changes
 /// - Receive remote presence updates
 /// - Manage connection state
-@MainActor
-public final class CollaborationService: ObservableObject {
+@MainActor @Observable
+public final class CollaborationService {
 
     // MARK: - Singleton
 
@@ -69,22 +69,22 @@ public final class CollaborationService: ObservableObject {
     // MARK: - Published State
 
     /// Current collaborators in the session
-    @Published public private(set) var collaborators: [CollaboratorPresence] = []
+    public private(set) var collaborators: [CollaboratorPresence] = []
 
     /// Whether currently connected to a collaboration session
-    @Published public private(set) var isConnected = false
+    public private(set) var isConnected = false
 
     /// Connection status message
-    @Published public private(set) var connectionStatus: ConnectionStatus = .disconnected
+    public private(set) var connectionStatus: ConnectionStatus = .disconnected
 
     /// Local user's peer ID
-    @Published public private(set) var localPeerId: String = UUID().uuidString
+    public private(set) var localPeerId: String = UUID().uuidString
 
     /// Local user's display name
-    @AppStorage("collaboration.displayName") public var localDisplayName: String = NSFullUserName()
+    @ObservationIgnored @AppStorage("collaboration.displayName") public var localDisplayName: String = NSFullUserName()
 
     /// Local user's cursor color
-    @AppStorage("collaboration.cursorColor") private var cursorColorHex: String = "#8B5CF6"
+    @ObservationIgnored @AppStorage("collaboration.cursorColor") private var cursorColorHex: String = "#8B5CF6"
 
     // MARK: - Private State
 

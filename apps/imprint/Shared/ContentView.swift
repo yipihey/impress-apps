@@ -5,7 +5,7 @@ import ImprintCore
 /// Main content view for an imprint document (macOS)
 struct ContentView: View {
     @Binding var document: ImprintDocument
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) private var appState
 
     @State private var cursorPosition: Int = 0
     @State private var pdfData: Data?
@@ -19,16 +19,19 @@ struct ContentView: View {
     // AI Context Menu state
     @State private var showingAIContextMenu = false
     @State private var currentSuggestion: RewriteSuggestion?
+    @State private var aiErrorMessage: String?
 
     #if os(macOS)
     /// Comment service for this document (macOS only)
-    @StateObject private var commentService = CommentService()
+    @State private var commentService = CommentService()
     #endif
 
     /// Shared Typst renderer instance
     private let renderer = TypstRenderer()
 
     var body: some View {
+        @Bindable var appState = appState
+
         ZStack {
             mainContent
 
@@ -48,6 +51,8 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContent: some View {
+        @Bindable var appState = appState
+
         NavigationSplitView {
             // Sidebar: Document outline and cited papers
             List {
@@ -130,15 +135,15 @@ struct ContentView: View {
                 #if DEBUG
                 Text("pdf=\(pdfData?.count ?? 0)b")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .accessibilityIdentifier("debug.pdfSize")
                 Text(debugHistory)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .accessibilityIdentifier("debug.history")
                 Text("err=\(compilationError?.prefix(100) ?? "none")")
                     .font(.caption2)
-                    .foregroundColor(.red)
+                    .foregroundStyle(.red)
                     .lineLimit(3)
                     .accessibilityIdentifier("debug.error")
                 #endif
@@ -199,6 +204,9 @@ struct ContentView: View {
                 },
                 onDismiss: {
                     showingAIContextMenu = false
+                },
+                onError: { error in
+                    aiErrorMessage = error
                 }
             )
             .frame(width: 300, height: 500)
@@ -217,14 +225,30 @@ struct ContentView: View {
                     // Open in AI chat sidebar with the suggestion
                     appState.showingAIAssistant = true
                     currentSuggestion = nil
-                }
+                },
+                onCancel: suggestion.isStreaming ? {
+                    AIContextMenuService.shared.cancelCurrentAction()
+                    currentSuggestion = nil
+                } : nil
             )
+        }
+        .alert("AI Error", isPresented: Binding(
+            get: { aiErrorMessage != nil },
+            set: { if !$0 { aiErrorMessage = nil } }
+        )) {
+            Button("OK") {
+                aiErrorMessage = nil
+            }
+        } message: {
+            Text(aiErrorMessage ?? "An unknown error occurred.")
         }
         #endif
     }
 
     @ViewBuilder
     private var editorView: some View {
+        @Bindable var appState = appState
+
         HStack(spacing: 0) {
             // Comments sidebar (left)
             if appState.showingComments {
@@ -436,7 +460,7 @@ struct EditModeSegmentButton: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(background)
-                .foregroundColor(isSelected ? .primary : .secondary)
+                .foregroundStyle(isSelected ? .primary : .secondary)
         }
         .buttonStyle(.plain)
         .help(mode.helpText)
@@ -461,6 +485,6 @@ struct EditModeSegmentButton: View {
 
 #Preview {
     ContentView(document: .constant(ImprintDocument()))
-        .environmentObject(AppState())
+        .environment(AppState())
 }
 #endif // os(macOS)

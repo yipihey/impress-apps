@@ -20,7 +20,7 @@ struct AIChatSidebar: View {
     @Binding var documentSource: String
     let onInsertText: (String) -> Void
 
-    @StateObject private var aiService = AIAssistantService.shared
+    var aiService = AIAssistantService.shared
     @State private var chatInput = ""
     @State private var isShowingSettings = false
     @State private var actionResult: String?
@@ -142,7 +142,7 @@ struct AIChatSidebar: View {
                 .font(.caption)
                 .padding(8)
                 .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(6)
+                .clipShape(.rect(cornerRadius: 6))
 
             Text("Quick Actions")
                 .font(.caption)
@@ -206,7 +206,7 @@ struct AIChatSidebar: View {
                 .font(.body)
                 .padding(8)
                 .background(Color.purple.opacity(0.1))
-                .cornerRadius(6)
+                .clipShape(.rect(cornerRadius: 6))
                 .textSelection(.enabled)
         }
     }
@@ -357,7 +357,7 @@ struct ChatBubble: View {
                     .padding(10)
                     .background(backgroundColor)
                     .foregroundStyle(foregroundColor)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                     .textSelection(.enabled)
 
                 Text(message.timestamp.formatted(date: .omitted, time: .shortened))
@@ -413,7 +413,7 @@ enum QuickAction: String, CaseIterable, Identifiable {
 
 struct AISettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var aiService = AIAssistantService.shared
+    @Bindable private var aiService = AIAssistantService.shared
 
     @State private var claudeKey = ""
     @State private var openaiKey = ""

@@ -427,15 +427,15 @@ public actor ImprintHTTPRouter: HTTPRouter {
 // MARK: - Document Registry
 
 /// Registry for tracking open documents for API access.
-@MainActor
-final class DocumentRegistry: ObservableObject {
+@MainActor @Observable
+final class DocumentRegistry {
     static let shared = DocumentRegistry()
 
     /// Map of file URL -> document
-    @Published var documents: [String: ImprintDocument] = [:]
+    var documents: [String: ImprintDocument] = [:]
 
     /// Map of document ID -> document
-    @Published var documentsById: [UUID: ImprintDocument] = [:]
+    var documentsById: [UUID: ImprintDocument] = [:]
 
     private init() {}
 

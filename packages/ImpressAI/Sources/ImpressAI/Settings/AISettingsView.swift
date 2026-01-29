@@ -2,14 +2,14 @@ import SwiftUI
 
 /// SwiftUI view for configuring AI providers.
 public struct AISettingsView: View {
-    @StateObject private var settings: AISettings
+    @State private var settings: AISettings
     @State private var editingCredentials: [String: String] = [:]
     @State private var showingAPIKeyField: String? = nil
     @State private var isTestingConnection = false
     @State private var testResult: AIProviderStatus?
 
     public init(settings: AISettings = .shared) {
-        _settings = StateObject(wrappedValue: settings)
+        _settings = State(wrappedValue: settings)
     }
 
     public var body: some View {
@@ -162,7 +162,7 @@ public struct AISettingsView: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .background(.secondary.opacity(0.2))
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
                 }
             }
         }
@@ -357,7 +357,7 @@ public struct AISettingsView: View {
                     .fontDesign(.monospaced)
                     .padding(8)
                     .background(.secondary.opacity(0.1))
-                    .cornerRadius(6)
+                    .clipShape(.rect(cornerRadius: 6))
             }
             .padding(.vertical, 4)
         }

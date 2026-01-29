@@ -6,7 +6,7 @@ struct CitationPickerView: View {
     let cursorPosition: Int
 
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var imbibService = ImbibIntegrationService.shared
+    var imbibService = ImbibIntegrationService.shared
 
     @State private var searchQuery = ""
     @State private var searchResults: [CitationResult] = []
@@ -34,7 +34,7 @@ struct CitationPickerView: View {
             // Search field
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 TextField("Search papers...", text: $searchQuery)
                     .textFieldStyle(.plain)
@@ -84,7 +84,7 @@ struct CitationPickerView: View {
                             .font(.system(.body, design: .monospaced))
                         Text(citation.formattedPreview)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -114,15 +114,15 @@ struct CitationPickerView: View {
         VStack(spacing: 12) {
             Image(systemName: "books.vertical")
                 .font(.system(size: 36))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Search Your Library")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Type to search papers in imbib")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -131,15 +131,15 @@ struct CitationPickerView: View {
         VStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 36))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("No Results")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Try a different search term")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -148,14 +148,14 @@ struct CitationPickerView: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36))
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
 
             Text("imbib Not Installed")
                 .font(.headline)
 
             Text("Install imbib to search and insert citations from your library.")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
         }
@@ -166,14 +166,14 @@ struct CitationPickerView: View {
         VStack(spacing: 12) {
             Image(systemName: "lock.circle")
                 .font(.system(size: 36))
-                .foregroundColor(.orange)
+                .foregroundStyle(.orange)
 
             Text("Automation Disabled")
                 .font(.headline)
 
             Text("Enable automation in imbib Settings to search citations.")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
@@ -189,14 +189,14 @@ struct CitationPickerView: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.circle")
                 .font(.system(size: 36))
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
 
             Text("Search Error")
                 .font(.headline)
 
             Text(error)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
@@ -322,7 +322,7 @@ struct CitationResultRow: View {
             HStack(alignment: .top, spacing: 8) {
                 // PDF indicator
                 Image(systemName: citation.hasPDF ? "doc.fill" : "doc")
-                    .foregroundColor(citation.hasPDF ? .accentColor : .secondary)
+                    .foregroundStyle(citation.hasPDF ? Color.accentColor : Color.secondary)
                     .font(.headline)
                     .frame(width: 20)
 
@@ -334,12 +334,12 @@ struct CitationResultRow: View {
                     HStack {
                         Text(citation.authors)
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
 
                         if citation.year > 0 {
                             Text("(\(citation.year))")
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
 
                         Spacer()
@@ -349,13 +349,13 @@ struct CitationResultRow: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.secondary.opacity(0.2))
-                            .cornerRadius(4)
+                            .clipShape(.rect(cornerRadius: 4))
                     }
 
                     if !citation.venue.isEmpty {
                         Text(citation.venue)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .italic()
                     }
                 }

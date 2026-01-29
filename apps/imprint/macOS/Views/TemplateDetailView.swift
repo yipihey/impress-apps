@@ -4,7 +4,7 @@ import SwiftUI
 struct TemplateDetailView: View {
     let templateId: String
 
-    @StateObject private var templateService = TemplateService.shared
+    var templateService = TemplateService.shared
     @State private var showingEditor = false
     @State private var showingPreview = false
 
@@ -69,7 +69,7 @@ struct TemplateDetailView: View {
 
                     Image(systemName: metadata.category.systemImage)
                         .font(.title)
-                        .foregroundColor(categoryColor(metadata.category))
+                        .foregroundStyle(categoryColor(metadata.category))
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -80,12 +80,12 @@ struct TemplateDetailView: View {
                     HStack(spacing: 8) {
                         Text("v\(metadata.version)")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
 
                         if metadata.isBuiltin {
                             Label("Built-in", systemImage: "checkmark.seal.fill")
                                 .font(.caption)
-                                .foregroundColor(.green)
+                                .foregroundStyle(.green)
                         }
                     }
                 }
@@ -95,7 +95,7 @@ struct TemplateDetailView: View {
 
             Text(metadata.description)
                 .font(.body)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -107,17 +107,17 @@ struct TemplateDetailView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
                     Text("Category")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(metadata.category.displayName)
                 }
                 GridRow {
                     Text("Author")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(metadata.author)
                 }
                 GridRow {
                     Text("License")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(metadata.license)
                 }
             }
@@ -133,20 +133,20 @@ struct TemplateDetailView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
                     Text("Publisher")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(journal.publisher)
                 }
                 if let issn = journal.issn {
                     GridRow {
                         Text("ISSN")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(issn)
                     }
                 }
                 if let latexClass = journal.latexClass {
                     GridRow {
                         Text("LaTeX Class")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(latexClass)
                             .font(.system(.callout, design: .monospaced))
                     }
@@ -154,7 +154,7 @@ struct TemplateDetailView: View {
                 if let url = journal.url {
                     GridRow {
                         Text("Website")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Link(url, destination: URL(string: url)!)
                     }
                 }
@@ -171,22 +171,22 @@ struct TemplateDetailView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
                     Text("Paper Size")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text(defaults.size.uppercased())
                 }
                 GridRow {
                     Text("Margins")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("\(Int(defaults.marginTop))mm / \(Int(defaults.marginRight))mm / \(Int(defaults.marginBottom))mm / \(Int(defaults.marginLeft))mm")
                 }
                 GridRow {
                     Text("Columns")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("\(defaults.columns)")
                 }
                 GridRow {
                     Text("Font Size")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("\(Int(defaults.fontSize))pt")
                 }
             }
@@ -206,8 +206,8 @@ struct TemplateDetailView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(Color.accentColor.opacity(0.1))
-                        .foregroundColor(.accentColor)
-                        .cornerRadius(6)
+                        .foregroundStyle(Color.accentColor)
+                        .clipShape(.rect(cornerRadius: 6))
                 }
             }
         }

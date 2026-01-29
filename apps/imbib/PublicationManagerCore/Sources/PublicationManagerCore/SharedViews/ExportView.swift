@@ -73,7 +73,7 @@ public struct ExportView: View {
     // MARK: - Format Picker
 
     private var formatPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 ForEach(ExportFormat.allCases) { format in
                     FormatButton(
@@ -86,6 +86,7 @@ public struct ExportView: View {
             }
             .padding()
         }
+        .scrollIndicators(.hidden)
         .background(.bar)
     }
 

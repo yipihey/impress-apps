@@ -12,15 +12,16 @@ import OSLog
 
 /// Actor for managing keyboard shortcut settings with persistence.
 @MainActor
-public final class KeyboardShortcutsStore: ObservableObject {
+@Observable
+public final class KeyboardShortcutsStore {
 
     // MARK: - Singleton
 
     public static let shared = KeyboardShortcutsStore()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published public private(set) var settings: KeyboardShortcutsSettings
+    public private(set) var settings: KeyboardShortcutsSettings
 
     // MARK: - Private Properties
 

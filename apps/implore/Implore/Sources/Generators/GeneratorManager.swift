@@ -5,8 +5,8 @@ import ImploreCore
 ///
 /// This actor wraps the Rust GeneratorRegistryHandle and provides
 /// a Swift-friendly async API for generator operations.
-@MainActor
-public final class GeneratorManager: ObservableObject {
+@MainActor @Observable
+public final class GeneratorManager {
     /// Shared instance for app-wide access
     public static let shared = GeneratorManager()
 
@@ -14,19 +14,19 @@ public final class GeneratorManager: ObservableObject {
     private let registry: GeneratorRegistryHandle
 
     /// Published list of all available generators
-    @Published public private(set) var generators: [GeneratorMetadata] = []
+    public private(set) var generators: [GeneratorMetadata] = []
 
     /// Published list of categories with generators
-    @Published public private(set) var categories: [GeneratorCategory] = []
+    public private(set) var categories: [GeneratorCategory] = []
 
     /// Currently selected generator
-    @Published public var selectedGenerator: GeneratorMetadata?
+    public var selectedGenerator: GeneratorMetadata?
 
     /// Error from last operation
-    @Published public var lastError: GeneratorErrorFfi?
+    public var lastError: GeneratorErrorFfi?
 
     /// Whether a generation is in progress
-    @Published public private(set) var isGenerating: Bool = false
+    public private(set) var isGenerating: Bool = false
 
     public init() {
         self.registry = GeneratorRegistryHandle()

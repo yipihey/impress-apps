@@ -21,7 +21,8 @@ import AppKit
 /// Used by both the Info panel attachment section and list row drop targets.
 /// Extracts URLs from dropped items and imports them as attachments.
 @MainActor
-public final class FileDropHandler: ObservableObject {
+@Observable
+public final class FileDropHandler {
 
     // MARK: - Accepted Types
 
@@ -44,16 +45,16 @@ public final class FileDropHandler: ObservableObject {
     let attachmentManager: AttachmentManager
 
     /// Import progress (current, total)
-    @Published public var importProgress: (current: Int, total: Int)?
+    public var importProgress: (current: Int, total: Int)?
 
     /// Whether import is in progress
-    @Published public var isImporting: Bool = false
+    public var isImporting: Bool = false
 
     /// Last error that occurred
-    @Published public var lastError: Error?
+    public var lastError: Error?
 
     /// Pending duplicate that needs user confirmation
-    @Published public var pendingDuplicate: PendingDuplicateInfo?
+    public var pendingDuplicate: PendingDuplicateInfo?
 
     // MARK: - Initialization
 

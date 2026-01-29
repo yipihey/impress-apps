@@ -1423,7 +1423,7 @@ public struct PDFViewerWithControls: View {
         #if os(iOS)
         // iOS: Compact toolbar with essential controls, scrollable for overflow
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     // Page Navigation
                     HStack(spacing: 6) {
@@ -1594,7 +1594,9 @@ public struct PDFViewerWithControls: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
+            .scrollIndicators(.hidden)
         }
+        .frame(maxWidth: .infinity)
         #else
         // macOS: Full horizontal toolbar
         HStack(spacing: 16) {

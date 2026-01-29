@@ -739,11 +739,12 @@ struct BibEntryDetail: View {
 
                 if let raw = entry.rawContent {
                     GroupBox("Raw Content") {
-                        ScrollView(.horizontal, showsIndicators: false) {
+                        ScrollView(.horizontal) {
                             Text(raw)
                                 .font(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                         }
+                        .scrollIndicators(.hidden)
                     }
                 }
 

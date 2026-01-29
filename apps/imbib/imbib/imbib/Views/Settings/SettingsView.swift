@@ -837,11 +837,11 @@ struct BackupSettingsSection: View {
                     if let lastBackup = lastBackupDate {
                         Text("Last backup: \(lastBackup, style: .relative) ago")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     } else {
                         Text("No recent backups")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -865,7 +865,7 @@ struct BackupSettingsSection: View {
                     ProgressView(value: progress.fractionComplete)
                     Text(progress.phase.rawValue)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -875,7 +875,7 @@ struct BackupSettingsSection: View {
             if !availableBackups.isEmpty {
                 Text("Recent Backups")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 ForEach(availableBackups.prefix(3)) { backup in
                     HStack {
@@ -884,12 +884,12 @@ struct BackupSettingsSection: View {
                                 .font(.caption)
                             Text("\(backup.publicationCount) publications, \(backup.pdfCount) PDFs")
                                 .font(.caption2)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Text(backup.sizeString)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -1023,7 +1023,7 @@ struct AdvancedSettingsTab: View {
                 }
                 .padding(40)
                 .background(.regularMaterial)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
         }
     }

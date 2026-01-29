@@ -606,7 +606,7 @@ struct IOSSearchView: View {
     // MARK: - Source Filter Bar
 
     private var sourceFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(availableSources, id: \.id) { source in
                     IOSSourceChip(
@@ -629,6 +629,7 @@ struct IOSSearchView: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .scrollIndicators(.hidden)
     }
 
     // MARK: - Results List

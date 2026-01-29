@@ -19,7 +19,7 @@ import SwiftUI
 /// - Inline reply support
 /// - Resolve/unresolve actions
 struct CommentsSidebarView: View {
-    @ObservedObject var commentService: CommentService
+    @Bindable var commentService: CommentService
     let onNavigateToRange: (TextRange) -> Void
 
     @State private var newCommentText = ""
@@ -70,7 +70,7 @@ struct CommentsSidebarView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Color.orange.opacity(0.2))
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
             }
         }
         .padding()

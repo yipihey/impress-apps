@@ -6,15 +6,17 @@ import ImpressHelixCore
 
 /// Main content view with split visualization and controls
 struct ContentView: View {
-    @EnvironmentObject var appState: AppState
-    @StateObject private var generatorViewModel = GeneratorViewModel()
-    @StateObject private var libraryManager = LibraryManager.shared
+    @Environment(AppState.self) var appState
+    @State private var generatorViewModel = GeneratorViewModel()
+    @State private var libraryManager = LibraryManager.shared
 
     var body: some View {
+        @Bindable var appState = appState
         NavigationSplitView {
             FigureSidebarView()
-                .environmentObject(generatorViewModel)
-                .environmentObject(libraryManager)
+                .environment(appState)
+                .environment(generatorViewModel)
+                .environment(libraryManager)
                 .accessibilityIdentifier("sidebar.container")
         } detail: {
             if let session = appState.currentSession {
@@ -116,7 +118,7 @@ enum SidebarMode: String, CaseIterable {
 
 /// Legacy sidebar with dataset info and controls (kept for reference)
 struct SidebarView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     var body: some View {
         List {
@@ -167,7 +169,7 @@ struct SidebarView: View {
 
 /// Placeholder view for generated data visualization
 struct GeneratedDataView: View {
-    @ObservedObject var viewModel: GeneratorViewModel
+    var viewModel: GeneratorViewModel
 
     var body: some View {
         VStack {
@@ -222,7 +224,7 @@ struct GeneratedDataView: View {
 
 /// Welcome view shown when no dataset is loaded
 struct WelcomeView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     var body: some View {
         VStack(spacing: 20) {
@@ -292,9 +294,10 @@ struct FormatRow: View {
 
 /// Render mode picker in toolbar
 struct RenderModePicker: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     var body: some View {
+        @Bindable var appState = appState
         Picker("Mode", selection: $appState.renderMode) {
             ForEach(RenderMode.allCases, id: \.self) { mode in
                 Text(mode.rawValue).tag(mode)
@@ -312,7 +315,7 @@ struct SelectionGrammarSheet: View {
     @State private var errorMessage: String?
 
     #if os(macOS)
-    @StateObject private var helixState = HelixState()
+    @State private var helixState = HelixState()
     @AppStorage("implore.helix.isEnabled") private var helixEnabled = true
     #endif
 
@@ -492,5 +495,5 @@ struct GrammarEditorRepresentable: NSViewRepresentable {
 
 #Preview {
     ContentView()
-        .environmentObject(AppState())
+        .environment(AppState())
 }

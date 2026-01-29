@@ -3,7 +3,7 @@ import SwiftUI
 /// Editor for creating or modifying templates with live preview
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var templateService = TemplateService.shared
+    private var templateService = TemplateService.shared
 
     // Template properties
     @State private var templateId: String
@@ -103,7 +103,7 @@ struct TemplateEditorView: View {
                 TextField("Name", text: $templateName)
                 TextField("ID", text: $templateId)
                     .disabled(!isNewTemplate)
-                    .foregroundColor(isNewTemplate ? .primary : .secondary)
+                    .foregroundStyle(isNewTemplate ? .primary : .secondary)
                 TextField("Description", text: $templateDescription, axis: .vertical)
                     .lineLimit(3...6)
             }
@@ -169,7 +169,7 @@ struct TemplateEditorView: View {
                     Spacer()
                     Text("\(typstSource.count) characters")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -209,13 +209,13 @@ struct TemplateEditorView: View {
             VStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.largeTitle)
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
                 Text("Compilation Error")
                     .font(.headline)
                 ScrollView {
                     Text(error)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
@@ -370,10 +370,10 @@ struct TemplatePreviewPlaceholder: View {
         VStack {
             Image(systemName: "doc.text")
                 .font(.largeTitle)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             Text(message)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))

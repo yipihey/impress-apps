@@ -37,7 +37,7 @@ private struct FilterCacheKey: Equatable {
 
 /// Memoization cache for filtered row data.
 /// Uses a class to avoid @State changes that would trigger re-renders.
-private final class FilteredRowDataCache: ObservableObject {
+private final class FilteredRowDataCache {
     private var cachedKey: FilterCacheKey?
     private var cachedResult: [PublicationRowData]?
 
@@ -281,7 +281,7 @@ public struct PublicationListView: View {
     @State private var saveStateTask: Task<Void, Never>?
 
     /// Memoization cache for filtered row data (class reference to avoid state changes)
-    @StateObject private var filterCache = FilteredRowDataCache()
+    @State private var filterCache = FilteredRowDataCache()
 
     /// Scroll proxy for programmatic scrolling to selection (set by ScrollViewReader)
     @State private var scrollProxy: ScrollViewProxy?
@@ -1060,7 +1060,7 @@ public struct PublicationListView: View {
                     }
                 } label: {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(searchQuery.isEmpty && !searchInPDFs ? .secondary : .blue)
+                        .foregroundStyle(searchQuery.isEmpty && !searchInPDFs ? Color.secondary : Color.blue)
                 }
                 .buttonStyle(.plain)
                 .help("Expand search")
@@ -1945,7 +1945,7 @@ public struct PublicationListView: View {
             VStack(spacing: 12) {
                 Image(systemName: "doc.badge.plus")
                     .font(.system(size: 48))
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(Color.accentColor)
 
                 Text("Drop PDFs to Import")
                     .font(.headline)

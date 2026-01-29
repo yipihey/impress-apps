@@ -6,7 +6,7 @@ import SwiftUI
 /// large-scale scientific datasets. Part of the impress suite.
 @main
 struct ImploreApp: App {
-    @StateObject private var appState = AppState()
+    @State private var appState = AppState()
 
     /// Whether running in UI testing mode
     private static let isUITesting = CommandLine.arguments.contains("--ui-testing")
@@ -60,7 +60,7 @@ struct ImploreApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(appState)
+                .environment(appState)
                 .onOpenURL { url in
                     handleURL(url)
                 }
@@ -143,23 +143,23 @@ struct ImploreApp: App {
 
         Settings {
             SettingsView()
-                .environmentObject(appState)
+                .environment(appState)
         }
     }
 }
 
 /// Global application state
-@MainActor
-class AppState: ObservableObject {
-    @Published var currentSession: VisualizationSession?
-    @Published var renderMode: RenderMode = .science2D
-    @Published var isLoading: Bool = false
-    @Published var errorMessage: String?
+@MainActor @Observable
+class AppState {
+    var currentSession: VisualizationSession?
+    var renderMode: RenderMode = .science2D
+    var isLoading: Bool = false
+    var errorMessage: String?
 
     // UI state
-    @Published var showingOpenPanel: Bool = false
-    @Published var showingExportPanel: Bool = false
-    @Published var showingSelectionGrammar: Bool = false
+    var showingOpenPanel: Bool = false
+    var showingExportPanel: Bool = false
+    var showingSelectionGrammar: Bool = false
 
     init() {
         // Load sample dataset for testing if requested

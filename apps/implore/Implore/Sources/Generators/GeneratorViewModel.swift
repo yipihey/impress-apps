@@ -1,48 +1,48 @@
 import Foundation
 import ImploreCore
 import SwiftUI
-import Combine
 
 /// Coordinator view model for generator-related UI state.
 ///
 /// This view model connects the GeneratorManager with the form state
 /// and provides the primary interface for generator-related views.
-@MainActor
-public final class GeneratorViewModel: ObservableObject {
+@MainActor @Observable
+public final class GeneratorViewModel {
     /// The generator manager instance
-    @Published public private(set) var manager: GeneratorManager
+    public private(set) var manager: GeneratorManager
 
     /// Form state for the currently selected generator
-    @Published public private(set) var formState: GeneratorFormState
+    public private(set) var formState: GeneratorFormState
 
     /// The most recently generated data
-    @Published public private(set) var generatedData: GeneratedDataFfi?
+    public private(set) var generatedData: GeneratedDataFfi?
 
-    /// Whether generation is in progress
-    @Published public private(set) var isGenerating: Bool = false
+    /// Whether generation is in progress - derived from manager
+    public var isGenerating: Bool {
+        manager.isGenerating
+    }
 
     /// Error message to display
-    @Published public var errorMessage: String?
+    public var errorMessage: String?
 
-    /// Cancellation token for ongoing operations
-    private var cancellables = Set<AnyCancellable>()
+    /// Track last selected generator to detect changes
+    private var lastSelectedGeneratorId: String?
 
     public init(manager: GeneratorManager = .shared) {
         self.manager = manager
         self.formState = GeneratorFormState()
+    }
 
-        // Observe manager's selected generator
-        manager.$selectedGenerator
-            .sink { [weak self] metadata in
-                if let metadata = metadata {
-                    self?.formState.configure(for: metadata)
-                }
+    /// Call this to sync form state when selected generator changes
+    /// Views should call this in onChange(of: manager.selectedGenerator)
+    public func syncFormStateIfNeeded() {
+        let currentId = manager.selectedGenerator?.id
+        if currentId != lastSelectedGeneratorId {
+            lastSelectedGeneratorId = currentId
+            if let metadata = manager.selectedGenerator {
+                formState.configure(for: metadata)
             }
-            .store(in: &cancellables)
-
-        // Forward isGenerating state
-        manager.$isGenerating
-            .assign(to: &$isGenerating)
+        }
     }
 
     /// Select a generator by ID

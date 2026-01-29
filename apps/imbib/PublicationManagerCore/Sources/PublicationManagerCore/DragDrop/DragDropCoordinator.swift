@@ -21,25 +21,26 @@ import CoreData
 /// - Publication UUIDs → move/copy between libraries/collections
 /// - Other files → FileDropHandler (attach to publications)
 @MainActor
-public final class DragDropCoordinator: ObservableObject {
+@Observable
+public final class DragDropCoordinator {
 
     // MARK: - Singleton
 
     public static let shared = DragDropCoordinator()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// Whether a drop operation is being processed
-    @Published public var isProcessing = false
+    public var isProcessing = false
 
     /// Pending preview data for user confirmation
-    @Published public var pendingPreview: DropPreviewData?
+    public var pendingPreview: DropPreviewData?
 
     /// Current target being hovered
-    @Published public var currentTarget: DropTarget?
+    public var currentTarget: DropTarget?
 
     /// Last error that occurred
-    @Published public var lastError: Error?
+    public var lastError: Error?
 
     // MARK: - Handlers
 
