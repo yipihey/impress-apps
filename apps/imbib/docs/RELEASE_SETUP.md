@@ -1,169 +1,183 @@
-# Release Build Setup
+# Release Credential Setup
 
-This guide explains how to set up automated builds for imbib releases.
+This guide covers the one-time setup of credentials needed for imbib releases.
 
-## Overview
+For release workflows, see [RELEASE_GUIDE.md](RELEASE_GUIDE.md).
 
-When you push a version tag (e.g., `v1.2.1`), GitHub Actions will automatically:
-1. Build the macOS app with Safari extension
-2. Sign it with your Developer ID certificate
-3. Notarize it with Apple
-4. Create a DMG installer
-5. Upload the DMG to the GitHub release
+## Quick Setup
+
+Run the interactive setup wizard:
+
+```bash
+./scripts/release.sh setup
+```
+
+This configures all credentials in macOS Keychain.
 
 ## Prerequisites
 
-- Apple Developer Program membership ($99/year)
-- Developer ID Application certificate
-- Xcode installed locally (for certificate export)
+Before setting up credentials, you need:
 
-## GitHub Secrets Setup
+1. **Apple Developer Program membership** ($99/year)
+   - https://developer.apple.com/programs/
 
-Go to your repository → Settings → Secrets and variables → Actions → New repository secret
+2. **Signing certificates in Keychain:**
+   - "Developer ID Application" - for DMG distribution
+   - "Apple Distribution" - for App Store/TestFlight
 
-You need to add these secrets:
+3. **App Store Connect API key:**
+   - https://appstoreconnect.apple.com/access/api
+   - Role: "App Manager" or "Admin"
 
-### 1. MACOS_CERTIFICATE_BASE64
+## Credential Details
 
-Your Developer ID Application certificate exported as base64.
+### 1. Team ID
 
-**To create this:**
+Your 10-character Apple Developer Team ID.
+
+**Where to find it:**
+- https://developer.apple.com/account → Membership
+- Or in Xcode: Settings → Accounts → Select team
+
+**Example:** `ABC1234DEF`
+
+### 2. Notarization Credentials (for DMG)
+
+Used to notarize DMG files for direct distribution.
+
+**Apple ID:** Your Apple Developer email address.
+
+**App-Specific Password:**
+1. Go to https://appleid.apple.com/account/manage
+2. Sign in → Security → App-Specific Passwords
+3. Click "Generate" → Name it "imbib releases"
+4. Copy the generated password (format: `xxxx-xxxx-xxxx-xxxx`)
+
+### 3. App Store Connect API Key (for TestFlight)
+
+Used to upload builds to TestFlight and App Store.
+
+**Create the key:**
+1. Go to https://appstoreconnect.apple.com/access/api
+2. Click the "+" button to create a new key
+3. Name: "imbib releases"
+4. Access: "App Manager" or "Admin"
+5. Click "Generate"
+
+**Save the key file:**
+1. Download the `.p8` file (you can only download once!)
+2. Save it to:
+   ```bash
+   mkdir -p ~/.appstoreconnect/private_keys
+   mv ~/Downloads/AuthKey_XXXXXXXX.p8 ~/.appstoreconnect/private_keys/
+   ```
+
+**Note the IDs:**
+- **Key ID:** Shown in the key list (e.g., `ABC123DEFG`)
+- **Issuer ID:** Shown at the top of the API keys page
+
+## GitHub Secrets (for CI/CD)
+
+For GitHub Actions to build releases automatically, add these secrets:
+
+Go to: Repository → Settings → Secrets and variables → Actions
+
+| Secret | Description |
+|--------|-------------|
+| `MACOS_CERTIFICATE_BASE64` | Developer ID certificate as base64 |
+| `MACOS_CERTIFICATE_PASSWORD` | Password for the .p12 file |
+| `KEYCHAIN_PASSWORD` | Any random password for temp keychain |
+| `APPLE_TEAM_ID` | Your 10-character Team ID |
+| `APPLE_ID` | Your Apple ID email |
+| `APPLE_APP_PASSWORD` | App-specific password |
+
+### Exporting the Certificate
 
 1. Open Keychain Access
-2. Find "Developer ID Application: Your Name (TEAM_ID)"
-3. Right-click → Export → Save as `.p12` file
-4. Choose a strong password (you'll need it for the next secret)
+2. Find "Developer ID Application: Your Name"
+3. Right-click → Export → Save as `.p12`
+4. Choose a strong password
 5. Convert to base64:
    ```bash
    base64 -i Certificates.p12 | pbcopy
    ```
-6. Paste the result as the secret value
+6. Paste as `MACOS_CERTIFICATE_BASE64` secret
 
-### 2. MACOS_CERTIFICATE_PASSWORD
+## Keychain Reference
 
-The password you used when exporting the .p12 certificate.
+Credentials are stored in macOS Keychain:
 
-### 3. KEYCHAIN_PASSWORD
+| Service | Account | Description |
+|---------|---------|-------------|
+| `imbib-release` | `team-id` | Apple Developer Team ID |
+| `imbib-release` | `apple-id` | Apple ID for notarization |
+| `imbib-release` | `app-password` | App-specific password |
+| `imbib-testflight` | `asc-key-id` | App Store Connect Key ID |
+| `imbib-testflight` | `asc-issuer-id` | App Store Connect Issuer ID |
 
-Any random password for the temporary keychain (e.g., `build-keychain-password-123`).
-
-### 4. APPLE_TEAM_ID
-
-Your 10-character Apple Developer Team ID.
-
-**To find it:**
-- Go to https://developer.apple.com/account
-- Look in the top-right under your name, or
-- In Xcode: Preferences → Accounts → Select team → View Details
-
-Example: `ABC1234DEF`
-
-### 5. APPLE_ID
-
-Your Apple ID email address used for notarization.
-
-Example: `developer@example.com`
-
-### 6. APPLE_APP_PASSWORD
-
-An app-specific password for notarization (NOT your Apple ID password).
-
-**To create one:**
-1. Go to https://appleid.apple.com/account/manage
-2. Sign in → Security → App-Specific Passwords
-3. Click "Generate" → Name it "GitHub Actions imbib"
-4. Copy the generated password (format: `xxxx-xxxx-xxxx-xxxx`)
-
-## Local Builds
-
-For building releases locally without GitHub Actions:
+### Manual Keychain Commands
 
 ```bash
-# Install prerequisites
-brew install xcodegen create-dmg
+# View a credential
+security find-generic-password -s "imbib-release" -a "team-id" -w
 
-# Run the build script
-./scripts/build-release.sh v1.2.1
+# Add/update a credential
+security add-generic-password -U -a "team-id" -s "imbib-release" -w "ABC1234DEF"
 
-# Or with environment variables
-APPLE_ID="you@example.com" \
-APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
-TEAM_ID="ABC1234DEF" \
-./scripts/build-release.sh v1.2.1
+# Delete a credential
+security delete-generic-password -s "imbib-release" -a "team-id"
 ```
 
-The DMG will be created in `build/imbib-v1.2.1-macOS.dmg`.
+## Verification
 
-## Creating a Release
-
-### Option 1: Automatic (GitHub Actions)
+After setup, verify credentials:
 
 ```bash
-# Tag and push
-git tag v1.3.0
-git push origin v1.3.0
+./scripts/release.sh status
 ```
 
-GitHub Actions will build and attach the DMG to the release automatically.
-
-### Option 2: Manual
-
-```bash
-# Build locally
-./scripts/build-release.sh v1.3.0
-
-# Create release and upload
-gh release create v1.3.0 \
-  --title "v1.3.0 - Release Title" \
-  --notes "Release notes here" \
-  build/imbib-v1.3.0-macOS.dmg
+Expected output:
+```
+Credentials:
+  Team ID:         ✓ configured
+  Notarization:    ✓ configured (you@example.com)
+  App Store API:   ✓ configured (key: ABC123DEFG)
 ```
 
 ## Troubleshooting
 
-### Certificate not found
+### "No signing certificate found"
 
-Make sure the certificate name matches exactly: "Developer ID Application"
+1. Open Keychain Access
+2. Check for "Developer ID Application" (DMG) or "Apple Distribution" (App Store)
+3. If missing:
+   - Download from https://developer.apple.com/account/resources/certificates
+   - Or create via Xcode: Settings → Accounts → Manage Certificates
 
-Check available certificates:
+### "API key file not found"
+
+The `.p8` file must be in the correct location:
 ```bash
-security find-identity -v -p codesigning
+~/.appstoreconnect/private_keys/AuthKey_KEYID.p8
 ```
 
-### Notarization failed
-
-- Verify app-specific password is correct
-- Check Apple ID has accepted latest agreements at developer.apple.com
-- Review notarization log:
-  ```bash
-  xcrun notarytool log <submission-id> \
-    --apple-id "$APPLE_ID" \
-    --password "$APPLE_APP_PASSWORD" \
-    --team-id "$TEAM_ID"
-  ```
-
-### Safari extension not in bundle
-
-Verify the extension target is listed in project.yml with `embed: true`:
-```yaml
-dependencies:
-  - target: imbib-SafariExtension
-    embed: true
-```
-
-## Verifying the Build
-
-After building, verify the Safari extension is included:
-
+Check:
 ```bash
-# Check bundle contents
-ls -la "build/export/imbib.app/Contents/PlugIns/"
-# Should show: imbib Safari Extension.appex
-
-# Verify code signature
-codesign -dv --verbose=4 "build/export/imbib.app"
-
-# Verify notarization
-spctl -a -v "build/export/imbib.app"
-# Should show: accepted, source=Notarized Developer ID
+ls ~/.appstoreconnect/private_keys/
 ```
+
+### "Invalid app-specific password"
+
+1. Go to https://appleid.apple.com/account/manage
+2. Revoke the old password
+3. Generate a new one
+4. Update in Keychain:
+   ```bash
+   ./scripts/release.sh setup
+   ```
+
+## Related Documentation
+
+- [RELEASE_GUIDE.md](RELEASE_GUIDE.md) - How to perform releases
+- [Apple Developer Documentation](https://developer.apple.com/documentation/)
+- [App Store Connect Help](https://developer.apple.com/help/app-store-connect/)
