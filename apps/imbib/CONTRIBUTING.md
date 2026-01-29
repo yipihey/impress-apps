@@ -20,8 +20,8 @@ brew install xcodegen
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yipihey/imbib.git
-   cd imbib
+   git clone https://github.com/yipihey/impress-apps.git
+   cd impress-apps/apps/imbib
    ```
 
 2. Generate the Xcode project:
@@ -46,8 +46,8 @@ brew install xcodegen
 
 ```bash
 # Clone and enter the repository
-git clone https://github.com/yipihey/imbib.git
-cd imbib
+git clone https://github.com/yipihey/impress-apps.git
+cd impress-apps/apps/imbib
 
 # Build the Swift Package first (optional, Xcode does this automatically)
 cd PublicationManagerCore
@@ -175,7 +175,7 @@ This project is designed to work well with AI coding assistants. See [CLAUDE.md]
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/yipihey/imbib/issues)
+- Use [GitHub Issues](https://github.com/yipihey/impress-apps/issues)
 - Include macOS/iOS version
 - Include steps to reproduce
 - Attach relevant logs from Console.app if applicable

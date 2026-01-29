@@ -11,7 +11,7 @@ This guide walks you through setting up imBib and importing your first papers.
 
 ## Installation
 
-1. Download the latest `.dmg` from [GitHub Releases](https://github.com/yipihey/imbib/releases)
+1. Download the latest `.dmg` from [GitHub Releases](https://github.com/yipihey/impress-apps/releases)
 2. Open the DMG and drag imBib to Applications
 3. Right-click the app and select "Open" (required for unsigned beta builds)
 4. Grant file access when prompted (needed for library storage)
@@ -66,7 +66,7 @@ imBib uses a three-column layout:
   - Unread papers
   - Smart Searches
   - Collections
-- **SciX Libraries**: (Coming soon) NASA ADS private libraries
+- **SciX Libraries**: (Coming soon) SciX/NASA ADS private libraries
 - **Search**: Ad-hoc searches and Smart Searches
 
 ### Paper List
@@ -121,7 +121,7 @@ Configure which databases to search in **Settings → Sources**:
 
 | Source | Content | Notes |
 |--------|---------|-------|
-| **NASA ADS** | Astronomy, physics, arXiv | Requires free API key |
+| **SciX/NASA ADS** | Astronomy, physics, arXiv | Requires free API key (from scixplorer.org or ui.adsabs.harvard.edu) |
 | **arXiv** | Preprints (all fields) | No key needed |
 | **Crossref** | Published papers (all fields) | No key needed |
 | **Semantic Scholar** | CS, biomedicine | No key needed |
@@ -195,6 +195,23 @@ Some PDFs require institutional access:
 
 ---
 
+## E-Ink Devices (Optional)
+
+Sync papers with reMarkable, Supernote, or Kindle Scribe for distraction-free reading.
+
+### Quick Setup
+
+1. Go to **Settings > E-Ink Devices**
+2. Click **Add Device**
+3. Select your device and sync method
+4. Send papers via right-click menu or **Paper > Send to E-Ink Device**
+
+Annotations you make on your device can be synced back to imbib, including highlights and handwritten notes with optional OCR.
+
+[Full E-Ink Guide](eink-devices) - Detailed setup instructions
+
+---
+
 ## Smart Searches
 
 Smart Searches are saved queries that update automatically.
@@ -219,10 +236,29 @@ New papers matching your search appear in Inbox for triage.
 
 ### Inbox Triage
 
-Process Inbox papers efficiently:
-- **Star** (`S`): Mark as important
-- **Archive** (`A`): Move to library, out of Inbox
-- **Dismiss** (`D`): Remove without adding to library
+Process Inbox papers efficiently with keyboard shortcuts:
+
+| Key | Action | Result |
+|-----|--------|--------|
+| `S` | **Star** | Mark as important, keep in Inbox |
+| `A` | **Archive** | Add to library, remove from Inbox |
+| `D` | **Dismiss** | Remove without saving |
+| `↓` / `J` | Next paper | Move to next in list |
+| `↑` / `K` | Previous paper | Move to previous |
+| `Cmd+6` | PDF tab | View the PDF |
+| `Cmd+4` | Info tab | View metadata and abstract |
+
+**Efficient triage workflow:**
+1. Start in Inbox
+2. Glance at title and authors (Info tab)
+3. If interesting, check abstract or PDF (`Cmd+6`)
+4. Decide: Star, Archive, or Dismiss
+5. Move to next paper (`↓` or `J`)
+6. Repeat
+
+**Pro tip:** Star papers that need deeper review, then come back to starred papers when you have more time.
+
+[Full Paper Triage Guide](features#paper-triage-workflow)
 
 ---
 
@@ -264,8 +300,32 @@ imBib is fully keyboard-driven. Essential shortcuts:
 
 ---
 
+---
+
+## Cross-Device Features
+
+### Handoff
+
+Continue reading on another device:
+1. Start reading a PDF on your Mac
+2. Your iPad shows an imbib icon on the Lock Screen
+3. Tap to continue at the exact page
+
+[Full Handoff Guide](handoff)
+
+### Spotlight
+
+Find papers from system search:
+- **Mac:** `Cmd+Space` then type paper title
+- **iOS:** Swipe down from Home Screen
+
+[Full Spotlight Guide](spotlight)
+
+---
+
 ## Next Steps
 
+- [Master paper triage](features#paper-triage-workflow) - The core imbib workflow
 - [Explore all features](features)
 - [Learn keyboard shortcuts](keyboard-shortcuts)
 - [Set up automation](automation)

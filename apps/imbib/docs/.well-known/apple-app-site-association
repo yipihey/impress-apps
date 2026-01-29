@@ -8,12 +8,12 @@
                     "TEAMID.com.imbib.app.ios"
                 ],
                 "paths": [
-                    "/imbib/doi/*",
-                    "/imbib/arxiv/*",
-                    "/imbib/paper/*",
-                    "/imbib/search",
-                    "/imbib/inbox",
-                    "/imbib/library"
+                    "/impress-apps/doi/*",
+                    "/impress-apps/arxiv/*",
+                    "/impress-apps/paper/*",
+                    "/impress-apps/search",
+                    "/impress-apps/inbox",
+                    "/impress-apps/library"
                 ]
             }
         ]

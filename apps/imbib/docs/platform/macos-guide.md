@@ -50,14 +50,26 @@ Open papers in separate windows:
 - Keep reference paper open while browsing
 - Use Spaces/Mission Control for organization
 
-### Dual Monitor Workflow
+### Multi-Monitor Support
 
-Optimized for multiple displays:
+Spread your research workflow across multiple displays:
 
-1. Main window on primary display
-2. Drag paper windows to secondary display
-3. Each display maintains its own window state
-4. Full Screen works per-display
+**Detachable Tabs:**
+| Tab | Shortcut | Placement |
+|-----|----------|-----------|
+| PDF | **Shift+P** | Maximized on secondary |
+| Notes | **Shift+N** | Centered on secondary |
+| BibTeX | **Shift+B** | Centered on secondary |
+| Info | **Shift+I** | Centered on secondary |
+
+**Key Features:**
+- Intelligent window placement on secondary displays
+- **Shift+F** flips/swaps main and detached window positions
+- Window positions persist across sessions
+- Synchronized state between windows (PDF page, notes edits)
+- Automatic migration when displays disconnect
+
+[Full Multi-Monitor Guide →](../multi-monitor)
 
 ### Menu Bar
 
@@ -107,11 +119,21 @@ Access your papers from Finder:
 
 ### Spotlight Search
 
-Papers are indexed by Spotlight:
+Papers are indexed by Spotlight for instant access:
 
 1. Press `Cmd+Space`
-2. Type paper title or author
+2. Type paper title, author, DOI, or arXiv ID
 3. Click to open in imbib
+
+**What's Indexed:**
+- Title and authors
+- Abstract (keywords)
+- Identifiers (DOI, arXiv ID, bibcode, cite key)
+- Journal name
+
+**Rebuilding Index:** Settings > Advanced > Rebuild Spotlight Index
+
+[Full Spotlight Guide →](../features/spotlight)
 
 ### Quick Look
 
@@ -238,6 +260,25 @@ Open with `Cmd+,`:
 | Import | File format options |
 | Shortcuts | Keyboard shortcut reference |
 | Advanced | Developer tools |
+
+---
+
+## Console Window
+
+Access debug logs for troubleshooting:
+
+1. Press **Cmd+Shift+C** to open the Console
+2. Filter by log level (Debug, Info, Warning, Error)
+3. Search within messages
+4. Export logs for bug reports
+
+**Common Uses:**
+- Diagnose search failures
+- Debug sync issues
+- Track PDF download problems
+- Monitor background operations
+
+[Full Console Guide →](../features/console)
 
 ---
 

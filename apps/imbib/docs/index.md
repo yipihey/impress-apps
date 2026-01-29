@@ -28,7 +28,7 @@ Thanks for joining the imBib beta. Your feedback shapes the app.
 
 **How to help:**
 1. Use imBib for your actual workflow
-2. [Report issues on GitHub](https://github.com/yipihey/imbib/issues)
+2. [Report issues on GitHub](https://github.com/yipihey/impress-apps/issues)
 3. Share what works, what doesn't, and what's missing
 
 ---
@@ -54,7 +54,7 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 
 ## Quick Start
 
-1. **Download** the latest beta from [Releases](https://github.com/yipihey/imbib/releases)
+1. **Download** the latest beta from [Releases](https://github.com/yipihey/impress-apps/releases)
 2. **Create a library** or import an existing `.bib` file
 3. **Search** for papers using the search bar (ADS and arXiv enabled by default)
 4. **Import** papers to your library with one click
@@ -98,8 +98,8 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 
 ## Links
 
-- [GitHub Repository](https://github.com/yipihey/imbib)
-- [Report an Issue](https://github.com/yipihey/imbib/issues)
+- [GitHub Repository](https://github.com/yipihey/impress-apps)
+- [Report an Issue](https://github.com/yipihey/impress-apps/issues)
 - [Browser Extensions](share-extension)
 - [Keyboard Shortcuts](keyboard-shortcuts)
 - [Automation API](automation)

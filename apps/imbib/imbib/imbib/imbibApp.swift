@@ -865,6 +865,19 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
 
+            Divider()
+
+            Button("Send to E-Ink Device") {
+                NotificationCenter.default.post(name: .sendToEInkDevice, object: nil)
+            }
+            .keyboardShortcut("e", modifiers: [.control, .command])
+
+            Button("Sync E-Ink Annotations") {
+                NotificationCenter.default.post(name: .syncEInkAnnotations, object: nil)
+            }
+
+            Divider()
+
             Button("Delete") {
                 NotificationCenter.default.post(name: .deleteSelectedPapers, object: nil)
             }
@@ -1078,7 +1091,7 @@ struct AppCommands: Commands {
             Divider()
 
             Button("Online Documentation") {
-                if let url = URL(string: "https://yipihey.github.io/imbib/") {
+                if let url = URL(string: "https://yipihey.github.io/impress-apps/") {
                     NSWorkspace.shared.open(url)
                 }
             }
@@ -1086,19 +1099,19 @@ struct AppCommands: Commands {
             Divider()
 
             Button("What's New") {
-                if let url = URL(string: "https://github.com/imbib/imbib/releases/latest") {
+                if let url = URL(string: "https://github.com/yipihey/impress-apps/releases/latest") {
                     NSWorkspace.shared.open(url)
                 }
             }
 
             Button("Report an Issue...") {
-                if let url = URL(string: "https://github.com/imbib/imbib/issues") {
+                if let url = URL(string: "https://github.com/yipihey/impress-apps/issues") {
                     NSWorkspace.shared.open(url)
                 }
             }
 
             Button("Release Notes") {
-                if let url = URL(string: "https://github.com/imbib/imbib/releases") {
+                if let url = URL(string: "https://github.com/yipihey/impress-apps/releases") {
                     NSWorkspace.shared.open(url)
                 }
             }

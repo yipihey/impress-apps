@@ -9,6 +9,48 @@ Comprehensive documentation of all imBib features.
 
 ---
 
+## Paper Triage Workflow
+
+The core imbib workflow: discover papers, evaluate them quickly, and decide what to keep.
+
+### Keyboard-Driven Triage
+
+| Key | Action |
+|-----|--------|
+| `↓` / `J` | Next paper |
+| `↑` / `K` | Previous paper |
+| `Space` | Preview (toggle abstract/PDF) |
+| `S` | Star (mark important) |
+| `A` | Archive (add to library) |
+| `D` | Dismiss (remove) |
+| `Cmd+4/5/6/7` | Switch tabs (Info/BibTeX/PDF/Notes) |
+
+### Evaluating Papers
+
+**Quick scan (Info tab):**
+- Glance at authors and year
+- Read title and skim abstract
+- Check citation count
+
+**Deep dive (PDF tab):**
+- Press `Cmd+6` for PDF tab
+- Skim introduction and figures
+
+### Batch Operations
+
+- `Cmd+A` to select all
+- `Shift+Click` for range selection
+- Press `A`, `D`, or `S` to apply to all selected
+
+### Daily Workflow
+
+1. Open Inbox each morning
+2. Dismiss obviously irrelevant papers
+3. Star anything needing deeper review
+4. Archive clear wins immediately
+
+---
+
 ## Libraries
 
 ### Multiple Libraries
@@ -53,7 +95,7 @@ Search multiple databases simultaneously from a single search bar.
 
 | Source | Content | API Key Required |
 |--------|---------|------------------|
-| NASA ADS | Astronomy, physics, geoscience | Yes (free) |
+| SciX/NASA ADS | Astronomy, physics, geoscience | Yes (free from scixplorer.org or ui.adsabs.harvard.edu) |
 | arXiv | Preprints across all fields | No |
 | Crossref | Published papers via DOI | No |
 | Semantic Scholar | CS, biomedicine with citations | No |
@@ -367,6 +409,30 @@ For PDFs requiring authentication:
 3. Choose format and options
 4. Save file
 
+### Cite Key Formatting
+
+Customize how cite keys are generated for imported papers.
+
+**Presets:**
+
+| Preset | Format | Example |
+|--------|--------|---------|
+| Classic | `%a%Y%t` | `Einstein1905Electrodynamics` |
+| Authors+Year | `%a2_%Y` | `Einstein_Podolsky_1935` |
+| Short | `%a:%y` | `Einstein:05` |
+| Full Authors | `%A%Y` | `EinsteinPodolskyRosen1935` |
+| Custom | (yours) | (varies) |
+
+**Common Specifiers:**
+- `%a` - First author last name
+- `%Y` - Four-digit year
+- `%t` - First title word
+- `%u` - Uniqueness suffix (a, b, c...)
+
+Configure in **Settings > Import & Export**.
+
+[Full Cite Key Guide](cite-key-formatting) - All specifiers and examples
+
 ---
 
 ## Settings
@@ -381,7 +447,7 @@ For PDFs requiring authentication:
 
 Enable/disable search sources and configure API keys:
 
-- NASA ADS: Requires API key (free from ADS)
+- SciX/NASA ADS: Requires API key (free from scixplorer.org or ui.adsabs.harvard.edu)
 - Other sources: No keys needed
 
 ### PDF
@@ -393,6 +459,82 @@ Enable/disable search sources and configure API keys:
 
 - Follows system dark/light mode
 - Accent color customization
+
+---
+
+## Multi-Monitor Support (macOS)
+
+Spread your research workflow across multiple displays.
+
+### Detachable Tabs
+
+Any detail tab can be "popped out" to a separate window:
+
+| Tab | Shortcut | Placement |
+|-----|----------|-----------|
+| PDF | **Shift+P** | Maximized on secondary display |
+| Notes | **Shift+N** | Centered on secondary |
+| BibTeX | **Shift+B** | Centered on secondary |
+| Info | **Shift+I** | Centered on secondary |
+
+### Key Features
+
+- **Intelligent Placement**: Windows automatically open on secondary display when available
+- **Position Memory**: Window positions persist across sessions
+- **Synchronized State**: PDF page, notes, and edits sync between windows
+- **Flip Positions**: **Shift+F** swaps main and detached window positions
+- **Display Disconnect**: Windows migrate gracefully when displays change
+
+### Common Workflows
+
+**Reading with Notes:**
+1. Press **Shift+P** for PDF on secondary display
+2. Take notes in main window's Notes tab
+3. Both stay synchronized
+
+**Paper Comparison:**
+1. Open first paper's PDF (**Shift+P**)
+2. Select second paper, press **Shift+P** again
+3. Two PDFs side by side
+
+[Full Multi-Monitor Guide](multi-monitor) - Complete setup and workflows
+
+---
+
+## E-Ink Device Integration
+
+Sync papers with E-Ink reading devices for distraction-free reading and annotation.
+
+### Supported Devices
+
+| Device | Sync Methods | Features |
+|--------|-------------|----------|
+| **reMarkable** | Cloud API, Folder Sync | Full bidirectional sync, annotation import |
+| **Supernote** | Folder Sync | PDF upload, `.note`/`.mark` annotation import |
+| **Kindle Scribe** | USB, Email | PDF upload, embedded annotation extraction |
+
+### Key Features
+
+- **Send to Device**: Upload PDFs directly from the context menu or Paper menu
+- **Annotation Import**: Pull highlights, handwritten notes, and text annotations back to imbib
+- **OCR Support**: Convert handwritten annotations to searchable text
+- **Auto-Sync**: Configurable background sync intervals
+- **Folder Organization**: Mirror imbib collections on your device
+
+### Quick Start
+
+1. Go to **Settings > E-Ink Devices**
+2. Click **Add Device** and select your device type
+3. Configure the sync method (Cloud, Folder, USB, or Email)
+4. Send papers via context menu or **Paper > Send to E-Ink Device** (Control+Command+E)
+
+### Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Send to E-Ink Device | **Control+Command+E** |
+
+[Full E-Ink Guide](eink-devices) - Complete setup and usage instructions
 
 ---
 
@@ -502,7 +644,7 @@ Lightweight popup for one-click imports:
 
 | Source | Recognition |
 |--------|-------------|
-| NASA ADS | Abstract pages (`ui.adsabs.harvard.edu/abs/...`) |
+| SciX/NASA ADS | Abstract pages (`scixplorer.org/abs/...`, `ui.adsabs.harvard.edu/abs/...`) |
 | arXiv | Abstract pages (`arxiv.org/abs/...`) |
 | DOI | Resolver URLs (`doi.org/10.xxxx/...`) |
 | PubMed | Article pages (`pubmed.ncbi.nlm.nih.gov/...`) |
@@ -599,9 +741,67 @@ imBib works fully offline. Online features:
 - iCloud sync (optional, for multi-device)
 - Share extension (optional)
 
-### Backup
+### Backup & Restore
 
-Your library is plain files:
-- Copy the library folder for backup
-- Use Time Machine
-- Sync via Dropbox/iCloud (folder-level)
+imbib provides comprehensive backup:
+
+**Creating Backups:**
+- **File > Export > Full Library Backup**
+- Includes: BibTeX, attachments, notes, settings
+
+**Restoring:**
+- **File > Import > Restore from Backup**
+- Choose Merge or Replace mode
+
+[Full Backup Guide](backup-restore)
+
+---
+
+## Cross-Device Features
+
+### Handoff
+
+Continue reading across devices:
+1. Start reading on one device
+2. See imbib icon on another device
+3. Tap to continue at exact page and zoom
+
+[Full Handoff Guide](handoff)
+
+### Spotlight
+
+Find papers via system search:
+- **Mac:** `Cmd+Space` then type
+- **iOS:** Swipe down from Home Screen
+
+[Full Spotlight Guide](spotlight)
+
+---
+
+## Console Window
+
+Debug logging for troubleshooting.
+
+**Open:** `Cmd+Shift+C`
+
+**Features:**
+- Filter by log level
+- Search within messages
+- Export for bug reports
+
+[Full Console Guide](console)
+
+---
+
+## Manuscript Tracking
+
+Track your own papers through publication.
+
+**Status Workflow:** Drafting → Submitted → Under Review → Revision → Accepted → Published
+
+**Features:**
+- Citation tracking
+- Version management
+- imprint integration
+
+[Full Manuscript Guide](manuscript-tracking)

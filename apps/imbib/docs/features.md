@@ -9,6 +9,81 @@ Comprehensive documentation of all imBib features.
 
 ---
 
+## Paper Triage Workflow
+
+The core imbib workflow: discover papers, evaluate them quickly, and decide what to keep.
+
+### The Triage Loop
+
+1. **Papers arrive** in your Inbox (from Smart Searches, Share Extension, etc.)
+2. **Preview** each paper to decide its value
+3. **Act** on it: Star, Archive, or Dismiss
+4. **Move on** to the next paper
+
+### Keyboard-Driven Triage
+
+For maximum efficiency, use these shortcuts:
+
+| Key | Action |
+|-----|--------|
+| `↓` / `J` | Next paper |
+| `↑` / `K` | Previous paper |
+| `Space` | Preview (toggle abstract/PDF) |
+| `S` | Star (mark important, keep in Inbox) |
+| `A` | Archive (add to library, remove from Inbox) |
+| `D` | Dismiss (remove without saving) |
+| `Cmd+4/5/6/7` | Switch tabs (Info/BibTeX/PDF/Notes) |
+
+### Evaluating Papers
+
+**Quick scan (Info tab):**
+- Glance at authors and year
+- Read title
+- Skim abstract
+- Check citation count
+
+**Deep dive (PDF tab):**
+- Press `Cmd+6` or click PDF tab
+- Skim introduction and figures
+- Check methodology if relevant
+
+**Switch back and forth:**
+- `Cmd+4` for Info, `Cmd+6` for PDF
+- Or use the tab bar at top of detail view
+
+### Batch Operations
+
+Select multiple papers for bulk actions:
+- `Cmd+A` to select all
+- `Shift+Click` for range selection
+- `Cmd+Click` for individual selection
+- Then press `A`, `D`, or `S` to apply to all
+
+### Starred Papers
+
+Stars help prioritize within the Inbox:
+- Starred papers stay at top
+- Review starred papers when you have more time
+- Unstar after archiving or dismissing
+
+### Workflow Tips
+
+**Daily triage:**
+1. Open Inbox each morning
+2. Quickly dismiss obviously irrelevant papers
+3. Star anything that needs deeper review
+4. Archive clear wins immediately
+
+**Weekly review:**
+1. Review starred papers with full attention
+2. Read PDFs for promising papers
+3. Archive or dismiss after reading
+4. Empty Inbox before next week
+
+[Full Inbox Management Guide →](features/inbox-management)
+
+---
+
 ## Libraries
 
 ### Multiple Libraries
@@ -53,7 +128,7 @@ Search multiple databases simultaneously from a single search bar.
 
 | Source | Content | API Key Required |
 |--------|---------|------------------|
-| NASA ADS | Astronomy, physics, geoscience | Yes (free) |
+| SciX/NASA ADS | Astronomy, physics, geoscience | Yes (free from scixplorer.org or ui.adsabs.harvard.edu) |
 | arXiv | Preprints across all fields | No |
 | Crossref | Published papers via DOI | No |
 | Semantic Scholar | CS, biomedicine with citations | No |
@@ -99,12 +174,42 @@ pubdate:2024-01
 
 ### Deduplication
 
-When searching multiple sources, imBib automatically deduplicates results:
+When searching multiple sources, imBib automatically deduplicates results using a sophisticated matching algorithm.
 
-1. **Identifier matching**: DOI, arXiv ID, bibcode, Semantic Scholar ID
-2. **Fuzzy matching**: Title + first author for papers without shared IDs
+#### Identifier Matching
 
-The best metadata is kept from each source.
+Papers are matched if they share any of these identifiers:
+- **DOI** - Normalized (case-insensitive, prefix-stripped)
+- **arXiv ID** - Normalized (version suffix removed, e.g., `2401.12345v2` → `2401.12345`)
+- **Bibcode** - Exact match
+- **PubMed ID** - Exact match
+
+#### Fuzzy Matching
+
+For papers without shared identifiers, fuzzy matching uses:
+- **Title similarity** - Jaccard similarity > 85% on normalized words
+- **First author** - Last name must match (case-insensitive)
+- **Year** - Must be within 1 year (accounts for preprint/publication gap)
+
+#### Source Priority
+
+When duplicates are found, metadata is selected from the highest-priority source:
+
+| Priority | Source | Reason |
+|----------|--------|--------|
+| 1 | Crossref | Publisher-authoritative DOI metadata |
+| 2 | PubMed | Curated biomedical data |
+| 3 | ADS | Curated astronomy/physics data |
+| 4 | Semantic Scholar | Rich citation data |
+| 5 | OpenAlex | Comprehensive coverage |
+| 6 | arXiv | Preprint source |
+| 7 | DBLP | CS venue data |
+
+#### What Gets Merged
+
+- **Identifiers** - All unique identifiers are collected from all sources
+- **PDF URLs** - Best available source retained
+- **Metadata** - Highest priority source wins for each field
 
 ### Search History
 
@@ -130,6 +235,50 @@ OpenAlex provides unique capabilities not available from other sources:
 **No API Key Required**
 - Free access to 240M+ scholarly works
 - Optional: add email in Settings for higher rate limits (100K requests/day)
+
+---
+
+## Metadata Enrichment
+
+imbib can automatically fetch additional metadata for papers from multiple sources.
+
+### What Gets Enriched
+
+| Data | Sources |
+|------|---------|
+| **Citation count** | OpenAlex, Semantic Scholar, ADS |
+| **References** | Semantic Scholar, OpenAlex |
+| **Open Access status** | OpenAlex |
+| **Affiliations** | OpenAlex |
+| **Topics/Keywords** | OpenAlex, Semantic Scholar |
+| **Funding info** | OpenAlex |
+| **Related papers** | Semantic Scholar |
+
+### How Enrichment Works
+
+1. **On import** - Papers are queued for enrichment when added
+2. **Background processing** - Queue processes in batches of 50
+3. **Source priority** - Sources tried in user-configured order
+4. **Caching** - Results cached to avoid redundant requests
+
+### Enrichment Settings
+
+Configure in **Settings > Enrichment**:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Auto-enrich on add | Fetch metadata when papers are added | On |
+| Update existing | Overwrite existing metadata | Off |
+| Fetch references | Download reference lists | Off |
+| Fetch citations | Download citing papers | Off |
+| Source priority | Order to try sources | Crossref, OpenAlex, S2, ADS |
+
+### Manual Enrichment
+
+To enrich specific papers:
+1. Select papers
+2. Go to **Paper > Enrich Metadata**
+3. imbib fetches fresh data from all enabled sources
 
 ---
 
@@ -388,6 +537,30 @@ For PDFs requiring authentication:
 3. Choose format and options
 4. Save file
 
+### Cite Key Formatting
+
+Customize how cite keys are generated for imported papers.
+
+**Presets:**
+
+| Preset | Format | Example |
+|--------|--------|---------|
+| Classic | `%a%Y%t` | `Einstein1905Electrodynamics` |
+| Authors+Year | `%a2_%Y` | `Einstein_Podolsky_1935` |
+| Short | `%a:%y` | `Einstein:05` |
+| Full Authors | `%A%Y` | `EinsteinPodolskyRosen1935` |
+| Custom | (yours) | (varies) |
+
+**Common Specifiers:**
+- `%a` - First author last name
+- `%Y` - Four-digit year
+- `%t` - First title word
+- `%u` - Uniqueness suffix (a, b, c...)
+
+Configure in **Settings > Import & Export**.
+
+[Full Cite Key Guide](cite-key-formatting) - All specifiers and examples
+
 ---
 
 ## Settings
@@ -402,7 +575,7 @@ For PDFs requiring authentication:
 
 Enable/disable search sources and configure API keys:
 
-- NASA ADS: Requires API key (free from ADS)
+- SciX/NASA ADS: Requires API key (free from scixplorer.org or ui.adsabs.harvard.edu)
 - Other sources: No keys needed
 
 ### PDF
@@ -414,6 +587,82 @@ Enable/disable search sources and configure API keys:
 
 - Follows system dark/light mode
 - Accent color customization
+
+---
+
+## Multi-Monitor Support (macOS)
+
+Spread your research workflow across multiple displays.
+
+### Detachable Tabs
+
+Any detail tab can be "popped out" to a separate window:
+
+| Tab | Shortcut | Placement |
+|-----|----------|-----------|
+| PDF | **Shift+P** | Maximized on secondary display |
+| Notes | **Shift+N** | Centered on secondary |
+| BibTeX | **Shift+B** | Centered on secondary |
+| Info | **Shift+I** | Centered on secondary |
+
+### Key Features
+
+- **Intelligent Placement**: Windows automatically open on secondary display when available
+- **Position Memory**: Window positions persist across sessions
+- **Synchronized State**: PDF page, notes, and edits sync between windows
+- **Flip Positions**: **Shift+F** swaps main and detached window positions
+- **Display Disconnect**: Windows migrate gracefully when displays change
+
+### Common Workflows
+
+**Reading with Notes:**
+1. Press **Shift+P** for PDF on secondary display
+2. Take notes in main window's Notes tab
+3. Both stay synchronized
+
+**Paper Comparison:**
+1. Open first paper's PDF (**Shift+P**)
+2. Select second paper, press **Shift+P** again
+3. Two PDFs side by side
+
+[Full Multi-Monitor Guide](multi-monitor) - Complete setup and workflows
+
+---
+
+## E-Ink Device Integration
+
+Sync papers with E-Ink reading devices for distraction-free reading and annotation.
+
+### Supported Devices
+
+| Device | Sync Methods | Features |
+|--------|-------------|----------|
+| **reMarkable** | Cloud API, Folder Sync | Full bidirectional sync, annotation import |
+| **Supernote** | Folder Sync | PDF upload, `.note`/`.mark` annotation import |
+| **Kindle Scribe** | USB, Email | PDF upload, embedded annotation extraction |
+
+### Key Features
+
+- **Send to Device**: Upload PDFs directly from the context menu or Paper menu
+- **Annotation Import**: Pull highlights, handwritten notes, and text annotations back to imbib
+- **OCR Support**: Convert handwritten annotations to searchable text
+- **Auto-Sync**: Configurable background sync intervals
+- **Folder Organization**: Mirror imbib collections on your device
+
+### Quick Start
+
+1. Go to **Settings > E-Ink Devices**
+2. Click **Add Device** and select your device type
+3. Configure the sync method (Cloud, Folder, USB, or Email)
+4. Send papers via context menu or **Paper > Send to E-Ink Device** (Control+Command+E)
+
+### Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Send to E-Ink Device | **Control+Command+E** |
+
+[Full E-Ink Guide](eink-devices) - Complete setup and usage instructions
 
 ---
 
@@ -523,7 +772,7 @@ Lightweight popup for one-click imports:
 
 | Source | Recognition |
 |--------|-------------|
-| NASA ADS | Abstract pages (`ui.adsabs.harvard.edu/abs/...`) |
+| SciX/NASA ADS | Abstract pages (`scixplorer.org/abs/...`, `ui.adsabs.harvard.edu/abs/...`) |
 | arXiv | Abstract pages (`arxiv.org/abs/...`) |
 | DOI | Resolver URLs (`doi.org/10.xxxx/...`) |
 | PubMed | Article pages (`pubmed.ncbi.nlm.nih.gov/...`) |
@@ -655,9 +904,109 @@ imBib works fully offline. Online features:
 - iCloud sync (optional, for multi-device)
 - Share extension (optional)
 
-### Backup
+### Backup & Restore
 
-Your library is plain files:
-- Copy the library folder for backup
-- Use Time Machine
-- Sync via Dropbox/iCloud (folder-level)
+imbib provides comprehensive backup and restore functionality:
+
+**Creating Backups:**
+- **File > Export > Full Library Backup** creates a complete snapshot
+- Includes: BibTeX, all attachments, notes, settings, integrity manifest
+- Compressed option available for smaller file size
+
+**Restoring:**
+- **File > Import > Restore from Backup** to restore
+- Choose Merge (add to existing) or Replace (clear first)
+- Select what to restore: publications, attachments, notes, settings
+
+**What's Backed Up:**
+| Component | Included |
+|-----------|----------|
+| Publications | All BibTeX entries |
+| Attachments | PDFs, images, data files |
+| Notes | Personal annotations |
+| Settings | App preferences |
+| Manifest | Checksums for verification |
+
+[Full Backup & Restore Guide →](backup-restore)
+
+---
+
+## Cross-Device Features
+
+### Handoff
+
+Continue reading papers across your Apple devices:
+
+1. Start reading a PDF on your Mac
+2. See the imbib icon appear on your iPad/iPhone
+3. Tap to continue at the exact same page and zoom
+
+**Requirements:**
+- Same Apple ID on all devices
+- Bluetooth and Wi-Fi enabled
+- Handoff enabled in System Settings
+
+[Full Handoff Guide →](features/handoff)
+
+### Spotlight Integration
+
+Find papers instantly from system search:
+
+**macOS:** Press `Cmd+Space`, type paper title or author
+**iOS:** Swipe down from Home Screen, type to search
+
+**What's Indexed:**
+- Title and authors
+- Abstract keywords
+- DOI, arXiv ID, bibcode
+- Cite key
+
+[Full Spotlight Guide →](features/spotlight)
+
+---
+
+## Console Window
+
+Debug logging for troubleshooting.
+
+**Opening:** Press `Cmd+Shift+C` or **Window > Console**
+
+**Features:**
+- Filter by log level (Debug, Info, Warning, Error)
+- Search within messages
+- Export logs for bug reports
+- Copy selected entries
+
+**Common Uses:**
+- Diagnose search issues
+- Debug sync problems
+- Track PDF download failures
+- Monitor enrichment progress
+
+[Full Console Guide →](features/console)
+
+---
+
+## Manuscript Tracking
+
+Track your own papers through the publication process.
+
+### Status Workflow
+
+| Status | Description |
+|--------|-------------|
+| Drafting | Initial writing |
+| Submitted | Sent to journal |
+| Under Review | Being reviewed |
+| In Revision | Addressing feedback |
+| Accepted | Accepted for publication |
+| Published | Final publication |
+
+### Features
+
+- **Citation tracking** - Link papers you cite
+- **Version management** - Tag submission/revision documents
+- **imprint integration** - Seamless writing workflow
+- **Bibliography export** - Export cited papers as .bib
+
+[Full Manuscript Tracking Guide →](features/manuscript-tracking)

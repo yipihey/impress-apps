@@ -84,7 +84,7 @@ public actor CrossrefSource: SourcePlugin {
 
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("imbib/1.0 (https://github.com/imbib/imbib; mailto:contact@imbib.app)", forHTTPHeaderField: "User-Agent")
+        request.setValue("imbib/1.0 (https://github.com/yipihey/impress-apps; mailto:contact@imbib.app)", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 
@@ -131,7 +131,7 @@ public actor CrossrefSource: SourcePlugin {
 
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("imbib/1.0 (https://github.com/imbib/imbib; mailto:contact@imbib.app)", forHTTPHeaderField: "User-Agent")
+        request.setValue("imbib/1.0 (https://github.com/yipihey/impress-apps; mailto:contact@imbib.app)", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 

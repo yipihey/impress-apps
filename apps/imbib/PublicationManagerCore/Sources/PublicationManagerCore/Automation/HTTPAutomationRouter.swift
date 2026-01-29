@@ -267,7 +267,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/export?keys=...": "Export BibTeX (params: keys, format)",
                 "GET /api/collections": "List all collections"
             ],
-            "documentation": "https://github.com/imbib/imbib/wiki/HTTP-API"
+            "documentation": "https://github.com/yipihey/impress-apps/wiki/HTTP-API"
         ]
         return .json(info)
     }

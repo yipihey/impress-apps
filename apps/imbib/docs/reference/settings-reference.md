@@ -106,13 +106,13 @@ Set to 0 to hide abstract preview entirely.
 
 Configure credentials for online sources:
 
-### NASA ADS
+### SciX/NASA ADS
 
 | Setting | Description | Required |
 |---------|-------------|----------|
-| API Key | Your ADS API token | Yes |
+| API Key | Your SciX/ADS API token | Yes |
 
-Get a free key at: [ui.adsabs.harvard.edu](https://ui.adsabs.harvard.edu/)
+Get a free key at: [scixplorer.org](https://scixplorer.org/) or [ui.adsabs.harvard.edu](https://ui.adsabs.harvard.edu/)
 
 ### OpenAlex
 
@@ -330,6 +330,28 @@ Quick configurations:
 
 ## Import/Export
 
+### Cite Key Format
+
+| Setting | Options | Default |
+|---------|---------|---------|
+| Format Preset | Classic, Authors+Year, Short, Full Authors, Custom | Classic |
+| Custom Format | Format string (when Custom selected) | — |
+| Lowercase | Convert cite keys to lowercase | Off |
+| Auto-generate | Generate cite keys for imported papers | On |
+
+**Format Specifiers:**
+- `%a` - First author last name
+- `%a2` - First two authors
+- `%A` - All authors (max 3, then EtAl)
+- `%y` - Two-digit year
+- `%Y` - Four-digit year
+- `%t` - First significant title word
+- `%T2` - First N title words
+- `%u` - Letter suffix for uniqueness
+- `%f{field}` - Custom field value
+
+[Full Cite Key Guide →](../cite-key-formatting)
+
 ### Import Settings
 
 | Setting | Options | Default |
@@ -370,14 +392,61 @@ Currently, shortcuts cannot be customized in-app. Use System Settings → Keyboa
 
 ---
 
+## Backup
+
+### Backup Settings
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Include attachments | Include PDFs and files in backup | On |
+| Include notes | Include personal annotations | On |
+| Include settings | Include app preferences | On |
+
+### Backup Location
+
+Backups are stored in:
+- **macOS**: `~/Library/Application Support/imbib/Backups/`
+- **iOS**: App container (accessible via Files app)
+
+### Backup Contents
+
+Each backup includes:
+- `library.bib` - All publications as BibTeX
+- `Attachments/` - All linked files
+- `notes.json` - Personal annotations
+- `settings.json` - App preferences
+- `manifest.json` - Checksums for integrity verification
+
+[Full Backup & Restore Guide →](../backup-restore)
+
+---
+
 ## Advanced
+
+### Console
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Show console | Open debug console window | Button |
+| Enable verbose logging | Include Debug level in Console | Off |
+
+The Console shows real-time log messages for troubleshooting. Open with **Cmd+Shift+C**.
+
+[Full Console Guide →](../features/console)
 
 ### Developer Options
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Show console | Access debug console | Button |
 | Show developer docs | Include architecture docs in Help | Off |
+
+### Spotlight Index
+
+| Setting | Description |
+|---------|-------------|
+| Rebuild Spotlight Index | Reindex all papers for system search |
+
+Use this if Spotlight isn't finding papers it should.
 
 ### Cache Management
 

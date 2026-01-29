@@ -160,11 +160,11 @@ struct IOSSettingsView: View {
                         Label("imbib Help", systemImage: "questionmark.circle")
                     }
 
-                    Link(destination: URL(string: "https://yipihey.github.io/imbib/")!) {
+                    Link(destination: URL(string: "https://yipihey.github.io/impress-apps/")!) {
                         Label("Online Documentation", systemImage: "book")
                     }
 
-                    Link(destination: URL(string: "https://github.com/imbib/imbib/issues")!) {
+                    Link(destination: URL(string: "https://github.com/yipihey/impress-apps/issues")!) {
                         Label("Report an Issue", systemImage: "exclamationmark.bubble")
                     }
                 }

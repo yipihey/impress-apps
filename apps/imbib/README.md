@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/yipihey/imbib/releases">Download</a> &bull;
-  <a href="https://yipihey.github.io/imbib/">Documentation</a> &bull;
-  <a href="https://github.com/yipihey/imbib/issues">Report Issue</a>
+  <a href="https://github.com/yipihey/impress-apps/releases">Download</a> &bull;
+  <a href="https://yipihey.github.io/impress-apps/">Documentation</a> &bull;
+  <a href="https://github.com/yipihey/impress-apps/issues">Report Issue</a>
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 ### macOS
 
-1. Download the latest release from [Releases](https://github.com/yipihey/imbib/releases)
+1. Download the latest release from [Releases](https://github.com/yipihey/impress-apps/releases)
 2. Move `imbib.app` to `/Applications`
 3. Launch imbib
 
@@ -47,7 +47,7 @@ Coming to TestFlight soon.
 3. **Import papers** - Click to add papers to your library
 4. **Attach PDFs** - Drag-and-drop or download from publishers
 
-[Full Getting Started Guide](https://yipihey.github.io/imbib/getting-started)
+[Full Getting Started Guide](https://yipihey.github.io/impress-apps/getting-started)
 
 ## Features
 
@@ -72,13 +72,13 @@ Coming to TestFlight soon.
 
 ## Documentation
 
-Full documentation is available at [yipihey.github.io/imbib](https://yipihey.github.io/imbib/):
+Full documentation is available at [yipihey.github.io/impress-apps](https://yipihey.github.io/impress-apps/):
 
-- [Getting Started](https://yipihey.github.io/imbib/getting-started)
-- [Features](https://yipihey.github.io/imbib/features)
-- [Keyboard Shortcuts](https://yipihey.github.io/imbib/keyboard-shortcuts)
-- [Browser Extensions](https://yipihey.github.io/imbib/share-extension)
-- [Automation API](https://yipihey.github.io/imbib/automation)
+- [Getting Started](https://yipihey.github.io/impress-apps/getting-started)
+- [Features](https://yipihey.github.io/impress-apps/features)
+- [Keyboard Shortcuts](https://yipihey.github.io/impress-apps/keyboard-shortcuts)
+- [Browser Extensions](https://yipihey.github.io/impress-apps/share-extension)
+- [Automation API](https://yipihey.github.io/impress-apps/automation)
 
 ## Building from Source
 
@@ -89,8 +89,8 @@ Full documentation is available at [yipihey.github.io/imbib](https://yipihey.git
 brew install xcodegen
 
 # Clone the repository
-git clone https://github.com/yipihey/imbib.git
-cd imbib
+git clone https://github.com/yipihey/impress-apps.git
+cd impress-apps/apps/imbib
 
 # Generate the Xcode project and open it
 cd imbib

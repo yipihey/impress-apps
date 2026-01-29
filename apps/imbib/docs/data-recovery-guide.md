@@ -138,34 +138,54 @@ After exporting:
 
 ## Restoring from Backup
 
-### Automatic Backups
+### Using the Built-in Restore Feature
 
-imbib creates automatic backups:
-- Before major app updates
-- Before schema migrations
-- When requested
+imbib provides a complete restore workflow in Settings:
 
-**To restore:**
-1. **File > Restore > From Backup**
-2. Select the backup file/folder
-3. Choose whether to merge or replace
+**macOS:**
+1. Go to **Settings > Sync > Backup**
+2. Find your backup in the "Recent Backups" list
+3. Click **Restore** next to the backup you want to restore
+4. In the Restore Options dialog:
+   - Choose **Merge** (add to existing library) or **Replace** (clear and restore)
+   - Select what to restore: Publications, Attachments, Notes, Settings
+5. Click **Restore** and wait for completion
 
-### Manual Import
+**iOS:**
+1. Go to **Settings > Backup**
+2. Tap the backup you want to restore
+3. Choose your restore options
+4. Tap **Restore**
 
-If restoring from a BibTeX file:
+### Restore Modes
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Merge** | Adds backup contents to existing library, skips duplicates by cite key | Recovering specific publications, combining libraries |
+| **Replace** | Clears existing library first, then restores backup | Complete restoration, starting fresh |
+
+### What Gets Restored
+
+| Content | Default | Notes |
+|---------|---------|-------|
+| Publications | Yes | BibTeX entries from library.bib |
+| Attachments | Yes | PDFs and other linked files |
+| Notes | Yes | Notes attached to publications |
+| Settings | No (opt-in) | App preferences - enable to restore |
+
+### Manual Import (BibTeX Only)
+
+If you only need to import publications without the full restore:
 1. **File > Import > BibTeX File**
-2. Select your backup .bib file
-3. Choose merge options:
-   - Skip duplicates
-   - Update existing
-   - Import all
+2. Select your backup's `library.bib` file
+3. Duplicates are automatically skipped
 
-### Restoring PDFs
+### Restoring PDFs Separately
 
-If you have a backup of PDFs:
+If you have PDFs but they weren't linked:
 1. Import the BibTeX first
-2. Copy PDFs to your Papers folder
-3. imbib will automatically link them
+2. Copy PDFs to your Papers folder (located in Library/Application Support/imbib/DefaultLibrary/Papers)
+3. imbib will automatically link them based on filename patterns
 
 ## Emergency Procedures
 
@@ -232,8 +252,9 @@ If nothing else works:
 ```
 imbib-backup-2026-01-28T12-00-00Z/
 ├── library.bib          # All publications as BibTeX
-├── PDFs/                # All PDF files
-│   └── Author_Year_Title.pdf
+├── Attachments/         # All linked files (PDFs, images, etc.)
+│   └── Papers/
+│       └── Author_Year_Title.pdf
 ├── notes.json           # Publication notes
 ├── settings.json        # App settings
 └── manifest.json        # Checksums for verification
@@ -251,7 +272,7 @@ imbib-backup-2026-01-28T12-00-00Z/
 
 - **In-App Help**: Help menu > imbib Help
 - **Support Email**: support@imbib.app
-- **Community**: [GitHub Discussions](https://github.com/your-org/imbib/discussions)
+- **Community**: [GitHub Discussions](https://github.com/yipihey/impress-apps/discussions)
 
 ## Related Documentation
 

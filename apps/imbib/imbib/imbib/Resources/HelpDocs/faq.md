@@ -313,14 +313,14 @@ Open the console (`Cmd-Opt-C`) to see logs. Common issues:
 
 ### How do I request a feature?
 
-[Open an issue on GitHub](https://github.com/yipihey/imbib/issues) with:
+[Open an issue on GitHub](https://github.com/yipihey/impress-apps/issues) with:
 - Clear description of the feature
 - Use case / why it's needed
 - Any relevant examples
 
 ### Planned features
 
-See the [GitHub project board](https://github.com/yipihey/imbib/projects) for roadmap items:
+See the [GitHub project board](https://github.com/yipihey/impress-apps/projects) for roadmap items:
 - CloudKit sync
 - iOS app
 - PDF annotations
@@ -333,7 +333,7 @@ See the [GitHub project board](https://github.com/yipihey/imbib/projects) for ro
 
 ### Where can I report bugs?
 
-[GitHub Issues](https://github.com/yipihey/imbib/issues)
+[GitHub Issues](https://github.com/yipihey/impress-apps/issues)
 
 Include:
 - macOS version
@@ -343,7 +343,7 @@ Include:
 
 ### Is there a discussion forum?
 
-Use [GitHub Discussions](https://github.com/yipihey/imbib/discussions) for:
+Use [GitHub Discussions](https://github.com/yipihey/impress-apps/discussions) for:
 - Questions
 - Feature discussions
 - Workflow tips
@@ -356,4 +356,4 @@ imBib is open source. Contributions welcome:
 - New source plugins
 - Translations
 
-See [CONTRIBUTING.md](https://github.com/yipihey/imbib/blob/main/CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](https://github.com/yipihey/impress-apps/blob/main/CONTRIBUTING.md) for guidelines.

@@ -177,11 +177,17 @@ Tap widgets to:
 
 ### Search from Spotlight
 
-Papers are indexed for Spotlight:
+Your entire library is indexed for instant access:
 
-1. Swipe down from Home Screen
-2. Type paper title or author
-3. Tap result to open in imbib
+1. Swipe down from the middle of the Home Screen
+2. Type paper title, author, DOI, or arXiv ID
+3. Tap an imbib result to open it directly
+
+**What's Indexed:**
+- Title and authors
+- Abstract keywords
+- Identifiers (DOI, arXiv ID, cite key)
+- Journal name
 
 ### Siri Suggestions
 
@@ -189,6 +195,8 @@ Siri may suggest:
 - Recent papers
 - Inbox when you usually check it
 - Smart Searches at relevant times
+
+[Full Spotlight Guide →](../features/spotlight)
 
 ---
 
@@ -332,10 +340,28 @@ iOS can offload PDFs automatically:
 
 ### Handoff
 
-Continue on another device:
-1. Start reading on iPhone
-2. See imbib icon on Mac Dock
-3. Click to continue exactly where you left off
+Continue reading papers seamlessly across devices:
+
+1. Start reading a PDF on iPhone or iPad
+2. See the imbib icon appear on your Mac's Dock (left side)
+3. Click to continue at the exact page and zoom level
+
+**What Transfers:**
+- Current page number
+- Zoom level
+- Paper selection
+
+**Requirements:**
+- Same Apple ID on all devices
+- Bluetooth and Wi-Fi enabled
+- Handoff enabled in Settings > General > AirPlay & Handoff
+
+**Starting Handoff from Mac to iOS:**
+1. Read a PDF on your Mac
+2. Look for imbib on your iPad/iPhone Lock Screen or App Switcher
+3. Swipe up or tap to continue
+
+[Full Handoff Guide →](../features/handoff)
 
 ### Universal Clipboard
 

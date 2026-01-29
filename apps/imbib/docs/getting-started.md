@@ -11,7 +11,7 @@ This guide walks you through setting up imBib and importing your first papers.
 
 ## Installation
 
-1. Download the latest `.dmg` from [GitHub Releases](https://github.com/yipihey/imbib/releases)
+1. Download the latest `.dmg` from [GitHub Releases](https://github.com/yipihey/impress-apps/releases)
 2. Open the DMG and drag imBib to Applications
 3. Right-click the app and select "Open" (required for unsigned beta builds)
 4. Grant file access when prompted (needed for library storage)
@@ -66,7 +66,7 @@ imBib uses a three-column layout:
   - Unread papers
   - Smart Searches
   - Collections
-- **SciX Libraries**: (Coming soon) NASA ADS private libraries
+- **SciX Libraries**: (Coming soon) SciX/NASA ADS private libraries
 - **Search**: Ad-hoc searches and Smart Searches
 
 ### Paper List
@@ -121,7 +121,7 @@ Configure which databases to search in **Settings → Sources**:
 
 | Source | Content | Notes |
 |--------|---------|-------|
-| **NASA ADS** | Astronomy, physics, arXiv | Requires free API key |
+| **SciX/NASA ADS** | Astronomy, physics, arXiv | Requires free API key (from scixplorer.org or ui.adsabs.harvard.edu) |
 | **arXiv** | Preprints (all fields) | No key needed |
 | **Crossref** | Published papers (all fields) | No key needed |
 | **Semantic Scholar** | CS, biomedicine | No key needed |
@@ -195,6 +195,23 @@ Some PDFs require institutional access:
 
 ---
 
+## E-Ink Devices (Optional)
+
+Sync papers with reMarkable, Supernote, or Kindle Scribe for distraction-free reading.
+
+### Quick Setup
+
+1. Go to **Settings > E-Ink Devices**
+2. Click **Add Device**
+3. Select your device and sync method
+4. Send papers via right-click menu or **Paper > Send to E-Ink Device**
+
+Annotations you make on your device can be synced back to imbib, including highlights and handwritten notes with optional OCR.
+
+[Full E-Ink Guide](eink-devices) - Detailed setup instructions
+
+---
+
 ## Smart Searches
 
 Smart Searches are saved queries that update automatically.
@@ -264,8 +281,46 @@ imBib is fully keyboard-driven. Essential shortcuts:
 
 ---
 
+---
+
+## Cross-Device Features
+
+If you use multiple Apple devices, imbib integrates seamlessly:
+
+### Handoff
+
+Continue reading on another device:
+1. Start reading a PDF on your Mac
+2. Your iPad shows an imbib icon on the Lock Screen
+3. Tap to continue at the exact page
+
+[Full Handoff Guide →](features/handoff)
+
+### Spotlight
+
+Find papers from system search:
+- **Mac:** `Cmd+Space` then type paper title
+- **iOS:** Swipe down from Home Screen
+
+[Full Spotlight Guide →](features/spotlight)
+
+---
+
+## Backup Your Library
+
+Protect your research with regular backups:
+
+1. Go to **File > Export > Full Library Backup...**
+2. Choose a destination
+3. imbib creates a complete snapshot with all papers, PDFs, and notes
+
+[Full Backup Guide →](backup-restore)
+
+---
+
 ## Next Steps
 
+- [Paper Triage Workflow](features#paper-triage-workflow) - Master the core workflow
 - [Explore all features](features)
 - [Learn keyboard shortcuts](keyboard-shortcuts)
 - [Set up automation](automation)

@@ -22,7 +22,7 @@ Example:
 GitHub Pages serves files in `.well-known/` correctly by default. After deploying, verify:
 
 ```bash
-curl -I https://yipihey.github.io/imbib/.well-known/apple-app-site-association
+curl -I https://yipihey.github.io/impress-apps/.well-known/apple-app-site-association
 ```
 
 Expected headers:
@@ -35,7 +35,7 @@ After deploying:
 
 1. Install imbib on your device
 2. Wait a few minutes for iOS to fetch the AASA file
-3. Tap a link like: `https://yipihey.github.io/imbib/doi/10.1038/nature12373`
+3. Tap a link like: `https://yipihey.github.io/impress-apps/doi/10.1038/nature12373`
 4. The app should open directly
 
 ### 4. Debugging
