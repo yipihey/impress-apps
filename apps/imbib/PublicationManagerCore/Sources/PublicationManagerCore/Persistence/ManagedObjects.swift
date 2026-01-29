@@ -74,6 +74,7 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var collections: Set<CDCollection>?
     @NSManaged public var libraries: Set<CDLibrary>?     // Publications can belong to multiple libraries
     @NSManaged public var scixLibraries: Set<CDSciXLibrary>?  // SciX online libraries containing this paper
+    @NSManaged public var remarkableDocuments: Set<CDRemarkableDocument>?  // reMarkable sync documents (ADR-019)
 }
 
 // MARK: - Publication Helpers
@@ -556,6 +557,7 @@ public class CDLinkedFile: NSManagedObject {
     @NSManaged public var publication: CDPublication?
     @NSManaged public var attachmentTags: Set<CDAttachmentTag>?  // Tags for file grouping
     @NSManaged public var annotations: Set<CDAnnotation>?        // PDF annotations (Phase 3)
+    @NSManaged public var remarkableDocuments: Set<CDRemarkableDocument>?  // reMarkable sync documents (ADR-019)
 }
 
 // MARK: - Linked File Helpers

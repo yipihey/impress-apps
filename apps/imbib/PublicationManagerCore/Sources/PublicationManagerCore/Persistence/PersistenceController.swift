@@ -2367,6 +2367,17 @@ public final class PersistenceController: @unchecked Sendable {
         docToPublication.isOptional = true
         docToPublication.deleteRule = .nullifyDeleteRule
 
+        // Publication -> remarkableDocuments (one-to-many, inverse)
+        let publicationToRemarkableDocs = NSRelationshipDescription()
+        publicationToRemarkableDocs.name = "remarkableDocuments"
+        publicationToRemarkableDocs.destinationEntity = remarkableDocument
+        publicationToRemarkableDocs.isOptional = true
+        publicationToRemarkableDocs.deleteRule = .cascadeDeleteRule
+
+        // Set inverses for publication relationship
+        docToPublication.inverseRelationship = publicationToRemarkableDocs
+        publicationToRemarkableDocs.inverseRelationship = docToPublication
+
         // RemarkableDocument -> linkedFile (many-to-one)
         let docToLinkedFile = NSRelationshipDescription()
         docToLinkedFile.name = "linkedFile"
@@ -2374,6 +2385,17 @@ public final class PersistenceController: @unchecked Sendable {
         docToLinkedFile.maxCount = 1
         docToLinkedFile.isOptional = true
         docToLinkedFile.deleteRule = .nullifyDeleteRule
+
+        // LinkedFile -> remarkableDocuments (one-to-many, inverse)
+        let linkedFileToRemarkableDocs = NSRelationshipDescription()
+        linkedFileToRemarkableDocs.name = "remarkableDocuments"
+        linkedFileToRemarkableDocs.destinationEntity = remarkableDocument
+        linkedFileToRemarkableDocs.isOptional = true
+        linkedFileToRemarkableDocs.deleteRule = .cascadeDeleteRule
+
+        // Set inverses for linkedFile relationship
+        docToLinkedFile.inverseRelationship = linkedFileToRemarkableDocs
+        linkedFileToRemarkableDocs.inverseRelationship = docToLinkedFile
 
         // RemarkableDocument -> remarkableAnnotations (one-to-many)
         let docToAnnotations = NSRelationshipDescription()
@@ -2390,7 +2412,7 @@ public final class PersistenceController: @unchecked Sendable {
         annotationToDoc.isOptional = true
         annotationToDoc.deleteRule = .nullifyDeleteRule
 
-        // Set inverse relationships
+        // Set inverse relationships for annotations
         docToAnnotations.inverseRelationship = annotationToDoc
         annotationToDoc.inverseRelationship = docToAnnotations
 
@@ -2401,6 +2423,8 @@ public final class PersistenceController: @unchecked Sendable {
             docToAnnotations
         ])
         remarkableAnnotation.properties.append(annotationToDoc)
+        publication.properties.append(publicationToRemarkableDocs)
+        linkedFile.properties.append(linkedFileToRemarkableDocs)
     }
 
     // MARK: - Save

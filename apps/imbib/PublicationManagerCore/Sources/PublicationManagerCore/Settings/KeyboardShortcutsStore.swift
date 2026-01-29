@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import SwiftUI
 
 // MARK: - Keyboard Shortcuts Store
 
@@ -88,6 +89,16 @@ public final class KeyboardShortcutsStore {
     public func binding(forNotification name: String) -> KeyboardShortcutBinding? {
         settings.binding(forNotification: name)
     }
+
+    #if os(macOS)
+    /// Check if a KeyPress matches a specific shortcut action by ID.
+    /// Use this in `.onKeyPress` handlers for customizable vim-style navigation.
+    @available(macOS 14.0, *)
+    public func matches(_ press: KeyPress, action id: String) -> Bool {
+        guard let binding = binding(id: id) else { return false }
+        return binding.matches(press)
+    }
+    #endif
 
     /// Get all bindings for a category
     public func bindings(for category: ShortcutCategory) -> [KeyboardShortcutBinding] {
