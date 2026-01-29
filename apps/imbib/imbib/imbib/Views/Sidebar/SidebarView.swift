@@ -62,48 +62,11 @@ struct SidebarView: View {
     private let scixRepository = SciXLibraryRepository.shared
 
     // MARK: - State
-    @State private var newSmartCollectionLibrary: CDLibrary?  // Non-nil triggers sheet for this library
-    @State private var editingCollection: CDCollection?
-    @State private var showingNewLibrary = false
-    @State private var libraryToDelete: CDLibrary?
-    @State private var showDeleteConfirmation = false
-    @State private var dropTargetedCollection: UUID?
-    @State private var dropTargetedLibrary: UUID?
-    @State private var dropTargetedLibraryHeader: UUID?
-    @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
-    @State private var renamingCollection: CDCollection?  // Collection being renamed inline
-    @State private var hasSciXAPIKey = false  // Whether SciX API key is configured
-    @State private var explorationRefreshTrigger = UUID()  // Refresh exploration section
-    @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete (Option+click)
-    @State private var lastSelectedExplorationID: UUID?  // For Shift+click range selection
-    @State private var expandedExplorationCollections: Set<UUID> = []  // Expanded state for tree disclosure groups
-    @State private var searchMultiSelection: Set<UUID> = []  // Multi-selection for smart searches
-    @State private var lastSelectedSearchID: UUID?  // For Shift+click range selection on searches
 
-    // Drop preview sheet
-    @State private var showingDropPreview = false
-    @State private var dropPreviewTargetLibraryID: UUID?
+    /// Consolidated sidebar state using @Observable pattern
+    @State private var state = SidebarState()
 
-    // Empty dismissed confirmation
-    @State private var showEmptyDismissedConfirmation = false
-
-    // Library smart search creation sheets (library-specific)
-    @State private var showArXivSearchForLibrary: CDLibrary?
-    @State private var showGroupSearchForLibrary: CDLibrary?
-    @State private var showArXivAdvancedForLibrary: CDLibrary?
-    @State private var showADSModernSearchForLibrary: CDLibrary?
-    @State private var showADSClassicSearchForLibrary: CDLibrary?
-    @State private var showADSPaperLookupForLibrary: CDLibrary?
-
-    // Mbox import/export
-    @State private var showMboxImportPreview = false
-    @State private var mboxImportPreview: MboxImportPreview?
-    @State private var mboxImportTargetLibrary: CDLibrary?
-    @State private var showMboxImportPicker = false
-    @State private var mboxExportError: String?
-    @State private var showMboxExportError = false
-
-    // Section ordering and collapsed state (persisted)
+    // Section ordering and collapsed state (persisted via stores, not @AppStorage)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
     @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
@@ -120,7 +83,7 @@ struct SidebarView: View {
                 // All sections in user-defined order, all collapsible and moveable
                 ForEach(sectionOrder) { sectionType in
                     sectionView(for: sectionType)
-                        .id(sectionType == .exploration ? explorationRefreshTrigger : nil)
+                        .id(sectionType == .exploration ? state.explorationRefreshTrigger : nil)
                 }
                 .onMove(perform: moveSections)
             }
@@ -150,37 +113,17 @@ struct SidebarView: View {
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         #endif
-        // Smart search creation/editing now uses Search section forms
-        // See ADR for unified search experience
-        .sheet(isPresented: $showingNewLibrary) {
-            NewLibrarySheet()
-        }
-        .sheet(item: $newSmartCollectionLibrary) { library in
-            SmartCollectionEditor(isPresented: .constant(true)) { name, predicate in
-                Task {
-                    await createSmartCollection(name: name, predicate: predicate, in: library)
-                }
-                newSmartCollectionLibrary = nil  // Dismiss sheet
-            }
-        }
-        .sheet(item: $editingCollection) { collection in
-            SmartCollectionEditor(isPresented: .constant(true), collection: collection) { name, predicate in
-                Task {
-                    await updateCollection(collection, name: name, predicate: predicate)
-                }
-                editingCollection = nil
-            }
+        // Unified sheet presentation using SidebarSheet enum
+        .sheet(item: $state.activeSheet) { sheet in
+            sheetContent(for: sheet)
         }
         .onChange(of: dragDropCoordinator.pendingPreview) { _, newValue in
             // Dismiss the sheet when pendingPreview becomes nil (import completed or cancelled)
-            if newValue == nil && showingDropPreview {
-                showingDropPreview = false
+            if newValue == nil, case .dropPreview = state.activeSheet {
+                state.dismissSheet()
             }
         }
-        .sheet(isPresented: $showingDropPreview) {
-            dropPreviewSheetContent
-        }
-        .alert("Delete Library?", isPresented: $showDeleteConfirmation, presenting: libraryToDelete) { library in
+        .alert("Delete Library?", isPresented: $state.showDeleteConfirmation, presenting: state.libraryToDelete) { library in
             Button("Delete", role: .destructive) {
                 deleteLibrary(library)
             }
@@ -188,42 +131,19 @@ struct SidebarView: View {
         } message: { library in
             Text("Are you sure you want to delete \"\(library.displayName)\"? This will remove all publications and cannot be undone.")
         }
-        .alert("Empty Dismissed?", isPresented: $showEmptyDismissedConfirmation) {
+        .alert("Empty Dismissed?", isPresented: $state.showEmptyDismissedConfirmation) {
             Button("Empty", role: .destructive) {
                 libraryManager.emptyDismissedLibrary()
-                refreshTrigger = UUID()
+                state.triggerRefresh()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             let count = libraryManager.dismissedLibrary?.publications?.count ?? 0
             Text("Are you sure you want to permanently delete \(count) dismissed paper\(count == 1 ? "" : "s")? This cannot be undone.")
         }
-        // Mbox import preview sheet
-        .sheet(isPresented: $showMboxImportPreview) {
-            if let preview = mboxImportPreview {
-                MboxImportPreviewView(
-                    preview: preview,
-                    onImport: { selectedIDs, duplicateDecisions in
-                        Task {
-                            await executeMboxImport(
-                                preview: preview,
-                                selectedIDs: selectedIDs,
-                                duplicateDecisions: duplicateDecisions
-                            )
-                        }
-                        showMboxImportPreview = false
-                    },
-                    onCancel: {
-                        showMboxImportPreview = false
-                        mboxImportPreview = nil
-                    }
-                )
-                .frame(minWidth: 600, minHeight: 500)
-            }
-        }
         // Mbox import file picker
         .fileImporter(
-            isPresented: $showMboxImportPicker,
+            isPresented: $state.showMboxImportPicker,
             allowedContentTypes: [UTType(filenameExtension: "mbox") ?? .data],
             allowsMultipleSelection: false
         ) { result in
@@ -235,15 +155,15 @@ struct SidebarView: View {
                     }
                 }
             case .failure(let error):
-                mboxExportError = error.localizedDescription
-                showMboxExportError = true
+                state.mboxExportError = error.localizedDescription
+                state.showMboxExportError = true
             }
         }
         // Mbox export error alert
-        .alert("Export Error", isPresented: $showMboxExportError) {
+        .alert("Export Error", isPresented: $state.showMboxExportError) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(mboxExportError ?? "Unknown error")
+            Text(state.mboxExportError ?? "Unknown error")
         }
         .task {
             // Auto-expand the first library if none expanded
@@ -255,7 +175,7 @@ struct SidebarView: View {
 
             // Check for ADS API key (SciX uses ADS API) and load libraries if available
             if let _ = await CredentialManager.shared.apiKey(for: "ads") {
-                hasSciXAPIKey = true
+                state.hasSciXAPIKey = true
                 // Load cached libraries from Core Data
                 scixRepository.loadLibraries()
                 // Optionally trigger a background refresh from server
@@ -266,15 +186,15 @@ struct SidebarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { _ in
             // Force re-render to update unread counts
-            refreshTrigger = UUID()
+            state.triggerRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .libraryContentDidChange)) { _ in
             // Force re-render to update publication counts after add/move operations
-            refreshTrigger = UUID()
+            state.triggerRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
             // Refresh exploration section
-            explorationRefreshTrigger = UUID()
+            state.triggerExplorationRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSmartSearch)) { notification in
             // Navigate to a smart search in the sidebar (from share extension or other source)
@@ -283,7 +203,7 @@ struct SidebarView: View {
                 selection = .smartSearch(smartSearch)
             }
             // Refresh exploration to show the new/updated search
-            explorationRefreshTrigger = UUID()
+            state.triggerExplorationRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             // Navigate to the collection in the sidebar
@@ -291,7 +211,7 @@ struct SidebarView: View {
                 // Expand all ancestors so the collection is visible in the tree
                 expandAncestors(of: collection)
                 selection = .collection(collection)
-                explorationRefreshTrigger = UUID()
+                state.triggerExplorationRefresh()
             }
         }
         // Auto-expand ancestors and set exploration context when selection changes
@@ -305,49 +225,71 @@ struct SidebarView: View {
                 ExplorationService.shared.currentExplorationContext = nil
             }
         }
-        .id(refreshTrigger)  // Re-render when refreshTrigger changes
+        .id(state.refreshTrigger)  // Re-render when refreshTrigger changes
     }
 
     // MARK: - Sheet Content
 
-    /// Drop preview sheet content extracted to simplify type-checking
+    /// Unified sheet content based on SidebarSheet enum
     @ViewBuilder
-    private var dropPreviewSheetContent: some View {
-        @Bindable var coordinator = dragDropCoordinator
-        if let libraryID = dropPreviewTargetLibraryID {
-            DropPreviewSheet(
-                preview: $coordinator.pendingPreview,
-                libraryID: libraryID,
-                coordinator: dragDropCoordinator
-            )
-            .onDisappear {
-                dropPreviewTargetLibraryID = nil
-                refreshTrigger = UUID()
-            }
-        } else if let firstLibrary = libraryManager.libraries.first(where: { !$0.isInbox && !$0.isSystemLibrary }) {
-            // Fallback to first user library if no specific library was targeted
-            DropPreviewSheet(
-                preview: $coordinator.pendingPreview,
-                libraryID: firstLibrary.id,
-                coordinator: dragDropCoordinator
-            )
-            .onDisappear {
-                refreshTrigger = UUID()
-            }
-        } else {
-            // No libraries available at all
-            VStack {
-                Text("No Library Available")
-                    .font(.headline)
-                Text("Create a library first to import PDFs.")
-                    .foregroundStyle(.secondary)
-                Button("Close") {
-                    showingDropPreview = false
-                    dragDropCoordinator.pendingPreview = nil
+    private func sheetContent(for sheet: SidebarSheet) -> some View {
+        switch sheet {
+        case .newLibrary:
+            NewLibrarySheet()
+
+        case .newSmartCollection(let library):
+            SmartCollectionEditor(isPresented: .constant(true)) { name, predicate in
+                Task {
+                    await createSmartCollection(name: name, predicate: predicate, in: library)
                 }
-                .padding(.top)
+                state.dismissSheet()
             }
-            .padding()
+
+        case .editCollection(let collection):
+            SmartCollectionEditor(isPresented: .constant(true), collection: collection) { name, predicate in
+                Task {
+                    await updateCollection(collection, name: name, predicate: predicate)
+                }
+                state.dismissSheet()
+            }
+
+        case .dropPreview(let libraryID):
+            dropPreviewSheetContent(for: libraryID)
+
+        case .mboxImport(let preview, _):
+            MboxImportPreviewView(
+                preview: preview,
+                onImport: { selectedIDs, duplicateDecisions in
+                    Task {
+                        await executeMboxImport(
+                            preview: preview,
+                            selectedIDs: selectedIDs,
+                            duplicateDecisions: duplicateDecisions
+                        )
+                    }
+                    state.dismissSheet()
+                },
+                onCancel: {
+                    state.mboxImportPreview = nil
+                    state.dismissSheet()
+                }
+            )
+            .frame(minWidth: 600, minHeight: 500)
+        }
+    }
+
+    /// Drop preview sheet content for a specific library
+    @ViewBuilder
+    private func dropPreviewSheetContent(for libraryID: UUID) -> some View {
+        @Bindable var coordinator = dragDropCoordinator
+        DropPreviewSheet(
+            preview: $coordinator.pendingPreview,
+            libraryID: libraryID,
+            coordinator: dragDropCoordinator
+        )
+        .onDisappear {
+            state.dropPreviewTargetLibraryID = nil
+            state.triggerRefresh()
         }
     }
 
@@ -366,7 +308,7 @@ struct SidebarView: View {
                 librariesSectionContent
             }
         case .scixLibraries:
-            if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
+            if state.hasSciXAPIKey && !scixRepository.libraries.isEmpty {
                 collapsibleSection(for: .scixLibraries) {
                     scixLibrariesSectionContent
                 }
@@ -488,7 +430,7 @@ struct SidebarView: View {
         case .libraries:
             // Add library button
             Button {
-                showingNewLibrary = true
+                state.showNewLibrary()
             } label: {
                 Image(systemName: "plus.circle")
                     .font(.caption)
@@ -506,8 +448,8 @@ struct SidebarView: View {
                 )
 
                 // Show selection count when multi-selected
-                if explorationMultiSelection.count > 1 {
-                    Text("\(explorationMultiSelection.count) selected")
+                if state.explorationMultiSelection.count > 1 {
+                    Text("\(state.explorationMultiSelection.count) selected")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -596,7 +538,7 @@ struct SidebarView: View {
             // Skip if form is hidden by user
             if hiddenSearchForms.contains(formType) { return false }
             // Skip forms that require ADS credentials when not available
-            if formType.requiresADSCredentials && !hasSciXAPIKey { return false }
+            if formType.requiresADSCredentials && !state.hasSciXAPIKey { return false }
             return true
         }
     }
@@ -705,9 +647,9 @@ struct SidebarView: View {
                     collection: collection,
                     allCollections: allCollections,
                     selection: $selection,
-                    expandedCollections: $expandedExplorationCollections,
-                    multiSelection: $explorationMultiSelection,
-                    lastSelectedID: $lastSelectedExplorationID,
+                    expandedCollections: $state.expandedExplorationCollections,
+                    multiSelection: $state.explorationMultiSelection,
+                    lastSelectedID: $state.lastSelectedExplorationID,
                     onDelete: deleteExplorationCollection,
                     onDeleteMultiple: deleteSelectedExplorationCollections
                 )
@@ -731,7 +673,7 @@ struct SidebarView: View {
             .tag(SidebarSection.library(dismissedLibrary))
             .contextMenu {
                 Button("Empty Dismissed", role: .destructive) {
-                    showEmptyDismissedConfirmation = true
+                    state.showEmptyDismissedConfirmation = true
                 }
             }
         }
@@ -739,7 +681,7 @@ struct SidebarView: View {
 
     /// Empty dismissed library
     private func emptyDismissed() {
-        showEmptyDismissedConfirmation = true
+        state.showEmptyDismissedConfirmation = true
     }
 
     /// Row for a search smart search in the exploration section
@@ -756,7 +698,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func explorationSearchRowContent(_ smartSearch: CDSmartSearch) -> some View {
         let isSelected = selection == .smartSearch(smartSearch)
-        let isMultiSelected = searchMultiSelection.contains(smartSearch.id)
+        let isMultiSelected = state.searchMultiSelection.contains(smartSearch.id)
         let count = smartSearch.resultCollection?.publications?.count ?? 0
 
         HStack(spacing: 6) {
@@ -788,12 +730,12 @@ struct SidebarView: View {
             TapGesture()
                 .modifiers(.option)
                 .onEnded { _ in
-                    if searchMultiSelection.contains(smartSearch.id) {
-                        searchMultiSelection.remove(smartSearch.id)
+                    if state.searchMultiSelection.contains(smartSearch.id) {
+                        state.searchMultiSelection.remove(smartSearch.id)
                     } else {
-                        searchMultiSelection.insert(smartSearch.id)
+                        state.searchMultiSelection.insert(smartSearch.id)
                     }
-                    lastSelectedSearchID = smartSearch.id
+                    state.lastSelectedSearchID = smartSearch.id
                 }
         )
         // Shift+Click for range selection
@@ -806,15 +748,15 @@ struct SidebarView: View {
         )
         // Normal click clears multi-selection and navigates
         .onTapGesture {
-            searchMultiSelection.removeAll()
-            searchMultiSelection.insert(smartSearch.id)
-            lastSelectedSearchID = smartSearch.id
+            state.searchMultiSelection.removeAll()
+            state.searchMultiSelection.insert(smartSearch.id)
+            state.lastSelectedSearchID = smartSearch.id
             selection = .smartSearch(smartSearch)
         }
         .contextMenu {
             // Show batch delete if multiple searches selected
-            if searchMultiSelection.count > 1 {
-                Button("Delete \(searchMultiSelection.count) Searches", role: .destructive) {
+            if state.searchMultiSelection.count > 1 {
+                Button("Delete \(state.searchMultiSelection.count) Searches", role: .destructive) {
                     deleteSelectedSmartSearches()
                 }
             } else {
@@ -830,8 +772,8 @@ struct SidebarView: View {
                     if selection == .smartSearch(smartSearch) {
                         selection = nil
                     }
-                    searchMultiSelection.remove(smartSearch.id)
-                    explorationRefreshTrigger = UUID()
+                    state.searchMultiSelection.remove(smartSearch.id)
+                    state.triggerExplorationRefresh()
                 }
             }
         }
@@ -839,43 +781,42 @@ struct SidebarView: View {
 
     /// Handle Shift+click for range selection on smart searches
     private func handleShiftClickSearch(smartSearch: CDSmartSearch, allSearches: [CDSmartSearch]) {
-        guard let lastID = lastSelectedSearchID,
+        guard let lastID = state.lastSelectedSearchID,
               let lastIndex = allSearches.firstIndex(where: { $0.id == lastID }),
               let currentIndex = allSearches.firstIndex(where: { $0.id == smartSearch.id }) else {
             // No previous selection, just add this one
-            searchMultiSelection.insert(smartSearch.id)
-            lastSelectedSearchID = smartSearch.id
+            state.searchMultiSelection.insert(smartSearch.id)
+            state.lastSelectedSearchID = smartSearch.id
             return
         }
 
         // Select range between last and current
         let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
         for i in range {
-            searchMultiSelection.insert(allSearches[i].id)
+            state.searchMultiSelection.insert(allSearches[i].id)
         }
     }
 
     /// Delete all selected smart searches
     private func deleteSelectedSmartSearches() {
         // Collect items to delete BEFORE clearing selection (avoid mutating during iteration)
-        let searchesToDelete = explorationSmartSearches.filter { searchMultiSelection.contains($0.id) }
+        let searchesToDelete = explorationSmartSearches.filter { state.searchMultiSelection.contains($0.id) }
 
         // Clear main selection if any selected search is being deleted
         if case .smartSearch(let selected) = selection,
-           searchMultiSelection.contains(selected.id) {
+           state.searchMultiSelection.contains(selected.id) {
             selection = nil
         }
 
         // Clear multi-selection BEFORE deleting to prevent view crashes
-        searchMultiSelection.removeAll()
-        lastSelectedSearchID = nil
+        state.clearSearchSelection()
 
         // Now delete the collected items
         for smartSearch in searchesToDelete {
             SmartSearchRepository.shared.delete(smartSearch)
         }
 
-        explorationRefreshTrigger = UUID()
+        state.triggerExplorationRefresh()
     }
 
     /// Delete all selected exploration collections
@@ -884,25 +825,24 @@ struct SidebarView: View {
         var collectionsToDelete: [CDCollection] = []
         if let library = libraryManager.explorationLibrary,
            let collections = library.collections {
-            collectionsToDelete = collections.filter { explorationMultiSelection.contains($0.id) }
+            collectionsToDelete = collections.filter { state.explorationMultiSelection.contains($0.id) }
         }
 
         // Clear main selection if any selected collection is being deleted
         if case .collection(let selected) = selection,
-           explorationMultiSelection.contains(selected.id) {
+           state.explorationMultiSelection.contains(selected.id) {
             selection = nil
         }
 
         // Clear multi-selection BEFORE deleting to prevent view crashes
-        explorationMultiSelection.removeAll()
-        lastSelectedExplorationID = nil
+        state.clearExplorationSelection()
 
         // Now delete the collected items
         for collection in collectionsToDelete {
             libraryManager.deleteExplorationCollection(collection)
         }
 
-        explorationRefreshTrigger = UUID()
+        state.triggerExplorationRefresh()
     }
 
     /// Determine the SF Symbol icon for an exploration collection based on its name prefix.
@@ -983,7 +923,7 @@ struct SidebarView: View {
 
             // Check if all ancestors are expanded
             for ancestor in collection.ancestors {
-                if !expandedExplorationCollections.contains(ancestor.id) {
+                if !state.expandedExplorationCollections.contains(ancestor.id) {
                     return false
                 }
             }
@@ -995,7 +935,7 @@ struct SidebarView: View {
     /// Uses Finder-style selection: Option+click to toggle, Shift+click for range
     @ViewBuilder
     private func explorationCollectionRow(_ collection: CDCollection, allCollections: [CDCollection]) -> some View {
-        let isMultiSelected = explorationMultiSelection.contains(collection.id)
+        let isMultiSelected = state.explorationMultiSelection.contains(collection.id)
         let depth = Int(collection.depth)
         let isLast = isLastChild(collection, in: allCollections)
 
@@ -1052,12 +992,12 @@ struct SidebarView: View {
                 .modifiers(.option)
                 .onEnded { _ in
                     // Option+click: Toggle selection
-                    if explorationMultiSelection.contains(collection.id) {
-                        explorationMultiSelection.remove(collection.id)
+                    if state.explorationMultiSelection.contains(collection.id) {
+                        state.explorationMultiSelection.remove(collection.id)
                     } else {
-                        explorationMultiSelection.insert(collection.id)
+                        state.explorationMultiSelection.insert(collection.id)
                     }
-                    lastSelectedExplorationID = collection.id
+                    state.lastSelectedExplorationID = collection.id
                 }
         )
         .simultaneousGesture(
@@ -1070,16 +1010,16 @@ struct SidebarView: View {
         )
         .onTapGesture {
             // Normal click: Clear multi-selection and navigate
-            explorationMultiSelection.removeAll()
-            explorationMultiSelection.insert(collection.id)
-            lastSelectedExplorationID = collection.id
+            state.explorationMultiSelection.removeAll()
+            state.explorationMultiSelection.insert(collection.id)
+            state.lastSelectedExplorationID = collection.id
             selection = .collection(collection)
         }
         .tag(SidebarSection.collection(collection))
         .contextMenu {
-            if explorationMultiSelection.count > 1 && explorationMultiSelection.contains(collection.id) {
+            if state.explorationMultiSelection.count > 1 && state.explorationMultiSelection.contains(collection.id) {
                 // Multi-selection context menu
-                Button("Delete \(explorationMultiSelection.count) Items", role: .destructive) {
+                Button("Delete \(state.explorationMultiSelection.count) Items", role: .destructive) {
                     deleteSelectedExplorationCollections()
                 }
             } else {
@@ -1093,19 +1033,19 @@ struct SidebarView: View {
 
     /// Handle Shift+click for range selection in exploration section
     private func handleShiftClick(collection: CDCollection, allCollections: [CDCollection]) {
-        guard let lastID = lastSelectedExplorationID,
+        guard let lastID = state.lastSelectedExplorationID,
               let lastIndex = allCollections.firstIndex(where: { $0.id == lastID }),
               let currentIndex = allCollections.firstIndex(where: { $0.id == collection.id }) else {
             // No previous selection, just select this one
-            explorationMultiSelection.insert(collection.id)
-            lastSelectedExplorationID = collection.id
+            state.explorationMultiSelection.insert(collection.id)
+            state.lastSelectedExplorationID = collection.id
             return
         }
 
         // Select range from last to current
         let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
         for i in range {
-            explorationMultiSelection.insert(allCollections[i].id)
+            state.explorationMultiSelection.insert(allCollections[i].id)
         }
     }
 
@@ -1117,13 +1057,13 @@ struct SidebarView: View {
         }
 
         libraryManager.deleteExplorationCollection(collection)
-        explorationRefreshTrigger = UUID()
+        state.triggerExplorationRefresh()
     }
 
     /// Expand all ancestors of a collection to make it visible in the tree
     private func expandAncestors(of collection: CDCollection) {
         for ancestor in collection.ancestors {
-            expandedExplorationCollections.insert(ancestor.id)
+            state.expandedExplorationCollections.insert(ancestor.id)
         }
     }
 
@@ -1159,7 +1099,7 @@ struct SidebarView: View {
             // When no children exist, this row is redundant with the library header
             if libraryHasChildren(library) {
                 SidebarDropTarget(
-                    isTargeted: dropTargetedLibrary == library.id,
+                    isTargeted: state.dropTargetedLibrary == library.id,
                     showPlusBadge: true
                 ) {
                     Label("All Publications", systemImage: "books.vertical")
@@ -1215,11 +1155,11 @@ struct SidebarView: View {
                         .tag(SidebarSection.collection(collection))
                         .contextMenu {
                             Button("Rename") {
-                                renamingCollection = collection
+                                state.renamingCollection = collection
                             }
                             if collection.isSmartCollection {
                                 Button("Edit") {
-                                    editingCollection = collection
+                                    state.showEditCollection(collection)
                                 }
                             }
                             Divider()
@@ -1262,8 +1202,8 @@ struct SidebarView: View {
                         }
 
                         Button {
-                            mboxImportTargetLibrary = library
-                            showMboxImportPicker = true
+                            state.mboxImportTargetLibrary = library
+                            state.showMboxImportPicker = true
                         } label: {
                             Label("Import mbox...", systemImage: "square.and.arrow.down")
                         }
@@ -1271,15 +1211,15 @@ struct SidebarView: View {
                         Divider()
                         #endif
                         Button("Delete Library", role: .destructive) {
-                            libraryToDelete = library
-                            showDeleteConfirmation = true
+                            state.libraryToDelete = library
+                            state.showDeleteConfirmation = true
                         }
                     }
 
                 // + menu for adding collections
                 Menu {
                     Button {
-                        newSmartCollectionLibrary = library
+                        state.showNewSmartCollection(for: library)
                     } label: {
                         Label("New Smart Collection", systemImage: "folder.badge.gearshape")
                     }
@@ -1343,8 +1283,8 @@ struct SidebarView: View {
                     try await exporter.export(library: library, to: url)
                 } catch {
                     await MainActor.run {
-                        mboxExportError = error.localizedDescription
-                        showMboxExportError = true
+                        state.mboxExportError = error.localizedDescription
+                        state.showMboxExportError = true
                     }
                 }
             }
@@ -1370,13 +1310,18 @@ struct SidebarView: View {
             let preview = try await importer.prepareImport(from: url)
 
             await MainActor.run {
-                mboxImportPreview = preview
-                showMboxImportPreview = true
+                // Show mbox import preview sheet
+                if let targetLibrary = state.mboxImportTargetLibrary {
+                    state.showMboxImportPreview(preview: preview, library: targetLibrary)
+                } else {
+                    // Fallback: store preview for later use
+                    state.mboxImportPreview = preview
+                }
             }
         } catch {
             await MainActor.run {
-                mboxExportError = "Failed to parse mbox: \(error.localizedDescription)"
-                showMboxExportError = true
+                state.mboxExportError = "Failed to parse mbox: \(error.localizedDescription)"
+                state.showMboxExportError = true
             }
         }
     }
@@ -1394,27 +1339,27 @@ struct SidebarView: View {
             )
             let result = try await importer.executeImport(
                 preview,
-                to: mboxImportTargetLibrary,
+                to: state.mboxImportTargetLibrary,
                 selectedPublications: selectedIDs,
                 duplicateDecisions: duplicateDecisions
             )
 
             await MainActor.run {
-                mboxImportPreview = nil
-                mboxImportTargetLibrary = nil
+                state.mboxImportPreview = nil
+                state.mboxImportTargetLibrary = nil
 
                 // Log result
                 print("Mbox import: \(result.importedCount) imported, \(result.mergedCount) merged, \(result.skippedCount) skipped")
 
                 if !result.errors.isEmpty {
-                    mboxExportError = "Import completed with \(result.errors.count) error(s)"
-                    showMboxExportError = true
+                    state.mboxExportError = "Import completed with \(result.errors.count) error(s)"
+                    state.showMboxExportError = true
                 }
             }
         } catch {
             await MainActor.run {
-                mboxExportError = "Import failed: \(error.localizedDescription)"
-                showMboxExportError = true
+                state.mboxExportError = "Import failed: \(error.localizedDescription)"
+                state.showMboxExportError = true
             }
         }
     }
@@ -1538,7 +1483,7 @@ struct SidebarView: View {
     private func libraryHeaderDropTarget(for library: CDLibrary) -> some View {
         let count = publicationCount(for: library)
         SidebarDropTarget(
-            isTargeted: dropTargetedLibraryHeader == library.id,
+            isTargeted: state.dropTargetedLibraryHeader == library.id,
             showPlusBadge: true
         ) {
             HStack {
@@ -1586,7 +1531,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func collectionDropTarget(for collection: CDCollection) -> some View {
         let count = publicationCount(for: collection)
-        let isEditing = renamingCollection?.id == collection.id
+        let isEditing = state.renamingCollection?.id == collection.id
         if collection.isSmartCollection {
             // Smart collections don't accept drops
             CollectionRow(
@@ -1598,7 +1543,7 @@ struct SidebarView: View {
         } else {
             // Static collections accept drops (publications and files)
             SidebarDropTarget(
-                isTargeted: dropTargetedCollection == collection.id,
+                isTargeted: state.dropTargetedCollection == collection.id,
                 showPlusBadge: true
             ) {
                 CollectionRow(
@@ -1638,22 +1583,22 @@ struct SidebarView: View {
 
     private func makeLibraryTargetBinding(_ libraryID: UUID) -> Binding<Bool> {
         Binding(
-            get: { dropTargetedLibrary == libraryID },
+            get: { state.dropTargetedLibrary == libraryID },
             set: { isTargeted in
-                dropTargetedLibrary = isTargeted ? libraryID : nil
+                state.dropTargetedLibrary = isTargeted ? libraryID : nil
             }
         )
     }
 
     private func makeLibraryHeaderTargetBinding(_ libraryID: UUID) -> Binding<Bool> {
         Binding(
-            get: { dropTargetedLibraryHeader == libraryID },
+            get: { state.dropTargetedLibraryHeader == libraryID },
             set: { isTargeted in
-                dropTargetedLibraryHeader = isTargeted ? libraryID : nil
+                state.dropTargetedLibraryHeader = isTargeted ? libraryID : nil
                 // Auto-expand after hovering for a moment
                 if isTargeted && !expandedLibraries.contains(libraryID) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        if dropTargetedLibraryHeader == libraryID {
+                        if state.dropTargetedLibraryHeader == libraryID {
                             expandedLibraries.insert(libraryID)
                         }
                     }
@@ -1664,9 +1609,9 @@ struct SidebarView: View {
 
     private func makeCollectionTargetBinding(_ collectionID: UUID) -> Binding<Bool> {
         Binding(
-            get: { dropTargetedCollection == collectionID },
+            get: { state.dropTargetedCollection == collectionID },
             set: { isTargeted in
-                dropTargetedCollection = isTargeted ? collectionID : nil
+                state.dropTargetedCollection = isTargeted ? collectionID : nil
             }
         )
     }
@@ -1897,8 +1842,7 @@ struct SidebarView: View {
             let result = await dragDropCoordinator.performDrop(info, target: target)
             if case .needsConfirmation = result {
                 await MainActor.run {
-                    dropPreviewTargetLibraryID = libraryID
-                    showingDropPreview = true
+                    state.showDropPreview(for: libraryID)
                 }
             }
         }
@@ -1912,8 +1856,7 @@ struct SidebarView: View {
             let result = await dragDropCoordinator.performDrop(info, target: target)
             if case .needsConfirmation = result {
                 await MainActor.run {
-                    dropPreviewTargetLibraryID = libraryID
-                    showingDropPreview = true
+                    state.showDropPreview(for: libraryID)
                 }
             }
         }
@@ -1924,7 +1867,7 @@ struct SidebarView: View {
     private var bottomToolbar: some View {
         HStack(spacing: 16) {
             Button {
-                showingNewLibrary = true
+                state.showNewLibrary()
             } label: {
                 Image(systemName: "plus")
             }
@@ -1933,8 +1876,8 @@ struct SidebarView: View {
 
             Button {
                 if let library = selectedLibrary {
-                    libraryToDelete = library
-                    showDeleteConfirmation = true
+                    state.libraryToDelete = library
+                    state.showDeleteConfirmation = true
                 }
             } label: {
                 Image(systemName: "minus")
@@ -2120,7 +2063,7 @@ struct SidebarView: View {
         do {
             _ = try await scheduler.refreshFeed(feed)
             await MainActor.run {
-                refreshTrigger = UUID()
+                state.triggerRefresh()
             }
         } catch {
             // Handle error silently for now
@@ -2132,7 +2075,7 @@ struct SidebarView: View {
         feed.feedsToInbox = false
         feed.autoRefreshEnabled = false
         try? feed.managedObjectContext?.save()
-        refreshTrigger = UUID()
+        state.triggerRefresh()
     }
 
     /// Check if a feed is an arXiv category feed (query contains only cat: patterns)
@@ -2243,7 +2186,7 @@ struct SidebarView: View {
 
         // Trigger sidebar refresh to show the new collection
         await MainActor.run {
-            refreshTrigger = UUID()
+            state.triggerRefresh()
         }
     }
 
@@ -2257,19 +2200,19 @@ struct SidebarView: View {
         try? context.save()
 
         // Trigger sidebar refresh and enter rename mode
-        refreshTrigger = UUID()
-        renamingCollection = collection
+        state.triggerRefresh()
+        state.renamingCollection = collection
     }
 
     private func renameCollection(_ collection: CDCollection, to newName: String) {
         guard !newName.isEmpty else {
-            renamingCollection = nil
+            state.renamingCollection = nil
             return
         }
         collection.name = newName
         try? collection.managedObjectContext?.save()
-        renamingCollection = nil
-        refreshTrigger = UUID()
+        state.renamingCollection = nil
+        state.triggerRefresh()
     }
 
     private func updateCollection(_ collection: CDCollection, name: String, predicate: String) async {
@@ -2341,7 +2284,7 @@ struct SidebarView: View {
 
         // Trigger sidebar refresh to update counts
         await MainActor.run {
-            refreshTrigger = UUID()
+            state.triggerRefresh()
         }
     }
 
@@ -2387,7 +2330,7 @@ struct SidebarView: View {
         // Trigger sidebar refresh to update counts
         await MainActor.run {
             dragDropLog("  🔄 Triggering sidebar refresh")
-            refreshTrigger = UUID()
+            state.triggerRefresh()
         }
     }
 }
