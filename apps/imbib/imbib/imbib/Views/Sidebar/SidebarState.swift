@@ -75,6 +75,9 @@ public final class SidebarState {
     /// Expanded state for exploration collection tree disclosure groups
     var expandedExplorationCollections: Set<UUID> = []
 
+    /// Expanded state for library collection tree, keyed by library ID
+    var expandedLibraryCollections: [UUID: Set<UUID>] = [:]
+
     /// Multi-selection for smart searches in exploration section
     var searchMultiSelection: Set<UUID> = []
 

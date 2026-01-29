@@ -41,6 +41,9 @@ public enum BrowserDestination: String, CaseIterable {
 extension UTType {
     /// UTType for dragging publication UUIDs between views
     public static let publicationID = UTType(exportedAs: "com.imbib.publication-id")
+
+    /// UTType for dragging collection UUIDs between views (for nesting)
+    public static let collectionID = UTType(exportedAs: "com.imbib.collection-id")
 }
 
 extension UUID: Transferable {
@@ -188,6 +191,9 @@ public struct MailStylePublicationRow: View, Equatable {
 
     /// Available libraries for "Add to Library" menu
     public var libraries: [CDLibrary] = []
+
+    /// Action when Send to E-Ink Device is requested
+    public var onSendToEInkDevice: (() -> Void)?
 
     /// Recommendation score to display (when sorting by recommended)
     public var recommendationScore: Double?
@@ -636,7 +642,16 @@ public struct MailStylePublicationRow: View, Equatable {
             }
         }
 
-        if hasPDF || !hasPDF && onDownloadPDF != nil || onOpenInBrowser != nil {
+        // Send to E-Ink Device
+        if let onSendToEInkDevice = onSendToEInkDevice {
+            Button {
+                onSendToEInkDevice()
+            } label: {
+                Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
+            }
+        }
+
+        if hasPDF || !hasPDF && onDownloadPDF != nil || onOpenInBrowser != nil || onSendToEInkDevice != nil {
             Divider()
         }
     }

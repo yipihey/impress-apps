@@ -28,8 +28,8 @@ struct IOSSidebarView: View {
 
     // MARK: - Observed Objects
 
-    /// Observe SciXLibraryRepository for SciX libraries
-    @ObservedObject private var scixRepository = SciXLibraryRepository.shared
+    /// SciX library repository (uses @Observable)
+    private var scixRepository: SciXLibraryRepository { SciXLibraryRepository.shared }
 
     // MARK: - State
 
@@ -57,6 +57,9 @@ struct IOSSidebarView: View {
 
     // Library expansion state (for DisclosureGroups)
     @State private var expandedLibraries: Set<UUID> = []
+
+    // Expanded state for library collection tree, keyed by library ID
+    @State private var expandedLibraryCollections: [UUID: Set<UUID>] = [:]
 
     // Search form ordering and visibility (persisted)
     @State private var searchFormOrder: [SearchFormType] = SearchFormStore.loadOrderSync()
@@ -888,25 +891,14 @@ struct IOSSidebarView: View {
                 }
             }
 
-            // Collections
+            // Collections (hierarchical)
             if let collectionSet = library.collections, !collectionSet.isEmpty {
                 DisclosureGroup("Collections") {
-                    ForEach(Array(collectionSet)) { collection in
-                        HStack {
-                            Label(collection.name, systemImage: "folder")
-                            Spacer()
-                            Text("\(collection.publications?.count ?? 0)")
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                        }
-                        .tag(SidebarSection.collection(collection))
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                deleteCollection(collection)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
+                    let flatCollections = flattenedLibraryCollections(from: collectionSet, libraryID: library.id)
+                    let visibleCollections = filterVisibleLibraryCollections(flatCollections, libraryID: library.id)
+
+                    ForEach(visibleCollections, id: \.id) { collection in
+                        libraryCollectionRow(collection, allCollections: flatCollections, library: library)
                     }
                 }
             }
@@ -941,6 +933,192 @@ struct IOSSidebarView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Library Collection Helpers
+
+    /// Flatten library collections into ordered list respecting hierarchy
+    private func flattenedLibraryCollections(from collections: Set<CDCollection>, libraryID: UUID) -> [CDCollection] {
+        var result: [CDCollection] = []
+
+        func addWithChildren(_ collection: CDCollection) {
+            result.append(collection)
+            for child in collection.sortedChildren {
+                addWithChildren(child)
+            }
+        }
+
+        // Start with root collections (no parent)
+        for collection in Array(collections)
+            .filter({ $0.parentCollection == nil })
+            .sorted(by: { $0.name < $1.name }) {
+            addWithChildren(collection)
+        }
+
+        return result
+    }
+
+    /// Filter to only visible collections (ancestors expanded)
+    private func filterVisibleLibraryCollections(_ collections: [CDCollection], libraryID: UUID) -> [CDCollection] {
+        let expandedSet = expandedLibraryCollections[libraryID] ?? []
+        return collections.filter { collection in
+            // Root collections are always visible
+            guard collection.parentCollection != nil else { return true }
+
+            // Check if all ancestors are expanded
+            for ancestor in collection.ancestors {
+                if !expandedSet.contains(ancestor.id) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
+    /// Check if this collection is the last child of its parent
+    private func isLastChildInLibrary(_ collection: CDCollection, in allCollections: [CDCollection]) -> Bool {
+        guard let parentID = collection.parentCollection?.id else {
+            let rootCollections = allCollections.filter { $0.parentCollection == nil }
+            return rootCollections.last?.id == collection.id
+        }
+        let siblings = allCollections.filter { $0.parentCollection?.id == parentID }
+        return siblings.last?.id == collection.id
+    }
+
+    /// Check if an ancestor at the given depth level has siblings after it
+    private func hasAncestorSiblingBelowInLibrary(_ collection: CDCollection, at level: Int, in allCollections: [CDCollection]) -> Bool {
+        var current: CDCollection? = collection
+        var currentLevel = Int(collection.depth)
+
+        while currentLevel > level, let c = current {
+            current = c.parentCollection
+            currentLevel -= 1
+        }
+
+        guard let ancestor = current else { return false }
+        return !isLastChildInLibrary(ancestor, in: allCollections)
+    }
+
+    /// Row for a library collection with tree lines and hierarchy support
+    @ViewBuilder
+    private func libraryCollectionRow(_ collection: CDCollection, allCollections: [CDCollection], library: CDLibrary) -> some View {
+        let depth = Int(collection.depth)
+        let isLast = isLastChildInLibrary(collection, in: allCollections)
+        let hasChildren = collection.hasChildren
+        let isExpanded = expandedLibraryCollections[library.id]?.contains(collection.id) ?? false
+
+        HStack(spacing: 0) {
+            // Tree lines for each level
+            if depth > 0 {
+                ForEach(0..<depth, id: \.self) { level in
+                    if level == depth - 1 {
+                        Text(isLast ? "└" : "├")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                            .frame(width: 12)
+                    } else {
+                        if hasAncestorSiblingBelowInLibrary(collection, at: level, in: allCollections) {
+                            Text("│")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.quaternary)
+                                .frame(width: 12)
+                        } else {
+                            Spacer().frame(width: 12)
+                        }
+                    }
+                }
+            }
+
+            // Disclosure triangle (if has children)
+            if hasChildren {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        var expanded = expandedLibraryCollections[library.id] ?? []
+                        if isExpanded {
+                            expanded.remove(collection.id)
+                        } else {
+                            expanded.insert(collection.id)
+                        }
+                        expandedLibraryCollections[library.id] = expanded
+                    }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12, height: 12)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Spacer().frame(width: 12)
+            }
+
+            // Folder icon
+            Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+                .padding(.trailing, 4)
+
+            // Collection name
+            Text(collection.name)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Count badge
+            if collection.matchingPublicationCount > 0 {
+                Text("\(collection.matchingPublicationCount)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+        }
+        .contentShape(Rectangle())
+        .tag(SidebarSection.collection(collection))
+        .contextMenu {
+            if !collection.isSmartCollection {
+                Button {
+                    createSubcollection(in: library, parent: collection)
+                } label: {
+                    Label("New Subcollection", systemImage: "folder.badge.plus")
+                }
+
+                Divider()
+            }
+
+            Button(role: .destructive) {
+                deleteCollection(collection)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleteCollection(collection)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Create a subcollection under the given parent
+    private func createSubcollection(in library: CDLibrary, parent: CDCollection) {
+        guard let context = library.managedObjectContext else { return }
+
+        let collection = CDCollection(context: context)
+        collection.id = UUID()
+        collection.name = "New Subcollection"
+        collection.isSmartCollection = false
+        collection.library = library
+        collection.parentCollection = parent
+
+        try? context.save()
+
+        // Expand parent to show the new subcollection
+        var expanded = expandedLibraryCollections[library.id] ?? []
+        expanded.insert(parent.id)
+        expandedLibraryCollections[library.id] = expanded
+
+        refreshID = UUID()
     }
 
     // MARK: - Helpers

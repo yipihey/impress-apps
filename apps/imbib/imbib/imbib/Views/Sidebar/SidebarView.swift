@@ -409,10 +409,10 @@ struct SidebarView: View {
                 Divider()
 
                 Button {
-                    // Navigate to ADS Modern form in Search section
+                    // Navigate to SciX Search form in Search section
                     selection = .searchForm(.adsModern)
                 } label: {
-                    Label("ADS Modern Search", systemImage: "magnifyingglass")
+                    Label("SciX Search", systemImage: "magnifyingglass")
                 }
 
                 Button {
@@ -937,6 +937,54 @@ struct SidebarView: View {
         }
     }
 
+    // MARK: - Library Collection Helpers
+
+    /// Flatten library collections into ordered list respecting hierarchy
+    private func flattenedLibraryCollections(from collections: Set<CDCollection>, libraryID: UUID) -> [CDCollection] {
+        var result: [CDCollection] = []
+
+        func addWithChildren(_ collection: CDCollection) {
+            result.append(collection)
+            for child in collection.sortedChildren {
+                addWithChildren(child)
+            }
+        }
+
+        // Start with root collections (no parent)
+        for collection in Array(collections)
+            .filter({ $0.parentCollection == nil })
+            .sorted(by: { $0.name < $1.name }) {
+            addWithChildren(collection)
+        }
+
+        return result
+    }
+
+    /// Filter to only visible collections (ancestors expanded)
+    private func filterVisibleLibraryCollections(_ collections: [CDCollection], libraryID: UUID) -> [CDCollection] {
+        let expandedSet = state.expandedLibraryCollections[libraryID] ?? []
+        return collections.filter { collection in
+            // Root collections are always visible
+            guard collection.parentCollection != nil else { return true }
+
+            // Check if all ancestors are expanded
+            for ancestor in collection.ancestors {
+                if !expandedSet.contains(ancestor.id) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
+    /// Create a binding for library collection expansion state
+    private func expandedLibraryCollectionsBinding(for libraryID: UUID) -> Binding<Set<UUID>> {
+        Binding(
+            get: { state.expandedLibraryCollections[libraryID] ?? [] },
+            set: { state.expandedLibraryCollections[libraryID] = $0 }
+        )
+    }
+
     /// Row for an exploration collection (with tree lines and type-specific icons)
     /// Uses Finder-style selection: Option+click to toggle, Shift+click for range
     @ViewBuilder
@@ -1144,24 +1192,41 @@ struct SidebarView: View {
                 }
             }
 
-            // Collections for this library
+            // Collections for this library (hierarchical)
             if let collections = library.collections as? Set<CDCollection>, !collections.isEmpty {
-                ForEach(Array(collections).sorted(by: { $0.name < $1.name }), id: \.id) { collection in
-                    collectionDropTarget(for: collection)
-                        .tag(SidebarSection.collection(collection))
-                        .contextMenu {
-                            Button("Rename") {
-                                state.renamingCollection = collection
-                            }
-                            if collection.isSmartCollection {
-                                Button("Edit") {
-                                    state.showEditCollection(collection)
-                                }
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                deleteCollection(collection)
-                            }
+                let flatCollections = flattenedLibraryCollections(from: collections, libraryID: library.id)
+                let visibleCollections = filterVisibleLibraryCollections(flatCollections, libraryID: library.id)
+
+                ForEach(visibleCollections, id: \.id) { collection in
+                    CollectionTreeRow(
+                        collection: collection,
+                        allCollections: flatCollections,
+                        selection: $selection,
+                        expandedCollections: expandedLibraryCollectionsBinding(for: library.id),
+                        onRename: { state.renamingCollection = $0 },
+                        onEdit: collection.isSmartCollection ? { state.showEditCollection($0) } : nil,
+                        onDelete: deleteCollection,
+                        onCreateSubcollection: { createStaticCollection(in: library, parent: $0) },
+                        onDropPublications: { uuids, col in await addPublications(uuids, to: col) },
+                        onMoveCollection: { draggedCollection, newParent in
+                            moveCollection(draggedCollection, to: newParent, in: library)
+                        },
+                        isEditing: state.renamingCollection?.id == collection.id,
+                        onRenameComplete: { newName in renameCollection(collection, to: newName) }
+                    )
+                }
+
+                // Drop zone at library level to move collections back to root
+                if flatCollections.contains(where: { $0.parentCollection != nil }) {
+                    Text("Drop here to move to root")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                        .onDrop(of: [.collectionID], isTargeted: nil) { providers in
+                            handleCollectionDropToRoot(providers: providers, library: library)
                         }
                 }
             }
@@ -1182,26 +1247,40 @@ struct SidebarView: View {
                     }
                     .contextMenu {
                         #if os(macOS)
-                        Menu {
-                            Button {
-                                exportLibraryToBibTeX(library)
-                            } label: {
-                                Label("BibTeX (.bib)", systemImage: "doc.text")
-                            }
-                            Button {
-                                exportLibraryToMbox(library)
-                            } label: {
-                                Label("mbox Archive (.mbox)", systemImage: "envelope")
-                            }
-                        } label: {
-                            Label("Export as...", systemImage: "square.and.arrow.up")
+                        // Native sharing via AirDrop, Messages, etc.
+                        ShareLink(
+                            item: ShareablePublications(
+                                publications: (library.publications ?? [])
+                                    .filter { !$0.isDeleted }
+                                    .map { ShareablePublication(from: $0) },
+                                libraryName: library.displayName
+                            ),
+                            preview: SharePreview(
+                                library.displayName,
+                                image: Image(systemName: "books.vertical")
+                            )
+                        ) {
+                            Label("Share Library...", systemImage: "square.and.arrow.up")
                         }
 
                         Button {
-                            state.mboxImportTargetLibrary = library
-                            state.showMboxImportPicker = true
+                            NotificationCenter.default.post(
+                                name: .showUnifiedExport,
+                                object: nil,
+                                userInfo: ["library": library]
+                            )
                         } label: {
-                            Label("Import mbox...", systemImage: "square.and.arrow.down")
+                            Label("Export...", systemImage: "square.and.arrow.up.on.square")
+                        }
+
+                        Button {
+                            NotificationCenter.default.post(
+                                name: .showUnifiedImport,
+                                object: nil,
+                                userInfo: ["library": library]
+                            )
+                        } label: {
+                            Label("Import...", systemImage: "square.and.arrow.down")
                         }
 
                         Divider()
@@ -2281,14 +2360,22 @@ struct SidebarView: View {
         }
     }
 
-    private func createStaticCollection(in library: CDLibrary) {
+    private func createStaticCollection(in library: CDLibrary, parent: CDCollection? = nil) {
         let context = library.managedObjectContext ?? PersistenceController.shared.viewContext
         let collection = CDCollection(context: context)
         collection.id = UUID()
-        collection.name = "New Collection"
+        collection.name = parent != nil ? "New Subcollection" : "New Collection"
         collection.isSmartCollection = false
         collection.library = library
+        collection.parentCollection = parent
         try? context.save()
+
+        // Expand parent when creating subcollection
+        if let parent = parent {
+            var expanded = state.expandedLibraryCollections[library.id] ?? []
+            expanded.insert(parent.id)
+            state.expandedLibraryCollections[library.id] = expanded
+        }
 
         // Trigger sidebar refresh and enter rename mode
         state.triggerRefresh()
@@ -2321,6 +2408,54 @@ struct SidebarView: View {
         guard let context = collection.managedObjectContext else { return }
         context.delete(collection)
         try? context.save()
+    }
+
+    /// Move a collection to a new parent (or to root if newParent is nil)
+    private func moveCollection(_ collection: CDCollection, to newParent: CDCollection?, in library: CDLibrary) {
+        // Don't allow moving to itself
+        guard collection.id != newParent?.id else { return }
+
+        // Don't allow moving a parent into its descendant (would create cycle)
+        if let newParent = newParent {
+            if newParent.ancestors.contains(where: { $0.id == collection.id }) {
+                return
+            }
+        }
+
+        collection.parentCollection = newParent
+        try? collection.managedObjectContext?.save()
+
+        // Expand the new parent to show the moved collection
+        if let newParent = newParent {
+            var expanded = state.expandedLibraryCollections[library.id] ?? []
+            expanded.insert(newParent.id)
+            state.expandedLibraryCollections[library.id] = expanded
+        }
+
+        state.triggerRefresh()
+    }
+
+    /// Handle dropping a collection to the root level (remove parent)
+    private func handleCollectionDropToRoot(providers: [NSItemProvider], library: CDLibrary) -> Bool {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.collectionID.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.collectionID.identifier, options: nil) { data, _ in
+                    guard let data = data as? Data,
+                          let idString = String(data: data, encoding: .utf8),
+                          let draggedID = UUID(uuidString: idString) else { return }
+
+                    // Find the dragged collection
+                    guard let collections = library.collections as? Set<CDCollection>,
+                          let draggedCollection = collections.first(where: { $0.id == draggedID }) else { return }
+
+                    Task { @MainActor in
+                        moveCollection(draggedCollection, to: nil, in: library)
+                    }
+                }
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Library Management
