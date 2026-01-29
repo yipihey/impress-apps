@@ -1032,7 +1032,9 @@ struct InfoTab: View {
         }
 
         // Add DOI resolver for publisher access (much more reliable than ADS link_gateway)
+        // Skip if the DOI is an arXiv DOI (10.48550/arXiv.*) since it just resolves to arXiv
         if let doi = pub.doi, !doi.isEmpty,
+           !doi.lowercased().contains("arxiv"),
            let doiURL = URL(string: "https://doi.org/\(doi)") {
             // Only add if we don't already have a publisher link
             let hasPublisherLink = sources.contains { $0.type == .publisher }

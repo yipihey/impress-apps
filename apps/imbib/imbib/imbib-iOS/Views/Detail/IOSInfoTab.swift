@@ -415,8 +415,10 @@ struct IOSInfoTab: View {
                     )
                 }
 
-                // DOI resolver fallback
-                if let doi = publication.doi, publication.arxivID == nil {
+                // DOI resolver fallback (skip if arXiv-only paper or arXiv DOI)
+                if let doi = publication.doi,
+                   publication.arxivID == nil,
+                   !doi.lowercased().contains("arxiv") {
                     pdfSourceRow(
                         label: "Publisher (via DOI)",
                         url: URL(string: "https://doi.org/\(doi)"),
