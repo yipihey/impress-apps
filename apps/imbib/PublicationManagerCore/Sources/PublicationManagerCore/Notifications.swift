@@ -185,6 +185,15 @@ public extension Notification.Name {
     /// Show Notes tab in detail view (⌘6 or ⌘R)
     static let showNotesTab = Notification.Name("showNotesTab")
 
+    /// Show Info tab in detail view
+    static let showInfoTab = Notification.Name("showInfoTab")
+
+    /// Cycle to previous detail tab (h key in vim mode)
+    static let showPreviousDetailTab = Notification.Name("showPreviousDetailTab")
+
+    /// Cycle to next detail tab (l key in vim mode)
+    static let showNextDetailTab = Notification.Name("showNextDetailTab")
+
     /// Toggle detail pane visibility (⌘0)
     static let toggleDetailPane = Notification.Name("toggleDetailPane")
 
@@ -240,6 +249,12 @@ public extension Notification.Name {
     /// Focus search field (⌘F)
     static let focusSearch = Notification.Name("focusSearch")
 
+    /// Posted when the Last Search collection is updated with new search results.
+    ///
+    /// Views displaying the Last Search collection (via UnifiedPublicationListWrapper)
+    /// should observe this notification to refresh their list.
+    static let lastSearchUpdated = Notification.Name("lastSearchUpdated")
+
     /// Toggle unread filter (⌘\\)
     static let toggleUnreadFilter = Notification.Name("toggleUnreadFilter")
 
@@ -264,6 +279,12 @@ public extension Notification.Name {
 
     /// PDF page up (Shift+Space)
     static let pdfPageUp = Notification.Name("pdfPageUp")
+
+    /// PDF scroll half page down (j key in vim mode)
+    static let pdfScrollHalfPageDown = Notification.Name("pdfScrollHalfPageDown")
+
+    /// PDF scroll half page up (k key in vim mode)
+    static let pdfScrollHalfPageUp = Notification.Name("pdfScrollHalfPageUp")
 
     /// PDF zoom in (⌘+)
     static let pdfZoomIn = Notification.Name("pdfZoomIn")
@@ -491,4 +512,77 @@ public extension Notification.Name {
     /// - `documentUUID`: UUID of the imprint document
     /// - `pdfURL`: URL of the compiled PDF
     static let compiledPDFDetected = Notification.Name("compiledPDFDetected")
+
+    // MARK: - Unified Import/Export
+
+    /// Show the unified export dialog
+    ///
+    /// userInfo (optional):
+    /// - `library`: CDLibrary to export (if from context menu)
+    /// - `publications`: [CDPublication] to export (if selection export)
+    ///
+    /// This notification triggers the UnifiedExportView sheet.
+    static let showUnifiedExport = Notification.Name("showUnifiedExport")
+
+    /// Show the unified import dialog
+    ///
+    /// userInfo (optional):
+    /// - `library`: CDLibrary to import into (if from context menu)
+    ///
+    /// This notification triggers the UnifiedImportView file picker and preview.
+    static let showUnifiedImport = Notification.Name("showUnifiedImport")
+
+    // MARK: - E-Ink Device Integration
+
+    /// Send selected papers to E-Ink device (reMarkable, Supernote, Kindle Scribe)
+    ///
+    /// userInfo (optional):
+    /// - `publications`: [CDPublication] to send (if not provided, uses current selection)
+    ///
+    /// This notification triggers the E-Ink sync process for the specified papers.
+    static let sendToEInkDevice = Notification.Name("sendToEInkDevice")
+
+    /// Sync annotations from E-Ink device
+    ///
+    /// Triggers a sync to pull annotations from the active E-Ink device.
+    static let syncEInkAnnotations = Notification.Name("syncEInkAnnotations")
+
+    /// Open E-Ink device settings
+    ///
+    /// Opens the Settings window and navigates to the E-Ink tab.
+    static let showEInkSettings = Notification.Name("showEInkSettings")
+
+    // MARK: - Settings Navigation
+
+    /// Open Inbox settings panel
+    ///
+    /// Opens the Settings window and navigates to the Inbox tab.
+    /// Used by sidebar retention labels.
+    static let showInboxSettings = Notification.Name("showInboxSettings")
+
+    /// Open Exploration settings panel
+    ///
+    /// Opens the Settings window and navigates to the Advanced tab (Exploration section).
+    /// Used by sidebar retention labels.
+    static let showExplorationSettings = Notification.Name("showExplorationSettings")
+
+    // MARK: - Vim-Style Pane Focus Navigation
+
+    /// Cycle pane focus to the left (h key)
+    ///
+    /// Cycles through panes: sidebar ← list ← info ← pdf ← notes ← bibtex (wrapping)
+    static let cycleFocusLeft = Notification.Name("cycleFocusLeft")
+
+    /// Cycle pane focus to the right (l key)
+    ///
+    /// Cycles through panes: sidebar → list → info → pdf → notes → bibtex (wrapping)
+    static let cycleFocusRight = Notification.Name("cycleFocusRight")
+
+    // MARK: - Detail Tab Scrolling (Vim-style)
+
+    /// Scroll detail tab content down by half page (j key in detail tabs)
+    static let scrollDetailDown = Notification.Name("scrollDetailDown")
+
+    /// Scroll detail tab content up by half page (k key in detail tabs)
+    static let scrollDetailUp = Notification.Name("scrollDetailUp")
 }

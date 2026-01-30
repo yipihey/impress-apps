@@ -285,6 +285,7 @@ struct ControlledPDFKitView: NSViewRepresentable {
     @Binding var scaleFactor: CGFloat
     @Binding var hasSelection: Bool
     var isAnnotationMode: Bool = false
+    var darkModeEnabled: Bool = false
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -297,8 +298,13 @@ struct ControlledPDFKitView: NSViewRepresentable {
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
-        pdfView.backgroundColor = .textBackgroundColor
+        pdfView.backgroundColor = darkModeEnabled ? .black : .textBackgroundColor
         pdfView.isAnnotationMode = isAnnotationMode
+
+        // Apply color inversion filter for dark mode
+        if darkModeEnabled {
+            applyDarkModeFilter(to: pdfView)
+        }
 
         // Observe page changes
         NotificationCenter.default.addObserver(
@@ -362,6 +368,21 @@ struct ControlledPDFKitView: NSViewRepresentable {
         return pdfView
     }
 
+    /// Applies a color inversion filter for PDF dark mode reading
+    private func applyDarkModeFilter(to pdfView: PDFView) {
+        // Use Core Image filter to invert colors
+        if let filter = CIFilter(name: "CIColorInvert") {
+            pdfView.layer?.filters = [filter]
+            pdfView.layer?.backgroundColor = NSColor.black.cgColor
+        }
+    }
+
+    /// Removes the dark mode filter
+    private func removeDarkModeFilter(from pdfView: PDFView) {
+        pdfView.layer?.filters = nil
+        pdfView.layer?.backgroundColor = nil
+    }
+
     func updateNSView(_ pdfView: AnnotationModePDFView, context: Context) {
         if pdfView.document !== document {
             pdfView.document = document
@@ -369,6 +390,17 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
         // Update annotation mode
         pdfView.isAnnotationMode = isAnnotationMode
+
+        // Update dark mode
+        if darkModeEnabled {
+            if pdfView.layer?.filters?.isEmpty ?? true {
+                applyDarkModeFilter(to: pdfView)
+            }
+            pdfView.backgroundColor = .black
+        } else {
+            removeDarkModeFilter(from: pdfView)
+            pdfView.backgroundColor = .textBackgroundColor
+        }
 
         // Update page if changed externally
         if let page = pdfView.document?.page(at: currentPage - 1),
@@ -539,6 +571,7 @@ struct ControlledPDFKitView: UIViewRepresentable {
     @Binding var canGoBack: Bool
     @Binding var canGoForward: Bool
     var isAnnotationMode: Bool = false
+    var darkModeEnabled: Bool = false
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -551,8 +584,13 @@ struct ControlledPDFKitView: UIViewRepresentable {
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
-        pdfView.backgroundColor = .systemBackground
+        pdfView.backgroundColor = darkModeEnabled ? .black : .systemBackground
         pdfView.isAnnotationMode = isAnnotationMode
+
+        // Apply color inversion filter for dark mode
+        if darkModeEnabled {
+            applyDarkModeFilter(to: pdfView)
+        }
 
         // Add swipe gesture for back navigation
         let swipeRight = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleSwipeBack(_:)))
@@ -638,6 +676,21 @@ struct ControlledPDFKitView: UIViewRepresentable {
         return pdfView
     }
 
+    /// Applies a color inversion filter for PDF dark mode reading
+    private func applyDarkModeFilter(to pdfView: PDFView) {
+        // Use Core Image filter to invert colors
+        if let filter = CIFilter(name: "CIColorInvert") {
+            pdfView.layer.filters = [filter]
+            pdfView.layer.backgroundColor = UIColor.black.cgColor
+        }
+    }
+
+    /// Removes the dark mode filter
+    private func removeDarkModeFilter(from pdfView: PDFView) {
+        pdfView.layer.filters = nil
+        pdfView.layer.backgroundColor = nil
+    }
+
     func updateUIView(_ pdfView: AnnotationModePDFViewiOS, context: Context) {
         if pdfView.document !== document {
             pdfView.document = document
@@ -645,6 +698,17 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         // Update annotation mode
         pdfView.isAnnotationMode = isAnnotationMode
+
+        // Update dark mode
+        if darkModeEnabled {
+            if pdfView.layer.filters?.isEmpty ?? true {
+                applyDarkModeFilter(to: pdfView)
+            }
+            pdfView.backgroundColor = .black
+        } else {
+            removeDarkModeFilter(from: pdfView)
+            pdfView.backgroundColor = .systemBackground
+        }
 
         // Update page if changed externally
         if let page = pdfView.document?.page(at: currentPage - 1),
@@ -833,6 +897,9 @@ public struct PDFViewerWithControls: View {
     @State private var showAnnotationToolbar: Bool = false
     @State private var selectedAnnotationTool: AnnotationTool? = nil
     @State private var pdfViewReference: PDFView? = nil
+
+    // PDF dark mode (from settings)
+    @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
     // iOS fullscreen state
     #if os(iOS)
@@ -1067,6 +1134,12 @@ public struct PDFViewerWithControls: View {
         .onReceive(NotificationCenter.default.publisher(for: .pdfPageUp)) { _ in
             pageUp()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfScrollHalfPageDown)) { _ in
+            scrollHalfPageDown()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfScrollHalfPageUp)) { _ in
+            scrollHalfPageUp()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .pdfZoomIn)) { _ in
             zoomIn()
         }
@@ -1104,6 +1177,7 @@ public struct PDFViewerWithControls: View {
                 canGoBack: $canGoBack,
                 canGoForward: $canGoForward,
                 isAnnotationMode: showAnnotationToolbar,
+                darkModeEnabled: pdfDarkModeEnabled,
                 pdfViewRef: { pdfViewReference = $0 }
             )
             #else
@@ -1113,6 +1187,7 @@ public struct PDFViewerWithControls: View {
                 scaleFactor: scaleFactorBinding,
                 hasSelection: $hasSelection,
                 isAnnotationMode: showAnnotationToolbar,
+                darkModeEnabled: pdfDarkModeEnabled,
                 pdfViewRef: { pdfViewReference = $0 }
             )
             #endif
@@ -1253,6 +1328,55 @@ public struct PDFViewerWithControls: View {
             currentPage = newPage
         }
     }
+
+    #if os(macOS)
+    /// Scroll down by half the visible viewport height (vim j key behavior)
+    private func scrollHalfPageDown() {
+        guard let pdfView = pdfViewReference,
+              let scrollView = pdfView.enclosingScrollView else { return }
+
+        let visibleHeight = scrollView.contentView.bounds.height
+        var newOrigin = scrollView.contentView.bounds.origin
+        newOrigin.y += visibleHeight / 2
+
+        // Clamp to document bounds
+        if let documentView = scrollView.documentView {
+            let maxY = documentView.bounds.height - visibleHeight
+            newOrigin.y = min(newOrigin.y, max(0, maxY))
+        }
+
+        scrollView.contentView.scroll(to: newOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    /// Scroll up by half the visible viewport height (vim k key behavior)
+    private func scrollHalfPageUp() {
+        guard let pdfView = pdfViewReference,
+              let scrollView = pdfView.enclosingScrollView else { return }
+
+        let visibleHeight = scrollView.contentView.bounds.height
+        var newOrigin = scrollView.contentView.bounds.origin
+        newOrigin.y -= visibleHeight / 2
+
+        // Clamp to document bounds
+        newOrigin.y = max(0, newOrigin.y)
+
+        scrollView.contentView.scroll(to: newOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+    #else
+    /// iOS: Scroll down by half the visible viewport height
+    private func scrollHalfPageDown() {
+        // iOS PDFView doesn't expose scroll view directly in the same way
+        // Use page navigation as fallback for now
+        pageDown()
+    }
+
+    /// iOS: Scroll up by half the visible viewport height
+    private func scrollHalfPageUp() {
+        pageUp()
+    }
+    #endif
 
     private func fitToWindow() {
         // Reset to auto-scale (scaleFactor 1.0 with autoScales = true gives fit behavior)
@@ -1544,6 +1668,7 @@ public struct PDFViewerWithControls: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
             }
+            .scrollIndicators(.hidden)
             .background(.bar)
 
             // Search bar (expandable)
@@ -1594,7 +1719,6 @@ public struct PDFViewerWithControls: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-            .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity)
         #else
