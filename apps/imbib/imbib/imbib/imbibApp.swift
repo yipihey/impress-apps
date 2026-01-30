@@ -412,6 +412,23 @@ struct imbibApp: App {
             // This ensures Cmd+K global search works without manual setup
             try? await Task.sleep(for: .seconds(3))
             await autoPopulateSearchIndexesOnStartup()
+
+            // Cleanup old exploration collections based on retention setting
+            await cleanupExplorationCollectionsOnStartup()
+        }
+    }
+
+    /// Cleanup old exploration collections based on user's retention setting.
+    private static func cleanupExplorationCollectionsOnStartup() async {
+        let retention = SyncedSettingsStore.shared.explorationRetention
+        // Only cleanup if retention is time-based (not forever or sessionOnly)
+        // sessionOnly is handled on app quit, forever keeps everything
+        if let days = retention.days, days > 0 {
+            await MainActor.run {
+                let libraryManager = LibraryManager()
+                libraryManager.cleanupExplorationCollections(olderThanDays: days)
+            }
+            appLogger.info("Exploration cleanup: retention=\(retention.rawValue)")
         }
     }
 
@@ -455,6 +472,15 @@ struct imbibApp: App {
                         await ThemeSettingsStore.shared.decreaseFontScale()
                     }
                 }
+                #if os(macOS)
+                // Clear exploration library on app quit if retention is "While App is Open"
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    if SyncedSettingsStore.shared.explorationRetention == .sessionOnly {
+                        libraryManager.clearExplorationLibrary()
+                        appLogger.info("Cleared exploration library on app termination (sessionOnly mode)")
+                    }
+                }
+                #endif
                 #if os(iOS)
                 .onOpenURL { url in
                     // Handle Universal Links (https://imbib.app/...)
@@ -624,6 +650,9 @@ struct AppCommands: Commands {
     }
 
     var body: some Commands {
+        // Note: Settings menu is handled automatically by the Settings { } scene
+        // Do not add a custom CommandGroup(replacing: .appSettings) as it creates duplicates
+
         // Development mode: Export default set
         if isEditingDefaultSet {
             CommandGroup(before: .newItem) {
@@ -1166,6 +1195,32 @@ struct AppCommands: Commands {
                     alert.runModal()
                 }
             }
+        }
+        #endif
+    }
+
+    /// Toggle the settings window - close if open, open if closed.
+    private func toggleSettingsWindow() {
+        #if os(macOS)
+        // Find the settings window by checking the SwiftUI Settings identifier specifically
+        // Be very strict to avoid accidentally matching other windows
+        let settingsWindow = NSApp.windows.first(where: { window in
+            guard let identifier = window.identifier?.rawValue else { return false }
+            // Only match the exact SwiftUI Settings window identifiers
+            return identifier == "com_apple_SwiftUI_Settings_window" ||
+                   identifier.hasPrefix("com.apple.SwiftUI.Settings")
+        })
+
+        if let window = settingsWindow, window.isVisible {
+            window.close()
+            return
+        }
+
+        // Open settings using the standard macOS action
+        if #available(macOS 14.0, *) {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
         }
         #endif
     }

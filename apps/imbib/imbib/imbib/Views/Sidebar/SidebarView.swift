@@ -148,8 +148,11 @@ struct SidebarView: View {
             Divider()
             bottomToolbar
         }
-        .navigationTitle("imbib")
+        #if os(iOS)
+        .navigationTitle("imbib")  // Keep for iOS navigation bar
+        #endif
         #if os(macOS)
+        // No .navigationTitle on macOS - prevents inline header from appearing in content pane
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         #endif
         // Unified sheet presentation using SidebarSheet enum
@@ -439,7 +442,16 @@ struct SidebarView: View {
             HStack(spacing: 6) {
                 // Retention label (clickable)
                 Button {
+                    #if os(macOS)
+                    // Open settings window first, then switch to inbox tab
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    // Post notification after a brief delay to ensure window exists
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NotificationCenter.default.post(name: .showInboxSettings, object: nil)
+                    }
+                    #else
                     NotificationCenter.default.post(name: .showInboxSettings, object: nil)
+                    #endif
                 } label: {
                     Text(inboxRetentionLabel)
                         .font(.caption2)
@@ -501,7 +513,16 @@ struct SidebarView: View {
             HStack(spacing: 4) {
                 // Retention label (clickable)
                 Button {
+                    #if os(macOS)
+                    // Open settings window first, then switch to advanced tab
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    // Post notification after a brief delay to ensure window exists
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NotificationCenter.default.post(name: .showExplorationSettings, object: nil)
+                    }
+                    #else
                     NotificationCenter.default.post(name: .showExplorationSettings, object: nil)
+                    #endif
                 } label: {
                     Text(explorationRetentionLabel)
                         .font(.caption2)

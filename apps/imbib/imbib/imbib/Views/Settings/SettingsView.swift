@@ -60,6 +60,14 @@ struct SettingsView: View {
         .accessibilityIdentifier(AccessibilityID.Settings.tabView)
         .frame(minWidth: 700, idealWidth: 850, maxWidth: 1200,
                minHeight: 500, idealHeight: 650, maxHeight: 900)
+        // Deep link to specific settings tabs - only switch tab, don't try to open settings window
+        // (these notifications should only fire when settings is already open via deep link)
+        .onReceive(NotificationCenter.default.publisher(for: .showInboxSettings)) { _ in
+            selectedTab = .inbox
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showExplorationSettings)) { _ in
+            selectedTab = .advanced
+        }
     }
 
     // MARK: - Detail View
@@ -332,7 +340,8 @@ struct GeneralSettingsTab: View {
 
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             await viewModel.loadSmartSearchSettings()
             automationSettings = await AutomationSettingsStore.shared.settings
@@ -599,7 +608,7 @@ struct EnrichmentSettingsTab: View {
 
     var body: some View {
         EnrichmentSettingsView(viewModel: viewModel)
-            .padding()
+            .padding(.horizontal)
             .task {
                 await viewModel.loadEnrichmentSettings()
             }
@@ -722,7 +731,8 @@ struct InboxSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             await viewModel.loadInboxSettings()
             loadMutedItems()
@@ -891,7 +901,8 @@ struct SyncSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
     }
 }
 
@@ -1105,14 +1116,37 @@ private struct RestoreResultWrapper: Identifiable {
 
 struct AdvancedSettingsTab: View {
 
+    @Environment(LibraryManager.self) private var libraryManager
+
     @State private var isOptionKeyPressed = false
     @State private var showingResetConfirmation = false
     @State private var showingResetInProgress = false
     @State private var resetError: String?
     @State private var showingDefaultSetEditor = false
+    @State private var explorationRetention: ExplorationRetention = .oneMonth
 
     var body: some View {
         Form {
+            Section("Exploration") {
+                Picker("Keep exploration results for", selection: $explorationRetention) {
+                    ForEach(ExplorationRetention.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .onChange(of: explorationRetention) { _, newValue in
+                    SyncedSettingsStore.shared.explorationRetention = newValue
+                }
+
+                Text("Exploration results (References, Citations, Similar, Co-Reads) will be automatically removed after this period.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Clear All Exploration Results Now") {
+                    libraryManager.clearExplorationLibrary()
+                }
+                .help("Delete all exploration collections immediately")
+            }
+
             // Developer section - visible when Option key is held
             if isOptionKeyPressed {
                 Section("Developer") {
@@ -1158,9 +1192,11 @@ struct AdvancedSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .onAppear {
             startOptionKeyMonitoring()
+            explorationRetention = SyncedSettingsStore.shared.explorationRetention
         }
         .onDisappear {
             stopOptionKeyMonitoring()
@@ -1352,7 +1388,8 @@ struct ImportExportSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             citeKeySettings = await ImportExportSettingsStore.shared.citeKeyFormatSettings
         }
@@ -1369,7 +1406,7 @@ struct ImportExportSettingsTab: View {
 struct EInkSettingsTab: View {
     var body: some View {
         EInkSettingsView()
-            .padding()
+            .padding(.horizontal)
     }
 }
 
