@@ -222,22 +222,10 @@ struct InfoTab: View {
                 Text(error)
             }
         }
-        // Half-page scrolling support (macOS)
-        .halfPageScrollable()
-        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        // Keyboard navigation: h/l for pane cycling
         .focusable()
         .onKeyPress { press in
             let store = KeyboardShortcutsStore.shared
-            // Scroll down (default: j)
-            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
-                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
-                return .handled
-            }
-            // Scroll up (default: k)
-            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
-                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
-                return .handled
-            }
             // Cycle pane focus left (default: h)
             if store.matches(press, action: "cycleFocusLeft") {
                 NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
@@ -1039,50 +1027,57 @@ struct InfoTab: View {
         }
     }
 
-    /// Collect all available PDF sources for a publication
+    /// Collect all available PDF sources for a publication.
+    /// Shows both arXiv preprint and publisher links when available (they're often different).
     private func collectPDFSources(for pub: CDPublication) -> [PDFSource] {
         var sources: [PDFSource] = []
         var seenURLs: Set<URL> = []
+        var hasArxivSource = false
 
-        // Add from pdfLinks array (but filter out ADS link_gateway URLs which often 404)
-        for link in pub.pdfLinks {
-            // Skip unreliable ADS link_gateway URLs
-            if link.url.absoluteString.contains("link_gateway") {
-                continue
-            }
-            if !seenURLs.contains(link.url) {
-                sources.append(PDFSource(url: link.url, type: link.type, sourceID: link.sourceID))
-                seenURLs.insert(link.url)
-            }
+        // Helper to check if a URL is an arXiv link (any subdomain)
+        func isArxivURL(_ url: URL) -> Bool {
+            let urlString = url.absoluteString.lowercased()
+            return urlString.contains("arxiv.org") || urlString.contains("export.arxiv")
         }
 
-        // Add arXiv PDF URL if not already present
-        if let arxivURL = pub.arxivPDFURL, !seenURLs.contains(arxivURL) {
+        // 1. Always add arXiv link first if available (most reliable for preprints)
+        if let arxivURL = pub.arxivPDFURL {
             sources.append(PDFSource(url: arxivURL, type: .preprint, sourceID: "arXiv"))
             seenURLs.insert(arxivURL)
+            hasArxivSource = true
         }
 
-        // Add DOI resolver for publisher access (much more reliable than ADS link_gateway)
-        // Skip if the DOI is an arXiv DOI (10.48550/arXiv.*) since it just resolves to arXiv
-        if let doi = pub.doi, !doi.isEmpty,
-           !doi.lowercased().contains("arxiv"),
-           let doiURL = URL(string: "https://doi.org/\(doi)") {
-            // Only add if we don't already have a publisher link
-            let hasPublisherLink = sources.contains { $0.type == .publisher }
-            if !hasPublisherLink {
-                sources.append(PDFSource(url: doiURL, type: .publisher, sourceID: "DOI"))
+        // 2. Add publisher/DOI link if available and different from arXiv
+        // Skip arXiv DOIs (10.48550/arXiv.*) since they just resolve to arXiv
+        if let doi = pub.doi, !doi.isEmpty {
+            let isArxivDOI = doi.lowercased().contains("arxiv") || doi.lowercased().contains("10.48550")
+            if !isArxivDOI, let doiURL = URL(string: "https://doi.org/\(doi)") {
+                sources.append(PDFSource(url: doiURL, type: .publisher, sourceID: "Publisher"))
                 seenURLs.insert(doiURL)
             }
         }
 
-        // Fallback: ADS abstract page (shows all full text sources, always works)
-        if let bibcode = pub.bibcode,
-           let adsURL = URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract") {
-            // Only add if we have no other sources
-            if sources.isEmpty {
-                sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
-                seenURLs.insert(adsURL)
+        // 3. Add other PDF links from enrichment
+        for link in pub.pdfLinks {
+            // Skip if we already have this URL
+            if seenURLs.contains(link.url) {
+                continue
             }
+            // Skip if it's any arXiv link and we already have an arXiv source
+            if hasArxivSource && isArxivURL(link.url) {
+                continue
+            }
+            sources.append(PDFSource(url: link.url, type: link.type, sourceID: link.sourceID))
+            seenURLs.insert(link.url)
+            if isArxivURL(link.url) {
+                hasArxivSource = true
+            }
+        }
+
+        // 4. Fallback: ADS abstract page if we have no sources but have a bibcode
+        if sources.isEmpty, let bibcode = pub.bibcode,
+           let adsURL = URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract") {
+            sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
         }
 
         return sources
