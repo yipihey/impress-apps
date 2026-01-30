@@ -137,6 +137,9 @@ struct InfoTab: View {
                 proxy.scrollTo("top", anchor: .top)
             }
             .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
+            #if os(macOS)
+            .contentMargins(.top, 8, for: .scrollContent)  // Align top edge with other detail tabs
+            #endif
         }
         .task {
             // Load annotation field settings
@@ -218,6 +221,34 @@ struct InfoTab: View {
             if let error = explorationError {
                 Text(error)
             }
+        }
+        // Half-page scrolling support (macOS)
+        .halfPageScrollable()
+        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        .focusable()
+        .onKeyPress { press in
+            let store = KeyboardShortcutsStore.shared
+            // Scroll down (default: j)
+            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
+                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
+                return .handled
+            }
+            // Scroll up (default: k)
+            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
+                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
+                return .handled
+            }
+            // Cycle pane focus left (default: h)
+            if store.matches(press, action: "cycleFocusLeft") {
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return .handled
+            }
+            // Cycle pane focus right (default: l)
+            if store.matches(press, action: "cycleFocusRight") {
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return .handled
+            }
+            return .ignored
         }
     }
 

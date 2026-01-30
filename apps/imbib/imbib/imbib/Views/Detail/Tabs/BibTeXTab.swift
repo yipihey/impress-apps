@@ -76,6 +76,34 @@ struct BibTeXTab: View {
             hasChanges = false
             loadBibTeX()
         }
+        // Half-page scrolling support (macOS)
+        .halfPageScrollable()
+        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        .focusable()
+        .onKeyPress { press in
+            let store = KeyboardShortcutsStore.shared
+            // Scroll down (default: j)
+            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
+                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
+                return .handled
+            }
+            // Scroll up (default: k)
+            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
+                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
+                return .handled
+            }
+            // Cycle pane focus left (default: h)
+            if store.matches(press, action: "cycleFocusLeft") {
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return .handled
+            }
+            // Cycle pane focus right (default: l)
+            if store.matches(press, action: "cycleFocusRight") {
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return .handled
+            }
+            return .ignored
+        }
     }
 
     @ViewBuilder

@@ -18,11 +18,15 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "publicationli
 enum PublicationSource: Hashable {
     case library(CDLibrary)
     case smartSearch(CDSmartSearch)
+    case lastSearch(CDCollection)  // ADR-016: Ad-hoc search results from "Last Search" collection
+    case collection(CDCollection)  // Regular or smart collection
 
     var id: UUID {
         switch self {
         case .library(let library): return library.id
         case .smartSearch(let smartSearch): return smartSearch.id
+        case .lastSearch(let collection): return collection.id
+        case .collection(let collection): return collection.id
         }
     }
 
@@ -33,6 +37,16 @@ enum PublicationSource: Hashable {
 
     var isSmartSearch: Bool {
         if case .smartSearch = self { return true }
+        return false
+    }
+
+    var isLastSearch: Bool {
+        if case .lastSearch = self { return true }
+        return false
+    }
+
+    var isCollection: Bool {
+        if case .collection = self { return true }
         return false
     }
 }
@@ -74,6 +88,9 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Called when "Download PDFs" is requested for selected publications
     var onDownloadPDFs: ((Set<UUID>) -> Void)?
+
+    /// Focused pane for vim-style navigation (optional - for focus border display)
+    var focusedPane: Binding<FocusedPane?>?
 
     // MARK: - Environment
 
@@ -125,6 +142,9 @@ struct UnifiedPublicationListWrapper: View {
     /// until the user navigates away or explicitly refreshes.
     @State private var unreadFilterSnapshot: Set<UUID>?
 
+    /// Focus state for keyboard navigation - list needs focus to receive key events
+    @FocusState private var isListFocused: Bool
+
     // MARK: - Computed Properties
 
     /// Check if the source (library or smart search) is still valid (not deleted)
@@ -134,6 +154,10 @@ struct UnifiedPublicationListWrapper: View {
             return library.managedObjectContext != nil && !library.isDeleted
         case .smartSearch(let smartSearch):
             return smartSearch.managedObjectContext != nil && !smartSearch.isDeleted
+        case .lastSearch(let collection):
+            return collection.managedObjectContext != nil && !collection.isDeleted
+        case .collection(let collection):
+            return collection.managedObjectContext != nil && !collection.isDeleted
         }
     }
 
@@ -145,6 +169,11 @@ struct UnifiedPublicationListWrapper: View {
         case .smartSearch(let smartSearch):
             guard smartSearch.managedObjectContext != nil else { return "" }
             return smartSearch.name
+        case .lastSearch:
+            return "Search Results"
+        case .collection(let collection):
+            guard collection.managedObjectContext != nil else { return "" }
+            return collection.name
         }
     }
 
@@ -155,6 +184,10 @@ struct UnifiedPublicationListWrapper: View {
             return library
         case .smartSearch(let smartSearch):
             return smartSearch.resultCollection?.library ?? smartSearch.library
+        case .lastSearch(let collection):
+            return collection.library ?? collection.owningLibrary
+        case .collection(let collection):
+            return collection.effectiveLibrary
         }
     }
 
@@ -164,6 +197,10 @@ struct UnifiedPublicationListWrapper: View {
             return .library(library.id)
         case .smartSearch(let smartSearch):
             return .smartSearch(smartSearch.id)
+        case .lastSearch(let collection):
+            return .lastSearch(collection.id)
+        case .collection(let collection):
+            return .collection(collection.id)
         }
     }
 
@@ -173,6 +210,10 @@ struct UnifiedPublicationListWrapper: View {
             return "No Publications"
         case .smartSearch(let smartSearch):
             return "No Results for \"\(smartSearch.query)\""
+        case .lastSearch:
+            return "No Results"
+        case .collection:
+            return "No Publications"
         }
     }
 
@@ -182,6 +223,10 @@ struct UnifiedPublicationListWrapper: View {
             return "Add publications to your library or search online sources."
         case .smartSearch:
             return "Click refresh to search again."
+        case .lastSearch:
+            return "Enter a query to search across multiple sources."
+        case .collection:
+            return "Drag publications to this collection."
         }
     }
 
@@ -196,7 +241,25 @@ struct UnifiedPublicationListWrapper: View {
         case .smartSearch(let smartSearch):
             // Inbox feeds also support triage shortcuts
             return smartSearch.feedsToInbox
+        case .lastSearch:
+            // Search results are not inbox - but triage shortcuts (S/T) work everywhere
+            return false
+        case .collection:
+            // Collections are not inbox views
+            return false
         }
+    }
+
+    /// Check if we're viewing an exploration collection (in the system Exploration library).
+    /// Exploration collections have special triage behavior:
+    /// - S key: Save to Save library AND remove from exploration collection
+    /// - D key: Remove from collection only (NOT move to Dismissed library)
+    private var isExplorationCollection: Bool {
+        guard isSourceValid else { return false }
+        if case .collection(let collection) = source {
+            return collection.library?.isSystemLibrary == true
+        }
+        return false
     }
 
     var body: some View {
@@ -215,6 +278,7 @@ struct UnifiedPublicationListWrapper: View {
             .navigationTitle(navigationTitle)
             .toolbar { toolbarContent }
             .focusable()
+            .focused($isListFocused)
             .focusEffectDisabled()
             .onKeyPress { press in handleVimNavigation(press) }
             .onKeyPress(.init("d")) { handleDismissKey() }
@@ -233,6 +297,12 @@ struct UnifiedPublicationListWrapper: View {
 
                 if case .smartSearch(let smartSearch) = source {
                     await queueBackgroundRefreshIfNeeded(smartSearch)
+                }
+            }
+            .onAppear {
+                // Give the list focus so keyboard shortcuts work immediately
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isListFocused = true
                 }
             }
             .onChange(of: filterMode) { _, newMode in
@@ -267,6 +337,13 @@ struct UnifiedPublicationListWrapper: View {
                     refreshPublicationsList()
                 }
             ))
+            .onReceive(NotificationCenter.default.publisher(for: .lastSearchUpdated)) { _ in
+                // Refresh list when Last Search collection is updated
+                if case .lastSearch = source {
+                    logger.info("Last search updated notification received, refreshing list")
+                    refreshPublicationsList()
+                }
+            }
             .modifier(InboxTriageModifier(
                 isInboxView: isInboxView,
                 hasSelection: !selectedPublicationIDs.isEmpty,
@@ -595,6 +672,52 @@ struct UnifiedPublicationListWrapper: View {
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
             logger.info("Refreshed smart search: \(self.publications.count) items")
+
+        case .lastSearch(let collection):
+            // ADR-016: Show ad-hoc search results from the "Last Search" collection
+            var result = (collection.publications ?? [])
+                .filter { !$0.isDeleted }
+
+            // Apply filter mode if needed
+            if filterMode == .unread {
+                if let snapshot = unreadFilterSnapshot {
+                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
+                } else {
+                    result = result.filter { !$0.isRead }
+                }
+            }
+
+            publications = result.sorted { $0.dateAdded > $1.dateAdded }
+            logger.info("Refreshed last search: \(self.publications.count) items")
+
+        case .collection(let collection):
+            // Handle both smart collections and static collections
+            // Use a Task for async smart collection execution
+            Task {
+                var result: [CDPublication]
+                if collection.isSmartCollection {
+                    // Execute predicate for smart collections
+                    result = await libraryViewModel.executeSmartCollection(collection)
+                } else {
+                    // For static collections, use direct relationship
+                    result = (collection.publications ?? [])
+                        .filter { !$0.isDeleted }
+                }
+
+                // Apply filter mode with Apple Mail behavior
+                if filterMode == .unread {
+                    if let snapshot = unreadFilterSnapshot {
+                        result = result.filter { !$0.isRead || snapshot.contains($0.id) }
+                    } else {
+                        result = result.filter { !$0.isRead }
+                    }
+                }
+
+                await MainActor.run {
+                    publications = result.sorted { $0.dateAdded > $1.dateAdded }
+                    logger.info("Refreshed collection: \(self.publications.count) items")
+                }
+            }
         }
     }
 
@@ -747,6 +870,23 @@ struct UnifiedPublicationListWrapper: View {
                     self.error = error
                 }
             }
+
+        case .lastSearch:
+            // For last search, refresh just re-reads the collection
+            // The actual search is triggered from the search form
+            logger.info("Last search refresh requested")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList()
+            }
+
+        case .collection(let collection):
+            // For collections, refresh just re-reads the collection
+            logger.info("Collection refresh requested for: \(collection.name)")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList()
+            }
         }
 
         isLoading = false
@@ -846,10 +986,19 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Handle 'D' key - dismiss selected publications (works in all libraries)
+    /// Handle 'D' key - dismiss selected publications
+    /// For exploration collections: removes from collection only (doesn't dismiss to Dismissed library)
+    /// For inbox/other views: moves to Dismissed library
     private func handleDismissKey() -> KeyPress.Result {
         guard !isTextFieldFocused(), !selectedPublicationIDs.isEmpty else { return .ignored }
-        dismissSelectedFromInbox()
+
+        if isExplorationCollection {
+            // Exploration collection: just remove from collection, don't move to Dismissed
+            removeSelectedFromExploration()
+        } else {
+            // Regular behavior: move to Dismissed library
+            dismissSelectedFromInbox()
+        }
         return .handled
     }
 
@@ -871,13 +1020,15 @@ struct UnifiedPublicationListWrapper: View {
             return .handled
         }
 
-        if store.matches(press, action: "previousDetailTab") {
-            NotificationCenter.default.post(name: .showPreviousDetailTab, object: nil)
+        if store.matches(press, action: "cycleFocusLeft") {
+            // Cycle pane focus left (default: h)
+            NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
             return .handled
         }
 
-        if store.matches(press, action: "nextDetailTab") {
-            NotificationCenter.default.post(name: .showNextDetailTab, object: nil)
+        if store.matches(press, action: "cycleFocusRight") {
+            // Cycle pane focus right (default: l)
+            NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
             return .handled
         }
 
@@ -915,9 +1066,14 @@ struct UnifiedPublicationListWrapper: View {
         }
 
         // S key: Save to Save library (works anywhere for paper discovery)
+        // For exploration collections: also removes from collection after saving
         if store.matches(press, action: "inboxSave") {
             if !selectedPublicationIDs.isEmpty {
-                saveSelectedToDefaultLibrary()
+                if isExplorationCollection {
+                    saveSelectedAndRemoveFromExploration()
+                } else {
+                    saveSelectedToDefaultLibrary()
+                }
                 return .handled
             }
         }
@@ -935,6 +1091,30 @@ struct UnifiedPublicationListWrapper: View {
             if !selectedPublicationIDs.isEmpty {
                 toggleStarForSelected()
                 return .handled
+            }
+        }
+
+        // Shift+letter: Open tab in fullscreen/separate window
+        // Check for shift modifier with uppercase letters
+        if press.modifiers.contains(.shift) {
+            switch press.characters.uppercased() {
+            case "P":
+                NotificationCenter.default.post(name: .detachPDFTab, object: nil)
+                return .handled
+            case "I":
+                NotificationCenter.default.post(name: .detachInfoTab, object: nil)
+                return .handled
+            case "N":
+                NotificationCenter.default.post(name: .detachNotesTab, object: nil)
+                return .handled
+            case "B":
+                NotificationCenter.default.post(name: .detachBibTeXTab, object: nil)
+                return .handled
+            case "F":
+                NotificationCenter.default.post(name: .flipWindowPositions, object: nil)
+                return .handled
+            default:
+                break
             }
         }
 
@@ -1150,6 +1330,125 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
+    // MARK: - Exploration Collection Triage
+
+    /// Save selected publications to Save library AND remove from exploration collection.
+    /// Used for exploration collections where S key should both save and remove.
+    private func saveSelectedAndRemoveFromExploration() {
+        guard case .collection(let collection) = source else { return }
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+        let ids = selectedPublicationIDs
+        guard let firstID = ids.first else { return }
+
+        // Show green flash for save action
+        withAnimation(.easeIn(duration: 0.1)) {
+            keyboardTriageFlash = (firstID, .green)
+        }
+
+        // Compute visual order synchronously for correct selection advancement
+        let visualOrder = computeVisualOrder()
+
+        Task {
+            // Brief delay to show flash
+            try? await Task.sleep(for: .milliseconds(200))
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    keyboardTriageFlash = nil
+                }
+
+                // Add to Save library and remove from exploration collection
+                let pubs = publications.filter { ids.contains($0.id) }
+                for pub in pubs {
+                    pub.addToLibrary(saveLibrary)
+                    pub.removeFromCollection(collection)
+                }
+                PersistenceController.shared.save()
+
+                // Compute next selection
+                let nextID = computeNextSelection(removing: ids, from: visualOrder)
+                if let nextID {
+                    selectedPublicationIDs = [nextID]
+                    selectedPublication = publications.first { $0.id == nextID }
+                } else {
+                    selectedPublicationIDs.removeAll()
+                    selectedPublication = nil
+                }
+
+                refreshPublicationsList()
+            }
+        }
+    }
+
+    /// Remove selected publications from exploration collection (without dismissing to Dismissed library).
+    /// Used for D key in exploration collections.
+    private func removeSelectedFromExploration() {
+        guard case .collection(let collection) = source else { return }
+        let ids = selectedPublicationIDs
+        guard let firstID = ids.first else { return }
+
+        // Show orange flash for dismiss action
+        withAnimation(.easeIn(duration: 0.1)) {
+            keyboardTriageFlash = (firstID, .orange)
+        }
+
+        // Compute visual order synchronously for correct selection advancement
+        let visualOrder = computeVisualOrder()
+
+        Task {
+            // Brief delay to show flash
+            try? await Task.sleep(for: .milliseconds(200))
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    keyboardTriageFlash = nil
+                }
+
+                // Remove from exploration collection (don't move to Dismissed library)
+                let pubs = publications.filter { ids.contains($0.id) }
+                for pub in pubs {
+                    pub.removeFromCollection(collection)
+                }
+                PersistenceController.shared.save()
+
+                // Compute next selection
+                let nextID = computeNextSelection(removing: ids, from: visualOrder)
+                if let nextID {
+                    selectedPublicationIDs = [nextID]
+                    selectedPublication = publications.first { $0.id == nextID }
+                } else {
+                    selectedPublicationIDs.removeAll()
+                    selectedPublication = nil
+                }
+
+                refreshPublicationsList()
+            }
+        }
+    }
+
+    /// Compute the next selection ID after removing the given IDs from the visual order.
+    private func computeNextSelection(removing ids: Set<UUID>, from visualOrder: [CDPublication]) -> UUID? {
+        // Find the current position of the first selected item
+        guard let firstSelectedID = ids.first,
+              let currentIndex = visualOrder.firstIndex(where: { $0.id == firstSelectedID }) else {
+            return nil
+        }
+
+        // Find the next item that isn't being removed
+        for i in (currentIndex + 1)..<visualOrder.count {
+            if !ids.contains(visualOrder[i].id) {
+                return visualOrder[i].id
+            }
+        }
+
+        // If no next item, try previous
+        for i in (0..<currentIndex).reversed() {
+            if !ids.contains(visualOrder[i].id) {
+                return visualOrder[i].id
+            }
+        }
+
+        return nil
+    }
+
     // MARK: - Save Implementation
 
     /// Save publications to a target library (adds to target AND removes from current).
@@ -1189,6 +1488,18 @@ struct UnifiedPublicationListWrapper: View {
             return .inboxFeed(ss)
         case .smartSearch(let ss):
             if let lib = ss.library {
+                return .regularLibrary(lib)
+            }
+            return .inboxLibrary
+        case .lastSearch(let collection):
+            // Last search results belong to a regular library
+            if let lib = collection.library ?? collection.owningLibrary {
+                return .regularLibrary(lib)
+            }
+            return .inboxLibrary
+        case .collection(let collection):
+            // Collections belong to a regular library
+            if let lib = collection.effectiveLibrary {
                 return .regularLibrary(lib)
             }
             return .inboxLibrary
@@ -1283,6 +1594,14 @@ struct UnifiedPublicationListWrapper: View {
             return Set(unread.map { $0.id })
         case .smartSearch(let smartSearch):
             guard let collection = smartSearch.resultCollection else { return [] }
+            let unread = (collection.publications ?? [])
+                .filter { !$0.isDeleted && !$0.isRead }
+            return Set(unread.map { $0.id })
+        case .lastSearch(let collection):
+            let unread = (collection.publications ?? [])
+                .filter { !$0.isDeleted && !$0.isRead }
+            return Set(unread.map { $0.id })
+        case .collection(let collection):
             let unread = (collection.publications ?? [])
                 .filter { !$0.isDeleted && !$0.isRead }
             return Set(unread.map { $0.id })

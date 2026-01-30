@@ -58,6 +58,10 @@ struct PDFTab: View {
     // PDF dark mode setting
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
+    // E-Ink device state
+    @State private var einkDeviceManager = EInkDeviceManager.shared
+    @State private var isSendingToEInk = false
+
     var body: some View {
         Group {
             // ADR-016: All papers are now CDPublication
@@ -117,23 +121,86 @@ struct PDFTab: View {
                 pdfDarkModeEnabled = await PDFSettingsStore.shared.settings.darkModeEnabled
             }
         }
+        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        .focusable()
+        .onKeyPress { press in
+            let store = KeyboardShortcutsStore.shared
+            // Full page down (default: Space)
+            if store.matches(press, action: "pdfPageDown") {
+                NotificationCenter.default.post(name: .pdfPageDown, object: nil)
+                return .handled
+            }
+            // Full page up (default: Shift+Space)
+            if store.matches(press, action: "pdfPageUp") {
+                NotificationCenter.default.post(name: .pdfPageUp, object: nil)
+                return .handled
+            }
+            // Half-page scroll down (default: j - vim style)
+            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
+                NotificationCenter.default.post(name: .pdfScrollHalfPageDown, object: nil)
+                return .handled
+            }
+            // Half-page scroll up (default: k - vim style)
+            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
+                NotificationCenter.default.post(name: .pdfScrollHalfPageUp, object: nil)
+                return .handled
+            }
+            // Cycle pane focus left (default: h)
+            if store.matches(press, action: "cycleFocusLeft") {
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return .handled
+            }
+            // Cycle pane focus right (default: l)
+            if store.matches(press, action: "cycleFocusRight") {
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return .handled
+            }
+            return .ignored
+        }
     }
 
     // MARK: - PDF Viewer Only (no notes panel)
 
     @ViewBuilder
     private func pdfViewerOnly(linked: CDLinkedFile, pub: CDPublication) -> some View {
-        PDFViewerWithControls(
-            linkedFile: linked,
-            library: libraryManager.activeLibrary,
-            publicationID: pub.id,
-            onCorruptPDF: { corruptFile in
-                Task {
-                    await handleCorruptPDF(corruptFile)
-                }
+        VStack(spacing: 0) {
+            // PDF switcher (only shown when multiple PDFs attached)
+            if pub.sortedPDFs.count > 1 {
+                pdfSwitcher(currentPDF: linked, pub: pub)
             }
-        )
+
+            PDFViewerWithControls(
+                linkedFile: linked,
+                library: libraryManager.activeLibrary,
+                publicationID: pub.id,
+                onCorruptPDF: { corruptFile in
+                    Task {
+                        await handleCorruptPDF(corruptFile)
+                    }
+                }
+            )
+        }
         .background(pdfDarkModeEnabled ? Color.black : Color.clear)
+        .overlay(alignment: .topTrailing) {
+            // E-Ink send button overlay (shown when device is configured)
+            if einkDeviceManager.isAnyDeviceAvailable {
+                Button {
+                    Task { await sendToEInkDevice() }
+                } label: {
+                    if isSendingToEInk {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isSendingToEInk)
+                .help("Send to E-Ink Device")
+                .padding(8)
+            }
+        }
         .onAppear {
             // Start Handoff activity for reading this PDF
             HandoffService.shared.startReading(
@@ -148,6 +215,79 @@ struct PDFTab: View {
             // Stop Handoff activity when leaving PDF view
             HandoffService.shared.stopReading()
         }
+    }
+
+    // MARK: - PDF Switcher
+
+    @ViewBuilder
+    private func pdfSwitcher(currentPDF: CDLinkedFile, pub: CDPublication) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.fill")
+                .foregroundStyle(.secondary)
+
+            Menu {
+                ForEach(pub.sortedPDFs, id: \.id) { pdf in
+                    Button {
+                        linkedFile = pdf
+                    } label: {
+                        HStack {
+                            if pdf.id == currentPDF.id {
+                                Image(systemName: "checkmark")
+                            }
+                            Text(pdf.effectiveDisplayName)
+                            Text("(\(pdf.formattedFileSize))")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Divider()
+
+                // Set as default option
+                if currentPDF.id != pub.primaryPDFID {
+                    Button {
+                        pub.setPrimaryPDF(currentPDF)
+                        try? pub.managedObjectContext?.save()
+                    } label: {
+                        Label("Set as Default", systemImage: "star")
+                    }
+                } else {
+                    Button {
+                        pub.setPrimaryPDF(nil)
+                        try? pub.managedObjectContext?.save()
+                    } label: {
+                        Label("Remove Default", systemImage: "star.slash")
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(currentPDF.effectiveDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if currentPDF.id == pub.primaryPDFID {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                }
+            }
+            .menuStyle(.borderlessButton)
+
+            Spacer()
+
+            Text("\(pub.sortedPDFs.count) PDFs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        #if os(macOS)
+        .background(Color(nsColor: .windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
     }
 
     // MARK: - Subviews
@@ -266,6 +406,26 @@ struct PDFTab: View {
             }
             .buttonStyle(.bordered)
             .help("Attach a local PDF file")
+
+            // E-Ink device button (shown when device is configured)
+            if einkDeviceManager.isAnyDeviceAvailable {
+                Divider()
+                    .frame(height: 20)
+
+                Button {
+                    Task { await sendToEInkDevice() }
+                } label: {
+                    if isSendingToEInk {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSendingToEInk)
+                .help("Download and send PDF to reMarkable, Supernote, or Kindle Scribe")
+            }
         }
     }
 
@@ -311,7 +471,7 @@ struct PDFTab: View {
                 Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath)", category: "pdf")
             }
 
-            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            if let firstPDF = pub.primaryPDF ?? linkedFiles.first {
                 Logger.files.infoCapture("[PDFTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -479,8 +639,24 @@ struct PDFTab: View {
                 throw PDFDownloadError.noActiveLibrary
             }
 
-            logger.info("[PDFTab] Importing PDF via PDFManager...")
-            try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library)
+            // Check for duplicate before importing
+            if let result = AttachmentManager.shared.checkForDuplicate(sourceURL: tempURL, in: pub) {
+                switch result {
+                case .duplicate(let existingFile, _):
+                    logger.info("[PDFTab] Duplicate PDF detected, using existing: \(existingFile.filename)")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    await MainActor.run {
+                        linkedFile = existingFile
+                    }
+                    return
+                case .noDuplicate(let hash):
+                    logger.info("[PDFTab] No duplicate found, importing with precomputed hash")
+                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library, precomputedHash: hash)
+                }
+            } else {
+                logger.info("[PDFTab] Importing PDF via PDFManager...")
+                try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library)
+            }
             logger.info("[PDFTab] PDF import SUCCESS")
 
             // Clean up temp file
@@ -626,5 +802,47 @@ struct PDFTab: View {
                 downloadError = error
             }
         }
+    }
+
+    // MARK: - E-Ink Device Actions
+
+    private func sendToEInkDevice() async {
+        guard let pub = publication else {
+            logger.warning("[PDFTab] Cannot send to E-Ink: no publication")
+            return
+        }
+
+        logger.info("[PDFTab] Sending to E-Ink device: \(pub.citeKey)")
+        isSendingToEInk = true
+
+        defer {
+            Task { @MainActor in
+                isSendingToEInk = false
+            }
+        }
+
+        // If we don't have a local PDF yet, download it first
+        if linkedFile == nil {
+            logger.info("[PDFTab] No local PDF, downloading first...")
+            await downloadPDF()
+
+            // Check if download succeeded
+            guard linkedFile != nil else {
+                logger.warning("[PDFTab] PDF download failed, cannot send to E-Ink")
+                return
+            }
+        }
+
+        // Post notification to trigger E-Ink sync
+        // The EInkDeviceManager will handle the actual sync
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .sendToEInkDevice,
+                object: nil,
+                userInfo: ["publications": [pub]]
+            )
+        }
+
+        logger.info("[PDFTab] E-Ink sync notification posted for: \(pub.citeKey)")
     }
 }

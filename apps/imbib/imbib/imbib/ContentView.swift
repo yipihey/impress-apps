@@ -12,6 +12,53 @@ import OSLog
 
 private let contentLogger = Logger(subsystem: "com.imbib.app", category: "content")
 
+// MARK: - Focused Pane
+
+/// Represents which pane currently has keyboard focus for vim-style navigation.
+/// Used for h/l cycling and j/k per-pane behavior.
+enum FocusedPane: String, Hashable, CaseIterable {
+    case sidebar
+    case list
+    case info
+    case pdf
+    case notes
+    case bibtex
+
+    /// All panes in cycle order (same as toolbar tab order for detail tabs)
+    static let allPanes: [FocusedPane] = [.sidebar, .list, .info, .pdf, .notes, .bibtex]
+
+    /// Whether this pane is a detail tab (info, pdf, notes, bibtex)
+    var isDetailTab: Bool {
+        switch self {
+        case .info, .pdf, .notes, .bibtex:
+            return true
+        case .sidebar, .list:
+            return false
+        }
+    }
+
+    /// Convert to DetailTab if this is a detail pane
+    var asDetailTab: DetailTab? {
+        switch self {
+        case .info: return .info
+        case .pdf: return .pdf
+        case .notes: return .notes
+        case .bibtex: return .bibtex
+        case .sidebar, .list: return nil
+        }
+    }
+
+    /// Create from DetailTab
+    static func from(_ detailTab: DetailTab) -> FocusedPane {
+        switch detailTab {
+        case .info: return .info
+        case .pdf: return .pdf
+        case .notes: return .notes
+        case .bibtex: return .bibtex
+        }
+    }
+}
+
 struct ContentView: View {
 
     // MARK: - Environment
@@ -63,6 +110,10 @@ struct ContentView: View {
 
     /// Flag to skip history push when navigating via back/forward
     @State private var isNavigatingViaHistory = false
+
+    /// Centralized focus tracking for vim-style pane navigation (h/l cycling, j/k per-pane)
+    /// Using @State instead of @FocusState because we're tracking logical pane focus, not SwiftUI keyboard focus
+    @State private var focusedPane: FocusedPane?
 
     // MARK: - Derived Selection
 
@@ -278,6 +329,15 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
                 showCommandPalette = true
             }
+            // Vim-style pane focus cycling (h/l keys)
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
+                print("🎯 [VIM] Received cycleFocusLeft, current=\(focusedPane?.rawValue ?? "nil")")
+                cycleFocusLeft()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
+                print("🎯 [VIM] Received cycleFocusRight, current=\(focusedPane?.rawValue ?? "nil")")
+                cycleFocusRight()
+            }
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
             }
@@ -309,14 +369,16 @@ struct ContentView: View {
     private var mainContent: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             let _ = contentLogger.info("⏱ SidebarView creating")
-            SidebarView(selection: $selectedSection, expandedLibraries: $expandedLibraries)
+            SidebarView(selection: $selectedSection, expandedLibraries: $expandedLibraries, focusedPane: $focusedPane)
         } content: {
             let _ = contentLogger.info("⏱ contentList creating")
             contentList
+                .focusBorder(isFocused: focusedPane == .list)
         } detail: {
             detailView
                 .id(displayedPublicationID)
                 .transaction { $0.animation = nil }
+                .focusBorder(isFocused: [.info, .pdf, .notes, .bibtex].contains(focusedPane))
         }
     }
 
@@ -388,6 +450,49 @@ struct ContentView: View {
         } else {
             // If section is invalid (e.g., collection was deleted), try again
             navigateForward()
+        }
+    }
+
+    // MARK: - Pane Focus Cycling (Vim-style h/l)
+
+    /// Cycle focus to the right (l key): sidebar → list → info → pdf → notes → bibtex → sidebar
+    private func cycleFocusRight() {
+        guard let current = focusedPane,
+              let idx = FocusedPane.allPanes.firstIndex(of: current) else {
+            // No current focus - start at sidebar
+            print("🎯 [VIM] cycleFocusRight: no current focus, starting at sidebar")
+            focusedPane = .sidebar
+            return
+        }
+        let nextPane = FocusedPane.allPanes[(idx + 1) % FocusedPane.allPanes.count]
+        print("🎯 [VIM] cycleFocusRight: \(current.rawValue) → \(nextPane.rawValue)")
+        setFocusedPane(nextPane)
+    }
+
+    /// Cycle focus to the left (h key): bibtex → notes → pdf → info → list → sidebar → bibtex
+    private func cycleFocusLeft() {
+        guard let current = focusedPane,
+              let idx = FocusedPane.allPanes.firstIndex(of: current) else {
+            // No current focus - start at bibtex (rightmost)
+            print("🎯 [VIM] cycleFocusLeft: no current focus, starting at bibtex")
+            focusedPane = .bibtex
+            selectedDetailTab = .bibtex
+            return
+        }
+        let prevPane = FocusedPane.allPanes[(idx - 1 + FocusedPane.allPanes.count) % FocusedPane.allPanes.count]
+        print("🎯 [VIM] cycleFocusLeft: \(current.rawValue) → \(prevPane.rawValue)")
+        setFocusedPane(prevPane)
+    }
+
+    /// Set focused pane and switch detail tab if needed (like clicking toolbar button)
+    private func setFocusedPane(_ pane: FocusedPane) {
+        print("🎯 [VIM] setFocusedPane: \(pane.rawValue), isDetailTab=\(pane.isDetailTab)")
+        focusedPane = pane
+
+        // When focusing a detail tab, switch to that tab (same as toolbar buttons)
+        if let detailTab = pane.asDetailTab {
+            print("🎯 [VIM] Switching to detail tab: \(String(describing: detailTab))")
+            selectedDetailTab = detailTab
         }
     }
 
@@ -633,14 +738,42 @@ struct ContentView: View {
             )
 
         case .search:
-            SearchResultsListView(selectedPublication: selectedPublicationBinding)
+            // ADR-016: Search results displayed via UnifiedPublicationListWrapper using Last Search collection
+            if let lastSearchCollection = libraryManager.activeLibrary?.lastSearchCollection {
+                UnifiedPublicationListWrapper(
+                    source: .lastSearch(lastSearchCollection),
+                    selectedPublication: selectedPublicationBinding,
+                    selectedPublicationIDs: $selectedPublicationIDs,
+                    onDownloadPDFs: handleDownloadPDFs
+                )
+            } else {
+                ContentUnavailableView(
+                    "No Active Library",
+                    systemImage: "magnifyingglass",
+                    description: Text("Select a library to search within")
+                )
+            }
 
         case .searchForm(let formType):
             // Show form in list pane initially, then results after search executes
             if showSearchFormInList {
                 searchFormForListPane(formType: formType)
             } else {
-                SearchResultsListView(selectedPublication: selectedPublicationBinding)
+                // ADR-016: Search results displayed via UnifiedPublicationListWrapper
+                if let lastSearchCollection = libraryManager.activeLibrary?.lastSearchCollection {
+                    UnifiedPublicationListWrapper(
+                        source: .lastSearch(lastSearchCollection),
+                        selectedPublication: selectedPublicationBinding,
+                        selectedPublicationIDs: $selectedPublicationIDs,
+                        onDownloadPDFs: handleDownloadPDFs
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "No Active Library",
+                        systemImage: "magnifyingglass",
+                        description: Text("Select a library to search within")
+                    )
+                }
             }
 
         case .smartSearch(let smartSearch):
@@ -652,7 +785,12 @@ struct ContentView: View {
             )
 
         case .collection(let collection):
-            CollectionListView(collection: collection, selection: selectedPublicationBinding, multiSelection: $selectedPublicationIDs)
+            UnifiedPublicationListWrapper(
+                source: .collection(collection),
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
+            )
 
         case .scixLibrary(let scixLibrary):
             SciXLibraryListView(library: scixLibrary, selection: selectedPublicationBinding, multiSelection: $selectedPublicationIDs)
@@ -1021,517 +1159,6 @@ struct UnifiedImportData: Identifiable {
     init(fileURL: URL? = nil, targetLibrary: CDLibrary? = nil) {
         self.fileURL = fileURL
         self.targetLibrary = targetLibrary
-    }
-}
-
-// MARK: - Collection List View
-
-struct CollectionListView: View {
-    let collection: CDCollection
-    @Binding var selection: CDPublication?
-    @Binding var multiSelection: Set<UUID>
-
-    // MARK: - Environment
-
-    @Environment(LibraryViewModel.self) private var libraryViewModel
-    @Environment(LibraryManager.self) private var libraryManager
-
-    // MARK: - State
-
-    @State private var publications: [CDPublication] = []
-    @State private var filterMode: LibraryFilterMode = .all
-    @State private var filterScope: FilterScope = .current
-    @State private var dropHandler = FileDropHandler()
-
-    // Drop preview sheet state (for list background drops)
-    private let dragDropCoordinator = DragDropCoordinator.shared
-    @State private var showingDropPreview = false
-    @State private var dropPreviewTargetLibraryID: UUID?
-
-    // State for duplicate file alert
-    @State private var showDuplicateAlert = false
-    @State private var duplicateFilename = ""
-
-    // State for triage flash feedback
-    @State private var keyboardTriageFlash: (UUID, Color)?
-
-    // MARK: - Computed Properties
-
-    /// Whether this is an exploration collection (in the system Exploration library)
-    private var isExplorationCollection: Bool {
-        collection.library?.isSystemLibrary == true
-    }
-
-    // MARK: - Body
-
-    var body: some View {
-        PublicationListView(
-            publications: publications,
-            selection: $multiSelection,
-            selectedPublication: $selection,
-            library: collection.effectiveLibrary,
-            allLibraries: libraryManager.libraries,
-            showImportButton: false,
-            showSortMenu: true,
-            emptyStateMessage: "No Publications",
-            emptyStateDescription: "Drag publications to this collection.",
-            listID: .collection(collection.id),
-            filterScope: $filterScope,
-            onDelete: { ids in
-                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
-                publications.removeAll { ids.contains($0.id) }
-                multiSelection.subtract(ids)
-                await libraryViewModel.delete(ids: ids)
-                refreshPublications()
-            },
-            onToggleRead: { publication in
-                await libraryViewModel.toggleReadStatus(publication)
-                refreshPublications()
-            },
-            onCopy: { ids in
-                await libraryViewModel.copyToClipboard(ids)
-            },
-            onCut: { ids in
-                await libraryViewModel.cutToClipboard(ids)
-                refreshPublications()
-            },
-            onPaste: {
-                try? await libraryViewModel.pasteFromClipboard()
-                refreshPublications()
-            },
-            onAddToLibrary: { ids, targetLibrary in
-                await libraryViewModel.addToLibrary(ids, library: targetLibrary)
-                refreshPublications()
-            },
-            onAddToCollection: { ids, targetCollection in
-                await libraryViewModel.addToCollection(ids, collection: targetCollection)
-            },
-            onRemoveFromAllCollections: { ids in
-                await libraryViewModel.removeFromAllCollections(ids)
-                refreshPublications()
-            },
-            onImport: nil,
-            onOpenPDF: { publication in
-                openPDF(for: publication)
-            },
-            onFileDrop: { publication, providers in
-                Task {
-                    await dropHandler.handleDrop(
-                        providers: providers,
-                        for: publication,
-                        in: collection.effectiveLibrary
-                    )
-                    refreshPublications()
-                }
-            },
-            onListDrop: { providers, target in
-                // Handle PDF drop on collection list for import
-                Task {
-                    let result = await DragDropCoordinator.shared.performDrop(
-                        DragDropInfo(providers: providers),
-                        target: target
-                    )
-                    if case .needsConfirmation = result {
-                        await MainActor.run {
-                            // Extract library ID from target for the preview sheet
-                            switch target {
-                            case .library(let libraryID):
-                                dropPreviewTargetLibraryID = libraryID
-                            case .collection(_, let libraryID):
-                                dropPreviewTargetLibraryID = libraryID
-                            case .inbox, .publication, .newLibraryZone:
-                                // Use collection's library as fallback
-                                dropPreviewTargetLibraryID = collection.effectiveLibrary?.id
-                            }
-                            showingDropPreview = true
-                        }
-                    }
-                    refreshPublications()
-                }
-            }
-        )
-        .onChange(of: dragDropCoordinator.pendingPreview) { _, newValue in
-            // Dismiss the sheet when pendingPreview becomes nil (import completed or cancelled)
-            if newValue == nil && showingDropPreview {
-                showingDropPreview = false
-            }
-        }
-        .sheet(isPresented: $showingDropPreview) {
-            collectionDropPreviewSheetContent
-        }
-        .navigationTitle(collection.name)
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress { press in handleVimNavigation(press) }
-        .onKeyPress(.downArrow) { handleDownArrowKey() }
-        .onKeyPress(.upArrow) { handleUpArrowKey() }
-        .onKeyPress(.init("d")) { handleDismissKey() }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Picker("Filter", selection: $filterMode) {
-                    Text("All").tag(LibraryFilterMode.all)
-                    Text("Unread").tag(LibraryFilterMode.unread)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-
-        }
-        .task(id: collection.id) {
-            refreshPublications()
-        }
-        .onChange(of: filterMode) { _, _ in
-            refreshPublications()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
-            toggleReadStatusForSelected()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
-            Task { await copySelectedPublications() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
-            Task { await cutSelectedPublications() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
-            Task {
-                try? await libraryViewModel.pasteFromClipboard()
-                refreshPublications()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
-            selectAllPublications()
-        }
-        .alert("Duplicate File", isPresented: $showDuplicateAlert) {
-            Button("Skip") {
-                dropHandler.resolveDuplicate(proceed: false)
-            }
-            Button("Attach Anyway") {
-                dropHandler.resolveDuplicate(proceed: true)
-            }
-        } message: {
-            Text("This file is identical to '\(duplicateFilename)' which is already attached. Do you want to attach it anyway?")
-        }
-        .onChange(of: dropHandler.pendingDuplicate) { _, newValue in
-            if let pending = newValue {
-                duplicateFilename = pending.existingFilename
-                showDuplicateAlert = true
-            }
-        }
-    }
-
-    // MARK: - Data Refresh
-
-    private func refreshPublications() {
-        Task {
-            var result: [CDPublication]
-
-            if collection.isSmartCollection {
-                // Execute predicate for smart collections
-                result = await libraryViewModel.executeSmartCollection(collection)
-            } else {
-                // For static collections, use direct relationship
-                result = Array(collection.publications ?? [])
-                    .filter { !$0.isDeleted }
-            }
-
-            if filterMode == .unread {
-                result = result.filter { !$0.isRead }
-            }
-
-            publications = result.sorted { $0.dateAdded > $1.dateAdded }
-        }
-    }
-
-    // MARK: - Drop Preview Sheet
-
-    /// Drop preview sheet content for collection list drops
-    @ViewBuilder
-    private var collectionDropPreviewSheetContent: some View {
-        @Bindable var coordinator = dragDropCoordinator
-        if let libraryID = dropPreviewTargetLibraryID {
-            DropPreviewSheet(
-                preview: $coordinator.pendingPreview,
-                libraryID: libraryID,
-                coordinator: dragDropCoordinator
-            )
-            .onDisappear {
-                dropPreviewTargetLibraryID = nil
-                refreshPublications()
-            }
-        } else if let library = collection.effectiveLibrary {
-            // Fallback: use collection's library
-            DropPreviewSheet(
-                preview: $coordinator.pendingPreview,
-                libraryID: library.id,
-                coordinator: dragDropCoordinator
-            )
-            .onDisappear {
-                refreshPublications()
-            }
-        } else {
-            VStack {
-                Text("No library selected for import")
-                    .font(.headline)
-                Text("Please select a library first.")
-                    .foregroundStyle(.secondary)
-                Button("Close") {
-                    showingDropPreview = false
-                    dragDropCoordinator.pendingPreview = nil
-                }
-                .padding(.top)
-            }
-            .padding()
-        }
-    }
-
-    // MARK: - Notification Handlers
-
-    private func selectAllPublications() {
-        multiSelection = Set(publications.map { $0.id })
-    }
-
-    private func toggleReadStatusForSelected() {
-        guard !multiSelection.isEmpty else { return }
-
-        Task {
-            // Apple Mail behavior: if ANY are unread, mark ALL as read
-            // If ALL are read, mark ALL as unread
-            await libraryViewModel.smartToggleReadStatus(multiSelection)
-            refreshPublications()
-        }
-    }
-
-    private func copySelectedPublications() async {
-        guard !multiSelection.isEmpty else { return }
-        await libraryViewModel.copyToClipboard(multiSelection)
-    }
-
-    private func cutSelectedPublications() async {
-        guard !multiSelection.isEmpty else { return }
-        await libraryViewModel.cutToClipboard(multiSelection)
-        refreshPublications()
-    }
-
-    // MARK: - Helpers
-
-    private func openPDF(for publication: CDPublication) {
-        // Check user preference for opening PDFs
-        let openExternally = UserDefaults.standard.bool(forKey: "openPDFInExternalViewer")
-
-        if openExternally {
-            // Open in external viewer (Preview, Adobe, etc.)
-            if let linkedFiles = publication.linkedFiles,
-               let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-               let libraryURL = collection.effectiveLibrary?.folderURL {
-                let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
-                #if os(macOS)
-                NSWorkspace.shared.open(pdfURL)
-                #endif
-            }
-        } else {
-            // Show in built-in PDF tab
-            // First ensure the publication is selected, then switch to PDF tab
-            libraryViewModel.selectedPublications = [publication.id]
-            NotificationCenter.default.post(name: .showPDFTab, object: nil)
-        }
-    }
-
-    // MARK: - Keyboard Navigation Handlers
-
-    /// Check if an editable text field currently has keyboard focus
-    private func isTextFieldFocused() -> Bool {
-        #if os(macOS)
-        guard let window = NSApp.keyWindow,
-              let firstResponder = window.firstResponder else {
-            return false
-        }
-        // NSTextView is used by TextEditor, TextField, and other text controls
-        // Only consider it focused if it's editable (not just a display view)
-        if let textView = firstResponder as? NSTextView {
-            return textView.isEditable
-        }
-        return false
-        #else
-        return false  // iOS uses different focus management
-        #endif
-    }
-
-    /// Handle down arrow key - navigate to next paper (only when text field not focused)
-    private func handleDownArrowKey() -> KeyPress.Result {
-        guard !isTextFieldFocused() else { return .ignored }
-        NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
-        return .handled
-    }
-
-    /// Handle up arrow key - navigate to previous paper (only when text field not focused)
-    private func handleUpArrowKey() -> KeyPress.Result {
-        guard !isTextFieldFocused() else { return .ignored }
-        NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
-        return .handled
-    }
-
-    /// Handle vim-style navigation keys (h/j/k/l)
-    private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
-        guard !isTextFieldFocused() else { return .ignored }
-
-        let store = KeyboardShortcutsStore.shared
-
-        // Check for vim navigation shortcuts
-        if store.matches(press, action: "navigateDown") {
-            NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
-            return .handled
-        }
-
-        if store.matches(press, action: "navigateUp") {
-            // K key: now ONLY does vim navigation up
-            NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
-            return .handled
-        }
-
-        // S key: Save to Save library (exploration collections only)
-        if store.matches(press, action: "inboxSave") {
-            if isExplorationCollection && !multiSelection.isEmpty {
-                saveSelectedToLibrary()
-                return .handled
-            }
-        }
-
-        if store.matches(press, action: "navigateBack") {
-            NotificationCenter.default.post(name: .navigateBack, object: nil)
-            return .handled
-        }
-
-        if store.matches(press, action: "navigateForward") {
-            NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
-            return .handled
-        }
-
-        return .ignored
-    }
-
-    // MARK: - Exploration Triage Handlers
-
-    /// Handle 'S' key - save selected to default library (exploration collections only)
-    private func handleSaveKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
-        saveSelectedToLibrary()
-        return .handled
-    }
-
-    /// Handle 'D' key - dismiss/remove from exploration collection
-    private func handleDismissKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), isExplorationCollection, !multiSelection.isEmpty else { return .ignored }
-        removeSelectedFromExploration()
-        return .handled
-    }
-
-    /// Save selected publications to the Save library
-    private func saveSelectedToLibrary() {
-        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
-        let ids = multiSelection
-        guard let firstID = ids.first else { return }
-
-        // Show green flash for save action
-        withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .green)
-        }
-
-        // Compute next selection before removal
-        let nextID = computeNextSelection(removing: ids)
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(200))
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    keyboardTriageFlash = nil
-                }
-            }
-
-            // Add to Save library and remove from exploration collection
-            let pubs = publications.filter { ids.contains($0.id) }
-            await MainActor.run {
-                for pub in pubs {
-                    pub.addToLibrary(saveLibrary)
-                    pub.removeFromCollection(collection)
-                }
-                try? PersistenceController.shared.viewContext.save()
-
-                if let nextID {
-                    multiSelection = [nextID]
-                    selection = publications.first { $0.id == nextID }
-                } else {
-                    multiSelection = []
-                    selection = nil
-                }
-                refreshPublications()
-            }
-        }
-    }
-
-    /// Remove selected publications from the exploration collection
-    private func removeSelectedFromExploration() {
-        let ids = multiSelection
-        guard let firstID = ids.first else { return }
-
-        // Show orange flash for dismiss action
-        withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .orange)
-        }
-
-        // Compute next selection before removal
-        let nextID = computeNextSelection(removing: ids)
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(200))
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    keyboardTriageFlash = nil
-                }
-            }
-
-            // Remove from exploration collection
-            let pubs = publications.filter { ids.contains($0.id) }
-            await MainActor.run {
-                for pub in pubs {
-                    pub.removeFromCollection(collection)
-                }
-                try? PersistenceController.shared.viewContext.save()
-
-                if let nextID {
-                    multiSelection = [nextID]
-                    selection = publications.first { $0.id == nextID }
-                } else {
-                    multiSelection = []
-                    selection = nil
-                }
-                refreshPublications()
-            }
-        }
-    }
-
-    /// Compute the next selection ID after removing the given IDs
-    private func computeNextSelection(removing ids: Set<UUID>) -> UUID? {
-        // Find the current position of the first selected item
-        guard let firstSelectedID = ids.first,
-              let currentIndex = publications.firstIndex(where: { $0.id == firstSelectedID }) else {
-            return nil
-        }
-
-        // Find the next item that isn't being removed
-        for i in (currentIndex + 1)..<publications.count {
-            if !ids.contains(publications[i].id) {
-                return publications[i].id
-            }
-        }
-
-        // If no next item, try previous
-        for i in (0..<currentIndex).reversed() {
-            if !ids.contains(publications[i].id) {
-                return publications[i].id
-            }
-        }
-
-        return nil
     }
 }
 

@@ -331,20 +331,20 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "navigatePreviousPaper"
         ),
         KeyboardShortcutBinding(
-            id: "previousDetailTab",
-            displayName: "Previous Tab",
+            id: "cycleFocusLeft",
+            displayName: "Focus Left Pane",
             category: .navigation,
             key: .character("h"),
             modifiers: .none,
-            notificationName: "showPreviousDetailTab"
+            notificationName: "cycleFocusLeft"
         ),
         KeyboardShortcutBinding(
-            id: "nextDetailTab",
-            displayName: "Next Tab",
+            id: "cycleFocusRight",
+            displayName: "Focus Right Pane",
             category: .navigation,
             key: .character("l"),
             modifiers: .none,
-            notificationName: "showNextDetailTab"
+            notificationName: "cycleFocusRight"
         ),
         KeyboardShortcutBinding(
             id: "showInfoTabVim",
@@ -800,6 +800,22 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             key: .special(.space),
             modifiers: .shift,
             notificationName: "pdfPageUp"
+        ),
+        KeyboardShortcutBinding(
+            id: "pdfScrollHalfPageDownVim",
+            displayName: "Scroll Down (Vim)",
+            category: .pdfViewer,
+            key: .character("j"),
+            modifiers: .none,
+            notificationName: "pdfScrollHalfPageDown"
+        ),
+        KeyboardShortcutBinding(
+            id: "pdfScrollHalfPageUpVim",
+            displayName: "Scroll Up (Vim)",
+            category: .pdfViewer,
+            key: .character("k"),
+            modifiers: .none,
+            notificationName: "pdfScrollHalfPageUp"
         ),
         KeyboardShortcutBinding(
             id: "pdfZoomIn",

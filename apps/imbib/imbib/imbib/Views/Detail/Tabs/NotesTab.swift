@@ -17,12 +17,39 @@ import ImpressHelixCore
 
 /// Position of the notes panel relative to the PDF viewer.
 public enum NotesPosition: String, CaseIterable {
-    case below = "below"
+    case top = "top"
+    case below = "below"    // Keep existing value for backward compat
     case right = "right"
     case left = "left"
 
+    /// Next position in cycle (clockwise: top → right → below → left)
+    var next: NotesPosition {
+        switch self {
+        case .top: return .right
+        case .right: return .below
+        case .below: return .left
+        case .left: return .top
+        }
+    }
+
+    /// Icon pointing to next position
+    var nextIcon: String {
+        switch self {
+        case .top: return "arrow.right"
+        case .right: return "arrow.down"
+        case .below: return "arrow.left"
+        case .left: return "arrow.up"
+        }
+    }
+
+    /// Whether this position uses vertical layout (notes beside PDF)
+    var isVertical: Bool {
+        self == .left || self == .right
+    }
+
     public var label: String {
         switch self {
+        case .top: return "Above PDF"
         case .below: return "Below PDF"
         case .right: return "Right of PDF"
         case .left: return "Left of PDF"
@@ -68,6 +95,16 @@ struct NotesTab: View {
 
         Group {
             switch notesPosition {
+            case .top:
+                VStack(spacing: 0) {
+                    NotesPanel(
+                        publication: publication,
+                        size: sizeBinding,
+                        isCollapsed: $isNotesPanelCollapsed,
+                        orientation: .horizontal
+                    )
+                    pdfViewerContent
+                }
             case .below:
                 VStack(spacing: 0) {
                     pdfViewerContent
@@ -105,6 +142,34 @@ struct NotesTab: View {
         }
         .onChange(of: publication.id) { _, _ in
             checkAndLoadPDF()
+        }
+        // Half-page scrolling support (macOS) - scrolls the notes panel
+        .halfPageScrollable()
+        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        .focusable()
+        .onKeyPress { press in
+            let store = KeyboardShortcutsStore.shared
+            // Scroll down (default: j) - scrolls notes panel, not PDF
+            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
+                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
+                return .handled
+            }
+            // Scroll up (default: k) - scrolls notes panel, not PDF
+            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
+                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
+                return .handled
+            }
+            // Cycle pane focus left (default: h)
+            if store.matches(press, action: "cycleFocusLeft") {
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return .handled
+            }
+            // Cycle pane focus right (default: l)
+            if store.matches(press, action: "cycleFocusRight") {
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return .handled
+            }
+            return .ignored
         }
     }
 
@@ -153,7 +218,7 @@ struct NotesTab: View {
             let linkedFiles = publication.linkedFiles ?? []
             Logger.files.infoCapture("[NotesTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
 
-            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            if let firstPDF = publication.primaryPDF ?? linkedFiles.first {
                 Logger.files.infoCapture("[NotesTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -259,7 +324,7 @@ struct NotesTab: View {
             // Refresh linkedFile
             await MainActor.run {
                 isDownloading = false
-                linkedFile = publication.linkedFiles?.first(where: { $0.isPDF }) ?? publication.linkedFiles?.first
+                linkedFile = publication.primaryPDF ?? publication.linkedFiles?.first
                 Logger.files.infoCapture("[NotesTab] downloadPDF() complete - PDF loaded", category: "pdf")
             }
         } catch {
@@ -285,9 +350,14 @@ struct NotesPanel: View {
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(\.themeColors) private var theme
+    @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
     @State private var isResizing = false
     @State private var isEditingFreeformNotes = false  // Controls edit vs preview mode
     @FocusState private var isFreeformNotesFocused: Bool  // Controls TextEditor focus
+
+    private var notesPosition: NotesPosition {
+        NotesPosition(rawValue: notesPositionRaw) ?? .below
+    }
 
     // Quick annotation settings
     @State private var annotationSettings: QuickAnnotationSettings = .defaults
@@ -374,7 +444,7 @@ struct NotesPanel: View {
         }
     }
 
-    // MARK: - Horizontal Header Bar (for below position)
+    // MARK: - Horizontal Header Bar (for below/top position)
 
     private var headerBar: some View {
         HStack(spacing: 8) {
@@ -396,6 +466,19 @@ struct NotesPanel: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            // Position button
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    notesPositionRaw = notesPosition.next.rawValue
+                }
+            } label: {
+                Image(systemName: notesPosition.nextIcon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Move notes panel to \(notesPosition.next.label)")
 
             if !isCollapsed {
                 Image(systemName: "line.3.horizontal")
@@ -448,6 +531,19 @@ struct NotesPanel: View {
             }
             .buttonStyle(.plain)
             .help(isCollapsed ? "Expand notes" : "Collapse notes")
+
+            // Position button
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    notesPositionRaw = notesPosition.next.rawValue
+                }
+            } label: {
+                Image(systemName: notesPosition.nextIcon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Move notes panel to \(notesPosition.next.label)")
 
             Text("Notes")
                 .font(.caption)

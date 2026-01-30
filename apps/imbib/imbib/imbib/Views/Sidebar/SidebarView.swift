@@ -11,6 +11,21 @@ import PublicationManagerCore
 import UniformTypeIdentifiers
 import OSLog
 
+// MARK: - Focus Border Extension (duplicated from ContentView for cross-file use)
+
+extension View {
+    /// Visual indicator for focused pane in vim-style navigation.
+    /// Shows a subtle colored border around the focused pane.
+    @ViewBuilder
+    func focusBorder(isFocused: Bool) -> some View {
+        self.overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isFocused ? Color.accentColor.opacity(0.6) : Color.clear, lineWidth: 2)
+                .padding(1)  // Inset slightly so border doesn't clip
+        )
+    }
+}
+
 private let sidebarLogger = Logger(subsystem: "com.imbib.app", category: "sidebar-dragdrop")
 
 /// Log drag-drop info to both system console AND app's Console window
@@ -43,6 +58,7 @@ struct SidebarView: View {
 
     @Binding var selection: SidebarSection?
     @Binding var expandedLibraries: Set<UUID>
+    @Binding var focusedPane: FocusedPane?
 
     // MARK: - Drag-Drop Coordinator
 
@@ -93,6 +109,29 @@ struct SidebarView: View {
                 if let tint = theme.sidebarTint {
                     tint.opacity(theme.sidebarTintOpacity)
                 }
+            }
+            // Vim-style keyboard navigation (h/l for focus cycling, j/k for item selection)
+            .focusable()
+            .onKeyPress { press in
+                let store = KeyboardShortcutsStore.shared
+                // Cycle focus left (default: h)
+                if store.matches(press, action: "cycleFocusLeft") {
+                    NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                    return .handled
+                }
+                // Cycle focus right (default: l)
+                if store.matches(press, action: "cycleFocusRight") {
+                    NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                    return .handled
+                }
+                // j/k for sidebar item navigation is handled by the List's built-in keyboard support
+                return .ignored
+            }
+            // Visual focus indicator
+            .focusBorder(isFocused: focusedPane == .sidebar)
+            // Set focus when sidebar is clicked
+            .onTapGesture {
+                focusedPane = .sidebar
             }
             // Sidebar-wide drop target for BibTeX/RIS files (not dropped on a specific library)
             // Opens import preview with "Create new library" pre-selected
@@ -213,6 +252,13 @@ struct SidebarView: View {
                 selection = .collection(collection)
                 state.triggerExplorationRefresh()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Refresh retention labels when settings change
+            Task {
+                await state.loadInboxSettings()
+            }
+            state.triggerRefresh()
         }
         // Auto-expand ancestors and set exploration context when selection changes
         .onChange(of: selection) { _, newSelection in
@@ -390,43 +436,56 @@ struct SidebarView: View {
     private func sectionHeaderExtras(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
         case .inbox:
-            // Add feed menu - creates feeds that auto-refresh and populate inbox
-            Menu {
+            HStack(spacing: 6) {
+                // Retention label (clickable)
                 Button {
-                    // Navigate to arXiv Feed form in Search section
-                    selection = .searchForm(.arxivFeed)
+                    NotificationCenter.default.post(name: .showInboxSettings, object: nil)
                 } label: {
-                    Label("arXiv Category Feed", systemImage: "antenna.radiowaves.left.and.right")
+                    Text(inboxRetentionLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
+                .buttonStyle(.plain)
+                .help("Click to change Inbox settings")
 
-                Button {
-                    // Navigate to Group Feed form in Search section
-                    selection = .searchForm(.arxivGroupFeed)
+                // Add feed menu - creates feeds that auto-refresh and populate inbox
+                Menu {
+                    Button {
+                        // Navigate to arXiv Feed form in Search section
+                        selection = .searchForm(.arxivFeed)
+                    } label: {
+                        Label("arXiv Category Feed", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+
+                    Button {
+                        // Navigate to Group Feed form in Search section
+                        selection = .searchForm(.arxivGroupFeed)
+                    } label: {
+                        Label("arXiv Group Feed", systemImage: "person.3.fill")
+                    }
+
+                    Divider()
+
+                    Button {
+                        // Navigate to SciX Search form in Search section
+                        selection = .searchForm(.adsModern)
+                    } label: {
+                        Label("SciX Search", systemImage: "magnifyingglass")
+                    }
+
+                    Button {
+                        // Navigate to ADS Classic form in Search section
+                        selection = .searchForm(.adsClassic)
+                    } label: {
+                        Label("ADS Classic Search", systemImage: "list.bullet.rectangle")
+                    }
                 } label: {
-                    Label("arXiv Group Feed", systemImage: "person.3.fill")
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
                 }
-
-                Divider()
-
-                Button {
-                    // Navigate to SciX Search form in Search section
-                    selection = .searchForm(.adsModern)
-                } label: {
-                    Label("SciX Search", systemImage: "magnifyingglass")
-                }
-
-                Button {
-                    // Navigate to ADS Classic form in Search section
-                    selection = .searchForm(.adsClassic)
-                } label: {
-                    Label("ADS Classic Search", systemImage: "list.bullet.rectangle")
-                }
-            } label: {
-                Image(systemName: "plus.circle")
-                    .font(.caption)
+                .menuStyle(.borderlessButton)
+                .help("Create feed for Inbox")
             }
-            .menuStyle(.borderlessButton)
-            .help("Create feed for Inbox")
         case .libraries:
             // Add library button
             Button {
@@ -438,8 +497,19 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .help("Add Library")
         case .exploration:
-            // Navigation buttons + selection count
+            // Retention label + navigation buttons + selection count
             HStack(spacing: 4) {
+                // Retention label (clickable)
+                Button {
+                    NotificationCenter.default.post(name: .showExplorationSettings, object: nil)
+                } label: {
+                    Text(explorationRetentionLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Click to change Exploration settings")
+
                 // Back/forward navigation buttons
                 NavigationButtonBar(
                     navigationHistory: NavigationHistoryStore.shared,
@@ -541,6 +611,20 @@ struct SidebarView: View {
             if formType.requiresADSCredentials && !state.hasSciXAPIKey { return false }
             return true
         }
+    }
+
+    // MARK: - Retention Labels
+
+    /// Label showing the current Inbox retention setting
+    private var inboxRetentionLabel: String {
+        let ageLimit = state.inboxAgeLimit
+        return ageLimit == .unlimited ? "∞" : ageLimit.displayName
+    }
+
+    /// Label showing the current Exploration retention setting
+    private var explorationRetentionLabel: String {
+        let retention = SyncedSettingsStore.shared.explorationRetention
+        return retention.displayName.lowercased()
     }
 
     /// Move search forms via drag-and-drop
@@ -2741,6 +2825,6 @@ struct NewLibrarySheet: View {
 }
 
 #Preview {
-    SidebarView(selection: .constant(nil), expandedLibraries: .constant([]))
+    SidebarView(selection: .constant(nil), expandedLibraries: .constant([]), focusedPane: .constant(nil))
         .environment(LibraryManager(persistenceController: .preview))
 }
