@@ -21,6 +21,9 @@ private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
 #if os(macOS)
 class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Event monitor for mouse back/forward buttons
+    private var mouseEventMonitor: Any?
+
     private func debugLog(_ message: String) {
         // Use NSLog which works in sandboxed apps and shows in Console.app
         NSLog("[DEBUG] %@", message)
@@ -32,6 +35,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Clear any corrupted SwiftUI window state on launch
         // This prevents oversized windows from being restored
         sanitizeWindowDefaults()
+
+        // Set up mouse back/forward button handling
+        setupMouseButtonMonitor()
+    }
+
+    /// Monitor mouse back/forward buttons and map them to focus cycling (h/l shortcuts).
+    /// Button 3 = back = focus left, Button 4 = forward = focus right.
+    private func setupMouseButtonMonitor() {
+        mouseEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            switch event.buttonNumber {
+            case 3: // Back button
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return nil // Consume the event
+            case 4: // Forward button
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return nil // Consume the event
+            default:
+                return event // Pass through other buttons
+            }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Clean up event monitor
+        if let monitor = mouseEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseEventMonitor = nil
+        }
     }
 
     /// Remove corrupted SwiftUI window state that could cause oversized windows.
