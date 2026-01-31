@@ -146,6 +146,7 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSSpeechRecognitionUsageDescription: imbib uses speech recognition for voice search and dictation features.
         CFBundleURLTypes:
           - CFBundleURLName: com.imbib.app
             CFBundleURLSchemes:
