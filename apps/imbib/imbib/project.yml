@@ -70,6 +70,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
+        NSSpeechRecognitionUsageDescription: imbib uses speech recognition for voice search and dictation features.
         CFBundleURLTypes:
           - CFBundleURLName: com.imbib.app.ios
             CFBundleURLSchemes:
