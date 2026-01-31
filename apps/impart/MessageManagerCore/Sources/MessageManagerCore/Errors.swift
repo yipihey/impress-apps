@@ -93,6 +93,9 @@ public enum SyncError: LocalizedError {
     case syncInProgress
     case conflictDetected(local: Date, remote: Date)
     case quotaExceeded
+    case accountNotFound
+    case folderNotFound
+    case syncFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -104,6 +107,12 @@ public enum SyncError: LocalizedError {
             return "Sync conflict: local modified at \(local), remote at \(remote)"
         case .quotaExceeded:
             return "Storage quota exceeded"
+        case .accountNotFound:
+            return "Account not found"
+        case .folderNotFound:
+            return "Folder not found"
+        case .syncFailed(let reason):
+            return "Sync failed: \(reason)"
         }
     }
 }

@@ -18,8 +18,14 @@ public actor SyncService {
     private let persistence: PersistenceController
     private var providers: [UUID: RustMailProvider] = [:]
 
-    public init(persistence: PersistenceController = .shared) {
+    public init(persistence: PersistenceController) {
         self.persistence = persistence
+    }
+
+    /// Convenience initializer using shared persistence controller.
+    @MainActor
+    public init() {
+        self.persistence = .shared
     }
 
     // MARK: - Provider Management
@@ -138,10 +144,10 @@ public actor SyncService {
                 cdMessage.folder = cdFolder
 
                 // Encode addresses
-                cdMessage.fromJSON = encodeAddresses(message.from)
-                cdMessage.toJSON = encodeAddresses(message.to)
-                cdMessage.ccJSON = encodeAddresses(message.cc)
-                cdMessage.bccJSON = encodeAddresses(message.bcc)
+                cdMessage.fromJSON = SyncService.encodeAddresses(message.from)
+                cdMessage.toJSON = SyncService.encodeAddresses(message.to)
+                cdMessage.ccJSON = SyncService.encodeAddresses(message.cc)
+                cdMessage.bccJSON = SyncService.encodeAddresses(message.bcc)
 
                 // Encode references
                 if let data = try? JSONEncoder().encode(message.references),
@@ -190,31 +196,12 @@ public actor SyncService {
 
     // MARK: - Helpers
 
-    private func encodeAddresses(_ addresses: [EmailAddress]) -> String {
+    private static func encodeAddresses(_ addresses: [EmailAddress]) -> String {
         guard let data = try? JSONEncoder().encode(addresses),
               let json = String(data: data, encoding: .utf8) else {
             return "[]"
         }
         return json
-    }
-}
-
-// MARK: - Sync Errors
-
-public enum SyncError: LocalizedError {
-    case accountNotFound
-    case folderNotFound
-    case syncFailed(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .accountNotFound:
-            return "Account not found"
-        case .folderNotFound:
-            return "Folder not found"
-        case .syncFailed(let reason):
-            return "Sync failed: \(reason)"
-        }
     }
 }
 

@@ -17,8 +17,14 @@ private let searchLogger = Logger(subsystem: "com.impress.impart", category: "se
 public actor SearchService {
     private let persistence: PersistenceController
 
-    public init(persistence: PersistenceController = .shared) {
+    public init(persistence: PersistenceController) {
         self.persistence = persistence
+    }
+
+    /// Convenience initializer using shared persistence controller.
+    @MainActor
+    public init() {
+        self.persistence = .shared
     }
 
     /// Search messages by query.
