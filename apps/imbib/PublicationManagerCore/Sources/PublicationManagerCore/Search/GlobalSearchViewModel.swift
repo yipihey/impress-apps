@@ -39,15 +39,12 @@ public final class GlobalSearchViewModel {
     /// The currently selected result index for keyboard navigation
     public var selectedIndex: Int = 0
 
-    /// The current search context (determines scope)
-    public var searchContext: SearchContext = .global
+    /// The selected search scope (always starts as global, user can narrow it)
+    public var selectedScope: SearchContext = .global
 
-    /// Whether the user has overridden the context to search globally
-    public var isGlobalOverride: Bool = false
-
-    /// The effective context (accounts for override)
+    /// The effective context for search - now just returns the selected scope
     public var effectiveContext: SearchContext {
-        isGlobalOverride ? .global : searchContext
+        selectedScope
     }
 
     // MARK: - Private Properties
@@ -59,9 +56,12 @@ public final class GlobalSearchViewModel {
 
     public init() {}
 
-    /// Initialize with a specific search context
+    /// Initialize with a specific search scope.
+    ///
+    /// Note: The default scope is always global. This initializer allows setting
+    /// a different initial scope if needed.
     public init(context: SearchContext) {
-        self.searchContext = context
+        self.selectedScope = context
     }
 
     // MARK: - Public API
@@ -114,22 +114,29 @@ public final class GlobalSearchViewModel {
         results = []
         isSearching = false
         selectedIndex = 0
-        isGlobalOverride = false
+        // Note: Don't reset selectedScope - keep user's scope preference
     }
 
-    /// Toggle between scoped search and global search
-    public func toggleGlobalOverride() {
-        isGlobalOverride.toggle()
+    /// Select a specific search scope.
+    ///
+    /// This replaces the old toggle/override pattern. Users can explicitly choose
+    /// their scope from the scope picker dropdown.
+    public func selectScope(_ scope: SearchContext) {
+        selectedScope = scope
         // Re-run search with new scope if query exists
         if !query.isEmpty {
             search()
         }
     }
 
-    /// Set the search context
+    /// Set up the view model for a new search session.
+    ///
+    /// Always defaults to global scope. The environment context is ignored - users
+    /// explicitly choose their scope via the scope picker.
     public func setContext(_ context: SearchContext) {
-        searchContext = context
-        isGlobalOverride = false
+        // Always default to global - the scope picker lets users narrow if desired
+        // We keep this method for compatibility but ignore the context parameter
+        selectedScope = .global
     }
 
     /// Move selection up in the results list.

@@ -32,6 +32,7 @@ public struct GlobalSearchPaletteView: View {
     // MARK: - Environment
 
     @Environment(\.searchContext) private var searchContext
+    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
 
@@ -61,10 +62,8 @@ public struct GlobalSearchPaletteView: View {
 
             // Palette container
             VStack(spacing: 0) {
-                // Search scope indicator (shows when not in global context)
-                if !viewModel.effectiveContext.isGlobal {
-                    scopeIndicator
-                }
+                // Scope picker (always visible)
+                scopePicker
 
                 // Search field
                 searchField
@@ -107,8 +106,8 @@ public struct GlobalSearchPaletteView: View {
             }
         }
         .onAppear {
-            // Set the search context from environment
-            viewModel.setContext(searchContext)
+            // Initialize with global scope (user can narrow via scope picker)
+            viewModel.setContext(.global)
 
             // Delay focus slightly to ensure the view is fully rendered
             // Only focus if the view is actually being presented
@@ -117,9 +116,6 @@ public struct GlobalSearchPaletteView: View {
                     isSearchFieldFocused = true
                 }
             }
-        }
-        .onChange(of: searchContext) { _, newContext in
-            viewModel.setContext(newContext)
         }
     }
 
@@ -337,33 +333,106 @@ public struct GlobalSearchPaletteView: View {
         }
     }
 
-    // MARK: - Scope Indicator
+    // MARK: - Scope Picker
 
-    private var scopeIndicator: some View {
+    private var scopePicker: some View {
         HStack(spacing: 8) {
-            Image(systemName: viewModel.effectiveContext.iconName)
+            Text("Search in:")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Searching \(viewModel.effectiveContext.scopeDescription)")
+            Menu {
+                // All Papers (Global)
+                Button {
+                    viewModel.selectScope(.global)
+                } label: {
+                    Label("All Papers", systemImage: "magnifyingglass")
+                }
+
+                Divider()
+
+                // Libraries section
+                ForEach(libraryManager.libraries, id: \.id) { library in
+                    libraryMenu(for: library)
+                }
+
+                // Smart searches section
+                smartSearchesSection
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: viewModel.effectiveContext.iconName)
+                    Text(viewModel.effectiveContext.displayName)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
 
             Spacer()
-
-            Button {
-                viewModel.toggleGlobalOverride()
-            } label: {
-                Text("Search All")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Color.accentColor.opacity(0.1))
+    }
+
+    /// Menu for a single library with its collections
+    @ViewBuilder
+    private func libraryMenu(for library: CDLibrary) -> some View {
+        let collections = (library.collections ?? [])
+            .filter { !$0.isSystemCollection && !$0.isSmartSearchResults }
+            .sorted { $0.name < $1.name }
+
+        if collections.isEmpty {
+            // No collections - just a button
+            Button {
+                viewModel.selectScope(.library(library.id, library.displayName))
+            } label: {
+                Label(library.displayName, systemImage: "books.vertical")
+            }
+        } else {
+            // Has collections - show as submenu
+            Menu(library.displayName) {
+                Button {
+                    viewModel.selectScope(.library(library.id, library.displayName))
+                } label: {
+                    Label("All in \(library.displayName)", systemImage: "books.vertical")
+                }
+
+                Divider()
+
+                ForEach(Array(collections), id: \.id) { collection in
+                    Button {
+                        viewModel.selectScope(.collection(collection.id, collection.name))
+                    } label: {
+                        Label(collection.name, systemImage: "folder")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Smart searches section for the scope picker
+    @ViewBuilder
+    private var smartSearchesSection: some View {
+        let allSmartSearches = libraryManager.libraries.flatMap { library in
+            (library.smartSearches ?? []).map { ($0, library) }
+        }
+        .sorted { $0.0.name < $1.0.name }
+
+        if !allSmartSearches.isEmpty {
+            Divider()
+
+            ForEach(allSmartSearches, id: \.0.id) { smartSearch, _ in
+                Button {
+                    viewModel.selectScope(.smartSearch(smartSearch.id, smartSearch.name))
+                } label: {
+                    Label(smartSearch.name, systemImage: "sparkle.magnifyingglass")
+                }
+            }
+        }
     }
 
     private var noResultsView: some View {
@@ -466,4 +535,5 @@ private extension Array {
         isPresented: .constant(true),
         onSelect: { _ in }
     )
+    .environment(LibraryManager())
 }
