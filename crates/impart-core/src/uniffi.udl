@@ -1,0 +1,119 @@
+namespace impart_core {
+    // Threading
+    sequence<Thread> thread_messages(sequence<Envelope> envelopes);
+
+    // MIME parsing
+    [Throws=ImpartError]
+    ParsedMessage parse_message(bytes raw);
+};
+
+[Error]
+enum ImpartError {
+    "Imap",
+    "Smtp",
+    "Mime",
+    "Auth",
+    "Network",
+    "Io",
+};
+
+dictionary Address {
+    string? name;
+    string email;
+};
+
+dictionary Envelope {
+    u32 uid;
+    string? message_id;
+    string? in_reply_to;
+    sequence<string> references;
+    string? subject;
+    sequence<Address> from_addresses;
+    sequence<Address> to_addresses;
+    sequence<Address> cc_addresses;
+    sequence<Address> bcc_addresses;
+    i64? date_timestamp;
+    sequence<string> flags;
+};
+
+dictionary Thread {
+    string root_message_id;
+    sequence<string> message_ids;
+    string? subject;
+};
+
+dictionary Attachment {
+    string filename;
+    string mime_type;
+    u64 size;
+    string? content_id;
+    bytes data;
+};
+
+dictionary ParsedMessage {
+    Envelope envelope;
+    string? text_body;
+    string? html_body;
+    sequence<Attachment> attachments;
+};
+
+dictionary Mailbox {
+    string name;
+    string delimiter;
+    sequence<string> flags;
+    u32 message_count;
+    u32 unseen_count;
+};
+
+dictionary AccountConfig {
+    string id;
+    string email;
+    string display_name;
+    string imap_host;
+    u16 imap_port;
+    string smtp_host;
+    u16 smtp_port;
+    boolean imap_tls;
+    boolean smtp_starttls;
+};
+
+dictionary DraftMessage {
+    string from_email;
+    sequence<string> to_emails;
+    sequence<string> cc_emails;
+    string subject;
+    string text_body;
+    string? html_body;
+};
+
+interface FfiImapClient {
+    [Throws=ImpartError]
+    constructor(AccountConfig config, string password);
+
+    [Throws=ImpartError]
+    sequence<Mailbox> list_mailboxes();
+
+    [Throws=ImpartError]
+    sequence<Envelope> fetch_envelopes(string mailbox_name, u32 start, u32 count);
+
+    [Throws=ImpartError]
+    ParsedMessage fetch_message(string mailbox_name, u32 uid);
+
+    [Throws=ImpartError]
+    void set_flags(string mailbox_name, sequence<u32> uids, sequence<string> flags, boolean add);
+
+    [Throws=ImpartError]
+    void move_messages(string from_mailbox, string to_mailbox, sequence<u32> uids);
+
+    void disconnect();
+};
+
+interface FfiSmtpClient {
+    [Throws=ImpartError]
+    constructor(AccountConfig config, string password);
+
+    [Throws=ImpartError]
+    void send(DraftMessage message);
+
+    void disconnect();
+};

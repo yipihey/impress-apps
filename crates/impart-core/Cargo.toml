@@ -1,0 +1,61 @@
+[package]
+name = "impart-core"
+description = "Cross-platform core library for impart communication tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "impart_core"
+
+[features]
+default = []
+native = ["uniffi", "tokio", "imap", "imap-proto", "lettre", "native-tls"]
+
+[dependencies]
+# Shared impress crates
+impress-domain = { workspace = true }
+
+# UniFFI for Swift/Kotlin bindings (optional, native only)
+uniffi = { workspace = true, features = ["tokio"], optional = true }
+
+# Async runtime (optional, native only)
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util"], optional = true }
+
+# IMAP client (optional, native only)
+imap = { version = "3.0.0-alpha.15", optional = true }
+imap-proto = { version = "0.16", optional = true }
+
+# SMTP client (optional, native only)
+lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls"], optional = true }
+
+# TLS support (optional, native only)
+native-tls = { version = "0.2", optional = true }
+
+# MIME parsing
+mailparse = "0.15"
+
+# Error handling
+thiserror = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# UUID generation
+uuid = { workspace = true, features = ["v4", "serde"] }
+
+# Timestamps
+chrono = { workspace = true }
+
+# SQLite for provenance event store
+rusqlite = { workspace = true }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile = "3.10"
