@@ -206,6 +206,10 @@ public struct MailStylePublicationRow: View, Equatable {
     /// When non-nil, briefly shows a colored overlay to confirm the action
     public var triageFlashColor: Color?
 
+    /// Holder for current selection (class reference avoids closure capture issues)
+    /// When this item is dragged and is part of the selection, all selected items are dragged.
+    public var dragSelectionHolder: DragSelectionHolder?
+
     /// Whether the row is currently a drop target
     @State private var isDropTargeted = false
 
@@ -267,7 +271,8 @@ public struct MailStylePublicationRow: View, Equatable {
         libraries: [CDLibrary] = [],
         recommendationScore: Double? = nil,
         highlightedCitationCount: Int? = nil,
-        triageFlashColor: Color? = nil
+        triageFlashColor: Color? = nil,
+        dragSelectionHolder: DragSelectionHolder? = nil
     ) {
         self.data = data
         self.settings = settings
@@ -303,6 +308,7 @@ public struct MailStylePublicationRow: View, Equatable {
         self.recommendationScore = recommendationScore
         self.highlightedCitationCount = highlightedCitationCount
         self.triageFlashColor = triageFlashColor
+        self.dragSelectionHolder = dragSelectionHolder
     }
 
     // MARK: - Body
@@ -433,11 +439,33 @@ public struct MailStylePublicationRow: View, Equatable {
         }
         .padding(.vertical, rowPadding)
         .contentShape(Rectangle())
-        .draggable(data.id) {
-            // Drag preview
-            Label(data.title, systemImage: "doc.text")
-                .padding(8)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        // Multi-selection drag: read current selection from holder at drag time
+        .itemProvider {
+            // Read current selection from holder (class reference, not captured value)
+            let currentSelection = dragSelectionHolder?.selectedIDs ?? []
+            let idsToDrag: [UUID] = if currentSelection.contains(data.id) && currentSelection.count > 1 {
+                Array(currentSelection)
+            } else {
+                [data.id]
+            }
+
+            let provider = NSItemProvider()
+            // Encode all UUIDs as JSON array in a single representation
+            provider.registerDataRepresentation(
+                forTypeIdentifier: UTType.publicationID.identifier,
+                visibility: .all
+            ) { completion in
+                // Encode as JSON array of UUID strings
+                let uuidStrings = idsToDrag.map { $0.uuidString }
+                let jsonData = try? JSONEncoder().encode(uuidStrings)
+                completion(jsonData, nil)
+                return nil
+            }
+            // Set suggested name for drag preview
+            provider.suggestedName = idsToDrag.count > 1
+                ? "\(idsToDrag.count) publications"
+                : data.title
+            return provider
         }
         .overlay {
             // Drop target visual feedback
