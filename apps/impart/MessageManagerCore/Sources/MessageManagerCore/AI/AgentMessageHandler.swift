@@ -8,6 +8,7 @@
 
 import Foundation
 import OSLog
+import ImpressAI
 
 private let agentLogger = Logger(subsystem: "com.impart", category: "agent")
 
@@ -338,6 +339,217 @@ public actor AgentMessageHandler {
             subject: subject,
             body: body
         )
+    }
+
+    // MARK: - AI Draft Review
+
+    /// Review a draft message using AI.
+    public func reviewDraft(_ draft: DraftMessage) async throws -> DraftReview {
+        let prompt = """
+        Review this email draft and suggest improvements:
+
+        To: \(draft.to.map(\.email).joined(separator: ", "))
+        Subject: \(draft.subject)
+
+        Body:
+        \(draft.body)
+
+        Provide:
+        1. Overall assessment (professional tone, clarity, completeness)
+        2. Specific suggestions for improvement
+        3. Any potential issues (typos, unclear phrasing, missing information)
+        """
+
+        let request = AICompletionRequest(
+            messages: [AIMessage(role: .user, text: prompt)],
+            systemPrompt: "You are an expert email writing assistant. Provide clear, actionable feedback on email drafts.",
+            maxTokens: 1000,
+            temperature: 0.7
+        )
+
+        let executor = AIMultiModelExecutor.shared
+        let result = try await executor.executePrimary(request, categoryId: "writing.rewrite")
+
+        guard let text = result?.text else {
+            throw DraftReviewError.noResponse
+        }
+
+        agentLogger.info("Draft review completed for subject: \(draft.subject)")
+
+        return DraftReview(
+            suggestions: text,
+            improvedDraft: nil
+        )
+    }
+
+    /// Generate a reply draft using AI.
+    public func generateReply(to message: Message, style: ReplyStyle, accountId: UUID) async throws -> DraftMessage {
+        let prompt = """
+        Generate a \(style.rawValue) reply to this email:
+
+        From: \(message.fromDisplayString)
+        Subject: \(message.subject)
+
+        Original message:
+        \(message.snippet)
+
+        Write a professional reply.
+        """
+
+        let request = AICompletionRequest(
+            messages: [AIMessage(role: .user, text: prompt)],
+            systemPrompt: "You are an expert email composer. Write clear, professional email replies.",
+            maxTokens: 1000,
+            temperature: 0.7
+        )
+
+        let executor = AIMultiModelExecutor.shared
+        let result = try await executor.executePrimary(request, categoryId: "writing.rewrite")
+
+        guard let replyBody = result?.text else {
+            throw DraftReviewError.noResponse
+        }
+
+        agentLogger.info("Reply generated for message: \(message.subject)")
+
+        return DraftMessage(
+            accountId: accountId,
+            to: message.from,
+            subject: "Re: \(message.subject)",
+            body: replyBody,
+            inReplyTo: message.messageId,
+            references: message.references + [message.messageId].compactMap { $0 }
+        )
+    }
+
+    /// Improve a draft message using AI.
+    public func improveDraft(_ draft: DraftMessage, instruction: String? = nil) async throws -> DraftMessage {
+        let prompt: String
+        if let instruction = instruction {
+            prompt = """
+            Improve this email according to the following instruction:
+            \(instruction)
+
+            Original email:
+            Subject: \(draft.subject)
+
+            \(draft.body)
+
+            Return only the improved email body, no explanations.
+            """
+        } else {
+            prompt = """
+            Improve this email for clarity, professionalism, and impact:
+
+            Subject: \(draft.subject)
+
+            \(draft.body)
+
+            Return only the improved email body, no explanations.
+            """
+        }
+
+        let request = AICompletionRequest(
+            messages: [AIMessage(role: .user, text: prompt)],
+            systemPrompt: "You are an expert email writing assistant. Improve emails while maintaining the sender's voice and intent.",
+            maxTokens: 2000,
+            temperature: 0.7
+        )
+
+        let executor = AIMultiModelExecutor.shared
+        let result = try await executor.executePrimary(request, categoryId: "writing.rewrite")
+
+        guard let improvedBody = result?.text else {
+            throw DraftReviewError.noResponse
+        }
+
+        agentLogger.info("Draft improved for subject: \(draft.subject)")
+
+        var improvedDraft = draft
+        improvedDraft.body = improvedBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        return improvedDraft
+    }
+
+    /// Suggest a subject line for a draft.
+    public func suggestSubject(for draft: DraftMessage) async throws -> String {
+        let prompt = """
+        Suggest a clear, professional subject line for this email:
+
+        To: \(draft.to.map(\.email).joined(separator: ", "))
+
+        Body:
+        \(draft.body)
+
+        Return only the subject line, nothing else.
+        """
+
+        let request = AICompletionRequest(
+            messages: [AIMessage(role: .user, text: prompt)],
+            systemPrompt: "You are an expert at writing concise, effective email subject lines.",
+            maxTokens: 100,
+            temperature: 0.7
+        )
+
+        let executor = AIMultiModelExecutor.shared
+        let result = try await executor.executePrimary(request, categoryId: "writing.rewrite")
+
+        guard let subject = result?.text else {
+            throw DraftReviewError.noResponse
+        }
+
+        agentLogger.info("Subject suggested: \(subject)")
+
+        return subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Draft Review Types
+
+/// Result of AI draft review.
+public struct DraftReview: Sendable {
+    public let suggestions: String
+    public let improvedDraft: DraftMessage?
+
+    public init(suggestions: String, improvedDraft: DraftMessage?) {
+        self.suggestions = suggestions
+        self.improvedDraft = improvedDraft
+    }
+}
+
+/// Style for AI-generated replies.
+public enum ReplyStyle: String, Sendable, CaseIterable {
+    case professional = "professional"
+    case brief = "brief"
+    case friendly = "friendly"
+    case formal = "formal"
+    case casual = "casual"
+
+    public var displayName: String {
+        switch self {
+        case .professional: return "Professional"
+        case .brief: return "Brief"
+        case .friendly: return "Friendly"
+        case .formal: return "Formal"
+        case .casual: return "Casual"
+        }
+    }
+}
+
+/// Errors for draft review operations.
+public enum DraftReviewError: LocalizedError {
+    case noResponse
+    case aiProviderNotConfigured
+    case reviewFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noResponse:
+            return "No response received from AI"
+        case .aiProviderNotConfigured:
+            return "AI provider is not configured"
+        case .reviewFailed(let reason):
+            return "Draft review failed: \(reason)"
+        }
     }
 }
 
