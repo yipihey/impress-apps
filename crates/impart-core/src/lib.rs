@@ -39,9 +39,13 @@ use thiserror::Error;
 pub mod types;
 pub mod mime;
 pub mod threading;
+pub mod mbox;
 
 // Provenance event sourcing for research conversations
 pub mod provenance;
+
+// Re-export core types for convenience
+pub use types::Address;
 
 #[cfg(feature = "native")]
 mod imap;

@@ -9,8 +9,6 @@ import CoreData
 import Foundation
 import OSLog
 
-private let persistenceLogger = Logger(subsystem: "com.imbib.impart", category: "persistence")
-
 // MARK: - Persistence Controller
 
 /// Manages Core Data stack for impart.
@@ -53,16 +51,23 @@ public final class PersistenceController: Sendable {
     /// Initialize the persistence controller.
     /// - Parameter inMemory: Use in-memory store for testing/previews.
     public init(inMemory: Bool = false) {
-        container = NSPersistentCloudKitContainer(name: "Impart")
+        // Create the model programmatically
+        let model = CoreDataModelBuilder.createModel()
+        container = NSPersistentCloudKitContainer(name: "Impart", managedObjectModel: model)
 
+        // Configure store description
+        let storeURL: URL
         if inMemory {
-            container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
+            storeURL = URL(fileURLWithPath: "/dev/null")
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let impartDir = appSupport.appendingPathComponent("impart", isDirectory: true)
+            try? FileManager.default.createDirectory(at: impartDir, withIntermediateDirectories: true)
+            storeURL = impartDir.appendingPathComponent("Impart.sqlite")
         }
 
-        // Configure for CloudKit sync
-        guard let description = container.persistentStoreDescriptions.first else {
-            fatalError("Failed to retrieve persistent store description")
-        }
+        let description = NSPersistentStoreDescription(url: storeURL)
+        container.persistentStoreDescriptions = [description]
 
         // Enable persistent history tracking for CloudKit
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
@@ -77,11 +82,11 @@ public final class PersistenceController: Sendable {
 
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {
-                persistenceLogger.error("Failed to load persistent store: \(error), \(error.userInfo)")
+                Logger.persistence.errorCapture("Failed to load persistent store: \(error), \(error.userInfo)", category: "persistence")
                 // In production, handle this gracefully
                 fatalError("Failed to load persistent store: \(error)")
             }
-            persistenceLogger.info("Loaded persistent store: \(storeDescription.url?.absoluteString ?? "unknown")")
+            Logger.persistence.infoCapture("Loaded persistent store: \(storeDescription.url?.absoluteString ?? "unknown")", category: "persistence")
         }
 
         // Configure view context
@@ -117,8 +122,9 @@ public final class PersistenceController: Sendable {
 
         do {
             try context.save()
+            Logger.persistence.debugCapture("Saved view context", category: "persistence")
         } catch {
-            persistenceLogger.error("Failed to save view context: \(error.localizedDescription)")
+            Logger.persistence.errorCapture("Failed to save view context: \(error.localizedDescription)", category: "persistence")
         }
     }
 
@@ -128,8 +134,9 @@ public final class PersistenceController: Sendable {
 
         do {
             try context.save()
+            Logger.persistence.debugCapture("Saved background context", category: "persistence")
         } catch {
-            persistenceLogger.error("Failed to save context: \(error.localizedDescription)")
+            Logger.persistence.errorCapture("Failed to save context: \(error.localizedDescription)", category: "persistence")
         }
     }
 

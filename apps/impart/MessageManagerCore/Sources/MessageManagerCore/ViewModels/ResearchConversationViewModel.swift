@@ -4,6 +4,7 @@
 //
 //  SwiftUI view model for research conversations.
 //  Manages state for research conversation UI.
+//  Persists conversations to mbox files for standard format interoperability.
 //
 
 import Combine
@@ -28,6 +29,9 @@ public final class ResearchConversationViewModel: ObservableObject {
 
     /// Currently attached artifacts.
     @Published public var attachedArtifacts: [ArtifactReference] = []
+
+    /// Currently referenced artifacts (shown in artifact bar).
+    @Published public var referencedArtifacts: [ArtifactReference] = []
 
     /// Current message input.
     @Published public var messageInput: String = ""
@@ -59,8 +63,10 @@ public final class ResearchConversationViewModel: ObservableObject {
     private let provenanceService: ProvenanceService
     private let artifactService: ArtifactService
     private let repository: ResearchConversationRepository
+    private let mboxStore: MboxConversationStore
     private var counselSession: CounselSession?
     private let userId: String
+    private var currentMboxConversation: MboxConversation?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -71,12 +77,14 @@ public final class ResearchConversationViewModel: ObservableObject {
         persistenceController: PersistenceController,
         provenanceService: ProvenanceService,
         artifactService: ArtifactService,
-        userId: String
+        userId: String,
+        mboxDirectory: URL? = nil
     ) {
         self.persistenceController = persistenceController
         self.provenanceService = provenanceService
         self.artifactService = artifactService
         self.repository = ResearchConversationRepository(persistenceController: persistenceController)
+        self.mboxStore = MboxConversationStore(baseDirectory: mboxDirectory)
         self.userId = userId
     }
 
@@ -103,12 +111,21 @@ public final class ResearchConversationViewModel: ObservableObject {
             actorId: userId
         )
 
-        // Persist the new conversation
+        // Persist to Core Data
         do {
             try await repository.save(newConversation)
-            viewModelLogger.info("Persisted new conversation: \(newConversation.id)")
+            viewModelLogger.info("Persisted new conversation to Core Data: \(newConversation.id)")
         } catch {
-            viewModelLogger.error("Failed to persist conversation: \(error.localizedDescription)")
+            viewModelLogger.error("Failed to persist conversation to Core Data: \(error.localizedDescription)")
+        }
+
+        // Create mbox file for conversation
+        do {
+            let mboxConv = try await mboxStore.createConversation(title: title)
+            currentMboxConversation = mboxConv
+            viewModelLogger.info("Created mbox file for conversation: \(mboxConv.filePath.lastPathComponent)")
+        } catch {
+            viewModelLogger.error("Failed to create mbox file: \(error.localizedDescription)")
         }
 
         // Create counsel session
@@ -125,6 +142,7 @@ public final class ResearchConversationViewModel: ObservableObject {
         messages = []
         timelineItems = []
         attachedArtifacts = []
+        referencedArtifacts = []
         isLoading = false
 
         viewModelLogger.info("Created new research conversation: \(title)")
@@ -232,12 +250,23 @@ public final class ResearchConversationViewModel: ObservableObject {
         messages.append(userMessage)
         timelineItems.append(.message(userMessage))
 
-        // Persist user message
+        // Persist user message to Core Data
         do {
             try await repository.saveMessage(userMessage, to: conversationId)
-            viewModelLogger.debug("Persisted user message: \(userMessage.id)")
+            viewModelLogger.debug("Persisted user message to Core Data: \(userMessage.id)")
         } catch {
-            viewModelLogger.error("Failed to persist user message: \(error.localizedDescription)")
+            viewModelLogger.error("Failed to persist user message to Core Data: \(error.localizedDescription)")
+        }
+
+        // Also persist to mbox file
+        if let mboxConv = currentMboxConversation {
+            do {
+                let mboxMessage = userMessage.toMboxMessage(userEmail: userId)
+                try await mboxStore.addMessage(mboxMessage, to: mboxConv.id)
+                viewModelLogger.debug("Persisted user message to mbox: \(userMessage.id)")
+            } catch {
+                viewModelLogger.error("Failed to persist user message to mbox: \(error.localizedDescription)")
+            }
         }
 
         do {
@@ -267,12 +296,23 @@ public final class ResearchConversationViewModel: ObservableObject {
             messages.append(counselMessage)
             timelineItems.append(.message(counselMessage))
 
-            // Persist counsel message
+            // Persist counsel message to Core Data
             do {
                 try await repository.saveMessage(counselMessage, to: conversationId)
-                viewModelLogger.debug("Persisted counsel message: \(counselMessage.id)")
+                viewModelLogger.debug("Persisted counsel message to Core Data: \(counselMessage.id)")
             } catch {
-                viewModelLogger.error("Failed to persist counsel message: \(error.localizedDescription)")
+                viewModelLogger.error("Failed to persist counsel message to Core Data: \(error.localizedDescription)")
+            }
+
+            // Also persist counsel message to mbox file
+            if let mboxConv = currentMboxConversation {
+                do {
+                    let mboxMessage = counselMessage.toMboxMessage(userEmail: userId)
+                    try await mboxStore.addMessage(mboxMessage, to: mboxConv.id)
+                    viewModelLogger.debug("Persisted counsel message to mbox: \(counselMessage.id)")
+                } catch {
+                    viewModelLogger.error("Failed to persist counsel message to mbox: \(error.localizedDescription)")
+                }
             }
 
             // Update conversation stats
@@ -322,12 +362,23 @@ public final class ResearchConversationViewModel: ObservableObject {
         messages.append(userMessage)
         timelineItems.append(.message(userMessage))
 
-        // Persist user message
+        // Persist user message to Core Data
         do {
             try await repository.saveMessage(userMessage, to: conversationId)
-            viewModelLogger.debug("Persisted user message: \(userMessage.id)")
+            viewModelLogger.debug("Persisted user message to Core Data: \(userMessage.id)")
         } catch {
-            viewModelLogger.error("Failed to persist user message: \(error.localizedDescription)")
+            viewModelLogger.error("Failed to persist user message to Core Data: \(error.localizedDescription)")
+        }
+
+        // Also persist to mbox file
+        if let mboxConv = currentMboxConversation {
+            do {
+                let mboxMessage = userMessage.toMboxMessage(userEmail: userId)
+                try await mboxStore.addMessage(mboxMessage, to: mboxConv.id)
+                viewModelLogger.debug("Persisted user message to mbox: \(userMessage.id)")
+            } catch {
+                viewModelLogger.error("Failed to persist user message to mbox: \(error.localizedDescription)")
+            }
         }
 
         do {
@@ -352,12 +403,23 @@ public final class ResearchConversationViewModel: ObservableObject {
             messages.append(counselMessage)
             timelineItems.append(.message(counselMessage))
 
-            // Persist counsel message
+            // Persist counsel message to Core Data
             do {
                 try await repository.saveMessage(counselMessage, to: conversationId)
-                viewModelLogger.debug("Persisted counsel message: \(counselMessage.id)")
+                viewModelLogger.debug("Persisted counsel message to Core Data: \(counselMessage.id)")
             } catch {
-                viewModelLogger.error("Failed to persist counsel message: \(error.localizedDescription)")
+                viewModelLogger.error("Failed to persist counsel message to Core Data: \(error.localizedDescription)")
+            }
+
+            // Also persist counsel message to mbox file
+            if let mboxConv = currentMboxConversation {
+                do {
+                    let mboxMessage = counselMessage.toMboxMessage(userEmail: userId)
+                    try await mboxStore.addMessage(mboxMessage, to: mboxConv.id)
+                    viewModelLogger.debug("Persisted counsel message to mbox: \(counselMessage.id)")
+                } catch {
+                    viewModelLogger.error("Failed to persist counsel message to mbox: \(error.localizedDescription)")
+                }
             }
 
             // Update conversation stats
@@ -371,6 +433,53 @@ public final class ResearchConversationViewModel: ObservableObject {
         }
 
         isSending = false
+    }
+
+    // MARK: - Side Conversations
+
+    /// Start a side conversation from a specific message.
+    public func startSideConversation(from messageId: UUID) async {
+        // Find the message to branch from
+        guard let message = messages.first(where: { $0.id == messageId }) else {
+            errorMessage = "Message not found"
+            return
+        }
+
+        // Create a side conversation title based on context
+        let title = "Branch: \(message.snippet.prefix(30))..."
+
+        await branchConversation(fromMessage: messageId, title: title)
+    }
+
+    /// Generate a summary of the current conversation.
+    public func generateSummary() async {
+        guard let session = counselSession else { return }
+
+        do {
+            let summary = try await session.generateSummary()
+            // Update conversation with summary
+            if var conv = conversation {
+                conv.summaryText = summary
+                conversation = conv
+                try await repository.save(conv)
+            }
+        } catch {
+            viewModelLogger.error("Failed to generate summary: \(error.localizedDescription)")
+        }
+    }
+
+    /// Add an artifact mention to the current message.
+    public func addArtifactMention(_ artifact: ArtifactReference) {
+        if !referencedArtifacts.contains(where: { $0.uriString == artifact.uriString }) {
+            referencedArtifacts.append(artifact)
+        }
+        // Also add to attached artifacts for AI context
+        if !attachedArtifacts.contains(where: { $0.uriString == artifact.uriString }) {
+            attachedArtifacts.append(artifact)
+            Task {
+                await counselSession?.attach(artifacts: [artifact])
+            }
+        }
     }
 
     // MARK: - Artifact Management
@@ -459,6 +568,58 @@ public final class ResearchConversationViewModel: ObservableObject {
         // TODO: Save to persistence and switch to branch
 
         viewModelLogger.info("Created branch conversation: \(title)")
+    }
+
+    // MARK: - Mbox Export/Import
+
+    /// Get the mbox file path for the current conversation.
+    public func getMboxFilePath() -> URL? {
+        currentMboxConversation?.filePath
+    }
+
+    /// Export the current conversation to a specified URL.
+    public func exportToMbox(at destinationURL: URL) async throws {
+        guard let conv = conversation else {
+            throw MboxError.conversationNotFound
+        }
+
+        var mboxContent = ""
+
+        // Convert each message to mbox format
+        for message in messages {
+            let mboxMessage = message.toMboxMessage(userEmail: userId)
+            let mboxString = mboxMessage.toMboxString(conversationId: conv.id, conversationTitle: conv.title)
+            mboxContent += mboxString + "\n"
+        }
+
+        try mboxContent.write(to: destinationURL, atomically: true, encoding: .utf8)
+        viewModelLogger.info("Exported conversation to: \(destinationURL.path)")
+    }
+
+    /// Load a conversation from an mbox file.
+    public func loadFromMbox(url: URL) async throws {
+        // Parse the mbox file
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let mboxConversations = try await mboxStore.loadConversations()
+
+        // Find or create conversation from file
+        // For now, we just reload the store
+        if let conv = mboxConversations.first(where: { $0.filePath == url }) {
+            currentMboxConversation = conv
+
+            // Convert to research conversation
+            conversation = conv.toResearchConversation()
+            messages = conv.messages.enumerated().map { index, mboxMsg in
+                mboxMsg.toResearchMessage(conversationId: conv.id, sequence: index + 1)
+            }
+            timelineItems = messages.map { .message($0) }
+            updateStats()
+        }
+    }
+
+    /// List all mbox conversations available.
+    public func listMboxConversations() async throws -> [MboxConversation] {
+        try await mboxStore.loadConversations()
     }
 
     // MARK: - Private Helpers

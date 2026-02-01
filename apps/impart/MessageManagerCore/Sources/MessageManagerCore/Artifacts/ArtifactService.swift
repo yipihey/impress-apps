@@ -83,9 +83,10 @@ public actor ArtifactService {
         cdArtifact.sourceMessageId = sourceMessageId
         cdArtifact.isResolved = false
 
-        if let metadata = metadata {
-            cdArtifact.metadataJSON = try? JSONEncoder().encode(metadata)
-                .flatMap { String(data: $0, encoding: .utf8) }
+        if let metadata = metadata,
+           let data = try? JSONEncoder().encode(metadata),
+           let jsonString = String(data: data, encoding: .utf8) {
+            cdArtifact.metadataJSON = jsonString
         }
 
         try context.save()
@@ -151,9 +152,10 @@ public actor ArtifactService {
             cdArtifact.displayName = displayName
         }
 
-        if let metadata = metadata {
-            cdArtifact.metadataJSON = try? JSONEncoder().encode(metadata)
-                .flatMap { String(data: $0, encoding: .utf8) }
+        if let metadata = metadata,
+           let data = try? JSONEncoder().encode(metadata),
+           let jsonString = String(data: data, encoding: .utf8) {
+            cdArtifact.metadataJSON = jsonString
         }
 
         if let isResolved = isResolved {

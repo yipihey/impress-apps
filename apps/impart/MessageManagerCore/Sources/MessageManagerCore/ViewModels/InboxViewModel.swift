@@ -6,11 +6,10 @@
 //  Supports view modes, triage actions, and AI agent integration.
 //
 
+import CoreData
 import Foundation
 import Observation
 import OSLog
-
-private let inboxLogger = Logger(subsystem: "com.imbib.impart", category: "inbox")
 
 // MARK: - Inbox View Model
 
@@ -120,10 +119,10 @@ public final class InboxViewModel {
                 threads = []
             }
 
-            inboxLogger.info("Loaded \(self.messages.count) messages from \(mailbox.name)")
+            Logger.messages.info("Loaded \(self.messages.count) messages from \(mailbox.name)")
         } catch {
             errorMessage = error.localizedDescription
-            inboxLogger.error("Failed to load messages: \(error.localizedDescription)")
+            Logger.messages.error("Failed to load messages: \(error.localizedDescription)")
         }
 
         isLoading = false
@@ -152,10 +151,10 @@ public final class InboxViewModel {
                 threads = []
             }
 
-            inboxLogger.info("Refreshed \(mailbox.name) with \(newMessages.count) messages")
+            Logger.messages.info("Refreshed \(mailbox.name) with \(newMessages.count) messages")
         } catch {
             errorMessage = error.localizedDescription
-            inboxLogger.error("Failed to refresh: \(error.localizedDescription)")
+            Logger.messages.error("Failed to refresh: \(error.localizedDescription)")
         }
 
         isLoading = false
@@ -295,6 +294,29 @@ public final class InboxViewModel {
         return nil
     }
 
+    /// Folders per account cache.
+    private var foldersPerAccount: [UUID: [CDFolder]] = [:]
+
+    /// Get folders for an account.
+    public func folders(for accountId: UUID) -> [CDFolder] {
+        foldersPerAccount[accountId] ?? []
+    }
+
+    /// Load folders for an account.
+    public func loadFolders(for accountId: UUID) async {
+        do {
+            let folders: [CDFolder] = try await persistence.performBackgroundTask { context in
+                let request: NSFetchRequest<CDFolder> = CDFolder.fetchRequest()
+                request.predicate = NSPredicate(format: "account.id == %@", accountId as CVarArg)
+                request.sortDescriptors = [NSSortDescriptor(keyPath: \CDFolder.fullPath, ascending: true)]
+                return try context.fetch(request)
+            }
+            foldersPerAccount[accountId] = folders
+        } catch {
+            Logger.messages.error("Failed to load folders for account \(accountId): \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - View Mode Actions
 
     /// Toggle between view modes.
@@ -305,7 +327,7 @@ public final class InboxViewModel {
     /// Send a reply in chat view.
     public func sendReply(_ text: String) async {
         // TODO: Implement send reply
-        inboxLogger.info("Sending reply: \(text.prefix(50))...")
+        Logger.messages.info("Sending reply: \(text.prefix(50))...")
     }
 
     // MARK: - Triage Actions

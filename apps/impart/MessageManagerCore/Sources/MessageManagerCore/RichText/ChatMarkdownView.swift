@@ -6,7 +6,6 @@
 //  Supports GFM markdown with syntax-highlighted code blocks.
 //
 
-import HighlightSwift
 import MarkdownUI
 import SwiftUI
 
@@ -36,7 +35,6 @@ public struct ChatMarkdownView: View {
     public var body: some View {
         Markdown(content)
             .markdownTheme(.impartChat(fontSize: fontSize))
-            .markdownCodeSyntaxHighlighter(.highlightJS(.atomOneDark))
             .textSelection(.enabled)
     }
 }

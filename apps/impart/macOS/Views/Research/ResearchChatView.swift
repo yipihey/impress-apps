@@ -208,7 +208,7 @@ private struct TimelineItemView: View {
             })
         case .sideConversationMarker(let preview):
             SideConversationMarkerView(preview: preview, onExpand: {
-                onExpandSide?(preview.conversationId)
+                onExpandSide?(preview.sideConversationId)
             })
         }
     }
@@ -343,7 +343,7 @@ private struct RadioButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isSelected ? "circle.inset.filled" : "circle")
-                .foregroundStyle(isSelected ? .accentColor : .secondary)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
         }
         .buttonStyle(.plain)
     }
@@ -441,8 +441,8 @@ private struct SideConversationMarkerView: View {
 
                 HStack(spacing: 8) {
                     Label("\(preview.messageCount) messages", systemImage: "bubble.left.and.bubble.right")
-                    if let synthesis = preview.synthesisSnippet {
-                        Text(synthesis)
+                    if !preview.summary.isEmpty {
+                        Text(preview.summary)
                             .lineLimit(1)
                     }
                 }
@@ -476,12 +476,15 @@ private struct SideConversationMarkerView: View {
 
 extension ArtifactReference {
     var iconName: String {
-        switch uri.type {
+        switch type {
         case .paper: return "doc.text"
         case .repository: return "folder"
         case .dataset: return "tablecells"
         case .document: return "doc"
-        case .unknown: return "link"
+        case .robot: return "gear"
+        case .stream: return "waveform"
+        case .externalUrl: return "link"
+        case .unknown: return "questionmark"
         }
     }
 }

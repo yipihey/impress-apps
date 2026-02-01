@@ -419,6 +419,46 @@ public actor CounselSession {
         ))
     }
 
+    /// Generate a summary of the conversation so far.
+    public func generateSummary() async throws -> String {
+        let summaryPrompt = """
+        Please provide a brief summary (2-3 paragraphs) of this research conversation.
+        Highlight the main topics discussed, key insights reached, and any artifacts referenced.
+        """
+
+        // Add summary request to a temporary history
+        var messagesForSummary = buildMessages()
+        messagesForSummary.append(ImpressAI.AIMessage(role: .user, text: summaryPrompt))
+
+        let systemPrompt = """
+        You are a research assistant. Summarize the conversation concisely, \
+        focusing on the key topics, decisions, and references.
+        """
+
+        let request = AICompletionRequest(
+            modelId: mapModelId(configuration.model),
+            messages: messagesForSummary,
+            systemPrompt: systemPrompt,
+            maxTokens: 512,
+            temperature: 0.3
+        )
+
+        let executor = AIMultiModelExecutor.shared
+
+        guard let result = try await executor.executePrimary(request, categoryId: "research") else {
+            throw CounselError.noProviderConfigured
+        }
+
+        guard result.isSuccess, let response = result.response else {
+            if let error = result.error {
+                throw CounselError.executionFailed(error.localizedDescription)
+            }
+            throw CounselError.noResponse
+        }
+
+        return response.text
+    }
+
     // MARK: - Private Helpers
 
     /// Build the system prompt with artifact context.

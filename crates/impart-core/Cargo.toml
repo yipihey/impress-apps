@@ -10,6 +10,11 @@ repository.workspace = true
 crate-type = ["staticlib", "cdylib", "lib"]
 name = "impart_core"
 
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["native"]
+
 [features]
 default = []
 native = ["uniffi", "tokio", "imap", "imap-proto", "lettre", "native-tls"]

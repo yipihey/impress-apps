@@ -1,0 +1,158 @@
+name: impart
+options:
+  bundleIdPrefix: com.imbib
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    PRODUCT_NAME: impart
+    DEVELOPMENT_TEAM: QG3MEYVHMS
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  MessageManagerCore:
+    path: MessageManagerCore
+  ImpartRustCore:
+    path: ImpartRustCore
+  ImpressAI:
+    path: ../../packages/ImpressAI
+  ImpressAutomation:
+    path: ../../packages/ImpressAutomation
+
+targets:
+  impart:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Shared
+      - path: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart
+        INFOPLIST_FILE: macOS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: macOS/Resources/impart.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: MessageManagerCore
+      - package: ImpartRustCore
+      - package: ImpressAI
+      - package: ImpressAutomation
+    entitlements:
+      path: macOS/Resources/impart.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.application-groups:
+          - group.com.imbib.shared
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.shared
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.imbib.shared
+
+  impartTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: impart
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.tests
+        PRODUCT_MODULE_NAME: impartTests
+        GENERATE_INFOPLIST_FILE: YES
+
+  # iOS Target
+  impart-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Shared
+      - path: impart-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart
+        INFOPLIST_FILE: impart-iOS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: impart-iOS/Resources/impart-iOS.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    dependencies:
+      - package: MessageManagerCore
+      - package: ImpartRustCore
+      - package: ImpressAI
+      - package: ImpressAutomation
+    entitlements:
+      path: impart-iOS/Resources/impart-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.shared
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.shared
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.imbib.shared
+
+  impart-iOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: impart-iOSTests
+    dependencies:
+      - target: impart-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.iostests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  impart:
+    build:
+      targets:
+        impart: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - impartTests
+    profile:
+      config: Release
+    archive:
+      config: Release
+
+  impart-iOS:
+    build:
+      targets:
+        impart-iOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - impart-iOSTests
+    profile:
+      config: Release
+    archive:
+      config: Release

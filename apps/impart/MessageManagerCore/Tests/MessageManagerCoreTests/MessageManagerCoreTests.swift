@@ -5,6 +5,7 @@
 //  Tests for MessageManagerCore.
 //
 
+import Foundation
 import Testing
 @testable import MessageManagerCore
 
@@ -150,5 +151,87 @@ struct AttachmentTypeTests {
 
         let large = Attachment(filename: "large.bin", mimeType: "application/octet-stream", size: 10_485_760)
         #expect(large.displaySize.contains("MB") || large.displaySize.contains("10"))
+    }
+}
+
+// MARK: - Mbox Conversion Tests
+
+@Suite("Mbox Conversion")
+struct MboxConversionTests {
+
+    @Test("Research message to mbox message conversion")
+    func testResearchToMboxConversion() {
+        let conversationId = UUID()
+        let researchMessage = ResearchMessage(
+            conversationId: conversationId,
+            sequence: 1,
+            senderRole: .human,
+            senderId: "user@example.com",
+            contentMarkdown: "Hello, let's discuss something."
+        )
+
+        let mboxMessage = researchMessage.toMboxMessage(userEmail: "user@example.com")
+
+        #expect(mboxMessage.from.email == "user@example.com")
+        #expect(mboxMessage.to.first?.email == "counsel@impart.local")
+        #expect(mboxMessage.body == "Hello, let's discuss something.")
+        #expect(mboxMessage.role == .human)
+    }
+
+    @Test("Counsel message to mbox message conversion")
+    func testCounselToMboxConversion() {
+        let conversationId = UUID()
+        let counselMessage = ResearchMessage(
+            conversationId: conversationId,
+            sequence: 2,
+            senderRole: .counsel,
+            senderId: "counsel-opus4.5@impart.local",
+            modelUsed: "opus4.5",
+            contentMarkdown: "Here's my analysis..."
+        )
+
+        let mboxMessage = counselMessage.toMboxMessage(userEmail: "user@example.com")
+
+        #expect(mboxMessage.from.email == "counsel@impart.local")
+        #expect(mboxMessage.from.name == "AI Counsel (opus4.5)")
+        #expect(mboxMessage.to.first?.email == "user@example.com")
+        #expect(mboxMessage.role == .counsel)
+        #expect(mboxMessage.model == "opus4.5")
+    }
+
+    @Test("Mbox message format output")
+    func testMboxFormatOutput() {
+        let conversationId = UUID()
+        let message = MboxMessage(
+            from: EmailAddress(name: "User", email: "user@example.com"),
+            to: [EmailAddress(name: "AI Counsel", email: "counsel@impart.local")],
+            subject: "Research Question",
+            body: "What are the implications of quantum computing?",
+            role: .human
+        )
+
+        let mboxString = message.toMboxString(conversationId: conversationId, conversationTitle: "Research Discussion")
+
+        #expect(mboxString.contains("From user@example.com"))
+        #expect(mboxString.contains("From: User <user@example.com>"))
+        #expect(mboxString.contains("To: AI Counsel <counsel@impart.local>"))
+        #expect(mboxString.contains("Subject: Research Question"))
+        #expect(mboxString.contains("X-Impart-Conversation-ID: \(conversationId.uuidString)"))
+        #expect(mboxString.contains("X-Impart-Role: human"))
+        #expect(mboxString.contains("What are the implications of quantum computing?"))
+    }
+
+    @Test("Role conversions")
+    func testRoleConversions() {
+        // Research to Mbox
+        #expect(ResearchSenderRole.human.toMboxRole() == .human)
+        #expect(ResearchSenderRole.counsel.toMboxRole() == .counsel)
+        #expect(ResearchSenderRole.system.toMboxRole() == .system)
+
+        // Mbox to Research
+        #expect(ConversationRole.human.toResearchRole() == .human)
+        #expect(ConversationRole.counsel.toResearchRole() == .counsel)
+        #expect(ConversationRole.system.toResearchRole() == .system)
+        #expect(ConversationRole.artifact.toResearchRole() == .system) // Artifact maps to system
     }
 }
