@@ -45,16 +45,7 @@ public struct BibTeXExporter: Sendable {
             self.preferRawBibTeX = preferRawBibTeX
         }
 
-        public static let defaultFieldOrder = [
-            "author", "title", "journal", "booktitle",
-            "year", "month", "volume", "number", "pages",
-            "publisher", "address", "edition",
-            "editor", "series", "chapter", "type",
-            "school", "institution", "organization",
-            "doi", "url", "eprint", "arxivid",
-            "isbn", "issn", "pmid", "bibcode",
-            "abstract", "keywords", "note",
-        ]
+        public static let defaultFieldOrder = BibTeXFieldNames.defaultFieldOrder
     }
 
     private let options: Options
@@ -145,7 +136,7 @@ public struct BibTeXExporter: Sendable {
 
     private func formatFieldValue(_ value: String, fieldName: String) -> String {
         // Numeric fields don't need braces
-        let numericFields = Set(["year", "volume", "number", "pages"])
+        let numericFields = BibTeXFieldNames.numericFields
         if numericFields.contains(fieldName.lowercased()) {
             if let _ = Int(value) {
                 return value

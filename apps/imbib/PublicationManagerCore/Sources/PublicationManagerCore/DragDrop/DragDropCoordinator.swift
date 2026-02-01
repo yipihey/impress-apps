@@ -322,9 +322,8 @@ public final class DragDropCoordinator {
         var uuids: [UUID] = []
 
         for provider in providers {
-            if let uuid = await extractPublicationID(from: provider) {
-                uuids.append(uuid)
-            }
+            let extracted = await extractPublicationIDs(from: provider)
+            uuids.append(contentsOf: extracted)
         }
 
         guard !uuids.isEmpty else {
@@ -510,20 +509,41 @@ public final class DragDropCoordinator {
 
     // MARK: - Helper Methods
 
-    /// Extract publication UUID from a provider.
-    private func extractPublicationID(from provider: NSItemProvider) async -> UUID? {
+    /// Extract publication UUIDs from a provider.
+    /// Supports both JSON array format (multi-selection) and single UUID string (legacy).
+    private func extractPublicationIDs(from provider: NSItemProvider) async -> [UUID] {
         guard provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) else {
-            return nil
+            return []
         }
 
         return await withCheckedContinuation { continuation in
             provider.loadDataRepresentation(forTypeIdentifier: UTType.publicationID.identifier) { data, _ in
-                guard let data,
-                      let uuid = try? JSONDecoder().decode(UUID.self, from: data) else {
-                    continuation.resume(returning: nil)
+                guard let data else {
+                    continuation.resume(returning: [])
                     return
                 }
-                continuation.resume(returning: uuid)
+
+                // Try to decode as JSON array of UUID strings first (multi-selection)
+                if let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
+                    let uuids = uuidStrings.compactMap { UUID(uuidString: $0) }
+                    continuation.resume(returning: uuids)
+                    return
+                }
+
+                // Fallback: try single UUID (legacy Codable format)
+                if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
+                    continuation.resume(returning: [uuid])
+                    return
+                }
+
+                // Fallback: try single UUID string (legacy string format)
+                if let idString = String(data: data, encoding: .utf8),
+                   let uuid = UUID(uuidString: idString) {
+                    continuation.resume(returning: [uuid])
+                    return
+                }
+
+                continuation.resume(returning: [])
             }
         }
     }
@@ -616,15 +636,14 @@ public final class DragDropCoordinator {
                 return
             }
 
-            // Fetch and add publications
-            for uuid in uuids {
-                let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-                pubRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-                pubRequest.fetchLimit = 1
+            // Batch fetch all publications at once
+            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
+            pubRequest.predicate = NSPredicate(format: "id IN %@", uuids)
 
-                if let publication = try? context.fetch(pubRequest).first {
-                    publication.addToLibrary(library)
-                }
+            guard let publications = try? context.fetch(pubRequest) else { return }
+
+            for publication in publications {
+                publication.addToLibrary(library)
             }
 
             try? context.save()
@@ -645,23 +664,22 @@ public final class DragDropCoordinator {
                 return
             }
 
-            // Fetch and add publications
-            for uuid in uuids {
-                let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-                pubRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-                pubRequest.fetchLimit = 1
+            // Batch fetch all publications at once
+            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
+            pubRequest.predicate = NSPredicate(format: "id IN %@", uuids)
 
-                if let publication = try? context.fetch(pubRequest).first {
-                    var pubs = collection.publications ?? []
-                    pubs.insert(publication)
-                    collection.publications = pubs
+            guard let publications = try? context.fetch(pubRequest) else { return }
 
-                    // Also add to collection's library
-                    if let library = collection.effectiveLibrary {
-                        publication.addToLibrary(library)
-                    }
+            var pubs = collection.publications ?? []
+            let collectionLibrary = collection.effectiveLibrary
+
+            for publication in publications {
+                pubs.insert(publication)
+                if let library = collectionLibrary {
+                    publication.addToLibrary(library)
                 }
             }
+            collection.publications = pubs
 
             try? context.save()
         }

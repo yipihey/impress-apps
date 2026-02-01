@@ -369,8 +369,9 @@ public final class AnnotationService {
             withProperties: nil
         )
 
-        // Create appearance stream from image
-        annotation.setValue(image, forAnnotationKey: .appearance)
+        // Set stamp appearance - on iOS we use iconType, on macOS we'd use appearance key
+        // The stamp icon name approach is cross-platform compatible
+        annotation.setValue(imageData, forAnnotationKey: PDFAnnotationKey(rawValue: "/AP"))
 
         page.addAnnotation(annotation)
 

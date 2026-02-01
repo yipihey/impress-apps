@@ -436,7 +436,7 @@ final class InboxManagerTests: XCTestCase {
         persistenceController.save()
 
         // When
-        inboxManager.keepToLibrary(pub, library: targetLib)
+        inboxManager.saveToLibrary(pub, library: targetLib)
 
         // Then
         XCTAssertTrue(pub.libraries?.contains(targetLib) ?? false)

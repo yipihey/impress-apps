@@ -801,22 +801,10 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             modifiers: .shift,
             notificationName: "pdfPageUp"
         ),
-        KeyboardShortcutBinding(
-            id: "pdfScrollHalfPageDownVim",
-            displayName: "Scroll Down (Vim)",
-            category: .pdfViewer,
-            key: .character("j"),
-            modifiers: .none,
-            notificationName: "pdfScrollHalfPageDown"
-        ),
-        KeyboardShortcutBinding(
-            id: "pdfScrollHalfPageUpVim",
-            displayName: "Scroll Up (Vim)",
-            category: .pdfViewer,
-            key: .character("k"),
-            modifiers: .none,
-            notificationName: "pdfScrollHalfPageUp"
-        ),
+        // Note: j/k navigation is context-aware via "navigateDown"/"navigateUp" bindings
+        // - In list/sidebar: navigates papers
+        // - In detail tabs: scrolls content
+        // - In PDF: half-page scroll
         KeyboardShortcutBinding(
             id: "pdfZoomIn",
             displayName: "Zoom In",

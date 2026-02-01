@@ -17,6 +17,10 @@ public enum SyncedSettingsKey: String, CaseIterable {
     case pdfAutoDownloadEnabled = "sync.pdf.autoDownloadEnabled"
     case pdfDarkModeEnabled = "sync.pdf.darkModeEnabled"
 
+    // iOS PDF Sync Settings
+    // When true, all PDFs are downloaded to iOS. When false (default), PDFs are on-demand only.
+    case iosSyncAllPDFs = "sync.ios.syncAllPDFs"
+
     // Inbox Settings
     case inboxAgeLimit = "sync.inbox.ageLimit"
     case inboxSaveLibraryID = "sync.inbox.saveLibraryID"
@@ -54,6 +58,9 @@ public enum SyncedSettingsKey: String, CaseIterable {
 
     // Onboarding Settings
     case onboardingCompletedVersion = "sync.onboarding.completedVersion"
+
+    // Exploration Settings
+    case explorationRetention = "sync.exploration.retention"
 }
 
 /// Notification posted when synced settings change from another device
@@ -348,17 +355,38 @@ public final class SyncedSettingsStore: @unchecked Sendable {
     // MARK: - Export/Import
 
     /// Export all settings as a dictionary for backup.
+    /// Values are converted to JSON-compatible types.
     public func exportAllSettings() -> [String: Any] {
         var settings: [String: Any] = [:]
 
         // Export all known keys
         for key in SyncedSettingsKey.allCases {
             if let value = store?.object(forKey: key.rawValue) ?? localStore?.object(forKey: key.rawValue) {
-                settings[key.rawValue] = value
+                // Convert to JSON-compatible type
+                settings[key.rawValue] = toJSONCompatible(value)
             }
         }
 
         return settings
+    }
+
+    /// Convert a value to a JSON-compatible type.
+    private func toJSONCompatible(_ value: Any) -> Any {
+        switch value {
+        case let date as Date:
+            return date.timeIntervalSince1970
+        case let data as Data:
+            return data.base64EncodedString()
+        case let array as [Any]:
+            return array.map { toJSONCompatible($0) }
+        case let dict as [String: Any]:
+            return dict.mapValues { toJSONCompatible($0) }
+        case is String, is Int, is Double, is Float, is Bool, is NSNumber, is NSNull:
+            return value
+        default:
+            // For unknown types, convert to string representation
+            return String(describing: value)
+        }
     }
 
     /// Import settings from a backup dictionary.
@@ -415,4 +443,54 @@ public final class SyncedSettingsStore: @unchecked Sendable {
         }
     }
     #endif
+
+    // MARK: - Exploration Retention
+
+    /// Get the exploration retention setting
+    public var explorationRetention: ExplorationRetention {
+        get {
+            if let rawValue = string(forKey: .explorationRetention),
+               let retention = ExplorationRetention(rawValue: rawValue) {
+                return retention
+            }
+            return .oneMonth  // Default
+        }
+        set {
+            set(newValue.rawValue, forKey: .explorationRetention)
+        }
+    }
+}
+
+// MARK: - Exploration Retention
+
+/// How long exploration results (References, Citations, Similar, Co-Reads) are kept.
+public enum ExplorationRetention: String, CaseIterable, Codable, Sendable {
+    case sessionOnly = "session"    // While app is open
+    case oneWeek = "1week"
+    case oneMonth = "1month"
+    case oneYear = "1year"
+    case forever = "forever"
+
+    /// Display name for UI
+    public var displayName: String {
+        switch self {
+        case .sessionOnly: return "While App is Open"
+        case .oneWeek: return "1 Week"
+        case .oneMonth: return "1 Month"
+        case .oneYear: return "1 Year"
+        case .forever: return "Forever"
+        }
+    }
+
+    /// Number of days to keep items.
+    /// - Returns: `nil` for forever (keep all), `0` for session only (delete all on quit), or the number of days.
+    public var days: Int? {
+        switch self {
+        case .sessionOnly: return 0
+        case .oneWeek: return 7
+        case .oneMonth: return 30
+        case .oneYear: return 365
+        case .forever: return nil
+        }
+    }
 }

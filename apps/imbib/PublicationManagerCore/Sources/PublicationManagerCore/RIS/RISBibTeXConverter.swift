@@ -26,117 +26,117 @@ public enum RISBibTeXConverter {
         // Combine authors with " and " separator
         let authors = entry.authors
         if !authors.isEmpty {
-            fields["author"] = authors.joined(separator: " and ")
+            fields[BibField.author] = authors.joined(separator: " and ")
         }
 
         // Combine editors with " and " separator
         let editors = entry.editors
         if !editors.isEmpty {
-            fields["editor"] = editors.joined(separator: " and ")
+            fields[BibField.editor] = editors.joined(separator: " and ")
         }
 
         // Map title
         if let title = entry.title {
-            fields["title"] = title
+            fields[BibField.title] = title
         }
 
         // Map year
         if let year = entry.year {
-            fields["year"] = String(year)
+            fields[BibField.year] = String(year)
         }
 
         // Map journal/booktitle based on entry type
         if let secondaryTitle = entry.secondaryTitle {
             switch entry.type {
             case .JOUR, .EJOUR, .MGZN, .NEWS:
-                fields["journal"] = secondaryTitle
+                fields[BibField.journal] = secondaryTitle
             case .CHAP, .CONF, .CPAPER:
-                fields["booktitle"] = secondaryTitle
+                fields[BibField.booktitle] = secondaryTitle
             default:
                 // Use journal as default for secondary title
-                fields["journal"] = secondaryTitle
+                fields[BibField.journal] = secondaryTitle
             }
         }
 
         // Map volume
         if let volume = entry.volume {
-            fields["volume"] = volume
+            fields[BibField.volume] = volume
         }
 
         // Map issue/number
         if let issue = entry.issue {
-            fields["number"] = issue
+            fields[BibField.number] = issue
         }
 
         // Map pages (combine SP and EP)
         if let pages = entry.pages {
-            fields["pages"] = pages
+            fields[BibField.pages] = pages
         }
 
         // Map DOI
         if let doi = entry.doi {
-            fields["doi"] = doi
+            fields[BibField.doi] = doi
         }
 
         // Map abstract
         if let abstract = entry.abstract {
-            fields["abstract"] = abstract
+            fields[BibField.abstract] = abstract
         }
 
         // Map keywords (combine with comma)
         let keywords = entry.keywords
         if !keywords.isEmpty {
-            fields["keywords"] = keywords.joined(separator: ", ")
+            fields[BibField.keywords] = keywords.joined(separator: ", ")
         }
 
         // Map URL (first one)
         if let url = entry.url {
-            fields["url"] = url
+            fields[BibField.url] = url
         }
 
         // Map publisher
         if let publisher = entry.publisher {
-            fields["publisher"] = publisher
+            fields[BibField.publisher] = publisher
         }
 
         // Map address/place
         if let place = entry.place {
-            fields["address"] = place
+            fields[BibField.address] = place
         }
 
         // Map ISSN/ISBN based on type
         if let issn = entry.issn {
             switch entry.type {
             case .BOOK, .CHAP, .EDBOOK:
-                fields["isbn"] = issn
+                fields[BibField.isbn] = issn
             default:
-                fields["issn"] = issn
+                fields[BibField.issn] = issn
             }
         }
 
         // Map notes
         if let notes = entry.notes {
-            fields["note"] = notes
+            fields[BibField.note] = notes
         }
 
         // Map additional fields from tags
         for tagValue in entry.tags {
             switch tagValue.tag {
             case .T3:  // Series title
-                if fields["series"] == nil {
-                    fields["series"] = tagValue.value
+                if fields[BibField.series] == nil {
+                    fields[BibField.series] = tagValue.value
                 }
             case .ET:  // Edition
-                if fields["edition"] == nil {
-                    fields["edition"] = tagValue.value
+                if fields[BibField.edition] == nil {
+                    fields[BibField.edition] = tagValue.value
                 }
             case .LA:  // Language
-                if fields["language"] == nil {
-                    fields["language"] = tagValue.value
+                if fields[BibField.language] == nil {
+                    fields[BibField.language] = tagValue.value
                 }
             case .M3:  // Type of work
-                if fields["type"] == nil {
-                    fields["type"] = tagValue.value
+                if fields[BibField.type] == nil {
+                    fields[BibField.type] = tagValue.value
                 }
             default:
                 break
@@ -170,7 +170,7 @@ public enum RISBibTeXConverter {
         }
 
         // Map editors
-        if let editorString = entry["editor"] {
+        if let editorString = entry[BibField.editor] {
             let editors = editorString.components(separatedBy: " and ").map { $0.trimmingCharacters(in: .whitespaces) }
             for editor in editors {
                 tags.append(RISTagValue(tag: .A2, value: editor))
@@ -196,17 +196,17 @@ public enum RISBibTeXConverter {
         }
 
         // Map volume
-        if let volume = entry["volume"] {
+        if let volume = entry[BibField.volume] {
             tags.append(RISTagValue(tag: .VL, value: volume))
         }
 
         // Map number
-        if let number = entry["number"] {
+        if let number = entry[BibField.number] {
             tags.append(RISTagValue(tag: .IS, value: number))
         }
 
         // Map pages (split into SP and EP)
-        if let pages = entry["pages"] {
+        if let pages = entry[BibField.pages] {
             let parts = pages.components(separatedBy: CharacterSet(charactersIn: "-–—"))
             if parts.count >= 2 {
                 tags.append(RISTagValue(tag: .SP, value: parts[0].trimmingCharacters(in: .whitespaces)))
@@ -227,7 +227,7 @@ public enum RISBibTeXConverter {
         }
 
         // Map keywords (split by comma or semicolon)
-        if let keywords = entry["keywords"] {
+        if let keywords = entry[BibField.keywords] {
             let keywordList = keywords.components(separatedBy: CharacterSet(charactersIn: ",;"))
             for keyword in keywordList {
                 let trimmed = keyword.trimmingCharacters(in: .whitespaces)
@@ -243,39 +243,39 @@ public enum RISBibTeXConverter {
         }
 
         // Map publisher
-        if let publisher = entry["publisher"] {
+        if let publisher = entry[BibField.publisher] {
             tags.append(RISTagValue(tag: .PB, value: publisher))
         }
 
         // Map address
-        if let address = entry["address"] {
+        if let address = entry[BibField.address] {
             tags.append(RISTagValue(tag: .CY, value: address))
         }
 
         // Map ISSN or ISBN
-        if let issn = entry["issn"] {
+        if let issn = entry[BibField.issn] {
             tags.append(RISTagValue(tag: .SN, value: issn))
-        } else if let isbn = entry["isbn"] {
+        } else if let isbn = entry[BibField.isbn] {
             tags.append(RISTagValue(tag: .SN, value: isbn))
         }
 
         // Map note
-        if let note = entry["note"] {
+        if let note = entry[BibField.note] {
             tags.append(RISTagValue(tag: .N1, value: note))
         }
 
         // Map series
-        if let series = entry["series"] {
+        if let series = entry[BibField.series] {
             tags.append(RISTagValue(tag: .T3, value: series))
         }
 
         // Map edition
-        if let edition = entry["edition"] {
+        if let edition = entry[BibField.edition] {
             tags.append(RISTagValue(tag: .ET, value: edition))
         }
 
         // Map language
-        if let language = entry["language"] {
+        if let language = entry[BibField.language] {
             tags.append(RISTagValue(tag: .LA, value: language))
         }
 

@@ -362,7 +362,7 @@ final class LibraryBackupServiceTests: XCTestCase {
             appVersion: "1.0.0",
             schemaVersion: 120,
             publicationCount: 50,
-            pdfCount: 25,
+            attachmentCount: 25,
             fileChecksums: ["file1.bib": "abc123", "file2.pdf": "def456"]
         )
 
@@ -372,7 +372,7 @@ final class LibraryBackupServiceTests: XCTestCase {
         XCTAssertEqual(decoded.version, manifest.version)
         XCTAssertEqual(decoded.appVersion, manifest.appVersion)
         XCTAssertEqual(decoded.publicationCount, manifest.publicationCount)
-        XCTAssertEqual(decoded.pdfCount, manifest.pdfCount)
+        XCTAssertEqual(decoded.attachmentCount, manifest.attachmentCount)
         XCTAssertEqual(decoded.fileChecksums.count, manifest.fileChecksums.count)
     }
 
@@ -382,7 +382,7 @@ final class LibraryBackupServiceTests: XCTestCase {
             createdAt: Date(),
             sizeBytes: 1024 * 1024, // 1 MB
             publicationCount: 10,
-            pdfCount: 5
+            attachmentCount: 5
         )
 
         XCTAssertFalse(info.sizeString.isEmpty)

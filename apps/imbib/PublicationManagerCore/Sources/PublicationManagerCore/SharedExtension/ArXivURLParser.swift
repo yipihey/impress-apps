@@ -245,6 +245,17 @@ public struct ArXivURLParser {
         return false
     }
 
+    /// Check if a category has a subcategory (e.g., "astro-ph.GA" has one, "astro-ph" doesn't).
+    ///
+    /// Categories without subcategories are too broad for direct feed creation and should
+    /// prompt the user to select a specific subcategory in imbib's search interface.
+    ///
+    /// - Parameter category: The arXiv category string
+    /// - Returns: True if the category includes a subcategory
+    public static func hasSubcategory(_ category: String) -> Bool {
+        category.contains(".")
+    }
+
     /// Normalize an arXiv ID by removing version suffix if present.
     ///
     /// - Parameter id: The arXiv ID to normalize

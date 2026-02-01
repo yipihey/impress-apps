@@ -118,13 +118,22 @@ public actor EnrichmentCoordinator {
         priority: EnrichmentPriority = .libraryPaper
     ) async {
         // Extract Core Data properties on main actor for thread safety
-        let (identifiers, publicationID, citeKey, isStale) = await MainActor.run {
-            (
+        // Check for deleted/faulted objects to avoid crash
+        let result: (identifiers: [IdentifierType: String], publicationID: UUID, citeKey: String, isStale: Bool)? = await MainActor.run {
+            guard !publication.isDeleted, !publication.isFault else {
+                return nil
+            }
+            return (
                 publication.enrichmentIdentifiers,
                 publication.id,
                 publication.citeKey,
                 publication.isEnrichmentStale(thresholdDays: 1)
             )
+        }
+
+        guard let (identifiers, publicationID, citeKey, isStale) = result else {
+            Logger.enrichment.debug("Skipping enrichment - publication deleted or faulted")
+            return
         }
 
         guard !identifiers.isEmpty else {

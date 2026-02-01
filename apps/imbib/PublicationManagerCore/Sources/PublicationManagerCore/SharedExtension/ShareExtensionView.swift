@@ -21,6 +21,7 @@ public struct ShareExtensionView: View {
         case paper(identifier: String, sourceID: String, label: String)
         case search(query: String, title: String?, sourceID: String)
         case categoryFeed(category: String, sourceID: String)
+        case broadCategoryFeed(category: String, sourceID: String)  // Category without subcategory
         case docsSelection(query: String)
     }
 
@@ -82,6 +83,8 @@ public struct ShareExtensionView: View {
                     paperImportForm(identifier: identifier, label: label)
                 case .categoryFeed(let category, _):
                     categoryFeedForm(category: category)
+                case .broadCategoryFeed(let category, _):
+                    broadCategoryForm(category: category)
                 case .docsSelection(let query):
                     docsSelectionForm(query: query)
                 }
@@ -137,7 +140,13 @@ public struct ShareExtensionView: View {
             case .search(let query, let title):
                 return .search(query: query, title: title, sourceID: "arxiv")
             case .categoryList(let category, _):
-                return .categoryFeed(category: category, sourceID: "arxiv")
+                // Check if category has a subcategory (e.g., "astro-ph.GA" vs "astro-ph")
+                // Broad categories without subcategories should open imbib's search interface
+                if ArXivURLParser.hasSubcategory(category) {
+                    return .categoryFeed(category: category, sourceID: "arxiv")
+                } else {
+                    return .broadCategoryFeed(category: category, sourceID: "arxiv")
+                }
             }
         }
 
@@ -324,6 +333,59 @@ public struct ShareExtensionView: View {
         .frame(minWidth: 300, minHeight: 250)
     }
 
+    // MARK: - Broad Category Form
+
+    /// Form for broad arXiv categories without subcategories (e.g., "astro-ph" instead of "astro-ph.GA").
+    /// Opens imbib's arXiv search interface to let the user select a specific subcategory.
+    private func broadCategoryForm(category: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            Label("Select Subcategory", systemImage: "line.3.horizontal.decrease.circle")
+                .font(.headline)
+
+            // Category display
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Category")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(category)
+                    .font(.system(.title3, design: .monospaced))
+                    .fontWeight(.medium)
+            }
+
+            // Explanation
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This category is too broad to create a feed directly.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Text("Opening imbib will let you select a specific subcategory like \(category).GA or \(category).CO.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            // Buttons
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Open in imbib") {
+                    confirmBroadCategory(category: category)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isProcessing)
+            }
+        }
+        .padding()
+        .frame(minWidth: 300, minHeight: 250)
+    }
+
     // MARK: - Docs Selection Form
 
     /// Form for importing papers from a temporary ADS selection (docs() URL).
@@ -451,6 +513,22 @@ public struct ShareExtensionView: View {
 
         onConfirm(item)
     }
+
+    private func confirmBroadCategory(category: String) {
+        isProcessing = true
+
+        // Queue item to open imbib's arXiv search with the category pre-filled
+        let item = ShareExtensionService.SharedItem(
+            url: sharedURL,
+            type: .openArxivSearch,
+            name: nil,
+            query: "cat:\(category)",  // Pre-fill category filter
+            libraryID: nil,
+            createdAt: Date()
+        )
+
+        onConfirm(item)
+    }
 }
 
 // MARK: - Preview
@@ -511,12 +589,27 @@ public struct ShareExtensionView: View {
     )
 }
 
-#Preview("arXiv Category Feed") {
+#Preview("arXiv Category Feed (Specific)") {
     ShareExtensionView(
         sharedURL: URL(string: "https://arxiv.org/list/cs.LG/recent")!,
         availableLibraries: [
             SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true),
             SharedLibraryInfo(id: UUID(), name: "ML Papers", isDefault: false)
+        ],
+        onConfirm: { item in
+            print("Confirmed: \(item)")
+        },
+        onCancel: {
+            print("Cancelled")
+        }
+    )
+}
+
+#Preview("arXiv Broad Category (No Subcategory)") {
+    ShareExtensionView(
+        sharedURL: URL(string: "https://arxiv.org/list/astro-ph/new")!,
+        availableLibraries: [
+            SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true)
         ],
         onConfirm: { item in
             print("Confirmed: \(item)")

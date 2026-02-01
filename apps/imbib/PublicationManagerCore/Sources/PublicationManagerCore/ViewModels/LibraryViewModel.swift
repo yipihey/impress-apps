@@ -302,7 +302,11 @@ public final class LibraryViewModel {
 
         // 2. Remove from local publications array (if present)
         // This prevents SwiftUI from trying to render deleted objects during re-render
-        publications.removeAll { ids.contains($0.id) }
+        // Use isDeleted/isFault check to avoid crash when accessing id on invalid objects
+        publications.removeAll { pub in
+            guard !pub.isDeleted, !pub.isFault else { return true }
+            return ids.contains(pub.id)
+        }
 
         // 3. Give SwiftUI a moment to process the state change before Core Data deletion
         // This helps prevent race conditions where SwiftUI tries to render deleted objects

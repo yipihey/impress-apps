@@ -23,11 +23,15 @@ public struct QuickAnnotationField: Codable, Identifiable, Equatable, Sendable {
     /// Whether this field is visible in the notes panel
     public var isEnabled: Bool
 
-    public init(id: String, label: String, placeholder: String, isEnabled: Bool = true) {
+    /// Whether this is an author-related field (shown in InfoTab instead of NotesTab)
+    public var isAuthorField: Bool
+
+    public init(id: String, label: String, placeholder: String, isEnabled: Bool = true, isAuthorField: Bool = false) {
         self.id = id
         self.label = label
         self.placeholder = placeholder
         self.isEnabled = isEnabled
+        self.isAuthorField = isAuthorField
     }
 }
 
@@ -47,12 +51,14 @@ public struct QuickAnnotationSettings: Codable, Equatable, Sendable {
         QuickAnnotationField(
             id: "firstAuthor",
             label: "First Author",
-            placeholder: "e.g., Pioneer in this field"
+            placeholder: "e.g., Pioneer in this field",
+            isAuthorField: true
         ),
         QuickAnnotationField(
             id: "keyCollaborators",
             label: "Key Collaborators",
-            placeholder: "e.g., Strong team from MIT"
+            placeholder: "e.g., Strong team from MIT",
+            isAuthorField: true
         ),
         QuickAnnotationField(
             id: "keyFindings",
@@ -74,6 +80,16 @@ public struct QuickAnnotationSettings: Codable, Equatable, Sendable {
     /// Get all enabled fields
     public var enabledFields: [QuickAnnotationField] {
         fields.filter(\.isEnabled)
+    }
+
+    /// Get enabled author-related fields (for InfoTab)
+    public var enabledAuthorFields: [QuickAnnotationField] {
+        fields.filter { $0.isEnabled && $0.isAuthorField }
+    }
+
+    /// Get enabled non-author fields (for NotesTab)
+    public var enabledNoteFields: [QuickAnnotationField] {
+        fields.filter { $0.isEnabled && !$0.isAuthorField }
     }
 
     /// Create a new field with a unique ID

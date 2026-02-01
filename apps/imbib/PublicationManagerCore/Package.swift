@@ -36,7 +36,8 @@ let package = Package(
                 "ImpressAI"
             ],
             resources: [
-                .copy("Resources/neal_dalal_quote.jpg")
+                .copy("Resources/neal_dalal_quote.jpg"),
+                .copy("Publishers/Resources/publisher-rules.json")
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")

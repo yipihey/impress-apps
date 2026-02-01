@@ -48,6 +48,10 @@ public enum AutomationCommand: Sendable {
     /// Export BibTeX with pasteboard return (for imprint integration)
     case exportBibTeXWithReturn(citeKeys: [String])
 
+    /// Export reMarkable annotation quotes with pasteboard return (for imprint integration)
+    /// URL: imbib://remarkable/quotes?citeKey=smith2020&returnTo=pasteboard
+    case remarkableQuotes(citeKey: String)
+
     // MARK: - Navigation
 
     /// Navigate to a specific view
@@ -308,6 +312,9 @@ public struct URLCommandParser {
 
         case "app":
             return try parseAppCommand(pathComponents, queryParams)
+
+        case "remarkable":
+            return try parseRemarkableCommand(pathComponents, queryParams)
 
         default:
             throw AutomationError.unknownCommand(command)
@@ -594,6 +601,26 @@ public struct URLCommandParser {
             throw AutomationError.invalidParameter("action", actionStr)
         }
         return .app(action: action)
+    }
+
+    private func parseRemarkableCommand(_ pathComponents: [String], _ params: [String: String]) throws -> AutomationCommand {
+        // imbib://remarkable/quotes?citeKey=smith2020&returnTo=pasteboard
+        guard pathComponents.count > 1 else {
+            throw AutomationError.missingParameter("subcommand (e.g., 'quotes')")
+        }
+
+        let subcommand = pathComponents[1]
+
+        switch subcommand {
+        case "quotes":
+            guard let citeKey = params["citeKey"], !citeKey.isEmpty else {
+                throw AutomationError.missingParameter("citeKey")
+            }
+            return .remarkableQuotes(citeKey: citeKey)
+
+        default:
+            throw AutomationError.unknownCommand("remarkable/\(subcommand)")
+        }
     }
 }
 

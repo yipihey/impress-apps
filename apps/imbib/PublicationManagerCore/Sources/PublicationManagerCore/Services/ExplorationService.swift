@@ -522,6 +522,7 @@ public final class ExplorationService {
         collection.isSmartSearchResults = false
         collection.library = library
         collection.parentCollection = parentCollection
+        collection.dateCreated = Date()
 
         // Import papers - they already have citation/reference counts from the source
         for stub in papers {

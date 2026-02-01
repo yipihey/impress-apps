@@ -32,7 +32,7 @@ final class RecommendationTypesTests: XCTestCase {
     func testFeatureTypeCategories() {
         // Verify categories are assigned correctly
         XCTAssertEqual(FeatureType.authorStarred.category, .explicit)
-        XCTAssertEqual(FeatureType.keepRateAuthor.category, .implicit)
+        XCTAssertEqual(FeatureType.saveRateAuthor.category, .implicit)
         XCTAssertEqual(FeatureType.citationOverlap.category, .content)
     }
 
@@ -54,21 +54,21 @@ final class RecommendationTypesTests: XCTestCase {
 
     func testTrainingEventCreation() {
         let event = TrainingEvent(
-            action: .kept,
+            action: .saved,
             publicationID: UUID(),
             publicationTitle: "Test Paper",
             publicationAuthors: "Test Author",
             weightDeltas: ["author:test": 1.0]
         )
 
-        XCTAssertEqual(event.action, .kept)
+        XCTAssertEqual(event.action, .saved)
         XCTAssertEqual(event.publicationTitle, "Test Paper")
         XCTAssertFalse(event.weightDeltas.isEmpty)
     }
 
     func testTrainingActionLearningMultipliers() {
         // Positive actions should have positive multipliers
-        XCTAssertGreaterThan(TrainingAction.kept.learningMultiplier, 0)
+        XCTAssertGreaterThan(TrainingAction.saved.learningMultiplier, 0)
         XCTAssertGreaterThan(TrainingAction.starred.learningMultiplier, 0)
         XCTAssertGreaterThan(TrainingAction.moreLikeThis.learningMultiplier, 0)
 
@@ -77,11 +77,11 @@ final class RecommendationTypesTests: XCTestCase {
         XCTAssertLessThan(TrainingAction.lessLikeThis.learningMultiplier, 0)
 
         // Star should be stronger than keep
-        XCTAssertGreaterThan(TrainingAction.starred.learningMultiplier, TrainingAction.kept.learningMultiplier)
+        XCTAssertGreaterThan(TrainingAction.starred.learningMultiplier, TrainingAction.saved.learningMultiplier)
     }
 
     func testTrainingActionIsPositive() {
-        XCTAssertTrue(TrainingAction.kept.isPositive)
+        XCTAssertTrue(TrainingAction.saved.isPositive)
         XCTAssertTrue(TrainingAction.starred.isPositive)
         XCTAssertFalse(TrainingAction.dismissed.isPositive)
         XCTAssertFalse(TrainingAction.lessLikeThis.isPositive)

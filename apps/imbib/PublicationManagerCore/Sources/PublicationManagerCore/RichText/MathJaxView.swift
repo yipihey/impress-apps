@@ -20,6 +20,7 @@ public struct MathJaxAbstractView: View {
     public var textColor: Color
 
     @State private var contentHeight: CGFloat = 100
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(
         text: String,
@@ -36,9 +37,11 @@ public struct MathJaxAbstractView: View {
             text: text,
             fontSize: fontSize,
             textColor: textColor,
+            colorScheme: colorScheme,
             contentHeight: $contentHeight
         )
         .frame(height: contentHeight)
+        .id(colorScheme) // Force reload when color scheme changes
     }
 }
 
@@ -74,6 +77,7 @@ struct MathJaxWebView: NSViewRepresentable {
     let text: String
     let fontSize: CGFloat
     let textColor: Color
+    let colorScheme: ColorScheme
     @Binding var contentHeight: CGFloat
 
     func makeNSView(context: Context) -> WKWebView {
@@ -184,9 +188,21 @@ struct MathJaxWebView: NSViewRepresentable {
     }
 
     private func hexColor(from color: Color) -> String {
-        let nsColor = NSColor(color)
-        guard let rgb = nsColor.usingColorSpace(.sRGB) else {
-            return "#000000"
+        // For semantic colors like .primary, we need to resolve against the current appearance
+        // NSColor(color) doesn't automatically resolve semantic colors, so they may default to light mode values
+        let appearance: NSAppearance = colorScheme == .dark
+            ? NSAppearance(named: .darkAqua)!
+            : NSAppearance(named: .aqua)!
+
+        var resolvedColor: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            let nsColor = NSColor(color)
+            resolvedColor = nsColor.usingColorSpace(.sRGB)
+        }
+
+        guard let rgb = resolvedColor else {
+            // Fallback: use white for dark mode, black for light mode
+            return colorScheme == .dark ? "#FFFFFF" : "#000000"
         }
         let r = Int(rgb.redComponent * 255)
         let g = Int(rgb.greenComponent * 255)
@@ -229,6 +245,7 @@ struct MathJaxWebView: UIViewRepresentable {
     let text: String
     let fontSize: CGFloat
     let textColor: Color
+    let colorScheme: ColorScheme
     @Binding var contentHeight: CGFloat
 
     func makeUIView(context: Context) -> WKWebView {
@@ -349,9 +366,16 @@ struct MathJaxWebView: UIViewRepresentable {
     }
 
     private func hexColor(from color: Color) -> String {
+        // For semantic colors like .primary, we need to resolve against the current trait collection
+        let traitCollection = colorScheme == .dark
+            ? UITraitCollection(userInterfaceStyle: .dark)
+            : UITraitCollection(userInterfaceStyle: .light)
+
         let uiColor = UIColor(color)
+        let resolvedColor = uiColor.resolvedColor(with: traitCollection)
+
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        resolvedColor.getRed(&r, green: &g, blue: &b, alpha: &a)
         return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
     }
 

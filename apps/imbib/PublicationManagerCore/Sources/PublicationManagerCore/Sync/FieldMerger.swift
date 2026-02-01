@@ -69,11 +69,7 @@ public extension CDPublication {
 
     /// List of scalar fields that use last-writer-wins merge
     static var scalarFields: [String] {
-        ["title", "year", "abstract", "doi", "url", "entryType", "rawBibTeX", "rawFields",
-         "citationCount", "referenceCount", "enrichmentSource", "enrichmentDate",
-         "originalSourceID", "pdfLinksJSON", "webURL", "semanticScholarID", "openAlexID",
-         "arxivIDNormalized", "bibcodeNormalized", "isRead", "dateRead", "isStarred",
-         "hasPDFDownloaded", "pdfDownloadDate", "dateAddedToInbox"]
+        BibTeXFieldNames.scalarFields
     }
 }
 

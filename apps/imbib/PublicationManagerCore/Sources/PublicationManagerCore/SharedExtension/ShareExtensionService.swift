@@ -47,6 +47,7 @@ public final class ShareExtensionService: Sendable {
             case smartSearch
             case paper
             case docsSelection  // Temporary paper selection to import to Inbox
+            case openArxivSearch  // Open imbib's arXiv search with pre-filled category
         }
 
         public init(
@@ -155,6 +156,27 @@ public final class ShareExtensionService: Sendable {
         appendItem(item)
         postNotification()
         Logger.shareExtension.infoCapture("docs() selection queued successfully", category: "shareext")
+    }
+
+    /// Queue a request to open imbib's arXiv search interface with a category pre-filled.
+    ///
+    /// Called when sharing a broad arXiv category (e.g., "astro-ph") without a subcategory.
+    /// This lets the user select a specific subcategory in imbib's search interface.
+    ///
+    /// - Parameter category: The arXiv category query (e.g., "cat:astro-ph")
+    public func queueOpenArxivSearch(category: String) {
+        Logger.shareExtension.infoCapture("Queueing arXiv search open: \(category)", category: "shareext")
+        let item = SharedItem(
+            url: URL(string: "https://arxiv.org")!,  // Placeholder URL
+            type: .openArxivSearch,
+            name: nil,
+            query: category,
+            libraryID: nil,
+            createdAt: Date()
+        )
+        appendItem(item)
+        postNotification()
+        Logger.shareExtension.infoCapture("arXiv search open queued successfully", category: "shareext")
     }
 
     // MARK: - Main App API

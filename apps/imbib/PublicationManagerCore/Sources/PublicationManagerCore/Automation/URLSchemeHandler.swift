@@ -172,15 +172,18 @@ public actor URLSchemeHandler {
                 let jsonData = try JSONEncoder().encode(response)
 
                 // Write to pasteboard
+                #if os(macOS)
                 await MainActor.run {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     pasteboard.setData(jsonData, forType: NSPasteboard.PasteboardType("com.imbib.citation-data"))
                 }
+                #endif
 
                 return .success(command: "searchWithReturn", result: ["count": AnyCodable(papers.count)])
             } catch {
                 // Write error to pasteboard
+                #if os(macOS)
                 let response = ImprintSearchResponse(papers: [], error: error.localizedDescription)
                 if let jsonData = try? JSONEncoder().encode(response) {
                     await MainActor.run {
@@ -189,6 +192,7 @@ public actor URLSchemeHandler {
                         pasteboard.setData(jsonData, forType: NSPasteboard.PasteboardType("com.imbib.citation-data"))
                     }
                 }
+                #endif
                 return .failure(command: "searchWithReturn", error: error.localizedDescription)
             }
 
@@ -200,16 +204,35 @@ public actor URLSchemeHandler {
                 let result = try await AutomationService.shared.exportBibTeX(identifiers: identifiers)
 
                 // Write BibTeX to pasteboard
+                #if os(macOS)
                 await MainActor.run {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     pasteboard.setString(result.content, forType: .string)
                 }
+                #endif
 
                 return .success(command: "exportBibTeXWithReturn", result: ["count": AnyCodable(result.paperCount)])
             } catch {
                 return .failure(command: "exportBibTeXWithReturn", error: error.localizedDescription)
             }
+
+        // MARK: - reMarkable Quotes Export (for imprint integration)
+
+        case .remarkableQuotes(let citeKey):
+            #if os(macOS)
+            do {
+                let count = try await RemarkableQuotesService.shared.exportToPasteboard(forCiteKey: citeKey)
+                return .success(command: "remarkableQuotes", result: [
+                    "citeKey": AnyCodable(citeKey),
+                    "count": AnyCodable(count)
+                ])
+            } catch {
+                return .failure(command: "remarkableQuotes", error: error.localizedDescription)
+            }
+            #else
+            return .failure(command: "remarkableQuotes", error: "reMarkable quotes export is only available on macOS")
+            #endif
 
         case .searchCategory(let category):
             await postNotification(.searchCategory, userInfo: ["category": category])
@@ -613,6 +636,20 @@ public struct AutomationURLBuilder {
         components.path = "/bibtex"
         components.queryItems = [
             URLQueryItem(name: "citeKeys", value: citeKeys.joined(separator: ",")),
+            URLQueryItem(name: "returnTo", value: "pasteboard")
+        ]
+        return components.url
+    }
+
+    /// Build a reMarkable quotes export URL with pasteboard return (for imprint integration)
+    /// Returns annotation quotes from reMarkable for embedding in manuscripts
+    public static func remarkableQuotes(citeKey: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "remarkable"
+        components.path = "/quotes"
+        components.queryItems = [
+            URLQueryItem(name: "citeKey", value: citeKey),
             URLQueryItem(name: "returnTo", value: "pasteboard")
         ]
         return components.url

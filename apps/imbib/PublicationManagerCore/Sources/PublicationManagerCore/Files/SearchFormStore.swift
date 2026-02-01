@@ -24,9 +24,9 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
 
     public var displayName: String {
         switch self {
-        case .adsModern: return "ADS Modern"
+        case .adsModern: return "SciX Search"
         case .adsClassic: return "ADS Classic"
-        case .adsPaper: return "ADS Paper"
+        case .adsPaper: return "SciX Paper"
         case .adsVagueMemory: return "Vague Memory Search"
         case .arxivAdvanced: return "arXiv Advanced"
         case .arxivFeed: return "arXiv Feed"
@@ -50,7 +50,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
 
     public var description: String {
         switch self {
-        case .adsModern: return "Single search box with field syntax"
+        case .adsModern: return "Single search box with SciX/ADS field syntax"
         case .adsClassic: return "Multi-field form (authors, title, abstract, year)"
         case .adsPaper: return "Find papers by bibcode, DOI, or arXiv ID"
         case .adsVagueMemory: return "Find papers from imperfect memories using fuzzy matching"
