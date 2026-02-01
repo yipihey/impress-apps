@@ -15,6 +15,11 @@
   <a href="https://github.com/yipihey/impress-apps/issues">Report Issue</a>
 </p>
 
+<p align="center">
+  <strong>🧪 Beta Testing Available!</strong><br>
+  <a href="https://testflight.apple.com/join/XXXXXX">Join TestFlight</a> to try the latest features on macOS and iOS
+</p>
+
 ---
 
 **imbib** is a reference manager for macOS and iOS that combines unified search across NASA ADS, arXiv, Crossref, and more with an email-style inbox for triaging new papers.
@@ -32,13 +37,17 @@
 
 ### macOS
 
-1. Download the latest release from [Releases](https://github.com/yipihey/impress-apps/releases)
+**Option 1: TestFlight Beta** (Recommended for latest features)
+- **[Join TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - macOS 14+
+
+**Option 2: Stable Release**
+1. Download from [Releases](https://github.com/yipihey/impress-apps/releases)
 2. Move `imbib.app` to `/Applications`
 3. Launch imbib
 
-### iOS
+### iOS / iPadOS
 
-Coming to TestFlight soon.
+**[Join TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - Available for iPhone and iPad running iOS 18+.
 
 ## Quick Start
 
@@ -65,10 +74,37 @@ Coming to TestFlight soon.
 | Automation API | URL schemes for scripting and AI integration |
 | iOS Companion | Full-featured iPhone and iPad app with sync |
 
+## Beta Testing
+
+We're actively developing imbib and welcome beta testers! Join via TestFlight to get early access to new features and help us find bugs before release.
+
+### Join the Beta
+
+📱 **[TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - Works for both macOS and iOS/iPadOS
+
+### What to Test
+
+- **CloudKit Sync** - Does your library sync correctly between devices?
+- **Search Sources** - Do ADS, arXiv, Crossref, etc. return expected results?
+- **PDF Management** - Do PDFs download, display, and annotate correctly?
+- **Import/Export** - Do BibTeX and RIS files import/export without data loss?
+
+### Reporting Issues
+
+Found a bug or have feedback?
+
+1. **GitHub Issues** (preferred): [Report Issue](https://github.com/yipihey/impress-apps/issues)
+2. **TestFlight Feedback**: Shake device or use Help → Send Feedback in the app
+
+Please include:
+- What you were doing when the issue occurred
+- What you expected vs. what happened
+- Your device and OS version
+
 ## System Requirements
 
 - **macOS**: 14.0 (Sonoma) or later, Apple Silicon or Intel
-- **iOS**: 17.0 or later
+- **iOS**: 18.0 or later
 
 ## Documentation
 
