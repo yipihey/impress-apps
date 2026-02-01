@@ -17,7 +17,7 @@
 
 <p align="center">
   <strong>🧪 Beta Testing Available!</strong><br>
-  <a href="https://testflight.apple.com/join/XXXXXX">Join TestFlight</a> to try the latest features on macOS and iOS
+  <a href="https://testflight.apple.com/join/uaSPh88e">Join TestFlight</a> to try the latest features on macOS and iOS
 </p>
 
 ---
@@ -38,7 +38,7 @@
 ### macOS
 
 **Option 1: TestFlight Beta** (Recommended for latest features)
-- **[Join TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - macOS 14+
+- **[Join TestFlight Beta](https://testflight.apple.com/join/uaSPh88e)** - macOS 14+
 
 **Option 2: Stable Release**
 1. Download from [Releases](https://github.com/yipihey/impress-apps/releases)
@@ -47,7 +47,7 @@
 
 ### iOS / iPadOS
 
-**[Join TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - Available for iPhone and iPad running iOS 18+.
+**[Join TestFlight Beta](https://testflight.apple.com/join/uaSPh88e)** - Available for iPhone and iPad running iOS 18+.
 
 ## Quick Start
 
@@ -80,7 +80,7 @@ We're actively developing imbib and welcome beta testers! Join via TestFlight to
 
 ### Join the Beta
 
-📱 **[TestFlight Beta](https://testflight.apple.com/join/XXXXXX)** - Works for both macOS and iOS/iPadOS
+📱 **[TestFlight Beta](https://testflight.apple.com/join/uaSPh88e)** - Works for both macOS and iOS/iPadOS
 
 ### What to Test
 
