@@ -41,7 +41,7 @@ final class ADSSourceTests: XCTestCase {
     }
 
     func testMetadata_name() {
-        XCTAssertEqual(source.metadata.name, "NASA ADS")
+        XCTAssertEqual(source.metadata.name, "SciX")
     }
 
     func testMetadata_requiresAPIKey() {
