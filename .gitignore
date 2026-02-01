@@ -53,6 +53,12 @@ apps/*/*.xcodeproj/
 # Claude Code
 .claude/
 
+# AI Assistant configs
+.agent/
+.agents/
+.continue/
+.gemini/
+
 # Temp files
 *.txt.tmp
 apps/t.txt
