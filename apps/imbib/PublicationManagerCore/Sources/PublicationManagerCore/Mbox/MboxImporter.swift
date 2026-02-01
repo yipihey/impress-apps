@@ -29,13 +29,46 @@ public actor MboxImporter {
 
     // MARK: - Public API
 
+    /// Detect the export version from an mbox file.
+    /// - Parameter url: URL of the mbox file
+    /// - Returns: The detected export version
+    public func detectExportVersion(from url: URL) async throws -> ExportVersion {
+        let messages = try await parser.parse(url: url)
+        return detectExportVersion(messages)
+    }
+
+    /// Detect the export version from parsed messages.
+    /// - Parameter messages: Parsed mbox messages
+    /// - Returns: The detected export version
+    public func detectExportVersion(_ messages: [MboxMessage]) -> ExportVersion {
+        // Check for Everything export manifest
+        if messages.first(where: { $0.headers[MboxHeader.exportType] == "everything" }) != nil {
+            return .everything
+        }
+
+        // Check for single library export
+        if messages.first(where: { $0.subject == "[imbib Library Export]" }) != nil {
+            return .singleLibrary
+        }
+
+        return .unknown
+    }
+
     /// Prepare an import preview from an mbox file.
     /// - Parameter url: URL of the mbox file
     /// - Returns: Preview data for user confirmation
+    /// - Note: For Everything exports (v2.0), use `EverythingImporter` instead.
     public func prepareImport(from url: URL) async throws -> MboxImportPreview {
         logger.info("Preparing import preview from: \(url.path)")
 
         let messages = try await parser.parse(url: url)
+
+        // Detect version and handle accordingly
+        let version = detectExportVersion(messages)
+        if version == .everything {
+            logger.info("Detected Everything export - falling back to first library")
+            // For backward compatibility, extract just the first library
+        }
 
         var libraryMetadata: LibraryMetadata?
         var publications: [PublicationPreview] = []
@@ -43,9 +76,17 @@ public actor MboxImporter {
         var parseErrors: [ParseError] = []
 
         for (index, message) in messages.enumerated() {
+            // Skip Everything manifest message
+            if message.subject == "[imbib Everything Export]" {
+                continue
+            }
+
             // Check if this is the library header
             if message.subject == "[imbib Library Export]" {
-                libraryMetadata = parseLibraryMetadata(from: message)
+                // For v2.0, only take the first library (backward compat)
+                if libraryMetadata == nil {
+                    libraryMetadata = parseLibraryMetadata(from: message)
+                }
                 continue
             }
 

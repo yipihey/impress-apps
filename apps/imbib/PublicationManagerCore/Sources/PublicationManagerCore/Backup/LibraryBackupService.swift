@@ -13,7 +13,7 @@ import OSLog
 ///
 /// Provides one-click full library export including:
 /// - BibTeX file with all metadata
-/// - All PDF files (preserving folder structure)
+/// - All attachments (PDFs, images, supplementary files - preserving folder structure)
 /// - Notes as JSON
 /// - Settings backup
 /// - Manifest with checksums for integrity verification
@@ -49,7 +49,7 @@ public actor LibraryBackupService {
         public enum Phase: String, Sendable {
             case preparing = "Preparing backup..."
             case exportingBibTeX = "Exporting BibTeX..."
-            case copyingPDFs = "Copying PDFs..."
+            case copyingAttachments = "Copying attachments..."
             case exportingNotes = "Exporting notes..."
             case exportingSettings = "Exporting settings..."
             case creatingManifest = "Creating manifest..."
@@ -77,7 +77,7 @@ public actor LibraryBackupService {
     ///
     /// Creates a timestamped backup folder containing:
     /// - `library.bib` - All publications as BibTeX
-    /// - `PDFs/` - All PDF files (preserving relative paths)
+    /// - `Attachments/` - All linked files (PDFs, images, etc., preserving relative paths)
     /// - `notes.json` - All notes
     /// - `settings.json` - App settings
     /// - `manifest.json` - File checksums for integrity
@@ -91,9 +91,9 @@ public actor LibraryBackupService {
         progressHandler?(BackupProgress(phase: .exportingBibTeX, current: 0, total: 1, currentItem: nil))
         try await exportBibTeX(to: backupURL)
 
-        // Phase 2: Copy PDFs
-        progressHandler?(BackupProgress(phase: .copyingPDFs, current: 0, total: 1, currentItem: nil))
-        let pdfCount = try await copyPDFs(to: backupURL, progressHandler: progressHandler)
+        // Phase 2: Copy all attachments (PDFs, images, supplementary files, etc.)
+        progressHandler?(BackupProgress(phase: .copyingAttachments, current: 0, total: 1, currentItem: nil))
+        let attachmentCount = try await copyAttachments(to: backupURL, progressHandler: progressHandler)
 
         // Phase 3: Export notes
         progressHandler?(BackupProgress(phase: .exportingNotes, current: 0, total: 1, currentItem: nil))
@@ -188,12 +188,12 @@ public actor LibraryBackupService {
                 let manifestURL = url.appendingPathComponent("manifest.json")
 
                 var publicationCount = 0
-                var pdfCount = 0
+                var attachmentCount = 0
 
                 if let manifestData = try? Data(contentsOf: manifestURL),
                    let manifest = try? JSONDecoder().decode(BackupManifest.self, from: manifestData) {
                     publicationCount = manifest.publicationCount
-                    pdfCount = manifest.pdfCount
+                    attachmentCount = manifest.attachmentCount
                 }
 
                 return BackupInfo(
@@ -201,7 +201,7 @@ public actor LibraryBackupService {
                     createdAt: resources?.creationDate ?? Date.distantPast,
                     sizeBytes: resources?.fileSize ?? 0,
                     publicationCount: publicationCount,
-                    pdfCount: pdfCount
+                    attachmentCount: attachmentCount
                 )
             }.sorted { $0.createdAt > $1.createdAt }
         } catch {
@@ -259,43 +259,43 @@ public actor LibraryBackupService {
         Logger.backup.info("Exported \(publications.count) publications to BibTeX")
     }
 
-    private func copyPDFs(to backupURL: URL, progressHandler: ProgressHandler?) async throws -> Int {
-        let pdfsURL = backupURL.appendingPathComponent("PDFs", isDirectory: true)
-        try fileManager.createDirectory(at: pdfsURL, withIntermediateDirectories: true)
+    private func copyAttachments(to backupURL: URL, progressHandler: ProgressHandler?) async throws -> Int {
+        let attachmentsURL = backupURL.appendingPathComponent("Attachments", isDirectory: true)
+        try fileManager.createDirectory(at: attachmentsURL, withIntermediateDirectories: true)
 
-        // Get all publications with PDFs
-        let publications = await MainActor.run { () -> [(citeKey: String, pdfPath: String?)] in
+        // Get all publications with linked files and their resolved URLs
+        let attachmentFiles = await MainActor.run { () -> [(citeKey: String, relativePath: String, sourceURL: URL)] in
             let context = persistenceController.viewContext
             let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            request.predicate = NSPredicate(format: "hasPDFDownloaded == YES")
             let results = (try? context.fetch(request)) ?? []
 
-            return results.compactMap { pub in
-                guard let linkedFiles = pub.linkedFiles,
-                      let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
-                    return nil
+            var files: [(citeKey: String, relativePath: String, sourceURL: URL)] = []
+            for pub in results {
+                guard let linkedFiles = pub.linkedFiles, !linkedFiles.isEmpty,
+                      let library = pub.libraries?.first else {
+                    continue
                 }
-                return (citeKey: pub.citeKey, pdfPath: pdfFile.relativePath)
+
+                for linkedFile in linkedFiles {
+                    if let sourceURL = AttachmentManager.shared.resolveURL(for: linkedFile, in: library) {
+                        files.append((citeKey: pub.citeKey, relativePath: linkedFile.relativePath, sourceURL: sourceURL))
+                    }
+                }
             }
+            return files
         }
 
         var copiedCount = 0
-        for (index, pub) in publications.enumerated() {
-            guard let pdfPath = pub.pdfPath else { continue }
-
+        for (index, fileInfo) in attachmentFiles.enumerated() {
             progressHandler?(BackupProgress(
-                phase: .copyingPDFs,
+                phase: .copyingAttachments,
                 current: index,
-                total: publications.count,
-                currentItem: pub.citeKey
+                total: attachmentFiles.count,
+                currentItem: fileInfo.citeKey
             ))
 
-            // Get the papers directory from settings
-            let papersURL = getPapersDirectory()
-            let sourceURL = papersURL.appendingPathComponent(pdfPath)
-
-            if fileManager.fileExists(atPath: sourceURL.path) {
-                let destURL = pdfsURL.appendingPathComponent(pdfPath)
+            if fileManager.fileExists(atPath: fileInfo.sourceURL.path) {
+                let destURL = attachmentsURL.appendingPathComponent(fileInfo.relativePath)
 
                 // Create subdirectories if needed
                 let destDir = destURL.deletingLastPathComponent()
@@ -303,12 +303,14 @@ public actor LibraryBackupService {
                     try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
                 }
 
-                try fileManager.copyItem(at: sourceURL, to: destURL)
+                try fileManager.copyItem(at: fileInfo.sourceURL, to: destURL)
                 copiedCount += 1
+            } else {
+                Logger.backup.warning("Attachment not found at: \(fileInfo.sourceURL.path)")
             }
         }
 
-        Logger.backup.info("Copied \(copiedCount) PDF files")
+        Logger.backup.info("Copied \(copiedCount) attachment files")
         return copiedCount
     }
 
@@ -356,14 +358,14 @@ public actor LibraryBackupService {
         )
 
         var checksums: [String: String] = [:]
-        var pdfCount = 0
+        var attachmentCount = 0
 
         for fileURL in contents {
             let relativePath = fileURL.lastPathComponent
 
             if fileURL.hasDirectoryPath {
                 // Recursively process directories
-                try await processDirectory(at: fileURL, relativeTo: backupURL, checksums: &checksums, pdfCount: &pdfCount)
+                try await processDirectory(at: fileURL, relativeTo: backupURL, checksums: &checksums, attachmentCount: &attachmentCount)
             } else {
                 checksums[relativePath] = try computeChecksum(for: fileURL)
             }
@@ -383,7 +385,7 @@ public actor LibraryBackupService {
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             schemaVersion: SchemaVersion.current.rawValue,
             publicationCount: publicationCount,
-            pdfCount: pdfCount,
+            attachmentCount: attachmentCount,
             fileChecksums: checksums
         )
 
@@ -395,7 +397,7 @@ public actor LibraryBackupService {
         at url: URL,
         relativeTo baseURL: URL,
         checksums: inout [String: String],
-        pdfCount: inout Int
+        attachmentCount: inout Int
     ) throws {
         let contents = try fileManager.contentsOfDirectory(
             at: url,
@@ -403,15 +405,18 @@ public actor LibraryBackupService {
             options: [.skipsHiddenFiles]
         )
 
+        // Check if we're in the Attachments directory
+        let isAttachmentsDir = url.path.contains("/Attachments")
+
         for fileURL in contents {
             let relativePath = fileURL.path.replacingOccurrences(of: baseURL.path + "/", with: "")
 
             if fileURL.hasDirectoryPath {
-                try processDirectory(at: fileURL, relativeTo: baseURL, checksums: &checksums, pdfCount: &pdfCount)
+                try processDirectory(at: fileURL, relativeTo: baseURL, checksums: &checksums, attachmentCount: &attachmentCount)
             } else {
                 checksums[relativePath] = try computeChecksum(for: fileURL)
-                if fileURL.pathExtension.lowercased() == "pdf" {
-                    pdfCount += 1
+                if isAttachmentsDir {
+                    attachmentCount += 1
                 }
             }
         }
@@ -448,12 +453,6 @@ public actor LibraryBackupService {
         #endif
     }
 
-    private func getPapersDirectory() -> URL {
-        // Get from settings or use default
-        let defaultPapersDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Papers", isDirectory: true)
-        return defaultPapersDir
-    }
 }
 
 // MARK: - Supporting Types
@@ -465,8 +464,59 @@ public struct BackupManifest: Codable {
     public let appVersion: String
     public let schemaVersion: Int
     public let publicationCount: Int
-    public let pdfCount: Int
+    public let attachmentCount: Int
     public let fileChecksums: [String: String]
+
+    // For backward compatibility with older backups
+    private enum CodingKeys: String, CodingKey {
+        case version, createdAt, appVersion, schemaVersion, publicationCount
+        case attachmentCount
+        case pdfCount  // Legacy key for reading old backups
+        case fileChecksums
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        appVersion = try container.decode(String.self, forKey: .appVersion)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        publicationCount = try container.decode(Int.self, forKey: .publicationCount)
+        // Try attachmentCount first, fall back to pdfCount for old backups
+        attachmentCount = try container.decodeIfPresent(Int.self, forKey: .attachmentCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .pdfCount)
+            ?? 0
+        fileChecksums = try container.decode([String: String].self, forKey: .fileChecksums)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(appVersion, forKey: .appVersion)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(publicationCount, forKey: .publicationCount)
+        try container.encode(attachmentCount, forKey: .attachmentCount)
+        try container.encode(fileChecksums, forKey: .fileChecksums)
+    }
+
+    public init(
+        version: Int,
+        createdAt: Date,
+        appVersion: String,
+        schemaVersion: Int,
+        publicationCount: Int,
+        attachmentCount: Int,
+        fileChecksums: [String: String]
+    ) {
+        self.version = version
+        self.createdAt = createdAt
+        self.appVersion = appVersion
+        self.schemaVersion = schemaVersion
+        self.publicationCount = publicationCount
+        self.attachmentCount = attachmentCount
+        self.fileChecksums = fileChecksums
+    }
 }
 
 /// Information about a backup.
@@ -476,7 +526,7 @@ public struct BackupInfo: Identifiable {
     public let createdAt: Date
     public let sizeBytes: Int
     public let publicationCount: Int
-    public let pdfCount: Int
+    public let attachmentCount: Int
 
     /// Human-readable size string.
     public var sizeString: String {

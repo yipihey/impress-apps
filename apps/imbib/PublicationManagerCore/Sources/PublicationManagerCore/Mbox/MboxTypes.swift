@@ -121,6 +121,11 @@ public struct LibraryMetadata: Sendable, Codable {
     public let collections: [CollectionInfo]
     public let smartSearches: [SmartSearchInfo]
 
+    // Everything export extensions (v2.0)
+    public let libraryType: LibraryType?
+    public let isDefault: Bool?
+    public let sortOrder: Int?
+
     public init(
         libraryID: UUID? = nil,
         name: String,
@@ -128,7 +133,10 @@ public struct LibraryMetadata: Sendable, Codable {
         exportVersion: String = "1.0",
         exportDate: Date = Date(),
         collections: [CollectionInfo] = [],
-        smartSearches: [SmartSearchInfo] = []
+        smartSearches: [SmartSearchInfo] = [],
+        libraryType: LibraryType? = nil,
+        isDefault: Bool? = nil,
+        sortOrder: Int? = nil
     ) {
         self.libraryID = libraryID
         self.name = name
@@ -137,7 +145,21 @@ public struct LibraryMetadata: Sendable, Codable {
         self.exportDate = exportDate
         self.collections = collections
         self.smartSearches = smartSearches
+        self.libraryType = libraryType
+        self.isDefault = isDefault
+        self.sortOrder = sortOrder
     }
+}
+
+// MARK: - Library Type
+
+/// Type of library for Everything export/import.
+public enum LibraryType: String, Sendable, Codable, CaseIterable {
+    case user = "user"               // Regular user library
+    case inbox = "inbox"             // Inbox library for paper triage
+    case save = "save"               // Save library for Inbox triage
+    case dismissed = "dismissed"     // Dismissed library for Inbox triage
+    case exploration = "exploration" // Exploration library (device-specific)
 }
 
 // MARK: - Collection Info
@@ -175,18 +197,32 @@ public struct SmartSearchInfo: Sendable, Codable {
     public let sourceIDs: [String]
     public let maxResults: Int
 
+    // Everything export extensions (v2.0)
+    public let feedsToInbox: Bool?
+    public let autoRefreshEnabled: Bool?
+    public let refreshIntervalSeconds: Int?
+    public let resultCollectionID: UUID?
+
     public init(
         id: UUID,
         name: String,
         query: String,
         sourceIDs: [String] = [],
-        maxResults: Int = 50
+        maxResults: Int = 50,
+        feedsToInbox: Bool? = nil,
+        autoRefreshEnabled: Bool? = nil,
+        refreshIntervalSeconds: Int? = nil,
+        resultCollectionID: UUID? = nil
     ) {
         self.id = id
         self.name = name
         self.query = query
         self.sourceIDs = sourceIDs
         self.maxResults = maxResults
+        self.feedsToInbox = feedsToInbox
+        self.autoRefreshEnabled = autoRefreshEnabled
+        self.refreshIntervalSeconds = refreshIntervalSeconds
+        self.resultCollectionID = resultCollectionID
     }
 }
 
@@ -356,6 +392,21 @@ public enum MboxHeader {
     // Linked file headers (for attachments)
     public static let linkedFilePath = "X-Imbib-LinkedFile-Path"
     public static let linkedFileIsMain = "X-Imbib-LinkedFile-IsMain"
+
+    // Everything export headers (v2.0)
+    public static let exportType = "X-Imbib-Export-Type"             // "everything" | "library"
+    public static let manifestVersion = "X-Imbib-Manifest-Version"   // "2.0"
+    public static let libraryType = "X-Imbib-Library-Type"           // inbox|save|dismissed|user|exploration
+
+    // Publication multi-library headers
+    public static let sourceLibraryID = "X-Imbib-Source-Library-ID"
+    public static let additionalLibraryIDs = "X-Imbib-Additional-Library-IDs"
+    public static let feedIDs = "X-Imbib-Feed-IDs"
+
+    // Triage state headers
+    public static let triageState = "X-Imbib-Triage-State"           // inbox|saved|dismissed
+    public static let isRead = "X-Imbib-IsRead"
+    public static let isStarred = "X-Imbib-IsStarred"
 }
 
 // MARK: - Export Options
