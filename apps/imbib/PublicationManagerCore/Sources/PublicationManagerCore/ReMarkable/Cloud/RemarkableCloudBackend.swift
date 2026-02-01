@@ -318,11 +318,87 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
     }
 
     public func downloadAnnotations(documentID: String) async throws -> [RemarkableRawAnnotation] {
-        // TODO: Implement annotation download
-        // This requires downloading the .rm files from the document archive
-        // and parsing them with RMFileParser
-        logger.warning("downloadAnnotations not fully implemented")
-        return []
+        try await ensureAuthenticated()
+
+        // Get document info to find the blob URL
+        var request = URLRequest(url: URL(string: Self.listDocsURL)!)
+        request.setValue("Bearer \(userToken!)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw RemarkableError.downloadFailed("Failed to get document list")
+        }
+
+        let docs = try JSONDecoder().decode([CloudDocument].self, from: data)
+        guard let doc = docs.first(where: { $0.id == documentID }),
+              let blobURL = doc.blobURLGet else {
+            throw RemarkableError.documentNotFound(documentID)
+        }
+
+        // Download and extract the document archive
+        let extractedDoc = try await RemarkableDocumentDownloader.shared.downloadDocument(
+            documentID: documentID,
+            blobURL: blobURL,
+            userToken: userToken!
+        )
+
+        // Parse annotations from each page
+        let pageAnnotations = try await RemarkableDocumentDownloader.shared.parseAnnotations(from: extractedDoc)
+
+        // Convert parsed annotations to RemarkableRawAnnotation array
+        var rawAnnotations: [RemarkableRawAnnotation] = []
+
+        for pageAnn in pageAnnotations {
+            guard pageAnn.hasStrokes else { continue }
+
+            for layer in pageAnn.rmFile.layers {
+                for stroke in layer.strokes {
+                    // Skip eraser strokes
+                    guard !stroke.isEraser else { continue }
+
+                    // Determine annotation type
+                    let annotationType: RemarkableRawAnnotation.AnnotationType = stroke.isHighlight ? .highlight : .ink
+
+                    // Encode stroke data for storage
+                    let strokeData = try? JSONEncoder().encode(StrokeDataEnvelope(
+                        pen: stroke.pen.rawValue,
+                        color: stroke.color.rawValue,
+                        width: stroke.width,
+                        points: stroke.points.map { StrokePointEnvelope(x: $0.x, y: $0.y, pressure: $0.pressure) }
+                    ))
+
+                    let annotation = RemarkableRawAnnotation(
+                        id: UUID().uuidString,
+                        pageNumber: pageAnn.pageNumber,
+                        layerName: layer.name,
+                        type: annotationType,
+                        strokeData: strokeData,
+                        bounds: stroke.bounds,
+                        color: stroke.color.hexColor
+                    )
+                    rawAnnotations.append(annotation)
+                }
+            }
+        }
+
+        logger.info("Downloaded \(rawAnnotations.count) annotations from document \(documentID)")
+        return rawAnnotations
+    }
+
+    // Helper types for stroke data encoding
+    private struct StrokeDataEnvelope: Codable {
+        let pen: Int
+        let color: Int
+        let width: Float
+        let points: [StrokePointEnvelope]
+    }
+
+    private struct StrokePointEnvelope: Codable {
+        let x: Float
+        let y: Float
+        let pressure: Float
     }
 
     public func downloadDocument(documentID: String) async throws -> RemarkableDocumentBundle {
@@ -464,16 +540,90 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
     }
 
     private func createDocumentArchive(data: Data, documentID: String, filename: String, parentFolder: String?) throws -> Data {
-        // Creates a minimal .zip archive structure expected by reMarkable
-        // In a full implementation, this would:
-        // 1. Create .content file with metadata
-        // 2. Include the PDF as {id}.pdf
-        // 3. Create empty .metadata file
-        // 4. Zip everything together
+        let fileManager = FileManager.default
 
-        // For now, just return the PDF data as a placeholder
-        // TODO: Implement proper archive creation
-        return data
+        // Create temp directory for archive contents
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? fileManager.removeItem(at: tempDir)
+        }
+
+        // Clean filename for display (remove .pdf extension if present)
+        let displayName = filename.hasSuffix(".pdf")
+            ? String(filename.dropLast(4))
+            : filename
+
+        // 1. Write the PDF file
+        let pdfPath = tempDir.appendingPathComponent("\(documentID).pdf")
+        try data.write(to: pdfPath)
+
+        // 2. Create .content file (JSON metadata)
+        let contentData: [String: Any] = [
+            "dummyDocument": false,
+            "extraMetadata": [:] as [String: Any],
+            "fileType": "pdf",
+            "fontName": "",
+            "lastOpenedPage": 0,
+            "lineHeight": -1,
+            "margins": 100,
+            "orientation": "portrait",
+            "pageCount": 0,  // Will be updated by reMarkable
+            "pages": [] as [String],  // Empty initially
+            "textAlignment": "left",
+            "textScale": 1,
+            "transform": [
+                "m11": 1, "m12": 0, "m13": 0,
+                "m21": 0, "m22": 1, "m23": 0,
+                "m31": 0, "m32": 0, "m33": 1
+            ]
+        ]
+        let contentJSON = try JSONSerialization.data(withJSONObject: contentData, options: .prettyPrinted)
+        let contentPath = tempDir.appendingPathComponent("\(documentID).content")
+        try contentJSON.write(to: contentPath)
+
+        // 3. Create .metadata file (document metadata - stored separately from archive)
+        // The metadata is uploaded as part of the update-status call, not in the archive
+
+        // 4. Create .pagedata file (empty for new documents)
+        let pagedataPath = tempDir.appendingPathComponent("\(documentID).pagedata")
+        try Data().write(to: pagedataPath)
+
+        // 5. Create the ZIP archive using /usr/bin/zip
+        let archivePath = tempDir.appendingPathComponent("archive.zip")
+
+        #if os(macOS)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.currentDirectoryURL = tempDir
+        process.arguments = [
+            "-r",
+            archivePath.lastPathComponent,
+            "\(documentID).pdf",
+            "\(documentID).content",
+            "\(documentID).pagedata"
+        ]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            logger.error("zip command failed: \(errorMessage)")
+            throw RemarkableError.uploadFailed("Failed to create archive: \(errorMessage)")
+        }
+
+        return try Data(contentsOf: archivePath)
+        #else
+        // On iOS, we would need a ZIP library - for now, this is macOS-only functionality
+        throw RemarkableError.uploadFailed("Document upload is only supported on macOS")
+        #endif
     }
 }
 
