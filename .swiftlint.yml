@@ -1,0 +1,70 @@
+# SwiftLint Configuration for Impress Apps
+# https://github.com/realm/SwiftLint
+
+# Rules to disable (too strict for this codebase)
+disabled_rules:
+  - line_length                    # Many legitimate long lines in Swift
+  - function_body_length           # Complex functions are sometimes necessary
+  - type_body_length               # Large types are acceptable for ViewModels
+  - file_length                    # Some files naturally grow large
+  - cyclomatic_complexity          # Some complex logic is unavoidable
+  - nesting                        # Nested closures are common in SwiftUI
+  - identifier_name                # Short names like 'id', 'x', 'y' are fine
+  - trailing_comma                 # Style preference - allow both
+
+# Opt-in rules to enable
+opt_in_rules:
+  - empty_count                    # Prefer .isEmpty over .count == 0
+  - closure_spacing                # Consistent closure formatting
+  - contains_over_first_not_nil    # Prefer .contains over .first != nil
+  - empty_string                   # Prefer .isEmpty over == ""
+  - first_where                    # Prefer .first(where:) over .filter().first
+  - force_unwrapping               # Warn on force unwrap (not error)
+  - last_where                     # Prefer .last(where:) over .filter().last
+  - modifier_order                 # Consistent modifier ordering
+  - overridden_super_call          # Ensure super is called
+  - private_over_fileprivate       # Prefer private when possible
+  - redundant_nil_coalescing       # Remove redundant ?? nil
+  - sorted_first_last              # Prefer .min()/.max() over sorted().first/last
+  - toggle_bool                    # Prefer .toggle() over = !
+  - yoda_condition                 # Prefer value == constant over constant == value
+
+# Paths to exclude
+excluded:
+  - .build
+  - .swiftpm
+  - DerivedData
+  - Pods
+  - Carthage
+  - vendor
+  - "*/Generated/*"
+  - "*/.build/*"
+
+# Paths to include (relative to repo root)
+included:
+  - apps/imbib
+  - apps/imprint
+  - apps/implore
+  - apps/impel
+  - apps/impart
+  - packages
+
+# Rule configurations
+force_cast:
+  severity: warning
+
+force_try:
+  severity: warning
+
+force_unwrapping:
+  severity: warning
+
+trailing_whitespace:
+  ignores_empty_lines: true
+  ignores_comments: true
+
+vertical_whitespace:
+  max_empty_lines: 2
+
+# Reporter type (options: xcode, json, csv, checkstyle, codeclimate, junit, html, emoji, sonarqube, markdown, github-actions-logging)
+reporter: xcode

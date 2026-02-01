@@ -1,0 +1,136 @@
+name: imbib - Swift Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/imbib/**'
+      - 'packages/**'
+      - '.github/workflows/imbib-tests.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/imbib/**'
+      - 'packages/**'
+      - '.github/workflows/imbib-tests.yml'
+
+jobs:
+  test-publicationmanagercore:
+    name: Test PublicationManagerCore
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build and Test PublicationManagerCore
+        working-directory: apps/imbib/PublicationManagerCore
+        run: |
+          swift build
+          swift test 2>&1 | tee test-output.txt
+          # Check for test failures
+          if grep -q "Test Suite.*failed" test-output.txt; then
+            echo "::error::Some tests failed"
+            exit 1
+          fi
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publicationmanagercore-test-output
+          path: apps/imbib/PublicationManagerCore/test-output.txt
+
+  test-imbib-app:
+    name: Test imbib App
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Rust xcframework
+        working-directory: crates/imbib-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
+      - name: Generate Xcode project
+        working-directory: apps/imbib/imbib
+        run: xcodegen generate
+
+      - name: Build and Test macOS
+        working-directory: apps/imbib/imbib
+        run: |
+          xcodebuild test \
+            -scheme imbib \
+            -destination 'platform=macOS' \
+            -resultBundlePath ${{ runner.temp }}/TestResults-macOS.xcresult \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee test-output-macos.txt
+
+      - name: Upload macOS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-macos
+          path: |
+            ${{ runner.temp }}/TestResults-macOS.xcresult
+            apps/imbib/imbib/test-output-macos.txt
+
+  lint:
+    name: SwiftLint
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        working-directory: apps/imbib
+        run: |
+          swiftlint lint --reporter github-actions-logging || true
