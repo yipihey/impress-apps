@@ -294,6 +294,7 @@ public actor AIMultiModelExecutor {
                     }
                 }
                 continuation.finish()
+                await self.removeTask(executionId)
             }
 
             self.registerTask(executionId, task: task)
@@ -318,6 +319,10 @@ public actor AIMultiModelExecutor {
 
     private func registerTask(_ id: UUID, task: Task<Void, Never>) {
         activeTasks[id] = task
+    }
+
+    private func removeTask(_ id: UUID) {
+        activeTasks.removeValue(forKey: id)
     }
 
     private func executeForModel(

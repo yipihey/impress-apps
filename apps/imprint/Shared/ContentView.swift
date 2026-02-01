@@ -67,6 +67,11 @@ struct ContentView: View {
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress { press in
+                handleVimNavigation(press)
+            }
         } detail: {
             // Main editor area
             editorView
@@ -328,6 +333,45 @@ struct ContentView: View {
                     appState.selectedRange = selectedRange
                 }
             )
+        }
+    }
+
+    // MARK: - Vim Navigation
+
+    /// Check if an editable text field currently has keyboard focus
+    private func isTextFieldFocused() -> Bool {
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+        // NSTextView is used by TextEditor, TextField, and other text controls
+        if let textView = firstResponder as? NSTextView {
+            return textView.isEditable
+        }
+        return false
+    }
+
+    /// Handle vim-style navigation keys (h/j/k/l)
+    private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
+        // Don't intercept when editing text
+        guard !isTextFieldFocused() else { return .ignored }
+
+        switch press.characters.lowercased() {
+        case "j":
+            // Navigate down in outline
+            // For now, just a placeholder - outline navigation would need state
+            return .ignored
+        case "k":
+            // Navigate up in outline
+            return .ignored
+        case "h":
+            // Go back / collapse
+            return .ignored
+        case "l":
+            // Go forward / expand / open
+            return .ignored
+        default:
+            return .ignored
         }
     }
 

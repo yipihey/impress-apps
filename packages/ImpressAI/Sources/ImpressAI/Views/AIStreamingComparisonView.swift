@@ -143,7 +143,11 @@ public struct AIStreamingComparisonView: View {
             // Footer
             footerView
         }
+        #if os(macOS)
         .background(Color(nsColor: .controlBackgroundColor))
+        #else
+        .background(Color(.secondarySystemBackground))
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -233,7 +237,11 @@ public struct AIStreamingComparisonView: View {
             .padding(12)
             .disabled(modelState.error != nil || (!modelState.isComplete && modelState.partialText.isEmpty))
         }
+        #if os(macOS)
         .background(Color(nsColor: .textBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)

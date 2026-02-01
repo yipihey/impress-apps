@@ -18,6 +18,11 @@ struct ContentView: View {
                 .environment(generatorViewModel)
                 .environment(libraryManager)
                 .accessibilityIdentifier("sidebar.container")
+                .focusable()
+                .focusEffectDisabled()
+                .onKeyPress { press in
+                    handleVimNavigation(press, appState: appState, libraryManager: libraryManager)
+                }
         } detail: {
             if let session = appState.currentSession {
                 VisualizationView(session: session)
@@ -492,6 +497,73 @@ struct GrammarEditorRepresentable: NSViewRepresentable {
     }
 }
 #endif
+
+// MARK: - Vim Navigation
+
+/// Check if an editable text field currently has keyboard focus
+private func isTextFieldFocused() -> Bool {
+    #if os(macOS)
+    guard let window = NSApp.keyWindow,
+          let firstResponder = window.firstResponder else {
+        return false
+    }
+    // NSTextView is used by TextEditor, TextField, and other text controls
+    if let textView = firstResponder as? NSTextView {
+        return textView.isEditable
+    }
+    return false
+    #else
+    return false
+    #endif
+}
+
+/// Handle vim-style navigation keys (h/j/k/l) for figure library
+@MainActor
+private func handleVimNavigation(_ press: KeyPress, appState: AppState, libraryManager: LibraryManager) -> KeyPress.Result {
+    // Don't intercept when editing text
+    guard !isTextFieldFocused() else { return .ignored }
+
+    let figures = libraryManager.library.figures
+    guard !figures.isEmpty else { return .ignored }
+
+    // Find current selection index
+    let currentIndex = figures.firstIndex { $0.id == libraryManager.selectedFigureId }
+
+    switch press.characters.lowercased() {
+    case "j":
+        // Navigate down - select next figure
+        if let current = currentIndex, current < figures.count - 1 {
+            libraryManager.selectedFigureId = figures[current + 1].id
+        } else if currentIndex == nil {
+            libraryManager.selectedFigureId = figures.first?.id
+        }
+        return .handled
+    case "k":
+        // Navigate up - select previous figure
+        if let current = currentIndex, current > 0 {
+            libraryManager.selectedFigureId = figures[current - 1].id
+        } else if currentIndex == nil {
+            libraryManager.selectedFigureId = figures.last?.id
+        }
+        return .handled
+    case "l":
+        // Open/enter - load selected figure into visualization
+        if let selectedId = libraryManager.selectedFigureId,
+           let figure = figures.first(where: { $0.id == selectedId }) {
+            // TODO: Load figure into visualization session
+            _ = figure
+        }
+        return .handled
+    case "h":
+        // Back - clear selection or navigate up
+        if libraryManager.selectedFigureId != nil {
+            libraryManager.selectedFigureId = nil
+        }
+        return .handled
+    default:
+        return .ignored
+    }
+}
 
 #Preview {
     ContentView()

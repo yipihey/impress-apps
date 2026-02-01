@@ -118,7 +118,9 @@ struct CategoryAssignmentRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                #if os(macOS)
                 .toggleStyle(.checkbox)
+                #endif
 
                 Spacer()
 

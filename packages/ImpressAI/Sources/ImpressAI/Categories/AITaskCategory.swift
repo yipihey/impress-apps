@@ -157,8 +157,8 @@ public extension AITaskCategory {
         id: "research",
         name: "Research",
         icon: "magnifyingglass",
-        description: "Academic research assistance",
-        supportedApps: ["imbib", "imprint"],
+        description: "Academic research assistance and AI counsel conversations",
+        supportedApps: ["imbib", "imprint", "impart"],
         supportsComparison: false
     )
 

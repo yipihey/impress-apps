@@ -19,6 +19,8 @@ members = [
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
+    # impart - research conversation platform
+    "crates/impart-core",
 ]
 
 [workspace.package]

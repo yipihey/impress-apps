@@ -62,7 +62,11 @@ public struct AIComparisonResultView: View {
             // Footer
             footerView
         }
+        #if os(macOS)
         .background(Color(nsColor: .controlBackgroundColor))
+        #else
+        .background(Color(.secondarySystemBackground))
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -231,7 +235,11 @@ public struct AIComparisonResultView: View {
             .padding(12)
             .disabled(!modelResult.isSuccess)
         }
+        #if os(macOS)
         .background(Color(nsColor: .textBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
