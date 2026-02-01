@@ -8,10 +8,10 @@
 import SwiftUI
 import OSLog
 
-/// Onboarding step for configuring the NASA/ADS API key.
+/// Onboarding step for configuring the NASA ADS/SciX API key.
 ///
-/// Guides users through obtaining and entering their ADS API key,
-/// which enables searching the NASA Astrophysics Data System.
+/// Guides users through obtaining and entering their API key,
+/// which enables searching NASA ADS and SciX (Science Explorer).
 public struct ADSSetupStepView: View {
 
     // MARK: - Properties
@@ -102,11 +102,11 @@ public struct ADSSetupStepView: View {
                     .foregroundStyle(.orange)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Configure ADS API Key")
+                    Text("Configure NASA ADS/SciX API Key")
                         .font(.title2)
                         .fontWeight(.semibold)
 
-                    Text("Enable searching NASA's Astrophysics Data System")
+                    Text("Enable searching NASA ADS/SciX databases")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -120,7 +120,7 @@ public struct ADSSetupStepView: View {
 
     private var whyADSSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Why ADS?")
+            Text("Why NASA ADS/SciX?")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {

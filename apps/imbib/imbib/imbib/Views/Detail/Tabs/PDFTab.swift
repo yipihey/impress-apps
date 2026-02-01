@@ -121,42 +121,9 @@ struct PDFTab: View {
                 pdfDarkModeEnabled = await PDFSettingsStore.shared.settings.darkModeEnabled
             }
         }
-        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        // Keyboard navigation for PDF reading
         .focusable()
-        .onKeyPress { press in
-            let store = KeyboardShortcutsStore.shared
-            // Full page down (default: Space)
-            if store.matches(press, action: "pdfPageDown") {
-                NotificationCenter.default.post(name: .pdfPageDown, object: nil)
-                return .handled
-            }
-            // Full page up (default: Shift+Space)
-            if store.matches(press, action: "pdfPageUp") {
-                NotificationCenter.default.post(name: .pdfPageUp, object: nil)
-                return .handled
-            }
-            // Half-page scroll down (default: j - vim style)
-            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
-                NotificationCenter.default.post(name: .pdfScrollHalfPageDown, object: nil)
-                return .handled
-            }
-            // Half-page scroll up (default: k - vim style)
-            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
-                NotificationCenter.default.post(name: .pdfScrollHalfPageUp, object: nil)
-                return .handled
-            }
-            // Cycle pane focus left (default: h)
-            if store.matches(press, action: "cycleFocusLeft") {
-                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
-                return .handled
-            }
-            // Cycle pane focus right (default: l)
-            if store.matches(press, action: "cycleFocusRight") {
-                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
-                return .handled
-            }
-            return .ignored
-        }
+        .onKeyPress { press in handleKeyPress(press) }
     }
 
     // MARK: - PDF Viewer Only (no notes panel)
@@ -284,9 +251,11 @@ struct PDFTab: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         #if os(macOS)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(nsColor: .windowBackgroundColor))
+        .foregroundStyle(pdfDarkModeEnabled ? .white : .primary)
         #else
-        .background(Color(.systemBackground))
+        .background(pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(.systemBackground))
+        .foregroundStyle(pdfDarkModeEnabled ? .white : .primary)
         #endif
     }
 
@@ -844,5 +813,62 @@ struct PDFTab: View {
         }
 
         logger.info("[PDFTab] E-Ink sync notification posted for: \(pub.citeKey)")
+    }
+
+    // MARK: - Keyboard Navigation
+
+    /// Handle keyboard input for PDF navigation.
+    /// Supports multiple key bindings for relaxed reading without mouse.
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // Page Down keys: Space, PageDown, Right Arrow, Down Arrow, j
+        let isPageDown = switch press.key {
+        case .space where press.modifiers.isEmpty: true
+        case .pageDown: true
+        case .rightArrow: true
+        case .downArrow: true
+        case .init("j") where press.modifiers.isEmpty: true
+        default: false
+        }
+        if isPageDown {
+            NotificationCenter.default.post(name: .pdfPageDown, object: nil)
+            return .handled
+        }
+
+        // Page Up keys: Shift+Space, PageUp, Left Arrow, Up Arrow, k
+        let isPageUp = switch press.key {
+        case .space where press.modifiers.contains(.shift): true
+        case .pageUp: true
+        case .leftArrow: true
+        case .upArrow: true
+        case .init("k") where press.modifiers.isEmpty: true
+        default: false
+        }
+        if isPageUp {
+            NotificationCenter.default.post(name: .pdfPageUp, object: nil)
+            return .handled
+        }
+
+        // Configurable shortcuts from Settings
+        let store = KeyboardShortcutsStore.shared
+        if store.matches(press, action: "pdfPageDown") {
+            NotificationCenter.default.post(name: .pdfPageDown, object: nil)
+            return .handled
+        }
+        if store.matches(press, action: "pdfPageUp") {
+            NotificationCenter.default.post(name: .pdfPageUp, object: nil)
+            return .handled
+        }
+
+        // Pane cycling (h/l)
+        if store.matches(press, action: "cycleFocusLeft") {
+            NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+            return .handled
+        }
+        if store.matches(press, action: "cycleFocusRight") {
+            NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+            return .handled
+        }
+
+        return .ignored
     }
 }

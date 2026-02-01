@@ -204,42 +204,53 @@ public actor SmartSearchProvider {
             let existingPubs = limitedResults.compactMap { existingMap[$0.id] }
             let newResults = limitedResults.filter { existingMap[$0.id] == nil }
 
-            // For inbox feeds: filter out papers that are already in inbox OR were explicitly dismissed
+            // For inbox feeds: filter out dismissed papers from collection, and papers already in inbox from re-adding
             // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
             // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
-            let existingPubsToAdd: [CDPublication]
+            let existingPubsForCollection: [CDPublication]  // Papers to add to feed collection (excludes dismissed only)
+            let existingPubsForInbox: [CDPublication]       // Papers to add to inbox (excludes dismissed AND already in inbox)
+
             if smartSearchEntity?.feedsToInbox == true {
-                existingPubsToAdd = await MainActor.run {
+                let (forCollection, forInbox) = await MainActor.run {
                     let inboxLibrary = InboxManager.shared.inboxLibrary
                     let inboxManager = InboxManager.shared
-                    return existingPubs.filter { pub in
-                        // Skip if already in inbox (no need to re-add)
+
+                    // Filter for collection: only exclude dismissed papers
+                    let collectionPubs = existingPubs.filter { pub in
+                        !inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode)
+                    }
+
+                    // Filter for inbox: exclude dismissed AND already in inbox
+                    let inboxPubs = collectionPubs.filter { pub in
                         if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
-                            return false
+                            return false  // Already in inbox, don't re-add
                         }
-                        // Skip if explicitly dismissed
-                        if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
-                            return false
-                        }
-                        // Paper exists in DB but not in inbox and not dismissed - add to inbox
                         return true
                     }
+
+                    return (collectionPubs, inboxPubs)
                 }
-                let skippedCount = existingPubs.count - existingPubsToAdd.count
-                if skippedCount > 0 {
+                existingPubsForCollection = forCollection
+                existingPubsForInbox = forInbox
+
+                let dismissedCount = existingPubs.count - existingPubsForCollection.count
+                let alreadyInInboxCount = existingPubsForCollection.count - existingPubsForInbox.count
+                if dismissedCount > 0 || alreadyInInboxCount > 0 {
                     Logger.smartSearch.debugCapture(
-                        "Skipped \(skippedCount) papers (already in inbox or dismissed)",
+                        "Filtered \(dismissedCount) dismissed papers, \(alreadyInInboxCount) already in inbox",
                         category: "smartsearch"
                     )
                 }
             } else {
-                existingPubsToAdd = existingPubs
+                existingPubsForCollection = existingPubs
+                existingPubsForInbox = []  // Non-inbox feeds don't add to inbox
             }
 
             // BATCH: Add existing publications to collection (single save)
+            // This adds ALL non-dismissed papers to the feed collection, even if already in inbox
             let addStart = CFAbsoluteTimeGetCurrent()
-            if !existingPubsToAdd.isEmpty {
-                await repository.addToCollection(existingPubsToAdd, collection: collection)
+            if !existingPubsForCollection.isEmpty {
+                await repository.addToCollection(existingPubsForCollection, collection: collection)
             }
             let addTime = (CFAbsoluteTimeGetCurrent() - addStart) * 1000
 
@@ -255,9 +266,9 @@ public actor SmartSearchProvider {
             if smartSearchEntity?.feedsToInbox == true {
                 let inboxStart = CFAbsoluteTimeGetCurrent()
 
-                // Add filtered existing + new publications to inbox library (batch for efficiency)
-                // Note: existingPubsToAdd already excludes dismissed papers
-                let allPublications = existingPubsToAdd + newPublications
+                // Add only papers not already in inbox + new publications
+                // Note: existingPubsForInbox excludes dismissed papers and those already in inbox
+                let allPublications = existingPubsForInbox + newPublications
                 let addedCount = await MainActor.run {
                     InboxManager.shared.addToInboxBatch(allPublications)
                 }
@@ -273,7 +284,7 @@ public actor SmartSearchProvider {
             let totalTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
 
             Logger.smartSearch.infoCapture(
-                "⏱ Smart search '\(name)' complete: \(newResults.count) new, \(existingPubsToAdd.count) existing (filtered) " +
+                "⏱ Smart search '\(name)' complete: \(newResults.count) new, \(existingPubsForCollection.count) existing " +
                 "in \(String(format: "%.0f", totalTime))ms " +
                 "(search=\(String(format: "%.0f", searchTime))ms, find=\(String(format: "%.0f", findTime))ms, " +
                 "add=\(String(format: "%.0f", addTime))ms, create=\(String(format: "%.0f", createTime))ms)",

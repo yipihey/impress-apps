@@ -153,9 +153,6 @@ struct IOSUnifiedPublicationListWrapper: View {
             .task(id: source.id) {
                 await loadPublications()
             }
-            .refreshable {
-                await refreshFromSource()
-            }
             .alert("Error", isPresented: .constant(errorMessage != nil)) {
                 Button("OK") { errorMessage = nil }
             } message: {
@@ -200,6 +197,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             onSaveToLibrary: source.isInbox ? { ids, lib in await handleSaveToLibrary(ids, lib) } : nil,
             onDismiss: { ids in await handleDismiss(ids) },
             onCategoryTap: { cat in handleCategoryTap(cat) },
+            onRefresh: { await refreshFromSource() },
             onOpenInBrowser: { pub, dest in handleOpenInBrowser(pub, dest) },
             onDownloadPDF: { pub in handleDownloadPDF(pub) },
             onViewEditBibTeX: { pub in handleViewEditBibTeX(pub) },
@@ -339,6 +337,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending
             case .citationCount:
                 (lhs.citationCount ?? 0) > (rhs.citationCount ?? 0)
+            case .starred:
+                lhs.isStarred && !rhs.isStarred  // Starred papers first
             case .recommended:
                 true  // Handled above, this won't be reached
             }

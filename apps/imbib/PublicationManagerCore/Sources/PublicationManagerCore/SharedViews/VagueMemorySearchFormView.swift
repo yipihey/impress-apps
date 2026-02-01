@@ -165,16 +165,11 @@ public struct VagueMemorySearchFormView: View {
                             viewModel.vagueMemoryFormState.customYearTo = nil
                         }
                     } label: {
-                        VStack(spacing: 2) {
-                            Text(decade.displayName)
-                                .font(.body)
-                                .fontWeight(viewModel.vagueMemoryFormState.selectedDecade == decade ? .semibold : .regular)
-                            Text("\(decade.exactYearRange.start)-\(decade.exactYearRange.end)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        Text(decade.displayName)
+                            .font(.body)
+                            .fontWeight(viewModel.vagueMemoryFormState.selectedDecade == decade ? .semibold : .regular)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                         .background(
                             viewModel.vagueMemoryFormState.selectedDecade == decade
                                 ? Color.accentColor.opacity(0.2)
@@ -434,6 +429,16 @@ public struct VagueMemorySearchFormView: View {
 
             Spacer()
 
+            if let url = buildADSWebURL() {
+                Button {
+                    openInBrowser(url)
+                } label: {
+                    Label("Browser", systemImage: "safari")
+                }
+                .buttonStyle(.bordered)
+                .help("Open this search on ADS website")
+            }
+
             Button {
                 performSearch()
             } label: {
@@ -460,6 +465,23 @@ public struct VagueMemorySearchFormView: View {
         Task {
             await searchViewModel.search()
         }
+    }
+
+    /// Build a URL for opening this search on the ADS website.
+    private func buildADSWebURL() -> URL? {
+        let query = VagueMemoryQueryBuilder.buildQuery(from: searchViewModel.vagueMemoryFormState)
+
+        guard !query.isEmpty,
+              let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return nil
+        }
+
+        return URL(string: "https://ui.adsabs.harvard.edu/search/q=\(encoded)")
+    }
+
+    /// Open a URL in the default browser.
+    private func openInBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
     }
 }
 

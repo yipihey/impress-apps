@@ -336,8 +336,12 @@ public actor FullTextSearchService {
 
     private func indexPublication(_ publication: CDPublication, using index: RustSearchIndexSession, fullText: String? = nil) async {
         // Extract data on main actor since CDPublication isn't thread-safe
-        let input = await MainActor.run {
-            SearchIndexInput(
+        // Guard against deleted objects to prevent crashes during deletion
+        let input: SearchIndexInput? = await MainActor.run {
+            guard !publication.isDeleted, publication.managedObjectContext != nil else {
+                return nil
+            }
+            return SearchIndexInput(
                 id: publication.id.uuidString,
                 citeKey: publication.citeKey,
                 title: publication.title ?? "",
@@ -345,6 +349,8 @@ public actor FullTextSearchService {
                 abstractText: publication.fields["abstract"]
             )
         }
+
+        guard let input = input else { return }
 
         do {
             try await index.add(input, fullText: fullText)

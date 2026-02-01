@@ -175,7 +175,8 @@ struct RecommendationSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             settings = await RecommendationSettingsStore.shared.settings()
             trainingEventCount = await SignalCollector.shared.recentEvents(limit: 1000).count

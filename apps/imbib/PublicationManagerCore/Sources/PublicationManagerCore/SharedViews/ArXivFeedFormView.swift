@@ -197,6 +197,17 @@ public struct ArXivFeedFormView: View {
                         .disabled(selectedCategories.isEmpty)
                         .keyboardShortcut(.return, modifiers: .command)
                     } else {
+                        // Browser button to preview on arXiv website
+                        if let url = buildArXivWebURL() {
+                            Button {
+                                openInBrowser(url)
+                            } label: {
+                                Label("Browser", systemImage: "safari")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Preview this category on arXiv website")
+                        }
+
                         Button {
                             createFeed()
                         } label: {
@@ -233,6 +244,11 @@ public struct ArXivFeedFormView: View {
         .onReceive(NotificationCenter.default.publisher(for: .editArXivFeed)) { notification in
             if let feed = notification.object as? CDSmartSearch {
                 loadFeedForEditing(feed)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .prefillArxivCategory)) { notification in
+            if let categoryQuery = notification.userInfo?["category"] as? String {
+                prefillCategory(from: categoryQuery)
             }
         }
     }
@@ -521,6 +537,49 @@ public struct ArXivFeedFormView: View {
         errorMessage = ""
         formMaxResults = 0
     }
+
+    /// Pre-fill the form with a category from the share extension.
+    ///
+    /// Parses "cat:astro-ph" or similar to extract and select the category.
+    private func prefillCategory(from query: String) {
+        // Extract category from "cat:xxx" format
+        let category: String
+        if query.hasPrefix("cat:") {
+            category = String(query.dropFirst(4))
+        } else {
+            category = query
+        }
+
+        // Clear current selection and add the new category
+        selectedCategories = [category]
+
+        // Expand the group containing this category
+        if let group = ArXivCategories.groups.first(where: { group in
+            group.categories.contains { $0.id == category }
+        }) {
+            expandedGroups.insert(group.id)
+        }
+
+        // Generate a suggested feed name
+        feedName = "arXiv \(category)"
+    }
+
+    /// Build a URL for opening this search on the arXiv website.
+    private func buildArXivWebURL() -> URL? {
+        guard !selectedCategories.isEmpty else { return nil }
+
+        // For category feeds, use the list page for the first category
+        if let category = selectedCategories.sorted().first {
+            return URL(string: "https://arxiv.org/list/\(category)/recent")
+        }
+
+        return nil
+    }
+
+    /// Open a URL in the default browser.
+    private func openInBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
 }
 
 #elseif os(iOS)
@@ -683,6 +742,11 @@ public struct ArXivFeedFormView: View {
         .onReceive(NotificationCenter.default.publisher(for: .editArXivFeed)) { notification in
             if let feed = notification.object as? CDSmartSearch {
                 loadFeedForEditing(feed)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .prefillArxivCategory)) { notification in
+            if let categoryQuery = notification.userInfo?["category"] as? String {
+                prefillCategory(from: categoryQuery)
             }
         }
     }
@@ -884,6 +948,32 @@ public struct ArXivFeedFormView: View {
         showError = false
         errorMessage = ""
         formMaxResults = 0
+    }
+
+    /// Pre-fill the form with a category from the share extension.
+    ///
+    /// Parses "cat:astro-ph" or similar to extract and select the category.
+    private func prefillCategory(from query: String) {
+        // Extract category from "cat:xxx" format
+        let category: String
+        if query.hasPrefix("cat:") {
+            category = String(query.dropFirst(4))
+        } else {
+            category = query
+        }
+
+        // Clear current selection and add the new category
+        selectedCategories = [category]
+
+        // Expand the group containing this category
+        if let group = ArXivCategories.groups.first(where: { group in
+            group.categories.contains { $0.id == category }
+        }) {
+            expandedGroups.insert(group.id)
+        }
+
+        // Generate a suggested feed name
+        feedName = "arXiv \(category)"
     }
 }
 

@@ -481,7 +481,11 @@ struct UnifiedPublicationListWrapper: View {
             recommendationScores: $recommendationScores,
             onDelete: { ids in
                 // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
-                publications.removeAll { ids.contains($0.id) }
+                // Use isDeleted/isFault check to avoid crash when accessing id on invalid objects
+                publications.removeAll { pub in
+                    guard !pub.isDeleted, !pub.isFault else { return true }
+                    return ids.contains(pub.id)
+                }
                 // Clear selection for deleted items
                 selectedPublicationIDs.subtract(ids)
                 // Then delete from Core Data
@@ -1002,32 +1006,30 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Handle vim-style navigation keys (h/j/k/l) and inbox triage keys (s/S/t)
+    /// Handle vim-style navigation keys (j/k for paper nav, h/l for pane cycling, i/p/n/b for tabs) and inbox triage keys (s/S/t)
     private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
         guard !isTextFieldFocused() else { return .ignored }
 
         let store = KeyboardShortcutsStore.shared
 
-        // Check for vim navigation shortcuts
+        // j/k for paper navigation in list
         if store.matches(press, action: "navigateDown") {
             NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
             return .handled
         }
 
         if store.matches(press, action: "navigateUp") {
-            // K key: now ONLY does vim navigation up (no longer dual-purpose)
             NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
             return .handled
         }
 
+        // h/l pane cycling (post notification for ContentView to handle)
         if store.matches(press, action: "cycleFocusLeft") {
-            // Cycle pane focus left (default: h)
             NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
             return .handled
         }
 
         if store.matches(press, action: "cycleFocusRight") {
-            // Cycle pane focus right (default: l)
             NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
             return .handled
         }

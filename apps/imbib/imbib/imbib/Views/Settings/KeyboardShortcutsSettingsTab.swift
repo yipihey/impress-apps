@@ -31,12 +31,13 @@ struct KeyboardShortcutsSettingsTab: View {
 
             // Scrollable shortcuts list
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(ShortcutCategory.allCases, id: \.self) { category in
                         categorySection(category)
                     }
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.vertical, 8)
             }
         }
         .frame(minWidth: 600, minHeight: 400)
@@ -107,7 +108,8 @@ struct KeyboardShortcutsSettingsTab: View {
                 Label("Reset", systemImage: "arrow.counterclockwise")
             }
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Category Section

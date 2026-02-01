@@ -70,6 +70,9 @@ struct DetailView: View {
     @State private var isDropTargeted = false
     @State private var dropRefreshID = UUID()
 
+    // PDF dark mode state (for styling when PDF tab is selected)
+    @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
+
     // MARK: - Computed Properties
 
     /// Whether this paper supports editing (local library papers only)
@@ -127,50 +130,47 @@ struct DetailView: View {
         // This prevents SwiftUI from doing expensive diffing when switching papers.
         let pubID = publication?.id
 
-        // Tab content with toolbar in proper position
-        return Group {
-            switch selectedTab {
-            case .info:
-                InfoTab(paper: paper, publication: publication)
-                    .onAppear {
-                        let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
-                        logger.info("DetailView.body -> InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
+        // Tab content with toolbar in proper position (Apple Mail style)
+        // Use VStack for reliable layout - toolbar at top, content below
+        return VStack(spacing: 0) {
+            detailToolbar
+            Divider()
+
+            Group {
+                switch selectedTab {
+                case .info:
+                    InfoTab(paper: paper, publication: publication)
+                        .onAppear {
+                            let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
+                            logger.info("DetailView.body -> InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
+                        }
+                case .bibtex:
+                    BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
+                case .pdf:
+                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
+                case .notes:
+                    if let pub = publication {
+                        NotesTab(publication: pub)
+                    } else {
+                        Color.clear
                     }
-            case .bibtex:
-                BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
-            case .pdf:
-                PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
-            case .notes:
-                if let pub = publication {
-                    NotesTab(publication: pub)
-                } else {
-                    Color.clear
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .id(pubID)  // Stable identity per publication
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        // macOS: Use window toolbar for proper positioning at top
-        .toolbar {
-            ToolbarItemGroup(placement: .automatic) {
-                tabPickerToolbarContent
-            }
-        }
-        #else
-        // iOS: Use inline toolbar
-        .safeAreaInset(edge: .top, spacing: 0) {
-            detailToolbar
-        }
-        #endif
-        // Match the paper title to the navigation bar
+        #if os(iOS)
+        // iOS: Show paper title in navigation bar
         .navigationTitle(paper.title)
+        #endif
+        // macOS: No navigation title - clean Apple Mail/Notes style
         .task(id: publication?.id) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
 
             // Auto-enrich on view if needed (for ref/cite counts and other metadata)
-            if let pub = publication, pub.needsEnrichment {
+            // Check isDeleted to avoid crash when viewing a publication that was just deleted
+            if let pub = publication, !pub.isDeleted, pub.needsEnrichment {
                 await EnrichmentCoordinator.shared.queueForEnrichment(pub, priority: .recentlyViewed)
             }
         }
@@ -189,12 +189,28 @@ struct DetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showInfoTab)) { _ in
             selectedTab = .info
         }
-        // Vim-style tab cycling (h/l keys)
+        // Vim-style pane focus cycling (h/l keys) - handled by ContentView
+        // These notifications are kept for backward compatibility with direct tab switching
         .onReceive(NotificationCenter.default.publisher(for: .showPreviousDetailTab)) { _ in
             cycleTab(direction: -1)
         }
         .onReceive(NotificationCenter.default.publisher(for: .showNextDetailTab)) { _ in
             cycleTab(direction: 1)
+        }
+        // Vim-style h/l for global pane focus cycling
+        .focusable()
+        .onKeyPress { press in
+            // h key: cycle pane focus left
+            if press.characters == "h" {
+                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
+                return .handled
+            }
+            // l key: cycle pane focus right
+            if press.characters == "l" {
+                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
+                return .handled
+            }
+            return .ignored
         }
         // File drop support - allows dropping files to attach them to the publication
         .modifier(FileDropModifier(
@@ -216,11 +232,14 @@ struct DetailView: View {
     // MARK: - Auto-Mark as Read
 
     private func autoMarkAsRead() async {
-        guard let pub = publication, !pub.isRead else { return }
+        // Check isDeleted to avoid crash when publication was just deleted
+        guard let pub = publication, !pub.isDeleted, !pub.isRead else { return }
 
         // Wait 1 second before marking as read (like Mail)
         do {
             try await Task.sleep(for: .seconds(1))
+            // Re-check after sleep in case publication was deleted while waiting
+            guard !pub.isDeleted else { return }
             await viewModel.markAsRead(pub)
             logger.debug("Auto-marked as read: \(pub.citeKey)")
         } catch {
@@ -491,18 +510,32 @@ struct DetailView: View {
                     .controlSize(.small)
                     .help("Share options")
                 }
+
+                #if os(macOS)
+                // Pop-out button - opens current tab in separate window
+                if let pub = publication {
+                    Divider()
+                        .frame(height: 16)
+
+                    Button {
+                        openInSeparateWindow(pub)
+                    } label: {
+                        Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
+                              ? "rectangle.portrait.on.rectangle.portrait.angled"
+                              : "uiwindow.split.2x1")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
+                          ? "Open \(selectedTab.rawValue) on secondary display"
+                          : "Open \(selectedTab.rawValue) in new window")
+                }
+                #endif
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background {
-            // Match list header background using theme colors
-            if let tint = theme.listBackgroundTint {
-                tint.opacity(theme.listBackgroundTintOpacity)
-            } else {
-                Color.clear
-            }
-        }
+        // No explicit background - matches list view toolbar styling
     }
 
     /// Individual tab button for the compact tab picker

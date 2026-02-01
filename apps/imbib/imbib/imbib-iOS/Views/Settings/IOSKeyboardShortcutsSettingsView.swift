@@ -34,7 +34,7 @@ struct IOSKeyboardShortcutsSettingsView: View {
                     }
                 } icon: {
                     Image(systemName: "keyboard")
-                        .foregroundStyle(.accent)
+                        .foregroundStyle(Color.accentColor)
                 }
             }
 

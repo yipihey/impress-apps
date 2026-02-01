@@ -130,9 +130,25 @@ public final class SidebarState {
     /// Whether SciX/ADS API key is configured
     var hasSciXAPIKey = false
 
+    // MARK: - Settings State (for retention labels)
+
+    /// Current inbox age limit setting (used for retention label)
+    var inboxAgeLimit: AgeLimitPreset = .threeMonths
+
     // MARK: - Initialization
 
-    public init() {}
+    public init() {
+        // Load initial inbox settings
+        Task {
+            await loadInboxSettings()
+        }
+    }
+
+    /// Load inbox settings from store
+    func loadInboxSettings() async {
+        let settings = await InboxSettingsStore.shared.settings
+        inboxAgeLimit = settings.ageLimit
+    }
 
     // MARK: - Helper Methods
 

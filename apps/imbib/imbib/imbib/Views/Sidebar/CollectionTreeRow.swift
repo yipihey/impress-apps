@@ -237,12 +237,28 @@ struct CollectionTreeRow: View {
 
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) {
             group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.publicationID.identifier, options: nil) { data, _ in
+            // Use loadDataRepresentation instead of loadItem - matches working SidebarView implementation
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.publicationID.identifier) { data, error in
                 defer { group.leave() }
-                guard let data = data as? Data,
-                      let idString = String(data: data, encoding: .utf8),
-                      let uuid = UUID(uuidString: idString) else { return }
-                publicationIDs.append(uuid)
+                guard let data = data else { return }
+
+                // Try to decode as JSON array of UUIDs first (multi-selection drag from old format)
+                if let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
+                    for idString in uuidStrings {
+                        if let uuid = UUID(uuidString: idString) {
+                            publicationIDs.append(uuid)
+                        }
+                    }
+                }
+                // Fallback: try single UUID via JSONDecoder (CodableRepresentation format)
+                else if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
+                    publicationIDs.append(uuid)
+                }
+                // Final fallback: try plain UUID string (legacy string format)
+                else if let idString = String(data: data, encoding: .utf8),
+                        let uuid = UUID(uuidString: idString) {
+                    publicationIDs.append(uuid)
+                }
             }
         }
 

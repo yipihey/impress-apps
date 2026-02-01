@@ -194,6 +194,8 @@ public final class DetailWindowController {
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {
             window.makeKey()
+            // Enter fullscreen mode after window is on screen
+            window.toggleFullScreen(nil)
         }
 
         // Save state for restoration on app restart
@@ -501,6 +503,34 @@ private class WindowDelegate: NSObject, NSWindowDelegate {
             controller?.windowDidClose(key: key, citeKey: citeKey)
         }
     }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+
+        // Ensure the window has focus after fullscreen transition
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Move the mouse cursor to the center of the window's screen
+        if let screen = window.screen {
+            let centerX = screen.frame.midX
+            let centerY = screen.frame.midY
+            // CGPoint uses flipped coordinates (0,0 at top-left)
+            let screenHeight = NSScreen.screens.map { $0.frame.maxY }.max() ?? screen.frame.height
+            let flippedY = screenHeight - centerY
+            CGWarpMouseCursorPosition(CGPoint(x: centerX, y: flippedY))
+        }
+
+        // Post notification so the SwiftUI view can request focus
+        NotificationCenter.default.post(name: .detachedWindowDidEnterFullScreen, object: nil)
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    /// Posted when a detached window enters fullscreen mode
+    static let detachedWindowDidEnterFullScreen = Notification.Name("detachedWindowDidEnterFullScreen")
 }
 
 #endif // os(macOS)

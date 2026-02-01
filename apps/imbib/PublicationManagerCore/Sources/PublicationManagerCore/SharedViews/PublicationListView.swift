@@ -57,6 +57,15 @@ private final class FilteredRowDataCache {
     }
 }
 
+/// Holds the current selection for drag operations.
+/// Uses a class so rows can read the current value at drag time without closure capture issues.
+@MainActor
+public final class DragSelectionHolder {
+    public var selectedIDs: Set<UUID> = []
+
+    public init() {}
+}
+
 /// Unified publication list view used by Library, Smart Search, and Ad-hoc Search.
 ///
 /// Per ADR-016, all papers are CDPublication entities and should have identical
@@ -175,6 +184,9 @@ public struct PublicationListView: View {
     /// Called when "Download PDFs" is requested for selected publications
     public var onDownloadPDFs: ((Set<UUID>) -> Void)?
 
+    /// Called when "Send to E-Ink Device" is requested
+    public var onSendToEInkDevice: ((Set<UUID>) -> Void)?
+
     // MARK: - Inbox Triage Callbacks
 
     /// Called when keep to library is requested (Inbox: adds to library AND removes from Inbox)
@@ -282,6 +294,9 @@ public struct PublicationListView: View {
 
     /// Memoization cache for filtered row data (class reference to avoid state changes)
     @State private var filterCache = FilteredRowDataCache()
+
+    /// Holds current selection for drag operations (class to avoid closure capture issues)
+    @State private var dragSelectionHolder = DragSelectionHolder()
 
     /// Scroll proxy for programmatic scrolling to selection (set by ScrollViewReader)
     @State private var scrollProxy: ScrollViewProxy?
@@ -637,6 +652,9 @@ public struct PublicationListView: View {
             }
         }
         .onChange(of: selection) { _, newValue in
+            // Update drag selection holder for multi-selection drag
+            dragSelectionHolder.selectedIDs = newValue
+
             // Update selection synchronously - the detail view defers its own update
             // Note: During Core Data background merges, managedObjectContext can temporarily
             // be nil. We still try to find the publication, but don't clear selection if
@@ -1210,6 +1228,14 @@ public struct PublicationListView: View {
                     listDropTargetOverlay
                 }
             }
+        #if os(iOS)
+            // Pull-to-refresh on iOS - must be on the List directly for visual feedback
+            .refreshable {
+                if let onRefresh = onRefresh {
+                    await onRefresh()
+                }
+            }
+        #endif
         #if os(macOS)
         .onDeleteCommand {
             if let onDelete = onDelete {
@@ -1526,6 +1552,15 @@ public struct PublicationListView: View {
                 onDownloadPDFs(ids)
             } label: {
                 Label("Download PDFs", systemImage: "arrow.down.doc")
+            }
+        }
+
+        // Send to E-Ink Device
+        if let onSendToEInkDevice = onSendToEInkDevice {
+            Button {
+                onSendToEInkDevice(ids)
+            } label: {
+                Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
             }
         }
 
@@ -1883,7 +1918,8 @@ public struct PublicationListView: View {
             libraries: allLibraries.filter { !$0.isInbox },  // Exclude Inbox from library list
             recommendationScore: scoreToShow,
             highlightedCitationCount: citationCountToShow,
-            triageFlashColor: flashColor
+            triageFlashColor: flashColor,
+            dragSelectionHolder: dragSelectionHolder
         )
     }
 

@@ -297,12 +297,12 @@ public final class SketchAnnotationService {
             withProperties: nil
         )
 
-        // Set the appearance using the sketch image
-        annotation.setValue(image, forAnnotationKey: .appearance)
+        // Set the appearance using the sketch image (using raw key for iOS compatibility)
+        annotation.setValue(image, forAnnotationKey: PDFAnnotationKey(rawValue: "/AP"))
 
         page.addAnnotation(annotation)
 
-        sketchLogger.info("Added sketch annotation at \(pagePoint)")
+        sketchLogger.info("Added sketch annotation at (\(pagePoint.x), \(pagePoint.y))")
 
         return annotation
     }

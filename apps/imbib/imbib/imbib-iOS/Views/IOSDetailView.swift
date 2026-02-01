@@ -12,11 +12,12 @@ import OSLog
 private let logger = Logger(subsystem: "com.imbib.app", category: "detail")
 
 /// Tab selection for iOS detail view.
+/// Order matches macOS: Info, PDF, Notes, BibTeX
 enum IOSDetailTab: String, CaseIterable {
     case info
-    case bibtex
     case pdf
     case notes
+    case bibtex
 
     var label: String {
         switch self {
@@ -39,7 +40,7 @@ enum IOSDetailTab: String, CaseIterable {
 
 /// iOS detail view showing publication information with tabbed interface.
 ///
-/// Matches macOS DetailView with 4 tabs: Info, BibTeX, PDF, Notes.
+/// Matches macOS DetailView with 4 tabs: Info, PDF, Notes, BibTeX.
 struct DetailView: View {
     let publication: CDPublication
     let libraryID: UUID
@@ -76,11 +77,6 @@ struct DetailView: View {
                         .tag(IOSDetailTab.info)
                         .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
 
-                    IOSBibTeXTab(publication: publication)
-                        .tabItem { Label(IOSDetailTab.bibtex.label, systemImage: IOSDetailTab.bibtex.icon) }
-                        .tag(IOSDetailTab.bibtex)
-                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
-
                     IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
                         .tabItem { Label(IOSDetailTab.pdf.label, systemImage: IOSDetailTab.pdf.icon) }
                         .tag(IOSDetailTab.pdf)
@@ -90,6 +86,11 @@ struct DetailView: View {
                         .tabItem { Label(IOSDetailTab.notes.label, systemImage: IOSDetailTab.notes.icon) }
                         .tag(IOSDetailTab.notes)
                         .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
+
+                    IOSBibTeXTab(publication: publication)
+                        .tabItem { Label(IOSDetailTab.bibtex.label, systemImage: IOSDetailTab.bibtex.icon) }
+                        .tag(IOSDetailTab.bibtex)
+                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
                 }
             }
         }

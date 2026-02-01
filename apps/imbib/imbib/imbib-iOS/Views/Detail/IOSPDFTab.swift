@@ -17,6 +17,7 @@ private enum PDFTabState: Equatable {
     case hasPDF(CDLinkedFile)
     case fileMissing(CDLinkedFile)  // Record exists but file is missing from disk (no iCloud data)
     case fetchingFromiCloud(CDLinkedFile)  // File missing locally but synced data exists in CloudKit
+    case cloudOnly(CDLinkedFile)  // PDF available in cloud but not locally materialized (on-demand download)
     case downloading(progress: Double)
     case downloadFailed(message: String)
     case noPDF
@@ -43,12 +44,19 @@ struct IOSPDFTab: View {
 
             case .hasPDF(let linkedFile):
                 if let library = libraryManager.find(id: libraryID) {
-                    PDFViewerWithControls(
-                        linkedFile: linkedFile,
-                        library: library,
-                        publicationID: publication.id,
-                        isFullscreen: $isFullscreen
-                    )
+                    VStack(spacing: 0) {
+                        // PDF switcher (only shown when multiple PDFs attached)
+                        if publication.sortedPDFs.count > 1 {
+                            pdfSwitcher(currentPDF: linkedFile)
+                        }
+
+                        PDFViewerWithControls(
+                            linkedFile: linkedFile,
+                            library: library,
+                            publicationID: publication.id,
+                            isFullscreen: $isFullscreen
+                        )
+                    }
                 }
 
             case .fileMissing(let linkedFile):
@@ -56,6 +64,9 @@ struct IOSPDFTab: View {
 
             case .fetchingFromiCloud(let linkedFile):
                 fetchingFromiCloudView(linkedFile: linkedFile)
+
+            case .cloudOnly(let linkedFile):
+                cloudOnlyView(linkedFile: linkedFile)
 
             case .downloading(let progress):
                 downloadingView(progress: progress)
@@ -188,6 +199,73 @@ struct IOSPDFTab: View {
         .padding()
     }
 
+    // MARK: - Cloud Only View (On-Demand Download)
+
+    private func cloudOnlyView(linkedFile: CDLinkedFile) -> some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "icloud.and.arrow.down")
+                .font(.system(size: 60))
+                .foregroundStyle(.blue)
+
+            VStack(spacing: 8) {
+                Text("PDF Available in iCloud")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                if linkedFile.fileSize > 0 {
+                    Text("Tap to download (\(linkedFile.formattedFileSize))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Tap to download")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                Task {
+                    await downloadFromCloud(linkedFile)
+                }
+            } label: {
+                Label("Download PDF", systemImage: "arrow.down.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal, 32)
+
+            Spacer()
+        }
+        .padding()
+    }
+
+    /// Download PDF from CloudKit for on-demand access
+    private func downloadFromCloud(_ linkedFile: CDLinkedFile) async {
+        pdfLogger.info("Downloading PDF from cloud for \(linkedFile.filename)")
+
+        state = .fetchingFromiCloud(linkedFile)
+
+        do {
+            guard let library = libraryManager.find(id: libraryID) else {
+                pdfLogger.error("Library not found")
+                state = .downloadFailed(message: "Library not found")
+                return
+            }
+
+            _ = try await PDFCloudService.shared.downloadPDF(for: linkedFile, in: library)
+            pdfLogger.info("Successfully downloaded PDF from cloud")
+
+            // Re-check state after download
+            await checkPDFState()
+        } catch {
+            pdfLogger.error("Failed to download PDF from cloud: \(error.localizedDescription)")
+            state = .downloadFailed(message: error.localizedDescription)
+        }
+    }
+
     // MARK: - Download Failed View
 
     private func downloadFailedView(message: String) -> some View {
@@ -243,7 +321,7 @@ struct IOSPDFTab: View {
         pdfLogger.info("Checking PDF state for \(publication.citeKey)")
 
         // Check if we already have a PDF linked file record
-        if let linkedFile = publication.linkedFiles?.first(where: { $0.isPDF }) {
+        if let linkedFile = publication.primaryPDF {
             pdfLogger.info("Found existing PDF record: \(linkedFile.relativePath)")
 
             // Verify the actual file exists on disk
@@ -255,6 +333,14 @@ struct IOSPDFTab: View {
                 state = .fetchingFromiCloud(linkedFile)
                 // Automatically start fetching
                 await fetchFromiCloud(linkedFile)
+            } else if linkedFile.pdfCloudAvailable && !linkedFile.isLocallyMaterialized {
+                // PDF is available in cloud but was evicted locally (on-demand download mode)
+                pdfLogger.info("PDF available in cloud but not locally materialized: \(linkedFile.relativePath)")
+                state = .cloudOnly(linkedFile)
+            } else if linkedFile.pdfCloudAvailable {
+                // PDF should be available in cloud - show download prompt
+                pdfLogger.info("PDF available in cloud: \(linkedFile.relativePath)")
+                state = .cloudOnly(linkedFile)
             } else {
                 pdfLogger.warning("PDF file missing from disk (no iCloud data): \(linkedFile.relativePath)")
                 state = .fileMissing(linkedFile)
@@ -372,12 +458,22 @@ struct IOSPDFTab: View {
 
                 state = .downloading(progress: 0.8)
 
-                // Save the PDF
-                try AttachmentManager.shared.importPDF(
-                    data: data,
-                    for: publication,
-                    in: libraryManager.find(id: libraryID)
-                )
+                // Check for duplicate before importing
+                let result = AttachmentManager.shared.checkForDuplicate(data: data, in: publication)
+                switch result {
+                case .duplicate(let existingFile, _):
+                    pdfLogger.info("Duplicate PDF detected, using existing: \(existingFile.filename)")
+                    state = .hasPDF(existingFile)
+                    return
+                case .noDuplicate(let hash):
+                    pdfLogger.info("No duplicate found, importing with precomputed hash")
+                    try AttachmentManager.shared.importPDF(
+                        data: data,
+                        for: publication,
+                        in: libraryManager.find(id: libraryID),
+                        precomputedHash: hash
+                    )
+                }
 
                 pdfLogger.info("PDF saved successfully")
 
@@ -422,5 +518,73 @@ struct IOSPDFTab: View {
         // Check for PDF magic bytes: %PDF
         guard data.count >= 4 else { return false }
         return data.prefix(4).elementsEqual([0x25, 0x50, 0x44, 0x46])
+    }
+
+    // MARK: - PDF Switcher
+
+    @ViewBuilder
+    private func pdfSwitcher(currentPDF: CDLinkedFile) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.fill")
+                .foregroundStyle(.secondary)
+
+            Menu {
+                ForEach(publication.sortedPDFs, id: \.id) { pdf in
+                    Button {
+                        state = .hasPDF(pdf)
+                    } label: {
+                        HStack {
+                            if pdf.id == currentPDF.id {
+                                Image(systemName: "checkmark")
+                            }
+                            Text(pdf.effectiveDisplayName)
+                            Text("(\(pdf.formattedFileSize))")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Divider()
+
+                // Set as default option
+                if currentPDF.id != publication.primaryPDFID {
+                    Button {
+                        publication.setPrimaryPDF(currentPDF)
+                        try? publication.managedObjectContext?.save()
+                    } label: {
+                        Label("Set as Default", systemImage: "star")
+                    }
+                } else {
+                    Button {
+                        publication.setPrimaryPDF(nil)
+                        try? publication.managedObjectContext?.save()
+                    } label: {
+                        Label("Remove Default", systemImage: "star.slash")
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(currentPDF.effectiveDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if currentPDF.id == publication.primaryPDFID {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                }
+            }
+
+            Spacer()
+
+            Text("\(publication.sortedPDFs.count) PDFs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.systemBackground))
     }
 }

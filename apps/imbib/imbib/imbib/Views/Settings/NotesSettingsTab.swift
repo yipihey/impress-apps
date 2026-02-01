@@ -16,15 +16,7 @@ struct NotesSettingsTab: View {
 
     @State private var settings = QuickAnnotationSettings.defaults
     @State private var isLoading = true
-    @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
     @Bindable private var modalSettings = ModalEditingSettings.shared
-
-    // Notes position options
-    private let notesPositionOptions: [(value: String, label: String)] = [
-        ("below", "Below PDF"),
-        ("right", "Right of PDF"),
-        ("left", "Left of PDF")
-    ]
 
     // MARK: - Body
 
@@ -41,12 +33,11 @@ struct NotesSettingsTab: View {
                 }
             }
 
-            notesPanelSection
-
             editingModeSection
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             settings = await QuickAnnotationSettingsStore.shared.settings
             isLoading = false
@@ -82,24 +73,6 @@ struct NotesSettingsTab: View {
             Text("Quick Annotations")
         } footer: {
             Text("Customize the quick annotation fields shown in the notes panel. Drag to reorder.")
-        }
-    }
-
-    // MARK: - Notes Panel Section
-
-    private var notesPanelSection: some View {
-        Section("Notes Panel") {
-            Picker("Position", selection: $notesPositionRaw) {
-                ForEach(notesPositionOptions, id: \.value) { option in
-                    Text(option.label).tag(option.value)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier(AccessibilityID.Settings.Notes.defaultFormatPicker)
-
-            Text("Choose where the notes panel appears relative to the PDF viewer.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -176,7 +149,7 @@ private struct QuickAnnotationFieldRow: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("Label") {
                     TextField("Field label", text: $field.label)
                         .textFieldStyle(.roundedBorder)

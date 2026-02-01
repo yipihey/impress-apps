@@ -47,6 +47,13 @@ struct IOSSidebarView: View {
     @State private var showArXivFeedForInbox = false
     @State private var showGroupFeedForInbox = false
 
+    // Settings sheets for retention labels
+    @State private var showInboxSettings = false
+    @State private var showExplorationSettings = false
+
+    // Inbox settings state
+    @State private var inboxAgeLimit: AgeLimitPreset = .threeMonths
+
     // Library collection creation
     @State private var showNewCollectionForLibrary: CDLibrary?
     @State private var showSmartCollectionForLibrary: CDLibrary?
@@ -135,6 +142,18 @@ struct IOSSidebarView: View {
                     try? await SciXSyncManager.shared.pullLibraries()
                 }
             }
+
+            // Load inbox settings for retention label
+            let settings = await InboxSettingsStore.shared.settings
+            inboxAgeLimit = settings.ageLimit
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Refresh retention labels when settings change
+            Task {
+                let settings = await InboxSettingsStore.shared.settings
+                inboxAgeLimit = settings.ageLimit
+            }
+            refreshID = UUID()
         }
         .navigationTitle("imbib")
         .toolbar {
@@ -251,6 +270,30 @@ struct IOSSidebarView: View {
                 showSmartCollectionForLibrary = nil
             }
         }
+        .sheet(isPresented: $showInboxSettings) {
+            NavigationStack {
+                IOSInboxSettingsView()
+                    .navigationTitle("Inbox Settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showInboxSettings = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showExplorationSettings) {
+            NavigationStack {
+                IOSExplorationSettingsView()
+                    .navigationTitle("Exploration")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showExplorationSettings = false }
+                        }
+                    }
+            }
+        }
         .onChange(of: selection) { _, newValue in
             // Track which library is selected for contextual actions
             switch newValue {
@@ -352,36 +395,70 @@ struct IOSSidebarView: View {
     private func sectionHeaderExtras(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
         case .inbox:
-            // Add feed menu - creates feeds that auto-refresh and populate inbox
-            Menu {
+            HStack(spacing: 6) {
+                // Retention label (clickable)
                 Button {
-                    showArXivFeedForInbox = true
+                    showInboxSettings = true
                 } label: {
-                    Label("arXiv Category Feed", systemImage: "doc.text.magnifyingglass")
+                    Text(inboxRetentionLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
+                .buttonStyle(.plain)
 
-                Button {
-                    showGroupFeedForInbox = true
+                // Add feed menu - creates feeds that auto-refresh and populate inbox
+                Menu {
+                    Button {
+                        showArXivFeedForInbox = true
+                    } label: {
+                        Label("arXiv Category Feed", systemImage: "doc.text.magnifyingglass")
+                    }
+
+                    Button {
+                        showGroupFeedForInbox = true
+                    } label: {
+                        Label("arXiv Group Feed", systemImage: "person.3")
+                    }
+
+                    Divider()
+
+                    Button {
+                        // Navigate to Search section
+                        selection = .searchForm(.adsModern)
+                    } label: {
+                        Label("ADS Modern Search", systemImage: "magnifyingglass")
+                    }
                 } label: {
-                    Label("arXiv Group Feed", systemImage: "person.3")
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-
-                Divider()
-
-                Button {
-                    // Navigate to Search section
-                    selection = .searchForm(.adsModern)
-                } label: {
-                    Label("ADS Modern Search", systemImage: "magnifyingglass")
-                }
-            } label: {
-                Image(systemName: "plus.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+        case .exploration:
+            // Retention label (clickable)
+            Button {
+                showExplorationSettings = true
+            } label: {
+                Text(explorationRetentionLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
         default:
             EmptyView()
         }
+    }
+
+    // MARK: - Retention Labels
+
+    /// Label showing the current Inbox retention setting
+    private var inboxRetentionLabel: String {
+        inboxAgeLimit == .unlimited ? "∞" : inboxAgeLimit.displayName
+    }
+
+    /// Label showing the current Exploration retention setting
+    private var explorationRetentionLabel: String {
+        SyncedSettingsStore.shared.explorationRetention.displayName.lowercased()
     }
 
     /// Toggle collapsed state for a section

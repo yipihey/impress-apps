@@ -49,7 +49,8 @@ struct PDFSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             await loadSettings()
         }
@@ -69,7 +70,7 @@ struct PDFSettingsTab: View {
     // MARK: - Source Priority Section
 
     private var sourcePrioritySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(PDFSourcePriority.allCases, id: \.self) { priority in
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: sourcePriority == priority ? "checkmark.circle.fill" : "circle")
@@ -100,7 +101,7 @@ struct PDFSettingsTab: View {
     // MARK: - Proxy Section
 
     private var proxySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Toggle("Use library proxy for publisher PDFs", isOn: $proxyEnabled)
                 .onChange(of: proxyEnabled) { _, _ in
                     Task { await saveProxySettings() }
@@ -108,7 +109,7 @@ struct PDFSettingsTab: View {
                 .help("Route publisher requests through your institution's proxy")
 
             if proxyEnabled {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
                     TextField("Proxy URL", text: $proxyURL, prompt: Text("https://your-institution.edu/login?url="))
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: proxyURL) { _, _ in

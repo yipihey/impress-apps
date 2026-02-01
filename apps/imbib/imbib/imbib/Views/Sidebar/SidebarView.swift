@@ -1837,8 +1837,17 @@ struct SidebarView: View {
                         if let dataString = String(data: data, encoding: .utf8) {
                             dragDropLog("  Provider[\(index)] raw data: \(dataString)")
                         }
-                        // UUID is encoded as JSON via CodableRepresentation
-                        if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
+                        // Try to decode as JSON array first (old multi-selection format)
+                        if let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
+                            for idString in uuidStrings {
+                                if let uuid = UUID(uuidString: idString) {
+                                    dragDropLog("  ✅ Provider[\(index)] decoded UUID from array: \(uuid.uuidString)")
+                                    collectedUUIDs.append(uuid)
+                                }
+                            }
+                        }
+                        // Fallback: UUID is encoded as JSON via CodableRepresentation
+                        else if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
                             dragDropLog("  ✅ Provider[\(index)] decoded UUID: \(uuid.uuidString)")
                             collectedUUIDs.append(uuid)
                         } else {
@@ -2593,23 +2602,25 @@ struct SidebarView: View {
         let context = PersistenceController.shared.viewContext
 
         await context.perform {
-            for uuid in uuids {
-                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-                request.fetchLimit = 1
+            // Batch fetch all publications at once (much faster than individual fetches)
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "id IN %@", uuids)
 
-                if let publication = try? context.fetch(request).first {
-                    // Add to collection
-                    var current = collection.publications ?? []
-                    current.insert(publication)
-                    collection.publications = current
+            guard let publications = try? context.fetch(request) else { return }
 
-                    // Also add to the collection's library
-                    if let collectionLibrary = collection.effectiveLibrary {
-                        publication.addToLibrary(collectionLibrary)
-                    }
+            // Build the new set of publications for the collection
+            var current = collection.publications ?? []
+            let collectionLibrary = collection.effectiveLibrary
+
+            for publication in publications {
+                current.insert(publication)
+                // Also add to the collection's library
+                if let library = collectionLibrary {
+                    publication.addToLibrary(library)
                 }
             }
+            collection.publications = current
+
             try? context.save()
         }
 
@@ -2626,37 +2637,33 @@ struct SidebarView: View {
         dragDropLog("  - UUIDs to add: \(uuids.count)")
 
         let context = PersistenceController.shared.viewContext
-        var addedCount = 0
-        var notFoundCount = 0
 
         await context.perform {
-            for uuid in uuids {
-                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-                request.fetchLimit = 1
+            // Batch fetch all publications at once (much faster than individual fetches)
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "id IN %@", uuids)
 
-                if let publication = try? context.fetch(request).first {
-                    dragDropLog("  ✅ Found publication '\(publication.citeKey)' for UUID \(uuid.uuidString)")
-                    let beforeCount = publication.libraries?.count ?? 0
-                    publication.addToLibrary(library)
-                    let afterCount = publication.libraries?.count ?? 0
-                    dragDropLog("    Libraries before: \(beforeCount), after: \(afterCount)")
-                    addedCount += 1
-                } else {
-                    dragDropError("  ❌ No publication found for UUID \(uuid.uuidString)")
-                    notFoundCount += 1
-                }
+            guard let publications = try? context.fetch(request) else {
+                dragDropError("  ❌ Failed to fetch publications")
+                return
+            }
+
+            dragDropLog("  Found \(publications.count) publications for \(uuids.count) UUIDs")
+
+            // Add all publications to the library
+            for publication in publications {
+                publication.addToLibrary(library)
             }
 
             do {
                 try context.save()
-                dragDropLog("  ✅ Context saved successfully")
+                dragDropLog("  ✅ Context saved successfully - added \(publications.count) publications")
             } catch {
                 dragDropError("  ❌ Context save failed: \(error.localizedDescription)")
             }
         }
 
-        dragDropLog("  Summary: added \(addedCount), not found \(notFoundCount)")
+        dragDropLog("  ✅ addPublicationsToLibrary complete")
 
         // Trigger sidebar refresh to update counts
         await MainActor.run {

@@ -22,6 +22,7 @@ struct BibTeXTab: View {
     let publications: [CDPublication]  // For multi-selection support
 
     @Environment(LibraryViewModel.self) private var viewModel
+    @Environment(\.themeColors) private var theme
     @State private var bibtexContent: String = ""
     @State private var isEditing = false
     @State private var hasChanges = false
@@ -69,6 +70,8 @@ struct BibTeXTab: View {
                 }
             }
         }
+        .background(theme.detailBackground)
+        .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
         .onChange(of: paper.id, initial: true) { _, _ in
             // Reset state and reload when paper changes
             bibtexContent = ""
@@ -78,20 +81,10 @@ struct BibTeXTab: View {
         }
         // Half-page scrolling support (macOS)
         .halfPageScrollable()
-        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        // Keyboard navigation: h/l for pane cycling (j/k handled centrally by ContentView)
         .focusable()
         .onKeyPress { press in
             let store = KeyboardShortcutsStore.shared
-            // Scroll down (default: j)
-            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
-                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
-                return .handled
-            }
-            // Scroll up (default: k)
-            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
-                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
-                return .handled
-            }
             // Cycle pane focus left (default: h)
             if store.matches(press, action: "cycleFocusLeft") {
                 NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)

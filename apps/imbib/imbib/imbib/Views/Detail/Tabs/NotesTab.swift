@@ -137,6 +137,8 @@ struct NotesTab: View {
                 }
             }
         }
+        .background(theme.detailBackground)
+        .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
         .onAppear {
             checkAndLoadPDF()
         }
@@ -145,20 +147,10 @@ struct NotesTab: View {
         }
         // Half-page scrolling support (macOS) - scrolls the notes panel
         .halfPageScrollable()
-        // Keyboard navigation (customizable via Settings > Keyboard Shortcuts)
+        // Keyboard navigation: h/l for pane cycling (j/k handled centrally by ContentView)
         .focusable()
         .onKeyPress { press in
             let store = KeyboardShortcutsStore.shared
-            // Scroll down (default: j) - scrolls notes panel, not PDF
-            if store.matches(press, action: "pdfScrollHalfPageDownVim") {
-                NotificationCenter.default.post(name: .scrollDetailDown, object: nil)
-                return .handled
-            }
-            // Scroll up (default: k) - scrolls notes panel, not PDF
-            if store.matches(press, action: "pdfScrollHalfPageUpVim") {
-                NotificationCenter.default.post(name: .scrollDetailUp, object: nil)
-                return .handled
-            }
             // Cycle pane focus left (default: h)
             if store.matches(press, action: "cycleFocusLeft") {
                 NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)

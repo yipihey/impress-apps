@@ -25,6 +25,8 @@ struct imbibApp: App {
     @State private var settingsViewModel: SettingsViewModel
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
+    @Environment(\.scenePhase) private var scenePhase
+
     // MARK: - Initialization
 
     init() {
@@ -56,6 +58,9 @@ struct imbibApp: App {
         ))
 
         appLogger.info("ViewModels initialized")
+
+        // Capture libraryManager for use in Task (can't capture self in struct)
+        let capturedLibraryManager = libraryManager
 
         // Register built-in sources and start enrichment
         Task {
@@ -116,6 +121,9 @@ struct imbibApp: App {
                 try? await Task.sleep(for: .seconds(3))
                 await autoPopulateSearchIndexesOnStartup()
             }
+
+            // Cleanup old exploration collections based on retention setting
+            await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
         }
 
         // Request notification permissions for badge
@@ -157,6 +165,13 @@ struct imbibApp: App {
                     // Handle automation URL scheme requests
                     Task {
                         await URLSchemeHandler.shared.handle(url)
+                    }
+                }
+                // Clear exploration library when going to background if retention is "While App is Open"
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .background && SyncedSettingsStore.shared.explorationRetention == .sessionOnly {
+                        libraryManager.clearExplorationLibrary()
+                        appLogger.info("Cleared exploration library on background (sessionOnly mode)")
                     }
                 }
         }
@@ -209,6 +224,21 @@ private func updateAppBadge(_ count: Int) {
 
 // Note: Notification.Name extensions are now defined in PublicationManagerCore/Notifications.swift
 // Note: ShareExtensionError is now defined in PublicationManagerCore/SharedExtension/ShareExtensionError.swift
+
+// MARK: - Exploration Cleanup
+
+/// Cleanup old exploration collections based on user's retention setting.
+private func cleanupExplorationCollectionsOnStartup(libraryManager: LibraryManager) async {
+    let retention = SyncedSettingsStore.shared.explorationRetention
+    // Only cleanup if retention is time-based (not forever or sessionOnly)
+    // sessionOnly is handled when going to background, forever keeps everything
+    if let days = retention.days, days > 0 {
+        await MainActor.run {
+            libraryManager.cleanupExplorationCollections(olderThanDays: days)
+        }
+        appLogger.info("Exploration cleanup: retention=\(retention.rawValue)")
+    }
+}
 
 // MARK: - Auto-populate Search Indexes
 

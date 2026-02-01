@@ -33,6 +33,7 @@
   ],
   "host_permissions": [
     "*://ui.adsabs.harvard.edu/*",
+    "*://scixplorer.org/*",
     "*://arxiv.org/*",
     "*://doi.org/*",
     "*://dx.doi.org/*",

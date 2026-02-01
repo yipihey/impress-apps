@@ -25,85 +25,88 @@ struct DetachedPDFView: View {
     @State private var downloadError: Error?
     @State private var browserFallbackURL: URL?
     @State private var hasPDFURL = false
-
-    private var authors: [String] {
-        guard let author = publication.fields["author"] else { return [] }
-        return author.components(separatedBy: " and ").map { $0.trimmingCharacters(in: .whitespaces) }
-    }
+    @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Toolbar
-            detachedToolbar
-
-            Divider()
-
-            // Content
-            Group {
-                if let linked = linkedFile {
-                    PDFViewerWithControls(
-                        linkedFile: linked,
-                        library: library,
-                        publicationID: publication.id,
-                        onCorruptPDF: { _ in }
-                    )
-                } else if isCheckingPDF || isDownloading {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text(isDownloading ? "Downloading PDF..." : "Loading...")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    noPDFView
+        // Content - no toolbar, maximizes screen real estate
+        Group {
+            if let linked = linkedFile {
+                PDFViewerWithControls(
+                    linkedFile: linked,
+                    library: library,
+                    publicationID: publication.id,
+                    onCorruptPDF: { _ in }
+                )
+            } else if isCheckingPDF || isDownloading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text(isDownloading ? "Downloading PDF..." : "Loading...")
+                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                noPDFView
             }
         }
+        .background(pdfDarkModeEnabled ? Color.black : Color.clear)
         .task {
             await checkForPDF()
         }
-    }
-
-    private var detachedToolbar: some View {
-        HStack {
-            // Publication info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(publication.title ?? "Untitled")
-                    .font(.headline)
-                    .lineLimit(1)
-                if !authors.isEmpty {
-                    Text(authors.prefix(3).joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            // Download button if no PDF but URL available
-            if linkedFile == nil && hasPDFURL && !isDownloading {
-                Button {
-                    Task { await downloadPDF() }
-                } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
-                .help("Download PDF")
-            }
-
-            // Actions
-            if let linked = linkedFile {
-                Button {
-                    openInFinder(linked)
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .help("Show in Finder")
+        // Keyboard navigation for PDF reading
+        .focusable()
+        .focused($isFocused)
+        .onKeyPress { press in handleKeyPress(press) }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            pdfDarkModeEnabled = PDFSettingsStore.loadSettingsSync().darkModeEnabled
+        }
+        .onAppear {
+            // Request focus after a brief delay to ensure the window is fully set up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .onReceive(NotificationCenter.default.publisher(for: .detachedWindowDidEnterFullScreen)) { _ in
+            // Re-focus when entering fullscreen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
+            }
+        }
+    }
+
+    // MARK: - Keyboard Navigation
+
+    /// Handle keyboard input for PDF navigation.
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // Page Down keys: Space, PageDown, Right Arrow, Down Arrow, j
+        let isPageDown = switch press.key {
+        case .space where press.modifiers.isEmpty: true
+        case .pageDown: true
+        case .rightArrow: true
+        case .downArrow: true
+        case .init("j") where press.modifiers.isEmpty: true
+        default: false
+        }
+        if isPageDown {
+            NotificationCenter.default.post(name: .pdfPageDown, object: nil)
+            return .handled
+        }
+
+        // Page Up keys: Shift+Space, PageUp, Left Arrow, Up Arrow, k
+        let isPageUp = switch press.key {
+        case .space where press.modifiers.contains(.shift): true
+        case .pageUp: true
+        case .leftArrow: true
+        case .upArrow: true
+        case .init("k") where press.modifiers.isEmpty: true
+        default: false
+        }
+        if isPageUp {
+            NotificationCenter.default.post(name: .pdfPageUp, object: nil)
+            return .handled
+        }
+
+        return .ignored
     }
 
     private var noPDFView: some View {
@@ -150,7 +153,7 @@ struct DetachedPDFView: View {
         isCheckingPDF = true
 
         // Check for existing linked PDF
-        if let linked = publication.linkedFiles?.first(where: { $0.isPDF }) {
+        if let linked = publication.primaryPDF {
             linkedFile = linked
             isCheckingPDF = false
             return
@@ -236,7 +239,7 @@ struct DetachedPDFView: View {
 
             // Refresh view
             await MainActor.run {
-                if let linked = publication.linkedFiles?.first(where: { $0.isPDF }) {
+                if let linked = publication.primaryPDF {
                     linkedFile = linked
                 }
             }
@@ -251,13 +254,6 @@ struct DetachedPDFView: View {
         await MainActor.run {
             isDownloading = false
         }
-    }
-
-    private func openInFinder(_ linked: CDLinkedFile) {
-        guard let lib = library else { return }
-        let normalizedPath = linked.relativePath.precomposedStringWithCanonicalMapping
-        let url = lib.containerURL.appendingPathComponent(normalizedPath)
-        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
     }
 }
 

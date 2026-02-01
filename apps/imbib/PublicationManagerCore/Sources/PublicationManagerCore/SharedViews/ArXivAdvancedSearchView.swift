@@ -106,7 +106,17 @@ public struct ArXivAdvancedSearchFormView: View {
                         .disabled(isFormEmpty)
                         .keyboardShortcut(.return, modifiers: .command)
                     } else {
-                        // Normal mode: Search button only
+                        // Normal mode: Browser and Search buttons
+                        if let url = buildArXivWebURL() {
+                            Button {
+                                openInBrowser(url)
+                            } label: {
+                                Label("Browser", systemImage: "safari")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Open this search on arXiv website")
+                        }
+
                         Button("Search") {
                             performSearch()
                         }
@@ -412,6 +422,38 @@ public struct ArXivAdvancedSearchFormView: View {
     private func clearForm() {
         searchViewModel.arxivFormState.clear()
     }
+
+    /// Build a URL for opening this search on the arXiv website.
+    private func buildArXivWebURL() -> URL? {
+        let state = searchViewModel.arxivFormState
+        let query = SearchFormQueryBuilder.buildArXivAdvancedQuery(
+            searchTerms: state.searchTerms,
+            categories: state.selectedCategories,
+            includeCrossListed: state.includeCrossListed,
+            dateFilter: state.dateFilter,
+            sortBy: state.sortBy
+        )
+
+        guard !query.isEmpty,
+              let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return nil
+        }
+
+        // For category-only searches, use the list page
+        if state.searchTerms.allSatisfy({ $0.term.isEmpty }) && !state.selectedCategories.isEmpty {
+            // Get first category for the list URL
+            if let category = state.selectedCategories.first {
+                return URL(string: "https://arxiv.org/list/\(category)/recent")
+            }
+        }
+
+        return URL(string: "https://arxiv.org/search/?query=\(encoded)&searchtype=all")
+    }
+
+    /// Open a URL in the default browser.
+    private func openInBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
 }
 
 // MARK: - Category Picker View
@@ -445,7 +487,7 @@ struct ArXivCategoryPickerView: View {
                 }
             )
         ) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 4) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200))], spacing: 6) {
                 ForEach(group.categories) { category in
                     categoryToggle(for: category)
                 }
@@ -478,8 +520,14 @@ struct ArXivCategoryPickerView: View {
                 }
             }
         )) {
-            Text(category.id)
-                .font(.caption)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(category.id)
+                    .font(.caption)
+                Text(category.name)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
         }
         .toggleStyle(.checkbox)
         .help(category.name)

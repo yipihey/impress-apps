@@ -17,13 +17,14 @@ struct AppearanceSettingsTab: View {
 
     @State private var settings: ThemeSettings = ThemeSettingsStore.loadSettingsSync()
     @State private var showAdvanced = false
+    @State private var pdfDarkModeEnabled: Bool = false
 
     // MARK: - Body
 
     var body: some View {
         Form {
             // Color Scheme
-            Section("Color Scheme") {
+            Section {
                 Picker("Appearance", selection: Binding(
                     get: { settings.appearanceMode },
                     set: { newMode in
@@ -38,6 +39,16 @@ struct AppearanceSettingsTab: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                Toggle("PDF dark mode", isOn: $pdfDarkModeEnabled)
+                    .onChange(of: pdfDarkModeEnabled) { _, newValue in
+                        Task { await PDFSettingsStore.shared.updateDarkMode(enabled: newValue) }
+                    }
+                    .help("Invert foreground and background colors when viewing PDFs")
+            } header: {
+                Text("Color Scheme")
+            } footer: {
+                Text("PDF dark mode inverts colors for comfortable reading in dark environments.")
             }
 
             // Theme Selection
@@ -72,9 +83,12 @@ struct AppearanceSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             settings = await ThemeSettingsStore.shared.settings
+            let pdfSettings = await PDFSettingsStore.shared.settings
+            pdfDarkModeEnabled = pdfSettings.darkModeEnabled
         }
         .onReceive(NotificationCenter.default.publisher(for: .themeSettingsDidChange)) { _ in
             Task {
@@ -86,7 +100,7 @@ struct AppearanceSettingsTab: View {
     // MARK: - Font Size Control
 
     private var fontSizeControl: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             // Controls row
             HStack(spacing: 20) {
                 // Decrease button
@@ -149,7 +163,7 @@ struct AppearanceSettingsTab: View {
             // Preview
             fontSizePreview
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
     }
 
     private var fontScaleLabel: String {
@@ -194,7 +208,7 @@ struct AppearanceSettingsTab: View {
                 }
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .accessibilityIdentifier(AccessibilityID.Settings.Appearance.themeGrid)
     }
 

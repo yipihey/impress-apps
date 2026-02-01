@@ -56,7 +56,8 @@ struct ViewingSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal)
         .task {
             settings = await ListViewSettingsStore.shared.settings
             isLoading = false

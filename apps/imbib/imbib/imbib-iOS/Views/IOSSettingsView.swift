@@ -88,6 +88,15 @@ struct IOSSettingsView: View {
                     .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sync)
                 }
 
+                // PDF Storage Settings (iOS-specific)
+                Section {
+                    NavigationLink {
+                        IOSPDFStorageSettingsView()
+                    } label: {
+                        Label("PDF Storage", systemImage: "externaldrive.fill.badge.icloud")
+                    }
+                }
+
                 // Display Settings
                 Section("Display") {
                     NavigationLink {
@@ -115,6 +124,12 @@ struct IOSSettingsView: View {
                         IOSImportExportSettingsView()
                     } label: {
                         Label("Import/Export", systemImage: "square.and.arrow.up.on.square")
+                    }
+
+                    NavigationLink {
+                        IOSExplorationSettingsView()
+                    } label: {
+                        Label("Exploration", systemImage: "arrow.triangle.branch")
                     }
                 }
 
@@ -926,6 +941,172 @@ struct IOSEnrichmentSettingsView: View {
             .task {
                 await viewModel.loadEnrichmentSettings()
             }
+    }
+}
+
+// MARK: - PDF Storage Settings (iOS)
+
+/// iOS-specific settings for on-demand PDF storage.
+///
+/// Controls whether PDFs are automatically synced to the device or downloaded on-demand.
+struct IOSPDFStorageSettingsView: View {
+    @State private var syncAllPDFs: Bool = false
+    @State private var localStorageSize: Int64 = 0
+    @State private var isClearing = false
+    @State private var showClearConfirmation = false
+
+    var body: some View {
+        List {
+            // Sync Mode Section
+            Section {
+                Toggle("Sync All PDFs", isOn: $syncAllPDFs)
+            } header: {
+                Text("Download Mode")
+            } footer: {
+                if syncAllPDFs {
+                    Text("All PDFs will be automatically downloaded to this device. Uses more storage but PDFs are always available offline.")
+                } else {
+                    Text("PDFs are downloaded only when you open them. Saves device storage. PDFs can be re-downloaded anytime from iCloud.")
+                }
+            }
+
+            // Storage Info Section
+            Section {
+                HStack {
+                    Text("Local PDFs")
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: localStorageSize, countStyle: .file))
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Storage")
+            } footer: {
+                Text("Storage used by PDFs downloaded to this device.")
+            }
+
+            // Clear Downloads Section
+            if localStorageSize > 0 && !syncAllPDFs {
+                Section {
+                    Button(role: .destructive) {
+                        showClearConfirmation = true
+                    } label: {
+                        if isClearing {
+                            HStack {
+                                ProgressView()
+                                    .padding(.trailing, 8)
+                                Text("Clearing...")
+                            }
+                        } else {
+                            Label("Clear Downloaded PDFs", systemImage: "trash")
+                        }
+                    }
+                    .disabled(isClearing)
+                } footer: {
+                    Text("Remove all downloaded PDFs from this device. They can be re-downloaded from iCloud when needed.")
+                }
+            }
+        }
+        .navigationTitle("PDF Storage")
+        .task {
+            loadSettings()
+            await loadStorageSize()
+        }
+        .onChange(of: syncAllPDFs) { _, newValue in
+            saveSettings(newValue)
+        }
+        .confirmationDialog(
+            "Clear Downloaded PDFs?",
+            isPresented: $showClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                clearDownloadedPDFs()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove all downloaded PDFs from this device. They can be re-downloaded from iCloud when needed.")
+        }
+    }
+
+    private func loadSettings() {
+        syncAllPDFs = SyncedSettingsStore.shared.bool(forKey: .iosSyncAllPDFs) ?? false
+    }
+
+    private func saveSettings(_ value: Bool) {
+        Task {
+            await PDFCloudService.shared.setSyncAllPDFs(value)
+        }
+    }
+
+    private func loadStorageSize() async {
+        localStorageSize = await PDFCloudService.shared.localPDFStorageSizeOnDisk()
+    }
+
+    private func clearDownloadedPDFs() {
+        isClearing = true
+        Task {
+            do {
+                try await PDFCloudService.shared.clearAllDownloadedPDFs()
+                await loadStorageSize()
+            } catch {
+                // Log error but don't show alert - the size will update on next load
+            }
+            await MainActor.run {
+                isClearing = false
+            }
+        }
+    }
+}
+
+// MARK: - Exploration Settings (iOS)
+
+struct IOSExplorationSettingsView: View {
+    @Environment(LibraryManager.self) private var libraryManager
+
+    @State private var explorationRetention: ExplorationRetention = .oneMonth
+    @State private var showingClearConfirmation = false
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Keep Results", selection: $explorationRetention) {
+                    ForEach(ExplorationRetention.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .onChange(of: explorationRetention) { _, newValue in
+                    SyncedSettingsStore.shared.explorationRetention = newValue
+                }
+            } header: {
+                Text("Retention Period")
+            } footer: {
+                Text("Exploration results (References, Citations, Similar, Co-Reads) will be automatically removed after this period.")
+            }
+
+            Section {
+                Button("Clear All Exploration Results", role: .destructive) {
+                    showingClearConfirmation = true
+                }
+            } footer: {
+                Text("Immediately delete all exploration collections.")
+            }
+        }
+        .navigationTitle("Exploration")
+        .onAppear {
+            explorationRetention = SyncedSettingsStore.shared.explorationRetention
+        }
+        .confirmationDialog(
+            "Clear All Exploration Results?",
+            isPresented: $showingClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                libraryManager.clearExplorationLibrary()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all exploration collections (References, Citations, Similar, Co-Reads). This action cannot be undone.")
+        }
     }
 }
 

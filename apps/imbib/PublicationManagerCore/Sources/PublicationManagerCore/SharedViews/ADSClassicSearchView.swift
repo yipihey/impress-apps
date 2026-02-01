@@ -1113,7 +1113,17 @@ public struct ADSClassicSearchFormView: View {
                         .disabled(isFormEmpty)
                         .keyboardShortcut(.return, modifiers: .command)
                     } else {
-                        // Normal mode: Search button only
+                        // Normal mode: Browser and Search buttons
+                        if let url = buildADSWebURL() {
+                            Button {
+                                openInBrowser(url)
+                            } label: {
+                                Label("Browser", systemImage: "safari")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Open this search on ADS website")
+                        }
+
                         Button("Search") {
                             performSearch()
                         }
@@ -1189,6 +1199,47 @@ public struct ADSClassicSearchFormView: View {
 
     private func clearForm() {
         searchViewModel.classicFormState.clear()
+    }
+
+    /// Build a URL for opening this search on the ADS website.
+    private func buildADSWebURL() -> URL? {
+        let state = searchViewModel.classicFormState
+        let classicQuery = SearchFormQueryBuilder.buildClassicQuery(
+            authors: state.authors,
+            objects: state.objects,
+            titleWords: state.titleWords,
+            titleLogic: state.titleLogic,
+            abstractWords: state.abstractWords,
+            abstractLogic: state.abstractLogic,
+            yearFrom: state.yearFrom,
+            yearTo: state.yearTo,
+            database: state.database,
+            refereedOnly: state.refereedOnly,
+            articlesOnly: state.articlesOnly
+        )
+
+        // Combine raw query with classic form query
+        let rawQuery = state.rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let combinedQuery: String
+        if !rawQuery.isEmpty && !classicQuery.isEmpty {
+            combinedQuery = "\(rawQuery) \(classicQuery)"
+        } else if !rawQuery.isEmpty {
+            combinedQuery = rawQuery
+        } else {
+            combinedQuery = classicQuery
+        }
+
+        guard !combinedQuery.isEmpty,
+              let encoded = combinedQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return nil
+        }
+
+        return URL(string: "https://ui.adsabs.harvard.edu/search/q=\(encoded)")
+    }
+
+    /// Open a URL in the default browser.
+    private func openInBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
     }
 }
 

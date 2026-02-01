@@ -603,6 +603,11 @@ public final class SearchViewModel {
                 maxResults: maxResults
             )
 
+            // Notify that Last Search collection has been updated
+            await MainActor.run {
+                NotificationCenter.default.post(name: .lastSearchUpdated, object: nil)
+            }
+
         } catch {
             self.error = error
             Logger.viewModels.errorCapture("Search failed: \(error.localizedDescription)", category: "search")
