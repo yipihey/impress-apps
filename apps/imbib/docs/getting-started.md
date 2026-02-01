@@ -69,6 +69,47 @@ imBib uses a three-column layout:
 - **SciX Libraries**: (Coming soon) SciX/NASA ADS private libraries
 - **Search**: Ad-hoc searches and Smart Searches
 
+### Understanding Your Content Areas
+
+imbib organizes papers into three distinct areas, each with different purposes and behaviors:
+
+**Inbox (Temporary Triage)**
+
+The Inbox is for discovering and triaging new papers. Papers arrive here from Smart Search feeds (arXiv daily updates, ADS queries) and category subscriptions.
+
+Key behaviors:
+- Papers are temporary—use **S** to Save or **D** to Dismiss
+- Configurable retention period (default: papers older than set limit are hidden)
+- Not synced to your permanent library until you save them
+- Great for staying current without cluttering your library
+
+**Exploration (Temporary Discovery)**
+
+Exploration is for following citation trails. Collections appear here when you view a paper's References or Citations, or explore Similar papers or Co-Reads.
+
+Key behaviors:
+- Results are temporary and device-specific (not synced via iCloud)
+- Configurable retention (default: 1 month, or clear when app closes)
+- Nested exploration is supported (references of references)
+- Save interesting papers to your library with **S**
+
+**Libraries (Permanent Collection)**
+
+Libraries are your permanent reference collections. Each library syncs across all your devices via iCloud, contains Collections (folders) for manual organization, contains Smart Searches for saved queries, and stores PDFs and notes permanently.
+
+Key behaviors:
+- Papers stay until you delete them
+- Full BibTeX export support
+- Multiple libraries supported (work, personal, projects)
+
+| Feature | Inbox | Exploration | Libraries |
+|---------|-------|-------------|-----------|
+| Purpose | Triage new papers | Follow citations | Permanent storage |
+| Persistence | Configurable | Configurable | Forever |
+| iCloud Sync | No | No | Yes |
+| PDF Storage | Temporary | Temporary | Permanent |
+| Keyboard Save | S to save | S to save | Already saved |
+
 ### Paper List
 
 Shows papers for the selected sidebar item. Features:
