@@ -3003,6 +3003,182 @@ public func FfiConverterTypeExtractedIdentifier_lower(_ value: ExtractedIdentifi
 
 
 /**
+ * Result of batch identifier extraction for a single text
+ */
+public struct ExtractedIdentifiers {
+    /**
+     * DOIs found in the text
+     */
+    public var dois: [String]
+    /**
+     * arXiv IDs found in the text
+     */
+    public var arxivIds: [String]
+    /**
+     * ISBNs found in the text
+     */
+    public var isbns: [String]
+    /**
+     * All identifiers with position information
+     */
+    public var all: [ExtractedIdentifier]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * DOIs found in the text
+         */dois: [String], 
+        /**
+         * arXiv IDs found in the text
+         */arxivIds: [String], 
+        /**
+         * ISBNs found in the text
+         */isbns: [String], 
+        /**
+         * All identifiers with position information
+         */all: [ExtractedIdentifier]) {
+        self.dois = dois
+        self.arxivIds = arxivIds
+        self.isbns = isbns
+        self.all = all
+    }
+}
+
+
+
+extension ExtractedIdentifiers: Equatable, Hashable {
+    public static func ==(lhs: ExtractedIdentifiers, rhs: ExtractedIdentifiers) -> Bool {
+        if lhs.dois != rhs.dois {
+            return false
+        }
+        if lhs.arxivIds != rhs.arxivIds {
+            return false
+        }
+        if lhs.isbns != rhs.isbns {
+            return false
+        }
+        if lhs.all != rhs.all {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(dois)
+        hasher.combine(arxivIds)
+        hasher.combine(isbns)
+        hasher.combine(all)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExtractedIdentifiers: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExtractedIdentifiers {
+        return
+            try ExtractedIdentifiers(
+                dois: FfiConverterSequenceString.read(from: &buf), 
+                arxivIds: FfiConverterSequenceString.read(from: &buf), 
+                isbns: FfiConverterSequenceString.read(from: &buf), 
+                all: FfiConverterSequenceTypeExtractedIdentifier.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExtractedIdentifiers, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.dois, into: &buf)
+        FfiConverterSequenceString.write(value.arxivIds, into: &buf)
+        FfiConverterSequenceString.write(value.isbns, into: &buf)
+        FfiConverterSequenceTypeExtractedIdentifier.write(value.all, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExtractedIdentifiers_lift(_ buf: RustBuffer) throws -> ExtractedIdentifiers {
+    return try FfiConverterTypeExtractedIdentifiers.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExtractedIdentifiers_lower(_ value: ExtractedIdentifiers) -> RustBuffer {
+    return FfiConverterTypeExtractedIdentifiers.lower(value)
+}
+
+
+/**
+ * Result of feature extraction - a vector of feature values.
+ */
+public struct FeatureVector {
+    /**
+     * Map of feature type to computed value (typically 0-1, or -1 to 0 for penalties)
+     */
+    public var features: [FeatureType: Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Map of feature type to computed value (typically 0-1, or -1 to 0 for penalties)
+         */features: [FeatureType: Double]) {
+        self.features = features
+    }
+}
+
+
+
+extension FeatureVector: Equatable, Hashable {
+    public static func ==(lhs: FeatureVector, rhs: FeatureVector) -> Bool {
+        if lhs.features != rhs.features {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(features)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeatureVector: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeatureVector {
+        return
+            try FeatureVector(
+                features: FfiConverterDictionaryTypeFeatureTypeDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeatureVector, into buf: inout [UInt8]) {
+        FfiConverterDictionaryTypeFeatureTypeDouble.write(value.features, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeatureVector_lift(_ buf: RustBuffer) throws -> FeatureVector {
+    return try FfiConverterTypeFeatureVector.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeatureVector_lower(_ value: FeatureVector) -> RustBuffer {
+    return FfiConverterTypeFeatureVector.lower(value)
+}
+
+
+/**
  * Options for filename generation
  */
 public struct FilenameOptions {
@@ -3358,6 +3534,129 @@ public func FfiConverterTypeHelpSearchResult_lift(_ buf: RustBuffer) throws -> H
 #endif
 public func FfiConverterTypeHelpSearchResult_lower(_ value: HelpSearchResult) -> RustBuffer {
     return FfiConverterTypeHelpSearchResult.lower(value)
+}
+
+
+/**
+ * Metadata extracted heuristically from PDF text.
+ */
+public struct HeuristicExtractedFields {
+    /**
+     * Title extracted from PDF (first major text block)
+     */
+    public var title: String?
+    /**
+     * Authors extracted from PDF
+     */
+    public var authors: [String]
+    /**
+     * Year extracted from PDF (4-digit pattern)
+     */
+    public var year: Int32?
+    /**
+     * Journal name if detected
+     */
+    public var journal: String?
+    /**
+     * Confidence level of extraction
+     */
+    public var confidence: HeuristicConfidence
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Title extracted from PDF (first major text block)
+         */title: String?, 
+        /**
+         * Authors extracted from PDF
+         */authors: [String], 
+        /**
+         * Year extracted from PDF (4-digit pattern)
+         */year: Int32?, 
+        /**
+         * Journal name if detected
+         */journal: String?, 
+        /**
+         * Confidence level of extraction
+         */confidence: HeuristicConfidence) {
+        self.title = title
+        self.authors = authors
+        self.year = year
+        self.journal = journal
+        self.confidence = confidence
+    }
+}
+
+
+
+extension HeuristicExtractedFields: Equatable, Hashable {
+    public static func ==(lhs: HeuristicExtractedFields, rhs: HeuristicExtractedFields) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.year != rhs.year {
+            return false
+        }
+        if lhs.journal != rhs.journal {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(authors)
+        hasher.combine(year)
+        hasher.combine(journal)
+        hasher.combine(confidence)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeuristicExtractedFields: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeuristicExtractedFields {
+        return
+            try HeuristicExtractedFields(
+                title: FfiConverterOptionString.read(from: &buf), 
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                year: FfiConverterOptionInt32.read(from: &buf), 
+                journal: FfiConverterOptionString.read(from: &buf), 
+                confidence: FfiConverterTypeHeuristicConfidence.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HeuristicExtractedFields, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterOptionInt32.write(value.year, into: &buf)
+        FfiConverterOptionString.write(value.journal, into: &buf)
+        FfiConverterTypeHeuristicConfidence.write(value.confidence, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeuristicExtractedFields_lift(_ buf: RustBuffer) throws -> HeuristicExtractedFields {
+    return try FfiConverterTypeHeuristicExtractedFields.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeuristicExtractedFields_lower(_ value: HeuristicExtractedFields) -> RustBuffer {
+    return FfiConverterTypeHeuristicExtractedFields.lower(value)
 }
 
 
@@ -3879,6 +4178,101 @@ public func FfiConverterTypeLibraryCommand_lower(_ value: LibraryCommand) -> Rus
 
 
 /**
+ * Library context data for feature extraction.
+ */
+public struct LibraryContext {
+    /**
+     * Author family names in the library (lowercased)
+     */
+    public var libraryAuthorNames: [String]
+    /**
+     * Venue name -> count in library
+     */
+    public var venueCounts: [String: Int32]
+    /**
+     * Current year for recency calculation
+     */
+    public var currentYear: Int32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Author family names in the library (lowercased)
+         */libraryAuthorNames: [String], 
+        /**
+         * Venue name -> count in library
+         */venueCounts: [String: Int32], 
+        /**
+         * Current year for recency calculation
+         */currentYear: Int32) {
+        self.libraryAuthorNames = libraryAuthorNames
+        self.venueCounts = venueCounts
+        self.currentYear = currentYear
+    }
+}
+
+
+
+extension LibraryContext: Equatable, Hashable {
+    public static func ==(lhs: LibraryContext, rhs: LibraryContext) -> Bool {
+        if lhs.libraryAuthorNames != rhs.libraryAuthorNames {
+            return false
+        }
+        if lhs.venueCounts != rhs.venueCounts {
+            return false
+        }
+        if lhs.currentYear != rhs.currentYear {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(libraryAuthorNames)
+        hasher.combine(venueCounts)
+        hasher.combine(currentYear)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibraryContext: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibraryContext {
+        return
+            try LibraryContext(
+                libraryAuthorNames: FfiConverterSequenceString.read(from: &buf), 
+                venueCounts: FfiConverterDictionaryStringInt32.read(from: &buf), 
+                currentYear: FfiConverterInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LibraryContext, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.libraryAuthorNames, into: &buf)
+        FfiConverterDictionaryStringInt32.write(value.venueCounts, into: &buf)
+        FfiConverterInt32.write(value.currentYear, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryContext_lift(_ buf: RustBuffer) throws -> LibraryContext {
+    return try FfiConverterTypeLibraryContext.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryContext_lower(_ value: LibraryContext) -> RustBuffer {
+    return FfiConverterTypeLibraryContext.lower(value)
+}
+
+
+/**
  * A file linked to a publication (PDF, supplementary material, etc.)
  */
 public struct LinkedFile {
@@ -4164,6 +4558,101 @@ public func FfiConverterTypeMergeResult_lift(_ buf: RustBuffer) throws -> MergeR
 #endif
 public func FfiConverterTypeMergeResult_lower(_ value: MergeResult) -> RustBuffer {
     return FfiConverterTypeMergeResult.lower(value)
+}
+
+
+/**
+ * Muted items that should be penalized.
+ */
+public struct MutedItems {
+    /**
+     * Muted author family names (lowercased)
+     */
+    public var authors: [String]
+    /**
+     * Muted arXiv categories (lowercased)
+     */
+    public var categories: [String]
+    /**
+     * Muted venues/journals (lowercased)
+     */
+    public var venues: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Muted author family names (lowercased)
+         */authors: [String], 
+        /**
+         * Muted arXiv categories (lowercased)
+         */categories: [String], 
+        /**
+         * Muted venues/journals (lowercased)
+         */venues: [String]) {
+        self.authors = authors
+        self.categories = categories
+        self.venues = venues
+    }
+}
+
+
+
+extension MutedItems: Equatable, Hashable {
+    public static func ==(lhs: MutedItems, rhs: MutedItems) -> Bool {
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.categories != rhs.categories {
+            return false
+        }
+        if lhs.venues != rhs.venues {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authors)
+        hasher.combine(categories)
+        hasher.combine(venues)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMutedItems: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MutedItems {
+        return
+            try MutedItems(
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                categories: FfiConverterSequenceString.read(from: &buf), 
+                venues: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MutedItems, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterSequenceString.write(value.categories, into: &buf)
+        FfiConverterSequenceString.write(value.venues, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMutedItems_lift(_ buf: RustBuffer) throws -> MutedItems {
+    return try FfiConverterTypeMutedItems.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMutedItems_lower(_ value: MutedItems) -> RustBuffer {
+    return FfiConverterTypeMutedItems.lower(value)
 }
 
 
@@ -5512,6 +6001,101 @@ public func FfiConverterTypePreferredIdentifier_lower(_ value: PreferredIdentifi
 
 
 /**
+ * User preference profile data for feature extraction.
+ */
+public struct ProfileData {
+    /**
+     * Author name -> affinity score mapping
+     */
+    public var authorAffinities: [String: Double]
+    /**
+     * Topic keyword -> affinity score mapping
+     */
+    public var topicAffinities: [String: Double]
+    /**
+     * Venue name -> affinity score mapping
+     */
+    public var venueAffinities: [String: Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Author name -> affinity score mapping
+         */authorAffinities: [String: Double], 
+        /**
+         * Topic keyword -> affinity score mapping
+         */topicAffinities: [String: Double], 
+        /**
+         * Venue name -> affinity score mapping
+         */venueAffinities: [String: Double]) {
+        self.authorAffinities = authorAffinities
+        self.topicAffinities = topicAffinities
+        self.venueAffinities = venueAffinities
+    }
+}
+
+
+
+extension ProfileData: Equatable, Hashable {
+    public static func ==(lhs: ProfileData, rhs: ProfileData) -> Bool {
+        if lhs.authorAffinities != rhs.authorAffinities {
+            return false
+        }
+        if lhs.topicAffinities != rhs.topicAffinities {
+            return false
+        }
+        if lhs.venueAffinities != rhs.venueAffinities {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authorAffinities)
+        hasher.combine(topicAffinities)
+        hasher.combine(venueAffinities)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProfileData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProfileData {
+        return
+            try ProfileData(
+                authorAffinities: FfiConverterDictionaryStringDouble.read(from: &buf), 
+                topicAffinities: FfiConverterDictionaryStringDouble.read(from: &buf), 
+                venueAffinities: FfiConverterDictionaryStringDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProfileData, into buf: inout [UInt8]) {
+        FfiConverterDictionaryStringDouble.write(value.authorAffinities, into: &buf)
+        FfiConverterDictionaryStringDouble.write(value.topicAffinities, into: &buf)
+        FfiConverterDictionaryStringDouble.write(value.venueAffinities, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProfileData_lift(_ buf: RustBuffer) throws -> ProfileData {
+    return try FfiConverterTypeProfileData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProfileData_lower(_ value: ProfileData) -> RustBuffer {
+    return FfiConverterTypeProfileData.lower(value)
+}
+
+
+/**
  * A publication (paper, book, thesis, etc.)
  */
 public struct Publication {
@@ -6006,6 +6590,188 @@ public func FfiConverterTypePublicationAnnotations_lift(_ buf: RustBuffer) throw
 #endif
 public func FfiConverterTypePublicationAnnotations_lower(_ value: PublicationAnnotations) -> RustBuffer {
     return FfiConverterTypePublicationAnnotations.lower(value)
+}
+
+
+/**
+ * Input data for a single publication's feature extraction.
+ *
+ * This struct contains pre-extracted data from Core Data objects,
+ * allowing the feature computation to happen in Rust.
+ */
+public struct PublicationFeatureInput {
+    /**
+     * Author family names (lowercased)
+     */
+    public var authorFamilyNames: [String]
+    /**
+     * Title of the publication
+     */
+    public var title: String
+    /**
+     * Tag names associated with the publication
+     */
+    public var tagNames: [String]
+    /**
+     * arXiv primary class (if available)
+     */
+    public var primaryClass: String?
+    /**
+     * Journal/venue name (lowercased)
+     */
+    public var journal: String?
+    /**
+     * Publication year
+     */
+    public var year: Int32?
+    /**
+     * Citation count
+     */
+    public var citationCount: Int32
+    /**
+     * Whether this publication is in a smart search results collection
+     */
+    public var inSmartSearch: Bool
+    /**
+     * Pre-computed similarity scores from ANN search
+     */
+    public var similarityScores: [Float]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Author family names (lowercased)
+         */authorFamilyNames: [String], 
+        /**
+         * Title of the publication
+         */title: String, 
+        /**
+         * Tag names associated with the publication
+         */tagNames: [String], 
+        /**
+         * arXiv primary class (if available)
+         */primaryClass: String?, 
+        /**
+         * Journal/venue name (lowercased)
+         */journal: String?, 
+        /**
+         * Publication year
+         */year: Int32?, 
+        /**
+         * Citation count
+         */citationCount: Int32, 
+        /**
+         * Whether this publication is in a smart search results collection
+         */inSmartSearch: Bool, 
+        /**
+         * Pre-computed similarity scores from ANN search
+         */similarityScores: [Float]) {
+        self.authorFamilyNames = authorFamilyNames
+        self.title = title
+        self.tagNames = tagNames
+        self.primaryClass = primaryClass
+        self.journal = journal
+        self.year = year
+        self.citationCount = citationCount
+        self.inSmartSearch = inSmartSearch
+        self.similarityScores = similarityScores
+    }
+}
+
+
+
+extension PublicationFeatureInput: Equatable, Hashable {
+    public static func ==(lhs: PublicationFeatureInput, rhs: PublicationFeatureInput) -> Bool {
+        if lhs.authorFamilyNames != rhs.authorFamilyNames {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.tagNames != rhs.tagNames {
+            return false
+        }
+        if lhs.primaryClass != rhs.primaryClass {
+            return false
+        }
+        if lhs.journal != rhs.journal {
+            return false
+        }
+        if lhs.year != rhs.year {
+            return false
+        }
+        if lhs.citationCount != rhs.citationCount {
+            return false
+        }
+        if lhs.inSmartSearch != rhs.inSmartSearch {
+            return false
+        }
+        if lhs.similarityScores != rhs.similarityScores {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authorFamilyNames)
+        hasher.combine(title)
+        hasher.combine(tagNames)
+        hasher.combine(primaryClass)
+        hasher.combine(journal)
+        hasher.combine(year)
+        hasher.combine(citationCount)
+        hasher.combine(inSmartSearch)
+        hasher.combine(similarityScores)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePublicationFeatureInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PublicationFeatureInput {
+        return
+            try PublicationFeatureInput(
+                authorFamilyNames: FfiConverterSequenceString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                tagNames: FfiConverterSequenceString.read(from: &buf), 
+                primaryClass: FfiConverterOptionString.read(from: &buf), 
+                journal: FfiConverterOptionString.read(from: &buf), 
+                year: FfiConverterOptionInt32.read(from: &buf), 
+                citationCount: FfiConverterInt32.read(from: &buf), 
+                inSmartSearch: FfiConverterBool.read(from: &buf), 
+                similarityScores: FfiConverterSequenceFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PublicationFeatureInput, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.authorFamilyNames, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceString.write(value.tagNames, into: &buf)
+        FfiConverterOptionString.write(value.primaryClass, into: &buf)
+        FfiConverterOptionString.write(value.journal, into: &buf)
+        FfiConverterOptionInt32.write(value.year, into: &buf)
+        FfiConverterInt32.write(value.citationCount, into: &buf)
+        FfiConverterBool.write(value.inSmartSearch, into: &buf)
+        FfiConverterSequenceFloat.write(value.similarityScores, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePublicationFeatureInput_lift(_ buf: RustBuffer) throws -> PublicationFeatureInput {
+    return try FfiConverterTypePublicationFeatureInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePublicationFeatureInput_lower(_ value: PublicationFeatureInput) -> RustBuffer {
+    return FfiConverterTypePublicationFeatureInput.lower(value)
 }
 
 
@@ -8171,6 +8937,185 @@ extension ExportFormat: Equatable, Hashable {}
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Feature types for recommendation scoring
+ */
+
+public enum FeatureType {
+    
+    case authorStarred
+    case collectionMatch
+    case tagMatch
+    case mutedAuthor
+    case mutedCategory
+    case mutedVenue
+    case keepRateAuthor
+    case keepRateVenue
+    case dismissRateAuthor
+    case readingTimeTopic
+    case pdfDownloadAuthor
+    case citationOverlap
+    case authorCoauthorship
+    case venueFrequency
+    case recency
+    case fieldCitationVelocity
+    case smartSearchMatch
+    case librarySimilarity
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeatureType: FfiConverterRustBuffer {
+    typealias SwiftType = FeatureType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeatureType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .authorStarred
+        
+        case 2: return .collectionMatch
+        
+        case 3: return .tagMatch
+        
+        case 4: return .mutedAuthor
+        
+        case 5: return .mutedCategory
+        
+        case 6: return .mutedVenue
+        
+        case 7: return .keepRateAuthor
+        
+        case 8: return .keepRateVenue
+        
+        case 9: return .dismissRateAuthor
+        
+        case 10: return .readingTimeTopic
+        
+        case 11: return .pdfDownloadAuthor
+        
+        case 12: return .citationOverlap
+        
+        case 13: return .authorCoauthorship
+        
+        case 14: return .venueFrequency
+        
+        case 15: return .recency
+        
+        case 16: return .fieldCitationVelocity
+        
+        case 17: return .smartSearchMatch
+        
+        case 18: return .librarySimilarity
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FeatureType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .authorStarred:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .collectionMatch:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .tagMatch:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .mutedAuthor:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .mutedCategory:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .mutedVenue:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .keepRateAuthor:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .keepRateVenue:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .dismissRateAuthor:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .readingTimeTopic:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .pdfDownloadAuthor:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .citationOverlap:
+            writeInt(&buf, Int32(12))
+        
+        
+        case .authorCoauthorship:
+            writeInt(&buf, Int32(13))
+        
+        
+        case .venueFrequency:
+            writeInt(&buf, Int32(14))
+        
+        
+        case .recency:
+            writeInt(&buf, Int32(15))
+        
+        
+        case .fieldCitationVelocity:
+            writeInt(&buf, Int32(16))
+        
+        
+        case .smartSearchMatch:
+            writeInt(&buf, Int32(17))
+        
+        
+        case .librarySimilarity:
+            writeInt(&buf, Int32(18))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeatureType_lift(_ buf: RustBuffer) throws -> FeatureType {
+    return try FfiConverterTypeFeatureType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeatureType_lower(_ value: FeatureType) -> RustBuffer {
+    return FfiConverterTypeFeatureType.lower(value)
+}
+
+
+
+extension FeatureType: Equatable, Hashable {}
+
+
+
 
 /**
  * FFI-safe error type for parsing operations
@@ -8483,6 +9428,99 @@ extension HelpSearchError: Foundation.LocalizedError {
         String(reflecting: self)
     }
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Confidence level for heuristic extraction.
+ */
+
+public enum HeuristicConfidence {
+    
+    /**
+     * No metadata could be extracted
+     */
+    case none
+    /**
+     * Low confidence (single field extracted)
+     */
+    case low
+    /**
+     * Medium confidence (multiple fields, some validation)
+     */
+    case medium
+    /**
+     * High confidence (all major fields extracted with validation)
+     */
+    case high
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeuristicConfidence: FfiConverterRustBuffer {
+    typealias SwiftType = HeuristicConfidence
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeuristicConfidence {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .none
+        
+        case 2: return .low
+        
+        case 3: return .medium
+        
+        case 4: return .high
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HeuristicConfidence, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .none:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .low:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .medium:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .high:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeuristicConfidence_lift(_ buf: RustBuffer) throws -> HeuristicConfidence {
+    return try FfiConverterTypeHeuristicConfidence.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeuristicConfidence_lower(_ value: HeuristicConfidence) -> RustBuffer {
+    return FfiConverterTypeHeuristicConfidence.lower(value)
+}
+
+
+
+extension HeuristicConfidence: Equatable, Hashable {}
+
+
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -10702,6 +11740,56 @@ fileprivate struct FfiConverterSequenceTypeExtractedIdentifier: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeExtractedIdentifiers: FfiConverterRustBuffer {
+    typealias SwiftType = [ExtractedIdentifiers]
+
+    public static func write(_ value: [ExtractedIdentifiers], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeExtractedIdentifiers.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ExtractedIdentifiers] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ExtractedIdentifiers]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeExtractedIdentifiers.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeatureVector: FfiConverterRustBuffer {
+    typealias SwiftType = [FeatureVector]
+
+    public static func write(_ value: [FeatureVector], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeatureVector.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeatureVector] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeatureVector]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeatureVector.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHelpSearchResult: FfiConverterRustBuffer {
     typealias SwiftType = [HelpSearchResult]
 
@@ -10719,6 +11807,31 @@ fileprivate struct FfiConverterSequenceTypeHelpSearchResult: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeHelpSearchResult.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHeuristicExtractedFields: FfiConverterRustBuffer {
+    typealias SwiftType = [HeuristicExtractedFields]
+
+    public static func write(_ value: [HeuristicExtractedFields], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHeuristicExtractedFields.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HeuristicExtractedFields] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HeuristicExtractedFields]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHeuristicExtractedFields.read(from: &buf))
         }
         return seq
     }
@@ -10894,6 +12007,31 @@ fileprivate struct FfiConverterSequenceTypePublication: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePublication.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePublicationFeatureInput: FfiConverterRustBuffer {
+    typealias SwiftType = [PublicationFeatureInput]
+
+    public static func write(_ value: [PublicationFeatureInput], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePublicationFeatureInput.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PublicationFeatureInput] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PublicationFeatureInput]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePublicationFeatureInput.read(from: &buf))
         }
         return seq
     }
@@ -11102,6 +12240,58 @@ fileprivate struct FfiConverterSequenceTypeAnnotationOperation: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDictionaryStringInt32: FfiConverterRustBuffer {
+    public static func write(_ value: [String: Int32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterInt32.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: Int32] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: Int32]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterInt32.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringDouble: FfiConverterRustBuffer {
+    public static func write(_ value: [String: Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterDouble.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: Double] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: Double]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterDouble.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
     public static func write(_ value: [String: String], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -11119,6 +12309,32 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
         for _ in 0..<len {
             let key = try FfiConverterString.read(from: &buf)
             let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryTypeFeatureTypeDouble: FfiConverterRustBuffer {
+    public static func write(_ value: [FeatureType: Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterTypeFeatureType.write(key, into: &buf)
+            FfiConverterDouble.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeatureType: Double] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [FeatureType: Double]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterTypeFeatureType.read(from: &buf)
+            let value = try FfiConverterDouble.read(from: &buf)
             dict[key] = value
         }
         return dict
@@ -11445,6 +12661,39 @@ public func canResolveToSource(identifiers: [String: String], source: Enrichment
 })
 }
 /**
+ * UniFFI-exported citation velocity score for testing.
+ */
+public func computeCitationVelocityScore(citationCount: Int32, year: Int32?, currentYear: Int32) -> Double {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_compute_citation_velocity_score(
+        FfiConverterInt32.lower(citationCount),
+        FfiConverterOptionInt32.lower(year),
+        FfiConverterInt32.lower(currentYear),$0
+    )
+})
+}
+/**
+ * UniFFI-exported library similarity score for testing.
+ */
+public func computeLibrarySimilarityScore(similarities: [Float]) -> Double {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_compute_library_similarity_score(
+        FfiConverterSequenceFloat.lower(similarities),$0
+    )
+})
+}
+/**
+ * UniFFI-exported recency score for testing.
+ */
+public func computeRecencyScore(year: Int32?, currentYear: Int32) -> Double {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_compute_recency_score(
+        FfiConverterOptionInt32.lower(year),
+        FfiConverterInt32.lower(currentYear),$0
+    )
+})
+}
+/**
  * Decode HTML entities to their Unicode equivalents
  */
 public func decodeHtmlEntities(text: String) -> String {
@@ -11601,6 +12850,21 @@ public func extractAll(text: String) -> [ExtractedIdentifier] {
     )
 })
 }
+/**
+ * Extract all identifiers from multiple texts in a single FFI call.
+ *
+ * This batch API reduces FFI overhead when processing multiple documents
+ * (e.g., extracting identifiers from PDF text during bulk import).
+ *
+ * Returns a vector of ExtractedIdentifiers, one per input text.
+ */
+public func extractAllIdentifiersBatch(texts: [String]) -> [ExtractedIdentifiers] {
+    return try!  FfiConverterSequenceTypeExtractedIdentifiers.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_all_identifiers_batch(
+        FfiConverterSequenceString.lower(texts),$0
+    )
+})
+}
 public func extractArxivIds(text: String) -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_extract_arxiv_ids(
@@ -11612,6 +12876,19 @@ public func extractDois(text: String) -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_extract_dois(
         FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * UniFFI-exported batch feature extraction.
+ */
+public func extractFeaturesBatch(publications: [PublicationFeatureInput], profile: ProfileData, library: LibraryContext, muted: MutedItems) -> [FeatureVector] {
+    return try!  FfiConverterSequenceTypeFeatureVector.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_features_batch(
+        FfiConverterSequenceTypePublicationFeatureInput.lower(publications),
+        FfiConverterTypeProfileData.lower(profile),
+        FfiConverterTypeLibraryContext.lower(library),
+        FfiConverterTypeMutedItems.lower(muted),$0
     )
 })
 }
@@ -11640,10 +12917,44 @@ public func extractFirstMeaningfulWord(title: String) -> String {
     )
 })
 }
+/**
+ * Extract all identifiers from a single text (convenience function).
+ *
+ * Returns a struct with DOIs, arXiv IDs, ISBNs, and all identifiers.
+ */
+public func extractIdentifiers(text: String) -> ExtractedIdentifiers {
+    return try!  FfiConverterTypeExtractedIdentifiers.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_identifiers(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
 public func extractIsbns(text: String) -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_extract_isbns(
         FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Extract metadata from PDF first page text (UniFFI export).
+ */
+public func extractMetadataHeuristics(firstPageText: String, currentYear: Int32) -> HeuristicExtractedFields {
+    return try!  FfiConverterTypeHeuristicExtractedFields.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_metadata_heuristics(
+        FfiConverterString.lower(firstPageText),
+        FfiConverterInt32.lower(currentYear),$0
+    )
+})
+}
+/**
+ * Batch extract metadata from multiple PDF pages.
+ */
+public func extractMetadataHeuristicsBatch(firstPageTexts: [String], currentYear: Int32) -> [HeuristicExtractedFields] {
+    return try!  FfiConverterSequenceTypeHeuristicExtractedFields.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_metadata_heuristics_batch(
+        FfiConverterSequenceString.lower(firstPageTexts),
+        FfiConverterInt32.lower(currentYear),$0
     )
 })
 }
@@ -11668,6 +12979,16 @@ public func extractSurname(author: String) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_extract_surname(
         FfiConverterString.lower(author),$0
+    )
+})
+}
+/**
+ * UniFFI-exported keyword extraction for testing.
+ */
+public func extractTitleKeywords(title: String) -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_title_keywords(
+        FfiConverterString.lower(title),$0
     )
 })
 }
@@ -12653,6 +13974,15 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_can_resolve_to_source() != 53850) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_compute_citation_velocity_score() != 54646) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_compute_library_similarity_score() != 55956) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_compute_recency_score() != 33833) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_decode_html_entities() != 51511) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12710,10 +14040,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_extract_all() != 12026) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_extract_all_identifiers_batch() != 46837) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_extract_arxiv_ids() != 23986) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_dois() != 1063) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_features_batch() != 52061) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_first_author_last_name() != 43908) {
@@ -12722,13 +14058,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_extract_first_meaningful_word() != 54605) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_extract_identifiers() != 3725) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_extract_isbns() != 38246) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_metadata_heuristics() != 61609) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_metadata_heuristics_batch() != 33103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_snippet() != 18064) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_surname() != 49125) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_title_keywords() != 45716) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_find_duplicates() != 50914) {
