@@ -197,6 +197,73 @@ Check these areas specifically:
 
 ---
 
+## CloudKit Verification
+
+Before any release that touches sync or library management:
+
+### Pre-Flight Checks
+
+```bash
+# Run the release verification script
+./scripts/verify-release.sh ~/path/to/imbib.xcarchive
+```
+
+Expected output:
+- ✓ CloudKit environment: Production
+- ✓ CloudKit container entitlement present
+- ✓ iCloud services entitlement present
+- ✓ App Sandbox enabled
+
+### Manual CloudKit Tests
+
+- [ ] **Fresh Install Test**
+  ```bash
+  ./scripts/test-fresh-install.sh
+  ```
+  - Launch app → Should show welcome screen
+  - Create library → Console shows "canonical default library ID"
+
+- [ ] **Cross-Device Sync Test**
+  - Device A: Add a paper
+  - Device B: Wait 30s → Paper appears
+  - Device B: Edit paper title
+  - Device A: Wait 30s → Title updated
+
+- [ ] **Library Deduplication Test**
+  - Run fresh install on both devices before sync
+  - Create "My Library" on both devices quickly
+  - Wait for sync → Should merge to ONE library
+  - Check both papers exist in merged library
+
+### CloudKit Dashboard Checks
+
+1. Go to [CloudKit Dashboard](https://icloud.developer.apple.com/dashboard)
+2. Select **Production** environment
+3. Check:
+   - [ ] No failed operations in logs
+   - [ ] Schema matches expected (if model changed)
+   - [ ] Zone exists and has records
+
+### Environment Verification
+
+For the archive/TestFlight build:
+
+```bash
+# Check entitlements
+codesign -d --entitlements :- ~/path/to/imbib.app 2>&1 | grep -A5 "icloud"
+```
+
+Should show:
+- `com.apple.developer.icloud-container-identifiers` = `iCloud.com.imbib.app`
+- `com.apple.developer.icloud-services` = `CloudKit`
+
+**Warning Signs:**
+- ⚠️ "Development" in icloud-container-environment → Wrong environment
+- ⚠️ Missing icloud entitlements → Sync won't work
+- ⚠️ Sandbox warning in app settings → Test build, not release
+
+---
+
 ## Release Severity Guide
 
 ### Release Blockers (Must Fix)

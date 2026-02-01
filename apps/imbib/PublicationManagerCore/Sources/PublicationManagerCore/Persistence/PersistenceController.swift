@@ -447,6 +447,12 @@ public final class PersistenceController: @unchecked Sendable {
             if enableCloudKit {
                 self.setupCloudKitObservers()
                 Logger.persistence.debug("CloudKit observers configured after store load")
+
+                // Detect and warn about CloudKit environment (sandbox vs production)
+                // This helps developers avoid confusion when testing sync
+                Task {
+                    await CloudKitEnvironmentDetector.shared.warnIfSandbox()
+                }
             }
         }
 
@@ -874,6 +880,13 @@ public final class PersistenceController: @unchecked Sendable {
         dateAddedToInbox.isOptional = true
         properties.append(dateAddedToInbox)
 
+        // Primary PDF selection (for multi-PDF support)
+        let primaryPDFID = NSAttributeDescription()
+        primaryPDFID.name = "primaryPDFID"
+        primaryPDFID.attributeType = .UUIDAttributeType
+        primaryPDFID.isOptional = true
+        properties.append(primaryPDFID)
+
         entity.properties = properties
 
         // Add indexes for O(1) deduplication lookups
@@ -1031,6 +1044,24 @@ public final class PersistenceController: @unchecked Sendable {
         fileData.allowsExternalBinaryDataStorage = true
         properties.append(fileData)
 
+        // On-demand PDF sync: Track cloud availability for iOS on-demand download
+        // When true, the PDF is available in iCloud even if fileData is nil locally
+        let pdfCloudAvailable = NSAttributeDescription()
+        pdfCloudAvailable.name = "pdfCloudAvailable"
+        pdfCloudAvailable.attributeType = .booleanAttributeType
+        pdfCloudAvailable.isOptional = false
+        pdfCloudAvailable.defaultValue = false
+        properties.append(pdfCloudAvailable)
+
+        // On-demand PDF sync: Track local materialization state
+        // When false on iOS (with "Sync All" OFF), fileData was evicted to save space
+        let isLocallyMaterialized = NSAttributeDescription()
+        isLocallyMaterialized.name = "isLocallyMaterialized"
+        isLocallyMaterialized.attributeType = .booleanAttributeType
+        isLocallyMaterialized.isOptional = false
+        isLocallyMaterialized.defaultValue = true  // macOS default: always keep local
+        properties.append(isLocallyMaterialized)
+
         entity.properties = properties
         return entity
     }
@@ -1152,6 +1183,13 @@ public final class PersistenceController: @unchecked Sendable {
         isSystemCollection.isOptional = false
         isSystemCollection.defaultValue = false
         properties.append(isSystemCollection)
+
+        // Date tracking for exploration collection cleanup
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = true  // Optional for backward compatibility
+        properties.append(dateCreated)
 
         entity.properties = properties
         return entity

@@ -67,6 +67,9 @@ public class CDPublication: NSManagedObject {
     // Inbox tracking
     @NSManaged public var dateAddedToInbox: Date?  // When paper was added to Inbox (for age filtering)
 
+    // Primary PDF selection (for multi-PDF support)
+    @NSManaged public var primaryPDFID: UUID?  // ID of the user-selected primary PDF
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
@@ -434,6 +437,40 @@ public extension CDPublication {
         return URL(string: "https://arxiv.org/pdf/\(baseID).pdf")
     }
 
+    // MARK: - Primary PDF Selection
+
+    /// All PDFs sorted by date added (oldest first, most likely to have annotations).
+    var sortedPDFs: [CDLinkedFile] {
+        (linkedFiles ?? [])
+            .filter { $0.isPDF }
+            .sorted { $0.dateAdded < $1.dateAdded }
+    }
+
+    /// Primary PDF with fallback to oldest (likely has annotations).
+    ///
+    /// Selection logic:
+    /// 1. If `primaryPDFID` is set and matches an existing PDF, use that
+    /// 2. Otherwise, use the oldest PDF by `dateAdded` (preserves annotated copies)
+    var primaryPDF: CDLinkedFile? {
+        let pdfs = sortedPDFs
+        guard !pdfs.isEmpty else { return nil }
+
+        // 1. Explicitly set primary
+        if let primaryID = primaryPDFID,
+           let primary = pdfs.first(where: { $0.id == primaryID }) {
+            return primary
+        }
+        // 2. Oldest PDF (most likely to have annotations)
+        return pdfs.first
+    }
+
+    /// Set the primary PDF for this publication.
+    ///
+    /// - Parameter linkedFile: The PDF to set as primary, or nil to clear
+    func setPrimaryPDF(_ linkedFile: CDLinkedFile?) {
+        primaryPDFID = linkedFile?.id
+    }
+
 }
 
 // MARK: - Enrichment Staleness
@@ -553,6 +590,14 @@ public class CDLinkedFile: NSManagedObject {
     // iOS can then write this data to disk when user requests to view the PDF
     @NSManaged public var fileData: Data?
 
+    // On-demand PDF sync: Track cloud availability for iOS on-demand download
+    // When true, the PDF is available in iCloud even if fileData is nil locally
+    @NSManaged public var pdfCloudAvailable: Bool
+
+    // On-demand PDF sync: Track local materialization state
+    // When false on iOS (with "Sync All" OFF), fileData was evicted to save space
+    @NSManaged public var isLocallyMaterialized: Bool
+
     // Relationships
     @NSManaged public var publication: CDPublication?
     @NSManaged public var attachmentTags: Set<CDAttachmentTag>?  // Tags for file grouping
@@ -618,6 +663,23 @@ public extension CDLinkedFile {
     /// Remove an attachment tag from this linked file
     func removeFromAttachmentTags(_ tag: CDAttachmentTag) {
         attachmentTags?.remove(tag)
+    }
+
+    // MARK: - On-Demand PDF Sync Helpers
+
+    /// Whether this PDF can be downloaded from iCloud on-demand.
+    ///
+    /// True when the PDF exists in iCloud (pdfCloudAvailable) but is not
+    /// currently stored locally (either fileData is nil or isLocallyMaterialized is false).
+    var canDownloadFromCloud: Bool {
+        pdfCloudAvailable && (fileData == nil || !isLocallyMaterialized)
+    }
+
+    /// Whether this PDF needs to be downloaded from iCloud before viewing.
+    ///
+    /// True when the PDF is available in cloud but not locally materialized.
+    var needsCloudDownload: Bool {
+        pdfCloudAvailable && !isLocallyMaterialized && fileData == nil
     }
 }
 
@@ -707,6 +769,9 @@ public class CDCollection: NSManagedObject, Identifiable {
     // ADR-016: Unified Paper Model
     @NSManaged public var isSmartSearchResults: Bool  // True if this is a smart search result collection
     @NSManaged public var isSystemCollection: Bool    // True for "Last Search" and other system collections
+
+    // Date tracking for exploration collection cleanup
+    @NSManaged public var dateCreated: Date?          // When the collection was created (for retention cleanup)
 
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
@@ -798,6 +863,28 @@ public extension CDCollection {
 
 @objc(CDLibrary)
 public class CDLibrary: NSManagedObject, Identifiable {
+
+    // MARK: - Canonical IDs
+
+    /// Well-known UUID for the default library, shared across all devices.
+    ///
+    /// When a user creates their first library (the default "My Library"), it should use
+    /// this canonical ID. This ensures that when the same user sets up imbib on multiple
+    /// devices, the default library syncs as ONE library instead of creating duplicates.
+    ///
+    /// **Why this matters:**
+    /// - Without a canonical ID, each device creates a new UUID for "My Library"
+    /// - CloudKit sees these as different libraries (different UUIDs)
+    /// - User ends up with "My Library" appearing 2-3 times in their sidebar
+    ///
+    /// **Usage:**
+    /// ```swift
+    /// let library = CDLibrary(context: context)
+    /// if isFirstLibrary {
+    ///     library.id = CDLibrary.canonicalDefaultLibraryID
+    /// }
+    /// ```
+    public static let canonicalDefaultLibraryID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
     // Use private primitive accessor to handle CloudKit sync where UUID might be nil
     @NSManaged private var primitiveId: UUID?
 

@@ -55,6 +55,41 @@ These are the essential features that every user relies on.
 
 ---
 
+## CloudKit Sync Test Matrix
+
+Cross-device sync must work reliably. Test each combination:
+
+| Test | macOS→macOS | macOS→iOS | iOS→macOS | iOS→iOS |
+|------|-------------|-----------|-----------|---------|
+| Library syncs without duplication | 🔍 | 🔍 | 🔍 | 🔍 |
+| Publication syncs | 🔍 | 🔍 | 🔍 | 🔍 |
+| PDF attachment syncs | 🔍 | 🔍 | 🔍 | 🔍 |
+| Collections sync | 🔍 | 🔍 | 🔍 | 🔍 |
+| Smart searches sync | 🔍 | 🔍 | 🔍 | 🔍 |
+| Offline edits merge correctly | 🔍 | 🔍 | 🔍 | 🔍 |
+| Library deduplication works | 🔍 | 🔍 | 🔍 | 🔍 |
+| Fresh install sync works | 🔍 | 🔍 | 🔍 | 🔍 |
+
+### CloudKit Environment Detection
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Sandbox detection works | 🔍 | Running from Xcode shows warning |
+| Production detection works | 🔍 | App Store/TestFlight shows no warning |
+| Environment shown in Settings | 🔍 | |
+
+### Library Deduplication
+
+| Test | Status | Notes |
+|------|--------|-------|
+| Canonical ID deduplication | 🔍 | Same default library merged |
+| Name-based deduplication (24h) | 🔍 | Same name within 24h merged |
+| Publications migrated | 🔍 | All papers in merged library |
+| Collections migrated | 🔍 | All collections in merged library |
+| Smart searches migrated | 🔍 | All searches in merged library |
+
+---
+
 ## Search Sources
 
 Each external search source should be tested independently.

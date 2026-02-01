@@ -209,6 +209,11 @@ public final class LibraryManager {
     /// Libraries are stored in the app container and synced via CloudKit.
     /// This eliminates sandbox complexity from user-selected folders.
     ///
+    /// **Canonical Default Library:**
+    /// The first library created (the default library) uses a well-known UUID
+    /// (`CDLibrary.canonicalDefaultLibraryID`) to ensure it syncs correctly across
+    /// devices instead of creating duplicates.
+    ///
     /// - Parameter name: Display name for the library
     /// - Returns: The created CDLibrary entity
     @discardableResult
@@ -216,12 +221,21 @@ public final class LibraryManager {
         Logger.library.infoCapture("Creating library: \(name)", category: "library")
 
         let context = persistenceController.viewContext
+        let isFirstLibrary = libraries.isEmpty
 
         let library = CDLibrary(context: context)
-        library.id = UUID()
+
+        // Use canonical ID for the first (default) library to prevent duplicates across devices
+        if isFirstLibrary {
+            library.id = CDLibrary.canonicalDefaultLibraryID
+            Logger.library.infoCapture("Using canonical default library ID for first library", category: "library")
+        } else {
+            library.id = UUID()
+        }
+
         library.name = name
         library.dateCreated = Date()
-        library.isDefault = libraries.isEmpty  // First library is default
+        library.isDefault = isFirstLibrary
 
         // Create the Papers directory in the app container
         let papersURL = library.papersContainerURL
@@ -746,6 +760,38 @@ public final class LibraryManager {
         persistenceController.save()
     }
 
+    /// Delete exploration collections older than specified days.
+    ///
+    /// - Parameter days: Number of days. If `nil`, keeps all (forever). If `0`, deletes all (session only).
+    public func cleanupExplorationCollections(olderThanDays days: Int?) {
+        guard let days = days else { return }  // nil = forever, keep all
+        guard let library = explorationLibrary else { return }
+
+        if days == 0 {
+            // Session only - clear everything
+            clearExplorationLibrary()
+            return
+        }
+
+        let cutoffDate = Date().addingTimeInterval(-TimeInterval(days) * 86400)
+        var deletedCount = 0
+
+        if let collections = library.collections {
+            for collection in collections where collection.parentCollection == nil {
+                // Only check root collections - children inherit parent's date
+                if let created = collection.dateCreated, created < cutoffDate {
+                    deleteExplorationCollection(collection)
+                    deletedCount += 1
+                }
+            }
+        }
+
+        if deletedCount > 0 {
+            Logger.library.infoCapture("Cleaned up \(deletedCount) old exploration collection(s)", category: "library")
+            persistenceController.save()
+        }
+    }
+
     /// Delete a specific exploration collection
     public func deleteExplorationCollection(_ collection: CDCollection) {
         guard collection.library?.isSystemLibrary == true else {
@@ -856,5 +902,38 @@ public struct LibraryDefinition: Sendable, Identifiable, Hashable {
         self.dateCreated = entity.dateCreated
         self.dateLastOpened = entity.dateLastOpened
         self.isDefault = entity.isDefault
+    }
+}
+
+// MARK: - Deduplication Integration
+
+public extension LibraryManager {
+
+    /// Run library deduplication after loading libraries.
+    ///
+    /// Call this during app startup or after CloudKit sync notifications
+    /// to merge any duplicate libraries that may have been created across devices.
+    ///
+    /// **When to call:**
+    /// - After `loadLibraries()` on app startup
+    /// - After CloudKit remote change notifications (debounced)
+    ///
+    /// **What it does:**
+    /// - Finds libraries with the same canonical ID (the default library)
+    /// - Finds libraries with the same name created within 24 hours
+    /// - Merges duplicates into the oldest library
+    /// - Reloads the library list if merges occurred
+    func runDeduplication() async {
+        let service = LibraryDeduplicationService(persistenceController: persistenceController)
+        let results = await service.deduplicateLibraries()
+
+        if !results.isEmpty {
+            // Reload libraries to reflect merged state
+            loadLibraries()
+
+            for result in results {
+                Logger.library.infoCapture("Library merge: \(result.summary)", category: "library")
+            }
+        }
     }
 }
