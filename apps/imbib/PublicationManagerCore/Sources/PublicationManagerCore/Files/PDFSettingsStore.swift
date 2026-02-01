@@ -38,17 +38,20 @@ public struct PDFSettings: Codable, Equatable, Sendable {
     public var libraryProxyURL: String
     public var proxyEnabled: Bool
     public var autoDownloadEnabled: Bool  // Auto-download PDFs when viewing PDF tab
+    public var darkModeEnabled: Bool      // Invert PDF colors for dark mode reading
 
     public init(
         sourcePriority: PDFSourcePriority = .preprint,
         libraryProxyURL: String = "",
         proxyEnabled: Bool = false,
-        autoDownloadEnabled: Bool = true
+        autoDownloadEnabled: Bool = true,
+        darkModeEnabled: Bool = false
     ) {
         self.sourcePriority = sourcePriority
         self.libraryProxyURL = libraryProxyURL
         self.proxyEnabled = proxyEnabled
         self.autoDownloadEnabled = autoDownloadEnabled
+        self.darkModeEnabled = darkModeEnabled
     }
 
     public static let `default` = PDFSettings()
@@ -121,12 +124,14 @@ public actor PDFSettingsStore {
         let libraryProxyURL = store.string(forKey: .pdfProxyURL) ?? ""
         let proxyEnabled = store.bool(forKey: .pdfProxyEnabled) ?? false
         let autoDownloadEnabled = store.bool(forKey: .pdfAutoDownloadEnabled) ?? true
+        let darkModeEnabled = store.bool(forKey: .pdfDarkModeEnabled) ?? false
 
         return PDFSettings(
             sourcePriority: sourcePriority,
             libraryProxyURL: libraryProxyURL,
             proxyEnabled: proxyEnabled,
-            autoDownloadEnabled: autoDownloadEnabled
+            autoDownloadEnabled: autoDownloadEnabled,
+            darkModeEnabled: darkModeEnabled
         )
     }
 
@@ -144,7 +149,8 @@ public actor PDFSettingsStore {
                 SyncedSettingsKey.pdfSourcePriority.rawValue,
                 SyncedSettingsKey.pdfProxyURL.rawValue,
                 SyncedSettingsKey.pdfProxyEnabled.rawValue,
-                SyncedSettingsKey.pdfAutoDownloadEnabled.rawValue
+                SyncedSettingsKey.pdfAutoDownloadEnabled.rawValue,
+                SyncedSettingsKey.pdfDarkModeEnabled.rawValue
             ]
 
             if changedKeys.contains(where: { pdfKeys.contains($0) }) {
@@ -180,15 +186,17 @@ public actor PDFSettingsStore {
         let libraryProxyURL = store.string(forKey: .pdfProxyURL) ?? ""
         let proxyEnabled = store.bool(forKey: .pdfProxyEnabled) ?? false
         let autoDownloadEnabled = store.bool(forKey: .pdfAutoDownloadEnabled) ?? true
+        let darkModeEnabled = store.bool(forKey: .pdfDarkModeEnabled) ?? false
 
         let settings = PDFSettings(
             sourcePriority: sourcePriority,
             libraryProxyURL: libraryProxyURL,
             proxyEnabled: proxyEnabled,
-            autoDownloadEnabled: autoDownloadEnabled
+            autoDownloadEnabled: autoDownloadEnabled,
+            darkModeEnabled: darkModeEnabled
         )
 
-        Logger.files.infoCapture("Loaded PDF settings: priority=\(settings.sourcePriority.rawValue), proxy=\(settings.proxyEnabled)", category: "pdf")
+        Logger.files.infoCapture("Loaded PDF settings: priority=\(settings.sourcePriority.rawValue), proxy=\(settings.proxyEnabled), darkMode=\(settings.darkModeEnabled)", category: "pdf")
         return settings
     }
 
@@ -223,8 +231,9 @@ public actor PDFSettingsStore {
         store.set(settings.libraryProxyURL, forKey: .pdfProxyURL)
         store.set(settings.proxyEnabled, forKey: .pdfProxyEnabled)
         store.set(settings.autoDownloadEnabled, forKey: .pdfAutoDownloadEnabled)
+        store.set(settings.darkModeEnabled, forKey: .pdfDarkModeEnabled)
 
-        Logger.files.infoCapture("Saved PDF settings to sync: priority=\(settings.sourcePriority.rawValue), proxy=\(settings.proxyEnabled)", category: "pdf")
+        Logger.files.infoCapture("Saved PDF settings to sync: priority=\(settings.sourcePriority.rawValue), proxy=\(settings.proxyEnabled), darkMode=\(settings.darkModeEnabled)", category: "pdf")
     }
 
     /// Update PDF source priority
@@ -250,6 +259,14 @@ public actor PDFSettingsStore {
         Logger.files.infoCapture("Updated auto-download setting: \(enabled)", category: "pdf")
     }
 
+    /// Update dark mode setting
+    public func updateDarkMode(enabled: Bool) {
+        var current = settings
+        current.darkModeEnabled = enabled
+        saveSettings(current)
+        Logger.files.infoCapture("Updated PDF dark mode setting: \(enabled)", category: "pdf")
+    }
+
     /// Reset settings to defaults
     public func reset() {
         let store = SyncedSettingsStore.shared
@@ -257,6 +274,7 @@ public actor PDFSettingsStore {
         store.remove(forKey: .pdfProxyURL)
         store.remove(forKey: .pdfProxyEnabled)
         store.remove(forKey: .pdfAutoDownloadEnabled)
+        store.remove(forKey: .pdfDarkModeEnabled)
         cachedSettings = nil
         Logger.files.infoCapture("Reset PDF settings to defaults", category: "pdf")
     }

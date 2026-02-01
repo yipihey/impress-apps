@@ -370,10 +370,29 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
     /// Applies a color inversion filter for PDF dark mode reading
     private func applyDarkModeFilter(to pdfView: PDFView) {
+        // Ensure PDFView has a layer
+        pdfView.wantsLayer = true
+
+        // IMPORTANT: The CIColorInvert filter inverts EVERYTHING including backgrounds.
+        // So we set backgrounds to WHITE, which gets inverted to BLACK by the filter.
+        let preInvertColor = NSColor.white
+
         // Use Core Image filter to invert colors
         if let filter = CIFilter(name: "CIColorInvert") {
             pdfView.layer?.filters = [filter]
-            pdfView.layer?.backgroundColor = NSColor.black.cgColor
+            pdfView.layer?.backgroundColor = preInvertColor.cgColor
+        }
+
+        // Set background on PDFView and all subviews to white (will be inverted to black)
+        pdfView.backgroundColor = preInvertColor
+        setBackgroundColorRecursively(for: pdfView, color: preInvertColor)
+
+        // Also set the enclosing scroll view's background if present
+        if let scrollView = pdfView.enclosingScrollView {
+            scrollView.backgroundColor = preInvertColor
+            scrollView.drawsBackground = true
+            scrollView.contentView.backgroundColor = preInvertColor
+            scrollView.contentView.drawsBackground = true
         }
     }
 
@@ -381,6 +400,41 @@ struct ControlledPDFKitView: NSViewRepresentable {
     private func removeDarkModeFilter(from pdfView: PDFView) {
         pdfView.layer?.filters = nil
         pdfView.layer?.backgroundColor = nil
+        pdfView.backgroundColor = .textBackgroundColor
+
+        // Reset subview backgrounds
+        setBackgroundColorRecursively(for: pdfView, color: .textBackgroundColor)
+
+        // Reset enclosing scroll view
+        if let scrollView = pdfView.enclosingScrollView {
+            scrollView.backgroundColor = .textBackgroundColor
+            scrollView.contentView.backgroundColor = .textBackgroundColor
+        }
+    }
+
+    /// Recursively sets background color on PDFView subviews (scroll views, clip views, etc.)
+    private func setBackgroundColorRecursively(for view: NSView, color: NSColor) {
+        // Ensure view has a layer for background color
+        view.wantsLayer = true
+        view.layer?.backgroundColor = color.cgColor
+
+        if let scrollView = view as? NSScrollView {
+            scrollView.backgroundColor = color
+            scrollView.drawsBackground = true
+            if let clipView = scrollView.contentView as? NSClipView {
+                clipView.wantsLayer = true
+                clipView.layer?.backgroundColor = color.cgColor
+                clipView.backgroundColor = color
+                clipView.drawsBackground = true
+            }
+            if let docView = scrollView.documentView {
+                docView.wantsLayer = true
+                docView.layer?.backgroundColor = color.cgColor
+            }
+        }
+        for subview in view.subviews {
+            setBackgroundColorRecursively(for: subview, color: color)
+        }
     }
 
     func updateNSView(_ pdfView: AnnotationModePDFView, context: Context) {
@@ -395,11 +449,13 @@ struct ControlledPDFKitView: NSViewRepresentable {
         if darkModeEnabled {
             if pdfView.layer?.filters?.isEmpty ?? true {
                 applyDarkModeFilter(to: pdfView)
+            } else {
+                // Re-apply backgrounds in case they were reset (white gets inverted to black)
+                pdfView.backgroundColor = .white
+                setBackgroundColorRecursively(for: pdfView, color: .white)
             }
-            pdfView.backgroundColor = .black
         } else {
             removeDarkModeFilter(from: pdfView)
-            pdfView.backgroundColor = .textBackgroundColor
         }
 
         // Update page if changed externally
@@ -901,6 +957,15 @@ public struct PDFViewerWithControls: View {
     // PDF dark mode (from settings)
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
+    // Display rotation state (macOS only)
+    #if os(macOS)
+    @State private var displayRotationAvailable: Bool = false
+    @State private var currentDisplayRotation: Int = 0
+    @State private var currentDisplayID: String?
+    @State private var showDisplayRotationUnavailableAlert: Bool = false
+    @State private var displayRotationIsSandboxed: Bool = false
+    #endif
+
     // iOS fullscreen state
     #if os(iOS)
     @Binding private var isFullscreen: Bool
@@ -1028,6 +1093,25 @@ public struct PDFViewerWithControls: View {
         AnnotationToolbarPosition(rawValue: toolbarPositionRaw) ?? .top
     }
 
+    /// Background color for PDF viewer when dark mode is enabled
+    private var pdfViewerBackground: Color {
+        pdfDarkModeEnabled ? .black : .clear
+    }
+
+    /// Background color for toolbar when dark mode is enabled
+    private var toolbarBackground: Color {
+        #if os(macOS)
+        pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(nsColor: .windowBackgroundColor)
+        #else
+        pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(.systemBackground)
+        #endif
+    }
+
+    /// Foreground style for toolbar when dark mode is enabled
+    private var toolbarForeground: Color {
+        pdfDarkModeEnabled ? .white : .primary
+    }
+
     /// Padding for the toolbar based on its position
     private var toolbarPadding: EdgeInsets {
         switch toolbarPosition {
@@ -1113,11 +1197,13 @@ public struct PDFViewerWithControls: View {
                 pdfToolbar
             }
         }
+        .background(pdfViewerBackground)
         // macOS: modifiers here since body returns normalPDFView directly
         // iOS: modifiers are on the body's ZStack to apply to both fullscreen and normal views
         #if os(macOS)
         .task {
             await loadDocument()
+            await checkDisplayRotationAvailability()
         }
         .onChange(of: currentPage) { _, newPage in
             schedulePositionSave()
@@ -1154,6 +1240,34 @@ public struct PDFViewerWithControls: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { _ in
             // Future: show go-to-page dialog
+        }
+        .alert(
+            displayRotationIsSandboxed ? "Sandbox Restriction" : "displayplacer Required",
+            isPresented: $showDisplayRotationUnavailableAlert
+        ) {
+            if displayRotationIsSandboxed {
+                Button("OK", role: .cancel) {}
+            } else {
+                Button("Copy Install Command") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("brew install displayplacer", forType: .string)
+                }
+                Button("OK", role: .cancel) {}
+            }
+        } message: {
+            if displayRotationIsSandboxed {
+                Text("Display rotation requires running without App Sandbox.\n\nBuild and run from Xcode with sandbox disabled, or use a non-sandboxed build.")
+            } else {
+                Text("Install displayplacer via Homebrew to enable display rotation:\n\nbrew install displayplacer")
+            }
+        }
+        .onChange(of: showDisplayRotationUnavailableAlert) { _, isShowing in
+            // Re-check availability when alert is dismissed (user may have installed it)
+            if !isShowing {
+                Task {
+                    await checkDisplayRotationAvailability()
+                }
+            }
         }
         #endif
     }
@@ -1649,6 +1763,13 @@ public struct PDFViewerWithControls: View {
                         Image(systemName: "magnifyingglass")
                     }
 
+                    // PDF dark mode toggle
+                    Button {
+                        toggleDarkMode()
+                    } label: {
+                        Image(systemName: pdfDarkModeEnabled ? "moon.fill" : "moon")
+                    }
+
                     // Fullscreen button (allows entering fullscreen while in annotation mode)
                     Button {
                         enterFullscreen()
@@ -1669,7 +1790,8 @@ public struct PDFViewerWithControls: View {
                 .padding(.vertical, 8)
             }
             .scrollIndicators(.hidden)
-            .background(.bar)
+            .background(toolbarBackground)
+            .foregroundStyle(toolbarForeground)
 
             // Search bar (expandable)
             if isSearchVisible {
@@ -1717,7 +1839,8 @@ public struct PDFViewerWithControls: View {
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
-                .background(.bar)
+                .background(pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(.systemBackground))
+                .foregroundStyle(pdfDarkModeEnabled ? .white : .primary)
             }
         }
         .frame(maxWidth: .infinity)
@@ -1776,6 +1899,22 @@ public struct PDFViewerWithControls: View {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                 }
             }
+
+            // Display rotation (macOS only)
+            Divider()
+                .frame(height: 20)
+
+            Menu {
+                Button("0° (Landscape)") { Task { await setDisplayRotation(0) } }
+                Button("90° (Portrait Right)") { Task { await setDisplayRotation(90) } }
+                Button("180° (Landscape Flipped)") { Task { await setDisplayRotation(180) } }
+                Button("270° (Portrait Left)") { Task { await setDisplayRotation(270) } }
+            } label: {
+                Image(systemName: displayRotationIcon)
+            } primaryAction: {
+                Task { await cycleDisplayRotation() }
+            }
+            .help(displayRotationAvailable ? "Rotate display (currently \(currentDisplayRotation)°)" : "Rotate display (requires displayplacer)")
 
             Divider()
                 .frame(height: 20)
@@ -1853,6 +1992,17 @@ public struct PDFViewerWithControls: View {
                 }
             }
 
+            Divider()
+                .frame(height: 20)
+
+            // PDF dark mode toggle
+            Button {
+                toggleDarkMode()
+            } label: {
+                Image(systemName: pdfDarkModeEnabled ? "moon.fill" : "moon")
+            }
+            .help(pdfDarkModeEnabled ? "Disable PDF dark mode" : "Enable PDF dark mode")
+
             Spacer()
 
             // Open in External App
@@ -1867,7 +2017,8 @@ public struct PDFViewerWithControls: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(toolbarBackground)
+        .foregroundStyle(toolbarForeground)
         #endif
     }
 
@@ -1986,6 +2137,130 @@ public struct PDFViewerWithControls: View {
     private func resetZoom() {
         scaleFactor = 1.0
     }
+
+    private func toggleDarkMode() {
+        pdfDarkModeEnabled.toggle()
+        Task {
+            await PDFSettingsStore.shared.updateDarkMode(enabled: pdfDarkModeEnabled)
+        }
+    }
+
+    // MARK: - Display Rotation (macOS)
+
+    #if os(macOS)
+    /// Icon representing current display rotation state.
+    private var displayRotationIcon: String {
+        switch currentDisplayRotation {
+        case 90, 270: return "rectangle.portrait"
+        case 180: return "rectangle.landscape.rotate"
+        default: return "rectangle"
+        }
+    }
+
+    /// Check if display rotation is available and update state.
+    private func checkDisplayRotationAvailability() async {
+        let available = await DisplayRotationService.shared.isAvailable()
+        await MainActor.run {
+            displayRotationAvailable = available
+        }
+
+        if available {
+            await updateCurrentDisplayRotation()
+        }
+    }
+
+    /// Update the current display rotation state.
+    private func updateCurrentDisplayRotation() async {
+        if let displayID = await DisplayRotationService.shared.getDisplayID(for: nil) {
+            let rotation = await DisplayRotationService.shared.getRotation(displayID: displayID)
+            await MainActor.run {
+                currentDisplayID = displayID
+                currentDisplayRotation = rotation
+            }
+        }
+    }
+
+    /// Set display rotation to a specific angle.
+    private func setDisplayRotation(_ degrees: Int) async {
+        // Check if sandboxed first
+        let sandboxed = await DisplayRotationService.shared.isSandboxed
+        if sandboxed {
+            await MainActor.run {
+                displayRotationIsSandboxed = true
+                showDisplayRotationUnavailableAlert = true
+            }
+            return
+        }
+
+        // Check if displayplacer is available
+        let available = await DisplayRotationService.shared.isAvailable()
+        await MainActor.run {
+            displayRotationAvailable = available
+        }
+
+        guard available else {
+            await MainActor.run {
+                displayRotationIsSandboxed = false
+                showDisplayRotationUnavailableAlert = true
+            }
+            return
+        }
+
+        // Ensure we have a display ID
+        if currentDisplayID == nil {
+            await updateCurrentDisplayRotation()
+        }
+
+        guard let displayID = currentDisplayID else {
+            Logger.files.errorCapture("Could not determine display ID for rotation", category: "display")
+            return
+        }
+
+        do {
+            try await DisplayRotationService.shared.setRotation(displayID: displayID, degrees: degrees)
+            await MainActor.run {
+                currentDisplayRotation = degrees
+            }
+        } catch {
+            Logger.files.errorCapture("Failed to set display rotation: \(error)", category: "display")
+        }
+    }
+
+    /// Cycle to the next rotation (0 → 90 → 180 → 270 → 0).
+    private func cycleDisplayRotation() async {
+        // Check if sandboxed first
+        let sandboxed = await DisplayRotationService.shared.isSandboxed
+        if sandboxed {
+            await MainActor.run {
+                displayRotationIsSandboxed = true
+                showDisplayRotationUnavailableAlert = true
+            }
+            return
+        }
+
+        // Check if displayplacer is available
+        let available = await DisplayRotationService.shared.isAvailable()
+        await MainActor.run {
+            displayRotationAvailable = available
+        }
+
+        guard available else {
+            await MainActor.run {
+                displayRotationIsSandboxed = false
+                showDisplayRotationUnavailableAlert = true
+            }
+            return
+        }
+
+        // Ensure we have current rotation state
+        if currentDisplayID == nil {
+            await updateCurrentDisplayRotation()
+        }
+
+        let next = (currentDisplayRotation + 90) % 360
+        await setDisplayRotation(next)
+    }
+    #endif
 
     #if os(iOS)
     private func goBackInHistory() {

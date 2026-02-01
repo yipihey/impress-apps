@@ -227,6 +227,9 @@ public final class AttachmentManager {
             do {
                 let pdfData = try Data(contentsOf: destinationURL)
                 linkedFile.fileData = pdfData
+                // Mark as available in cloud and locally materialized (on-demand PDF sync)
+                linkedFile.pdfCloudAvailable = true
+                linkedFile.isLocallyMaterialized = true
                 Logger.files.debugCapture("Stored \(pdfData.count) bytes in fileData for CloudKit sync", category: "files")
             } catch {
                 Logger.files.warningCapture("Could not read PDF data for CloudKit sync: \(error.localizedDescription)", category: "files")
@@ -303,7 +306,8 @@ public final class AttachmentManager {
         from sourceURL: URL,
         for publication: CDPublication,
         in library: CDLibrary? = nil,
-        preserveFilename: Bool = false
+        preserveFilename: Bool = false,
+        precomputedHash: String? = nil
     ) throws -> CDLinkedFile {
         // Check if source file has a non-PDF extension (e.g., .tmp from URLSession downloads)
         // In that case, read the data and use the data-based import which correctly forces .pdf extension
@@ -318,7 +322,7 @@ public final class AttachmentManager {
             }
 
             let data = try Data(contentsOf: sourceURL)
-            return try importPDF(data: data, for: publication, in: library)
+            return try importPDF(data: data, for: publication, in: library, precomputedHash: precomputedHash)
         }
 
         // Normal PDF file - delegate to importAttachment
@@ -326,7 +330,8 @@ public final class AttachmentManager {
             from: sourceURL,
             for: publication,
             in: library,
-            preserveFilename: preserveFilename
+            preserveFilename: preserveFilename,
+            precomputedHash: precomputedHash
         )
     }
 
@@ -335,9 +340,10 @@ public final class AttachmentManager {
     public func importPDF(
         data: Data,
         for publication: CDPublication,
-        in library: CDLibrary? = nil
+        in library: CDLibrary? = nil,
+        precomputedHash: String? = nil
     ) throws -> CDLinkedFile {
-        return try importAttachment(data: data, for: publication, in: library, fileExtension: "pdf")
+        return try importAttachment(data: data, for: publication, in: library, fileExtension: "pdf", precomputedHash: precomputedHash)
     }
 
     /// Import attachment data directly (e.g., from downloaded content or clipboard).
@@ -348,6 +354,7 @@ public final class AttachmentManager {
     ///   - library: The library containing the publication
     ///   - fileExtension: File extension (e.g., "pdf", "png", "tar.gz")
     ///   - displayName: Optional user-friendly display name
+    ///   - precomputedHash: Optional pre-computed SHA256 hash (from `checkForDuplicate`). Avoids redundant hash computation.
     /// - Returns: The created CDLinkedFile entity
     @discardableResult
     public func importAttachment(
@@ -355,7 +362,8 @@ public final class AttachmentManager {
         for publication: CDPublication,
         in library: CDLibrary? = nil,
         fileExtension: String = "pdf",
-        displayName: String? = nil
+        displayName: String? = nil,
+        precomputedHash: String? = nil
     ) throws -> CDLinkedFile {
         let isPDF = fileExtension.lowercased() == "pdf"
         Logger.files.infoCapture("Importing attachment data (\(data.count) bytes, .\(fileExtension))", category: "files")
@@ -379,8 +387,8 @@ public final class AttachmentManager {
             throw AttachmentError.writeFailed(destinationURL, error)
         }
 
-        // Compute SHA256
-        let sha256 = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        // Use precomputed hash or compute SHA256
+        let sha256 = precomputedHash ?? SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
 
         // Detect MIME type from data
         let mimeType = detectMIMEType(fromData: data, fileExtension: fileExtension)
@@ -403,6 +411,9 @@ public final class AttachmentManager {
         // CloudKit handles this as CKAsset via allowsExternalBinaryDataStorage
         if isPDF {
             linkedFile.fileData = data
+            // Mark as available in cloud and locally materialized (on-demand PDF sync)
+            linkedFile.pdfCloudAvailable = true
+            linkedFile.isLocallyMaterialized = true
             Logger.files.debugCapture("Stored \(data.count) bytes in fileData for CloudKit sync", category: "files")
         }
 
