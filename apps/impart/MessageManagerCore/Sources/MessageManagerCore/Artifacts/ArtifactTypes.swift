@@ -34,6 +34,23 @@ public enum ArtifactType: String, Codable, Sendable, CaseIterable {
     /// External URL (for non-impress resources)
     case externalUrl
 
+    // MARK: - Development Conversation Types
+
+    /// External directory (codebase, project folder) with security-scoped bookmark
+    case externalDirectory
+
+    /// Imprint manuscript (impress://imprint/manuscript/{id})
+    case imprintManuscript
+
+    /// Imbib publication (impress://imbib/publication/{id})
+    case imbibPublication
+
+    /// Managed directory within impart (impress://impart/directory/{id})
+    case managedDirectory
+
+    /// Single file reference
+    case file
+
     /// Unknown or unrecognized artifact type
     case unknown
 
@@ -47,6 +64,11 @@ public enum ArtifactType: String, Codable, Sendable, CaseIterable {
         case .robot: return "Robot/Hardware"
         case .stream: return "Data Stream"
         case .externalUrl: return "External Link"
+        case .externalDirectory: return "Directory"
+        case .imprintManuscript: return "Manuscript"
+        case .imbibPublication: return "Publication"
+        case .managedDirectory: return "Project Folder"
+        case .file: return "File"
         case .unknown: return "Unknown"
         }
     }
@@ -61,7 +83,32 @@ public enum ArtifactType: String, Codable, Sendable, CaseIterable {
         case .robot: return "gearshape.2"
         case .stream: return "waveform.path.ecg"
         case .externalUrl: return "link"
+        case .externalDirectory: return "folder"
+        case .imprintManuscript: return "doc.text.fill"
+        case .imbibPublication: return "book"
+        case .managedDirectory: return "folder.fill"
+        case .file: return "doc"
         case .unknown: return "questionmark.circle"
+        }
+    }
+
+    /// Whether this artifact type uses security-scoped bookmarks.
+    public var usesBookmark: Bool {
+        switch self {
+        case .externalDirectory, .managedDirectory, .file:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether this artifact type is a cross-app reference.
+    public var isCrossAppReference: Bool {
+        switch self {
+        case .imprintManuscript, .imbibPublication, .paper, .document:
+            return true
+        default:
+            return false
         }
     }
 }
@@ -166,11 +213,26 @@ public struct ArtifactURI: Hashable, Codable, Sendable {
             if path.hasPrefix("papers/") {
                 return .paper
             }
+            if path.hasPrefix("publication/") || path.hasPrefix("publications/") {
+                return .imbibPublication
+            }
             return .unknown
 
         case "imprint":
             if path.hasPrefix("documents/") {
                 return .document
+            }
+            if path.hasPrefix("manuscript/") || path.hasPrefix("manuscripts/") {
+                return .imprintManuscript
+            }
+            return .unknown
+
+        case "impart":
+            if path.hasPrefix("directory/") || path.hasPrefix("directories/") {
+                return .managedDirectory
+            }
+            if path.hasPrefix("file/") || path.hasPrefix("files/") {
+                return .file
             }
             return .unknown
 
@@ -185,6 +247,12 @@ public struct ArtifactURI: Hashable, Codable, Sendable {
 
         case "streams":
             return .stream
+
+        case "external":
+            return .externalUrl
+
+        case "directory":
+            return .externalDirectory
 
         default:
             return .unknown
@@ -309,6 +377,85 @@ public extension ArtifactURI {
             type: .externalUrl,
             provider: "external",
             resourcePath: url.absoluteString
+        )
+    }
+
+    // MARK: - Development Conversation URI Builders
+
+    /// Create an external directory artifact URI.
+    /// - Parameters:
+    ///   - id: Unique identifier for the directory
+    ///   - name: Optional display name
+    static func externalDirectory(id: UUID, name: String? = nil) -> ArtifactURI {
+        var params: [String: String] = [:]
+        if let name = name {
+            params["name"] = name
+        }
+        return ArtifactURI(
+            type: .externalDirectory,
+            provider: "directory",
+            resourcePath: id.uuidString,
+            queryParameters: params
+        )
+    }
+
+    /// Create an imprint manuscript artifact URI.
+    /// - Parameters:
+    ///   - id: Manuscript UUID
+    ///   - version: Optional version identifier
+    static func imprintManuscript(id: UUID, version: String? = nil) -> ArtifactURI {
+        ArtifactURI(
+            type: .imprintManuscript,
+            provider: "imprint",
+            resourcePath: "manuscript/\(id.uuidString)",
+            version: version
+        )
+    }
+
+    /// Create an imbib publication artifact URI.
+    /// - Parameters:
+    ///   - id: Publication UUID
+    ///   - version: Optional version identifier
+    static func imbibPublication(id: UUID, version: String? = nil) -> ArtifactURI {
+        ArtifactURI(
+            type: .imbibPublication,
+            provider: "imbib",
+            resourcePath: "publication/\(id.uuidString)",
+            version: version
+        )
+    }
+
+    /// Create a managed directory artifact URI.
+    /// - Parameters:
+    ///   - id: Directory UUID
+    ///   - name: Optional display name
+    static func managedDirectory(id: UUID, name: String? = nil) -> ArtifactURI {
+        var params: [String: String] = [:]
+        if let name = name {
+            params["name"] = name
+        }
+        return ArtifactURI(
+            type: .managedDirectory,
+            provider: "impart",
+            resourcePath: "directory/\(id.uuidString)",
+            queryParameters: params
+        )
+    }
+
+    /// Create a file artifact URI.
+    /// - Parameters:
+    ///   - id: File UUID
+    ///   - filename: Optional filename
+    static func file(id: UUID, filename: String? = nil) -> ArtifactURI {
+        var params: [String: String] = [:]
+        if let filename = filename {
+            params["filename"] = filename
+        }
+        return ArtifactURI(
+            type: .file,
+            provider: "impart",
+            resourcePath: "file/\(id.uuidString)",
+            queryParameters: params
         )
     }
 }

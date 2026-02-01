@@ -633,6 +633,12 @@ public class CDResearchConversation: NSManagedObject, Identifiable {
     /// Tags for organization (JSON array)
     @NSManaged public var tagsJSON: String?
 
+    /// Conversation mode (interactive, planning, review, archival)
+    @NSManaged public var mode: String
+
+    /// Planning session ID for grouping related planning conversations
+    @NSManaged public var planningSessionId: UUID?
+
     // Relationships
     /// Parent conversation if this is a branch/side conversation
     @NSManaged public var parentConversation: CDResearchConversation?
@@ -729,6 +735,12 @@ public extension CDResearchConversation {
     var latestSnippet: String {
         latestMessage?.contentMarkdown.prefix(100).description ?? ""
     }
+
+    /// Conversation mode enum accessor.
+    var conversationMode: ConversationMode {
+        get { ConversationMode(rawValue: mode) ?? .interactive }
+        set { mode = newValue.rawValue }
+    }
 }
 
 // MARK: - CDResearchMessage
@@ -789,6 +801,9 @@ public class CDResearchMessage: NSManagedObject, Identifiable {
     /// Processing duration in milliseconds (for AI messages)
     @NSManaged public var processingDurationMs: Int32
 
+    /// Message intent (converse, execute, result, proposal, approval, plan, error)
+    @NSManaged public var intent: String
+
     // Relationships
     /// The conversation containing this message
     @NSManaged public var conversation: CDResearchConversation?
@@ -828,6 +843,12 @@ public extension CDResearchMessage {
     /// Get a preview snippet of the content.
     var snippet: String {
         String(contentMarkdown.prefix(200))
+    }
+
+    /// Message intent enum accessor.
+    var messageIntent: MessageIntent {
+        get { MessageIntent(rawValue: intent) ?? .converse }
+        set { intent = newValue.rawValue }
     }
 }
 
@@ -889,6 +910,9 @@ public class CDArtifactReference: NSManagedObject, Identifiable {
 
     /// Last time this artifact was accessed
     @NSManaged public var lastAccessedAt: Date?
+
+    /// Security-scoped bookmark data for external directories
+    @NSManaged public var bookmarkData: Data?
 
     // Relationships
     /// Conversations that reference this artifact

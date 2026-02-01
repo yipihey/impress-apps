@@ -484,6 +484,11 @@ extension ArtifactReference {
         case .robot: return "gear"
         case .stream: return "waveform"
         case .externalUrl: return "link"
+        case .externalDirectory: return "folder"
+        case .imprintManuscript: return "doc.text.fill"
+        case .imbibPublication: return "book"
+        case .managedDirectory: return "folder.fill"
+        case .file: return "doc"
         case .unknown: return "questionmark"
         }
     }

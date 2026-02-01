@@ -233,7 +233,10 @@ public enum CoreDataModelBuilder {
             attribute("lastActivityAt", .dateAttributeType, defaultValue: Date()),
             attribute("summaryText", .stringAttributeType, optional: true),
             attribute("isArchived", .booleanAttributeType, defaultValue: false),
-            attribute("tagsJSON", .stringAttributeType, optional: true)
+            attribute("tagsJSON", .stringAttributeType, optional: true),
+            // Development conversation mode support
+            attribute("mode", .stringAttributeType, defaultValue: "interactive"),
+            attribute("planningSessionId", .UUIDAttributeType, optional: true)
         ]
 
         return entity
@@ -257,7 +260,9 @@ public enum CoreDataModelBuilder {
             attribute("isSideConversationSynthesis", .booleanAttributeType, defaultValue: false),
             attribute("sideConversationId", .UUIDAttributeType, optional: true),
             attribute("tokenCount", .integer32AttributeType, defaultValue: 0),
-            attribute("processingDurationMs", .integer32AttributeType, defaultValue: 0)
+            attribute("processingDurationMs", .integer32AttributeType, defaultValue: 0),
+            // Message intent for development conversations
+            attribute("intent", .stringAttributeType, defaultValue: "converse")
         ]
 
         return entity
@@ -276,7 +281,9 @@ public enum CoreDataModelBuilder {
             attribute("version", .stringAttributeType, optional: true),
             attribute("introducedAt", .dateAttributeType, defaultValue: Date()),
             attribute("introducedBy", .stringAttributeType, defaultValue: ""),
-            attribute("metadataJSON", .stringAttributeType, optional: true)
+            attribute("metadataJSON", .stringAttributeType, optional: true),
+            // Security-scoped bookmark for external directory access
+            attribute("bookmarkData", .binaryDataAttributeType, optional: true)
         ]
 
         return entity
