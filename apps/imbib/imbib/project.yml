@@ -180,7 +180,7 @@ targets:
         INFOPLIST_FILE: imbib-iOS/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
-        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         CODE_SIGN_ENTITLEMENTS: imbib-iOS/Resources/imbib-iOS.entitlements
     entitlements:
       path: imbib-iOS/Resources/imbib-iOS.entitlements
