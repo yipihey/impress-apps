@@ -20,7 +20,8 @@ let package = Package(
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),
         .package(path: "../ImpartRustCore"),
         .package(path: "../../../packages/ImpressAutomation"),
-        .package(path: "../../../packages/ImpressAI")
+        .package(path: "../../../packages/ImpressAI"),
+        .package(path: "../../../packages/ImpressKeyboard")
     ],
     targets: [
         .target(
@@ -31,7 +32,8 @@ let package = Package(
                 .product(name: "HighlightSwift", package: "HighlightSwift"),
                 "ImpartRustCore",
                 "ImpressAutomation",
-                "ImpressAI"
+                "ImpressAI",
+                "ImpressKeyboard"
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")

@@ -42,6 +42,12 @@ public final class GlobalSearchViewModel {
     /// The selected search scope (always starts as global, user can narrow it)
     public var selectedScope: SearchContext = .global
 
+    /// The current sort order for results
+    public var sortOrder: GlobalSearchSortOrder = .relevance
+
+    /// Whether to sort ascending (true) or descending (false)
+    public var sortAscending: Bool = false
+
     /// The effective context for search - now just returns the selected scope
     public var effectiveContext: SearchContext {
         selectedScope
@@ -218,11 +224,11 @@ public final class GlobalSearchViewModel {
             let semanticResult = semanticMap[id]
 
             // Always fetch complete metadata from Core Data to ensure we have title, authors, etc.
-            let (title, citeKey, authors, year, libraryNames) = fetchPublicationMetadata(id: id)
+            let metadata = fetchFullPublicationMetadata(id: id)
 
             // Skip results where publication no longer exists or has no meaningful metadata
             // This can happen if the search index is stale or publication was deleted
-            if title.isEmpty && citeKey.isEmpty && authors.isEmpty {
+            if metadata.title.isEmpty && metadata.citeKey.isEmpty && metadata.authors.isEmpty {
                 logger.debug("Skipping search result for ID \(id) - no metadata found (publication may have been deleted)")
                 continue
             }
@@ -252,14 +258,18 @@ public final class GlobalSearchViewModel {
 
             let result = GlobalSearchResult(
                 id: id,
-                citeKey: citeKey,
-                title: title,
-                authors: authors,
-                year: year,
+                citeKey: metadata.citeKey,
+                title: metadata.title,
+                authors: metadata.authors,
+                year: metadata.year,
                 snippet: snippet,
                 matchType: matchType,
                 score: score,
-                libraryNames: libraryNames
+                libraryNames: metadata.libraryNames,
+                dateAdded: metadata.dateAdded,
+                dateModified: metadata.dateModified,
+                citationCount: metadata.citationCount,
+                isStarred: metadata.isStarred
             )
 
             merged.append(result)
@@ -268,11 +278,71 @@ public final class GlobalSearchViewModel {
         // Apply context filtering
         let filtered = applyContextFilter(to: merged)
 
-        // Sort by score descending
-        var sortedResults = filtered
-        sortedResults.sort { $0.score > $1.score }
+        // Apply sorting based on current sort order
+        let sortedResults = applySorting(to: filtered)
 
         return sortedResults
+    }
+
+    /// Apply sorting to results based on current sort order and direction.
+    private func applySorting(to results: [GlobalSearchResult]) -> [GlobalSearchResult] {
+        var sorted = results
+
+        sorted.sort { a, b in
+            let comparison: ComparisonResult
+
+            switch sortOrder {
+            case .relevance:
+                // Higher score = more relevant
+                comparison = a.score < b.score ? .orderedAscending : (a.score > b.score ? .orderedDescending : .orderedSame)
+
+            case .dateAdded:
+                let dateA = a.dateAdded ?? .distantPast
+                let dateB = b.dateAdded ?? .distantPast
+                comparison = dateA.compare(dateB)
+
+            case .dateModified:
+                let dateA = a.dateModified ?? .distantPast
+                let dateB = b.dateModified ?? .distantPast
+                comparison = dateA.compare(dateB)
+
+            case .title:
+                comparison = a.title.localizedCaseInsensitiveCompare(b.title)
+
+            case .year:
+                let yearA = Int(a.year ?? "0") ?? 0
+                let yearB = Int(b.year ?? "0") ?? 0
+                comparison = yearA < yearB ? .orderedAscending : (yearA > yearB ? .orderedDescending : .orderedSame)
+
+            case .citeKey:
+                comparison = a.citeKey.localizedCaseInsensitiveCompare(b.citeKey)
+
+            case .citationCount:
+                comparison = a.citationCount < b.citationCount ? .orderedAscending : (a.citationCount > b.citationCount ? .orderedDescending : .orderedSame)
+
+            case .starred:
+                // Starred first (true > false)
+                if a.isStarred == b.isStarred {
+                    comparison = .orderedSame
+                } else {
+                    comparison = a.isStarred ? .orderedDescending : .orderedAscending
+                }
+            }
+
+            // Apply sort direction
+            if sortAscending {
+                return comparison == .orderedAscending
+            } else {
+                return comparison == .orderedDescending
+            }
+        }
+
+        return sorted
+    }
+
+    /// Re-sort results when sort order or direction changes without re-fetching.
+    public func resortResults() {
+        results = applySorting(to: results)
     }
 
     /// Apply context-based filtering to search results
@@ -453,15 +523,38 @@ public final class GlobalSearchViewModel {
         return snippet
     }
 
+    /// Metadata result from Core Data fetch
+    private struct PublicationMetadata {
+        let title: String
+        let citeKey: String
+        let authors: String
+        let year: String?
+        let libraryNames: [String]
+        let dateAdded: Date?
+        let dateModified: Date?
+        let citationCount: Int
+        let isStarred: Bool
+    }
+
     /// Fetch publication metadata from Core Data.
     private func fetchPublicationMetadata(id: UUID) -> (title: String, citeKey: String, authors: String, year: String?, libraryNames: [String]) {
+        let metadata = fetchFullPublicationMetadata(id: id)
+        return (metadata.title, metadata.citeKey, metadata.authors, metadata.year, metadata.libraryNames)
+    }
+
+    /// Fetch full publication metadata including sorting fields from Core Data.
+    private func fetchFullPublicationMetadata(id: UUID) -> PublicationMetadata {
         let context = PersistenceController.shared.viewContext
         let request = NSFetchRequest<CDPublication>(entityName: "Publication")
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         request.fetchLimit = 1
 
         guard let publication = try? context.fetch(request).first else {
-            return ("", "", "", nil, [])
+            return PublicationMetadata(
+                title: "", citeKey: "", authors: "", year: nil,
+                libraryNames: [], dateAdded: nil, dateModified: nil,
+                citationCount: 0, isStarred: false
+            )
         }
 
         let title = publication.title ?? ""
@@ -481,6 +574,16 @@ public final class GlobalSearchViewModel {
             .sorted() ?? []
         libraryNames.append(contentsOf: scixNames)
 
-        return (title, citeKey, authors, year, libraryNames)
+        return PublicationMetadata(
+            title: title,
+            citeKey: citeKey,
+            authors: authors,
+            year: year,
+            libraryNames: libraryNames,
+            dateAdded: publication.dateAdded,
+            dateModified: publication.dateModified,
+            citationCount: Int(publication.citationCount),
+            isStarred: publication.isStarred
+        )
     }
 }

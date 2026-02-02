@@ -97,7 +97,9 @@ public final class PDFImportHandler {
     /// - Parameters:
     ///   - preview: The import preview to commit
     ///   - libraryID: Target library UUID
-    public func commitImport(_ preview: PDFImportPreview, to libraryID: UUID) async throws {
+    /// - Returns: The UUID of the created/affected publication, or nil if skipped
+    @discardableResult
+    public func commitImport(_ preview: PDFImportPreview, to libraryID: UUID) async throws -> UUID? {
         Logger.files.infoCapture("Committing import for: \(preview.filename)", category: "files")
 
         let context = persistenceController.viewContext
@@ -113,11 +115,12 @@ public final class PDFImportHandler {
 
         switch preview.selectedAction {
         case .importAsNew:
-            try await createPublicationFromPreview(preview, in: library)
+            return try await createPublicationFromPreview(preview, in: library)
 
         case .attachToExisting:
             if let existingID = preview.existingPublication {
                 try await attachToExistingPublication(preview, publicationID: existingID, in: library)
+                return existingID
             } else {
                 throw DragDropError.publicationNotFound
             }
@@ -125,12 +128,14 @@ public final class PDFImportHandler {
         case .replace:
             if let existingID = preview.existingPublication {
                 try await replaceExistingPublication(preview, publicationID: existingID, in: library)
+                return existingID
             } else {
                 throw DragDropError.publicationNotFound
             }
 
         case .skip:
             Logger.files.infoCapture("Skipping import: \(preview.filename)", category: "files")
+            return nil
         }
     }
 
@@ -760,12 +765,15 @@ public final class PDFImportHandler {
     }
 
     /// Create a new publication from preview.
-    private func createPublicationFromPreview(_ preview: PDFImportPreview, in library: CDLibrary) async throws {
+    /// - Returns: The UUID of the created publication
+    @discardableResult
+    private func createPublicationFromPreview(_ preview: PDFImportPreview, in library: CDLibrary) async throws -> UUID {
         let context = persistenceController.viewContext
 
         // Create publication
         let publication = CDPublication(context: context)
-        publication.id = UUID()
+        let newID = UUID()
+        publication.id = newID
         publication.dateAdded = Date()
         publication.dateModified = Date()
 
@@ -851,12 +859,15 @@ public final class PDFImportHandler {
                 sourceURL: preview.sourceURL
             )
         }
+
+        return newID
     }
 
     /// Attach PDF to an existing publication.
     ///
     /// Checks if the PDF is already attached (by SHA256 hash) before importing.
-    /// Skips attachment if an identical file already exists.
+    /// Skips attachment if an identical file already exists, but still adds the
+    /// publication to the target library if not already there.
     private func attachToExistingPublication(_ preview: PDFImportPreview, publicationID: UUID, in library: CDLibrary) async throws {
         let context = persistenceController.viewContext
 
@@ -866,6 +877,16 @@ public final class PDFImportHandler {
 
         guard let publication = try? context.fetch(request).first else {
             throw DragDropError.publicationNotFound
+        }
+
+        // Ensure publication is in the target library (it may exist in a different library)
+        let isInTargetLibrary = publication.libraries?.contains(library) ?? false
+        if !isInTargetLibrary {
+            publication.addToLibrary(library)
+            Logger.files.infoCapture(
+                "Added existing publication '\(publication.citeKey)' to library '\(library.displayName)'",
+                category: "files"
+            )
         }
 
         // Check if this PDF is already attached (by hash comparison)
@@ -883,7 +904,8 @@ public final class PDFImportHandler {
                         "Skipping duplicate PDF attachment: \(preview.filename) matches existing \(existingFile.filename)",
                         category: "files"
                     )
-                    // Already attached - nothing to do
+                    // Already attached - save any library changes and return
+                    try context.save()
                     return
 
                 case .noDuplicate(let precomputedHash):

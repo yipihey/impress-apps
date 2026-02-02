@@ -1191,6 +1191,14 @@ public final class PersistenceController: @unchecked Sendable {
         dateCreated.isOptional = true  // Optional for backward compatibility
         properties.append(dateCreated)
 
+        // Sort order for manual reordering within parent
+        let sortOrder = NSAttributeDescription()
+        sortOrder.name = "sortOrder"
+        sortOrder.attributeType = .integer16AttributeType
+        sortOrder.isOptional = false
+        sortOrder.defaultValue = Int16(0)
+        properties.append(sortOrder)
+
         entity.properties = properties
         return entity
     }

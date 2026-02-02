@@ -43,6 +43,10 @@ struct IOSSidebarView: View {
     @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete
     @State private var isExplorationEditMode = false  // Edit mode for exploration section
 
+    // Library deletion state
+    @State private var libraryToDelete: CDLibrary?
+    @State private var showDeleteLibraryConfirmation = false
+
     // Inbox feed creation sheets
     @State private var showArXivFeedForInbox = false
     @State private var showGroupFeedForInbox = false
@@ -294,6 +298,14 @@ struct IOSSidebarView: View {
                     }
             }
         }
+        .alert("Delete Library?", isPresented: $showDeleteLibraryConfirmation, presenting: libraryToDelete) { library in
+            Button("Delete", role: .destructive) {
+                try? libraryManager.deleteLibrary(library)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { library in
+            Text("Are you sure you want to delete \"\(library.displayName)\"? This will remove all publications and cannot be undone.")
+        }
         .onChange(of: selection) { _, newValue in
             // Track which library is selected for contextual actions
             switch newValue {
@@ -521,8 +533,27 @@ struct IOSSidebarView: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+
+                // SciX permission sharing - requires SciX API integration (not yet implemented)
+                // if library.canManagePermissions {
+                //     Button { } label: { Label("Share...", systemImage: "person.2") }
+                // }
+
+                // SciX library deletion - requires SciX API integration (not yet implemented)
+                // if library.permissionLevelEnum == .owner {
+                //     Divider()
+                //     Button(role: .destructive) { } label: { Label("Delete Library", systemImage: "trash") }
+                // }
             }
         }
+        .onMove(perform: moveScixLibraries)
+    }
+
+    /// Handle SciX library reordering
+    private func moveScixLibraries(from source: IndexSet, to destination: Int) {
+        var reordered = scixRepository.libraries
+        reordered.move(fromOffsets: source, toOffset: destination)
+        scixRepository.updateSortOrder(reordered)
     }
 
     /// Search section content (without Section wrapper)
@@ -708,10 +739,17 @@ struct IOSSidebarView: View {
             }
         }
 
-        // Start with root collections (excluding smart search results)
-        for collection in Array(collections)
-            .filter({ $0.parentCollection == nil && !$0.isSmartSearchResults })
-            .sorted(by: { $0.name < $1.name }) {
+        // Start with root collections (excluding smart search results), sorted by sortOrder then name
+        let rootCollections = Array(collections)
+            .filter { $0.parentCollection == nil && !$0.isSmartSearchResults }
+            .sorted {
+                if $0.sortOrder != $1.sortOrder {
+                    return $0.sortOrder < $1.sortOrder
+                }
+                return $0.name < $1.name
+            }
+
+        for collection in rootCollections {
             addWithChildren(collection)
         }
 
@@ -977,6 +1015,9 @@ struct IOSSidebarView: View {
                     ForEach(visibleCollections, id: \.id) { collection in
                         libraryCollectionRow(collection, allCollections: flatCollections, library: library)
                     }
+                    .onMove { source, destination in
+                        moveCollections(from: source, to: destination, in: visibleCollections, library: library)
+                    }
                 }
             }
         } label: {
@@ -1009,6 +1050,36 @@ struct IOSSidebarView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // Accept collection drops for cross-library moves
+            .dropDestination(for: String.self) { items, _ in
+                guard let uuidString = items.first,
+                      let collectionID = UUID(uuidString: uuidString) else { return false }
+                return moveCollectionToLibrary(collectionID: collectionID, targetLibrary: library)
+            }
+            .contextMenu {
+                // Share via iOS share sheet
+                ShareLink(
+                    item: ShareablePublications(
+                        publications: (library.publications ?? [])
+                            .filter { !$0.isDeleted }
+                            .map { ShareablePublication(from: $0) },
+                        libraryName: library.displayName
+                    ),
+                    preview: SharePreview(
+                        library.displayName,
+                        image: Image(systemName: "books.vertical")
+                    )
+                ) {
+                    Label("Share Library...", systemImage: "square.and.arrow.up")
+                }
+
+                Divider()
+
+                Button("Delete Library", role: .destructive) {
+                    libraryToDelete = library
+                    showDeleteLibraryConfirmation = true
+                }
+            }
         }
     }
 
@@ -1025,10 +1096,17 @@ struct IOSSidebarView: View {
             }
         }
 
-        // Start with root collections (no parent)
-        for collection in Array(collections)
-            .filter({ $0.parentCollection == nil })
-            .sorted(by: { $0.name < $1.name }) {
+        // Start with root collections (no parent), sorted by sortOrder then name
+        let rootCollections = Array(collections)
+            .filter { $0.parentCollection == nil }
+            .sorted {
+                if $0.sortOrder != $1.sortOrder {
+                    return $0.sortOrder < $1.sortOrder
+                }
+                return $0.name < $1.name
+            }
+
+        for collection in rootCollections {
             addWithChildren(collection)
         }
 
@@ -1231,6 +1309,111 @@ struct IOSSidebarView: View {
         Task {
             await SmartSearchRepository().delete(search)
         }
+    }
+
+    /// Move a collection to a different library by ID
+    private func moveCollectionToLibrary(collectionID: UUID, targetLibrary: CDLibrary) -> Bool {
+        guard let context = targetLibrary.managedObjectContext else { return false }
+
+        let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+        request.predicate = NSPredicate(format: "id == %@", collectionID as CVarArg)
+        request.fetchLimit = 1
+
+        guard let collection = try? context.fetch(request).first else { return false }
+
+        // Don't move to same library
+        guard collection.library?.id != targetLibrary.id else { return false }
+
+        // Move collection and all descendants
+        moveCollectionTree(collection, to: targetLibrary)
+
+        // Clear parent (becomes root collection in target)
+        collection.parentCollection = nil
+
+        try? context.save()
+        refreshID = UUID()
+        return true
+    }
+
+    /// Recursively move a collection and all descendants to a target library
+    private func moveCollectionTree(_ collection: CDCollection, to targetLibrary: CDLibrary) {
+        // Change library
+        collection.library = targetLibrary
+
+        // Move publications to target library
+        if let publications = collection.publications {
+            for publication in publications {
+                publication.addToLibrary(targetLibrary)
+            }
+        }
+
+        // Recursively move all children
+        if let children = collection.childCollections {
+            for child in children {
+                moveCollectionTree(child, to: targetLibrary)
+            }
+        }
+    }
+
+    /// Reorder collections within their sibling group
+    private func moveCollections(from source: IndexSet, to destination: Int, in visibleCollections: [CDCollection], library: CDLibrary) {
+        // Get the source collection
+        guard let sourceIndex = source.first,
+              sourceIndex < visibleCollections.count else { return }
+
+        let sourceCollection = visibleCollections[sourceIndex]
+
+        // Determine valid destination - only allow reordering among siblings with same parent
+        let sourceParentID = sourceCollection.parentCollection?.id
+
+        // Find all siblings (collections with same parent at same depth)
+        let siblings = visibleCollections.filter { $0.parentCollection?.id == sourceParentID }
+        guard siblings.count > 1 else { return }
+
+        // Calculate the position within siblings
+        let sourceIndexInSiblings = siblings.firstIndex(where: { $0.id == sourceCollection.id }) ?? 0
+
+        // Find destination index in siblings
+        var destinationInSiblings = destination
+
+        // Calculate where in siblings this destination maps to
+        if destination < visibleCollections.count {
+            let destCollection = visibleCollections[min(destination, visibleCollections.count - 1)]
+            if destCollection.parentCollection?.id == sourceParentID {
+                destinationInSiblings = siblings.firstIndex(where: { $0.id == destCollection.id }) ?? siblings.count
+            } else {
+                // Destination is not a sibling, don't allow move
+                return
+            }
+        } else {
+            // Destination is past end, check if last sibling
+            if let lastSibling = siblings.last,
+               let lastIndex = visibleCollections.firstIndex(where: { $0.id == lastSibling.id }),
+               destination > lastIndex {
+                destinationInSiblings = siblings.count
+            } else {
+                return
+            }
+        }
+
+        // Don't move to same position
+        if sourceIndexInSiblings == destinationInSiblings || sourceIndexInSiblings + 1 == destinationInSiblings {
+            return
+        }
+
+        // Reorder siblings
+        var reorderedSiblings = siblings
+        reorderedSiblings.remove(at: sourceIndexInSiblings)
+        let insertIndex = destinationInSiblings > sourceIndexInSiblings ? destinationInSiblings - 1 : destinationInSiblings
+        reorderedSiblings.insert(sourceCollection, at: insertIndex)
+
+        // Update sortOrder for all siblings
+        for (index, collection) in reorderedSiblings.enumerated() {
+            collection.sortOrder = Int16(index)
+        }
+
+        try? library.managedObjectContext?.save()
+        refreshID = UUID()
     }
 
     private func deleteCollection(_ collection: CDCollection) {

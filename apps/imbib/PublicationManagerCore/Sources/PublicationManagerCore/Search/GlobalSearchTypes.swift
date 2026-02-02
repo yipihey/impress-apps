@@ -36,6 +36,14 @@ public struct GlobalSearchResult: Identifiable, Sendable {
     public let score: Float
     /// Library or collection name(s) this publication belongs to
     public let libraryNames: [String]
+    /// Date the publication was added to the library
+    public let dateAdded: Date?
+    /// Date the publication was last modified
+    public let dateModified: Date?
+    /// Citation count (if available)
+    public let citationCount: Int
+    /// Whether the publication is starred
+    public let isStarred: Bool
 
     public init(
         id: UUID,
@@ -46,7 +54,11 @@ public struct GlobalSearchResult: Identifiable, Sendable {
         snippet: String?,
         matchType: GlobalSearchMatchType,
         score: Float,
-        libraryNames: [String] = []
+        libraryNames: [String] = [],
+        dateAdded: Date? = nil,
+        dateModified: Date? = nil,
+        citationCount: Int = 0,
+        isStarred: Bool = false
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -57,6 +69,64 @@ public struct GlobalSearchResult: Identifiable, Sendable {
         self.matchType = matchType
         self.score = score
         self.libraryNames = libraryNames
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.citationCount = citationCount
+        self.isStarred = isStarred
+    }
+}
+
+// MARK: - Global Search Sort Order
+
+/// Sort order options for global search results.
+/// Includes all library sort options plus relevance (default for search).
+public enum GlobalSearchSortOrder: String, CaseIterable, Identifiable, Sendable {
+    case relevance      // Default for search - by combined score
+    case dateAdded
+    case dateModified
+    case title
+    case year
+    case citeKey
+    case citationCount
+    case starred
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .relevance: return "Relevance"
+        case .dateAdded: return "Date Added"
+        case .dateModified: return "Date Modified"
+        case .title: return "Title"
+        case .year: return "Year"
+        case .citeKey: return "Cite Key"
+        case .citationCount: return "Citation Count"
+        case .starred: return "Starred First"
+        }
+    }
+
+    /// Default sort direction for this field.
+    public var defaultAscending: Bool {
+        switch self {
+        case .relevance, .dateAdded, .dateModified, .year, .citationCount, .starred:
+            return false  // Descending (highest relevance/newest/highest first)
+        case .title, .citeKey:
+            return true   // Ascending (A-Z)
+        }
+    }
+
+    /// SF Symbol for the sort order
+    public var iconName: String {
+        switch self {
+        case .relevance: return "sparkle.magnifyingglass"
+        case .dateAdded: return "calendar.badge.plus"
+        case .dateModified: return "calendar.badge.clock"
+        case .title: return "textformat"
+        case .year: return "calendar"
+        case .citeKey: return "key"
+        case .citationCount: return "quote.bubble"
+        case .starred: return "star"
+        }
     }
 }
 

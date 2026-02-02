@@ -373,9 +373,53 @@ public struct GlobalSearchPaletteView: View {
             }
 
             Spacer()
+
+            // Sort menu
+            sortMenu
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Sort Menu
+
+    private var sortMenu: some View {
+        Menu {
+            ForEach(GlobalSearchSortOrder.allCases) { order in
+                Button {
+                    if viewModel.sortOrder == order {
+                        // Same order selected - toggle direction
+                        viewModel.sortAscending.toggle()
+                    } else {
+                        // Different order - set new order with default direction
+                        viewModel.sortOrder = order
+                        viewModel.sortAscending = order.defaultAscending
+                    }
+                    viewModel.resortResults()
+                } label: {
+                    HStack {
+                        Label(order.displayName, systemImage: order.iconName)
+                        Spacer()
+                        if viewModel.sortOrder == order {
+                            Image(systemName: viewModel.sortAscending ? "chevron.up" : "chevron.down")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                Text(viewModel.sortOrder.displayName)
+                Image(systemName: viewModel.sortAscending ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .help("Change sort order (click again to reverse)")
     }
 
     /// Menu for a single library with its collections

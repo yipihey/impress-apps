@@ -73,12 +73,13 @@ public final class PersistenceController: Sendable {
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
-        // CloudKit container
-        if !inMemory {
-            description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
-                containerIdentifier: "iCloud.com.imbib.shared"
-            )
-        }
+        // CloudKit container - temporarily disabled pending provisioning setup
+        // TODO: Re-enable once CloudKit container is configured in Apple Developer portal
+        // if !inMemory {
+        //     description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+        //         containerIdentifier: "iCloud.com.imbib.shared"
+        //     )
+        // }
 
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {

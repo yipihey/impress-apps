@@ -11,6 +11,7 @@ import CoreSpotlight
 import PublicationManagerCore
 import OSLog
 import UniformTypeIdentifiers
+import ImpressKeyboard
 #if os(macOS)
 import AppKit
 #endif
@@ -713,7 +714,7 @@ struct AppCommands: Commands {
         // When a text field has focus, use system clipboard; otherwise, use publication clipboard
         CommandGroup(replacing: .pasteboard) {
             Button("Copy") {
-                if isTextFieldFocused() {
+                if TextFieldFocusDetection.isTextFieldFocused() {
                     NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
                 } else {
                     NotificationCenter.default.post(name: .copyPublications, object: nil)
@@ -732,7 +733,7 @@ struct AppCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .option])
 
             Button("Cut") {
-                if isTextFieldFocused() {
+                if TextFieldFocusDetection.isTextFieldFocused() {
                     NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
                 } else {
                     NotificationCenter.default.post(name: .cutPublications, object: nil)
@@ -741,7 +742,7 @@ struct AppCommands: Commands {
             .keyboardShortcut("x", modifiers: .command)
 
             Button("Paste") {
-                if isTextFieldFocused() {
+                if TextFieldFocusDetection.isTextFieldFocused() {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
                 } else {
                     NotificationCenter.default.post(name: .pastePublications, object: nil)
@@ -752,7 +753,7 @@ struct AppCommands: Commands {
             Divider()
 
             Button("Select All") {
-                if isTextFieldFocused() {
+                if TextFieldFocusDetection.isTextFieldFocused() {
                     NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
                 } else {
                     NotificationCenter.default.post(name: .selectAllPublications, object: nil)
@@ -1176,20 +1177,6 @@ struct AppCommands: Commands {
                 }
             }
         }
-    }
-
-    /// Check if an editable text field or text view currently has keyboard focus
-    private func isTextFieldFocused() -> Bool {
-        guard let window = NSApp.keyWindow,
-              let firstResponder = window.firstResponder else {
-            return false
-        }
-        // Check if it's an editable NSTextView (TextField, TextEditor, etc.)
-        // Non-editable NSTextViews (used by SwiftUI for rendering) should not capture Cmd+A
-        if let textView = firstResponder as? NSTextView {
-            return textView.isEditable
-        }
-        return false
     }
 
     /// Export current libraries as a default library set (development mode)

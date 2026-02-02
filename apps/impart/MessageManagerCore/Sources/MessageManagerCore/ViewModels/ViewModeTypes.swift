@@ -24,6 +24,9 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
     /// AI research conversations with counsel.
     case research
 
+    /// Development conversations for Claude Code integration.
+    case development
+
     /// Display name for UI.
     public var displayName: String {
         switch self {
@@ -31,6 +34,7 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
         case .chat: return "Chat"
         case .category: return "Category"
         case .research: return "Research"
+        case .development: return "Development"
         }
     }
 
@@ -41,16 +45,18 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
         case .chat: return "bubble.left.and.bubble.right"
         case .category: return "tray.2"
         case .research: return "brain.head.profile"
+        case .development: return "hammer"
         }
     }
 
-    /// Keyboard shortcut (⌘1, ⌘2, ⌘3, ⌘4).
+    /// Keyboard shortcut (⌘1, ⌘2, ⌘3, ⌘4, ⌘5).
     public var keyboardShortcut: KeyEquivalent {
         switch self {
         case .email: return "1"
         case .chat: return "2"
         case .category: return "3"
         case .research: return "4"
+        case .development: return "5"
         }
     }
 }

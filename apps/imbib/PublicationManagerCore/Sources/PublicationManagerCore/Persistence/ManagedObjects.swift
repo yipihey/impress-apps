@@ -773,6 +773,9 @@ public class CDCollection: NSManagedObject, Identifiable {
     // Date tracking for exploration collection cleanup
     @NSManaged public var dateCreated: Date?          // When the collection was created (for retention cleanup)
 
+    // Manual ordering within parent
+    @NSManaged public var sortOrder: Int16            // For user-defined ordering (0-based)
+
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
     @NSManaged public var smartSearch: CDSmartSearch?     // Inverse of CDSmartSearch.resultCollection
@@ -842,9 +845,14 @@ public extension CDCollection {
         !(childCollections?.isEmpty ?? true)
     }
 
-    /// Sorted child collections by name
+    /// Sorted child collections by sortOrder, then by name as fallback
     var sortedChildren: [CDCollection] {
-        (childCollections ?? []).sorted { ($0.name) < ($1.name) }
+        (childCollections ?? []).sorted {
+            if $0.sortOrder != $1.sortOrder {
+                return $0.sortOrder < $1.sortOrder
+            }
+            return $0.name < $1.name
+        }
     }
 
     /// All ancestor collections from root to parent
@@ -1007,6 +1015,18 @@ public extension CDLibrary {
     /// Path: `~/Library/Application Support/imbib/Libraries/{UUID}/Papers/`
     var papersContainerURL: URL {
         containerURL.appendingPathComponent("Papers")
+    }
+
+    /// Root collections (no parent) sorted by sortOrder, then by name as fallback
+    var sortedRootCollections: [CDCollection] {
+        (collections ?? [])
+            .filter { $0.parentCollection == nil && !$0.isSystemCollection && !$0.isSmartSearchResults }
+            .sorted {
+                if $0.sortOrder != $1.sortOrder {
+                    return $0.sortOrder < $1.sortOrder
+                }
+                return $0.name < $1.name
+            }
     }
 }
 

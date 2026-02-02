@@ -44,7 +44,9 @@ public struct EInkSettingsView: View {
         .sheet(isPresented: $showingAddDevice) {
             AddDeviceSheet(onAdd: { deviceType, syncMethod in
                 showingAddDevice = false
-                // Handle device addition
+                Task {
+                    await addDevice(type: deviceType, method: syncMethod)
+                }
             })
         }
         .alert("Authentication Code", isPresented: .constant(authCode != nil)) {
@@ -68,6 +70,28 @@ public struct EInkSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .einkShowAuthCode)) { notification in
             if let code = notification.userInfo?["code"] as? String {
                 authCode = code
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .remarkableShowAuthCode)) { notification in
+            if let code = notification.userInfo?["code"] as? String {
+                authCode = code
+            }
+        }
+        .alert("Error", isPresented: .constant(errorMessage != nil)) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            if let message = errorMessage {
+                Text(message)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { selectedDeviceForConfig != nil },
+            set: { if !$0 { selectedDeviceForConfig = nil } }
+        )) {
+            if let deviceID = selectedDeviceForConfig {
+                DeviceConfigurationSheet(deviceID: deviceID)
             }
         }
     }
@@ -192,6 +216,163 @@ public struct EInkSettingsView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func addDevice(type: EInkDeviceType, method: EInkSyncMethod) async {
+        do {
+            switch type {
+            case .remarkable:
+                try await addRemarkableDevice(method: method)
+            case .supernote:
+                try await addSupernoteDevice(method: method)
+            case .kindleScribe:
+                try await addKindleScribeDevice(method: method)
+            }
+            await refreshDeviceInfo()
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+            }
+            logger.error("Failed to add device: \(error)")
+        }
+    }
+
+    private func addRemarkableDevice(method: EInkSyncMethod) async throws {
+        switch method {
+        case .cloudApi:
+            // Create cloud backend
+            let cloudBackend = RemarkableCloudBackend()
+
+            // Register with RemarkableBackendManager
+            await MainActor.run {
+                RemarkableBackendManager.shared.registerBackend(cloudBackend)
+            }
+
+            // Create and register EInk adapter
+            let adapter = await RemarkableDeviceAdapter(backend: cloudBackend, syncMethod: .cloudApi)
+            await deviceManager.registerDevice(adapter)
+
+            // Start authentication flow
+            try await cloudBackend.authenticate()
+
+            // Store device settings
+            let deviceID = await adapter.deviceID
+            await MainActor.run {
+                settings.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.deviceType = .remarkable
+                    deviceSettings.syncMethod = .cloudApi
+                    deviceSettings.displayName = "reMarkable Cloud"
+                    deviceSettings.isAuthenticated = true
+                }
+                settings.activeDeviceID = deviceID
+            }
+
+            // Select as active device
+            try await deviceManager.selectDevice(deviceID)
+
+            logger.info("Added reMarkable Cloud device: \(deviceID)")
+
+        case .folderSync:
+            // For folder sync, we need to prompt for folder selection first
+            // This is handled by the configuration sheet after initial add
+            let deviceID = "remarkable-local-\(UUID().uuidString.prefix(8))"
+            await MainActor.run {
+                settings.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.deviceType = .remarkable
+                    deviceSettings.syncMethod = .folderSync
+                    deviceSettings.displayName = "reMarkable (Folder Sync)"
+                }
+            }
+            // Open configuration sheet to choose folder
+            selectedDeviceForConfig = deviceID
+            logger.info("Added reMarkable folder sync device, awaiting configuration")
+
+        case .usb:
+            // USB is similar to folder sync
+            let deviceID = "remarkable-usb-\(UUID().uuidString.prefix(8))"
+            await MainActor.run {
+                settings.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.deviceType = .remarkable
+                    deviceSettings.syncMethod = .usb
+                    deviceSettings.displayName = "reMarkable (USB)"
+                }
+            }
+            selectedDeviceForConfig = deviceID
+            logger.info("Added reMarkable USB device, awaiting configuration")
+
+        default:
+            throw EInkError.unsupportedSyncMethod(method)
+        }
+    }
+
+    private func addSupernoteDevice(method: EInkSyncMethod) async throws {
+        let deviceID = "supernote-\(UUID().uuidString.prefix(8))"
+
+        // Create and register the device
+        let device = SupernoteDevice(
+            deviceID: deviceID,
+            displayName: "Supernote",
+            folderPath: nil  // Will be configured via sheet
+        )
+        await deviceManager.registerDevice(device)
+
+        // Store device settings
+        await MainActor.run {
+            settings.updateSettings(for: deviceID) { deviceSettings in
+                deviceSettings.deviceType = .supernote
+                deviceSettings.syncMethod = method
+                deviceSettings.displayName = "Supernote"
+            }
+        }
+
+        logger.info("Added Supernote device: \(deviceID)")
+
+        // Show configuration sheet to choose folder
+        await MainActor.run {
+            selectedDeviceForConfig = deviceID
+        }
+    }
+
+    private func addKindleScribeDevice(method: EInkSyncMethod) async throws {
+        let deviceID = "kindle-scribe-\(UUID().uuidString.prefix(8))"
+
+        // Create device based on sync method
+        let device: KindleScribeDevice
+        switch method {
+        case .usb:
+            device = KindleScribeDevice(
+                deviceID: deviceID,
+                displayName: "Kindle Scribe",
+                mountPath: nil  // Will be configured via sheet
+            )
+        case .email:
+            device = KindleScribeDevice(
+                deviceID: deviceID,
+                displayName: "Kindle Scribe",
+                email: ""  // Will be configured via sheet
+            )
+        default:
+            throw EInkError.unsupportedSyncMethod(method)
+        }
+
+        // Register the device
+        await deviceManager.registerDevice(device)
+
+        // Store device settings
+        await MainActor.run {
+            settings.updateSettings(for: deviceID) { deviceSettings in
+                deviceSettings.deviceType = .kindleScribe
+                deviceSettings.syncMethod = method
+                deviceSettings.displayName = "Kindle Scribe"
+            }
+        }
+
+        logger.info("Added Kindle Scribe device: \(deviceID)")
+
+        // Show configuration sheet
+        await MainActor.run {
+            selectedDeviceForConfig = deviceID
         }
     }
 }
@@ -469,13 +650,35 @@ struct DeviceConfigurationSheet: View {
     }
 
     private func save() {
-        Task { @MainActor in
-            EInkSettingsStore.shared.updateSettings(for: deviceID) { deviceSettings in
-                deviceSettings.localFolderPath = folderPath.isEmpty ? nil : folderPath
-                deviceSettings.sendToEmail = email.isEmpty ? nil : email
+        Task {
+            // Update settings store
+            await MainActor.run {
+                EInkSettingsStore.shared.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.localFolderPath = folderPath.isEmpty ? nil : folderPath
+                    deviceSettings.sendToEmail = email.isEmpty ? nil : email
+                }
+            }
+
+            // Configure the actual device
+            if let device = await MainActor.run(body: { EInkDeviceManager.shared.device(withID: deviceID) }) {
+                if !folderPath.isEmpty {
+                    let folderURL = URL(fileURLWithPath: folderPath)
+                    // Configure based on device type
+                    if let supernote = device as? SupernoteDevice {
+                        await supernote.configure(folderPath: folderURL)
+                    } else if let kindle = device as? KindleScribeDevice {
+                        await kindle.configureUSB(mountPath: folderURL)
+                    }
+                }
+                if !email.isEmpty, let kindle = device as? KindleScribeDevice {
+                    await kindle.configureEmail(address: email)
+                }
+            }
+
+            await MainActor.run {
+                dismiss()
             }
         }
-        dismiss()
     }
 }
 

@@ -62,6 +62,7 @@ public enum AccessibilityID {
             public static let titleField = "detail.info.titleField"
             public static let authorsField = "detail.info.authorsField"
             public static let authorsExpand = "detail.info.authorsExpand"
+            public static let authorsCollapse = "detail.info.authorsCollapse"
             public static let yearField = "detail.info.yearField"
             public static let journalField = "detail.info.journalField"
             public static let abstractField = "detail.info.abstractField"

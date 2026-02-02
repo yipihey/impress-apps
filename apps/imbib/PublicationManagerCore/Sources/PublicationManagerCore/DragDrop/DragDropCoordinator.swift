@@ -420,16 +420,32 @@ public final class DragDropCoordinator {
     // MARK: - Confirmation Actions
 
     /// Confirm and execute a pending PDF import.
-    public func confirmPDFImport(_ previews: [PDFImportPreview], to libraryID: UUID) async throws {
+    /// - Returns: Array of created/affected publication UUIDs
+    @discardableResult
+    public func confirmPDFImport(_ previews: [PDFImportPreview], to libraryID: UUID) async throws -> [UUID] {
         isProcessing = true
         defer {
             isProcessing = false
             pendingPreview = nil
         }
 
+        var importedIDs: [UUID] = []
+
         for preview in previews where preview.selectedAction != .skip {
-            try await pdfImportHandler.commitImport(preview, to: libraryID)
+            if let pubID = try await pdfImportHandler.commitImport(preview, to: libraryID) {
+                importedIDs.append(pubID)
+            }
         }
+
+        // Post notification with imported publication IDs for UI to respond
+        if !importedIDs.isEmpty {
+            NotificationCenter.default.post(
+                name: .pdfImportCompleted,
+                object: importedIDs
+            )
+        }
+
+        return importedIDs
     }
 
     /// Confirm and execute a pending BibTeX/RIS import.

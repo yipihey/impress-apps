@@ -58,13 +58,37 @@ public struct ExpandableAuthorList: View {
         self.collapseThreshold = collapseThreshold
     }
 
-    /// Convenience initializer from a semicolon-separated author string
+    /// Convenience initializer from an author string
+    ///
+    /// Supports multiple formats:
+    /// - Semicolon-separated: "Author1; Author2; Author3"
+    /// - Comma-separated: "Author1, Author2, Author3"
+    /// - BibTeX "and" format: "Author1 and Author2 and Author3"
     public init(authorString: String) {
-        // Parse author string - could be semicolon or "and" separated
-        let cleaned = authorString
-            .replacingOccurrences(of: " and ", with: "; ")
-            .replacingOccurrences(of: ", and ", with: "; ")
-        self.authors = cleaned.components(separatedBy: "; ")
+        // Determine the separator used in the string
+        // Priority: semicolon > "and" > comma (comma is ambiguous with "Last, First" format)
+        let cleaned: String
+        let detectedSeparator: String
+
+        if authorString.contains("; ") {
+            // Semicolon-separated (most explicit)
+            cleaned = authorString
+                .replacingOccurrences(of: " and ", with: "; ")
+                .replacingOccurrences(of: ", and ", with: "; ")
+            detectedSeparator = "; "
+        } else if authorString.contains(" and ") {
+            // BibTeX "and" format
+            cleaned = authorString
+                .replacingOccurrences(of: ", and ", with: " and ")
+            detectedSeparator = " and "
+        } else {
+            // Comma-separated (e.g., from CDPublication.authorString)
+            // Note: This works because authorString joins authors with ", " between full names
+            cleaned = authorString
+            detectedSeparator = ", "
+        }
+
+        self.authors = cleaned.components(separatedBy: detectedSeparator)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         self.separator = "; "
@@ -75,15 +99,30 @@ public struct ExpandableAuthorList: View {
 
     // MARK: - Computed Properties
 
-    private var shouldCollapse: Bool {
-        authors.count > collapseThreshold && !isExpanded
+    /// Whether the list can be collapsed (has more than threshold authors)
+    private var canCollapse: Bool {
+        authors.count > collapseThreshold
+    }
+
+    /// Whether currently showing collapsed state
+    private var isCollapsed: Bool {
+        canCollapse && !isExpanded
     }
 
     private var hiddenCount: Int {
-        guard shouldCollapse else { return 0 }
+        guard canCollapse else { return 0 }
         // Hidden = total - visibleStart - lastAuthor (if shown)
         let visibleCount = visibleStartCount + (showLastAuthor ? 1 : 0)
         return max(0, authors.count - visibleCount)
+    }
+
+    /// The middle authors that are hidden when collapsed
+    private var middleAuthors: [String] {
+        guard canCollapse else { return [] }
+        let startIndex = visibleStartCount
+        let endIndex = showLastAuthor ? authors.count - 1 : authors.count
+        guard startIndex < endIndex else { return [] }
+        return Array(authors[startIndex..<endIndex])
     }
 
     // MARK: - Body
@@ -92,13 +131,16 @@ public struct ExpandableAuthorList: View {
         if authors.isEmpty {
             Text("Unknown")
                 .textSelection(.enabled)
-        } else if !shouldCollapse {
-            // Show all authors
+        } else if !canCollapse {
+            // Show all authors (less than threshold)
             Text(authors.joined(separator: separator))
                 .textSelection(.enabled)
-        } else {
+        } else if isCollapsed {
             // Show collapsed view with expandable "..."
             collapsedView
+        } else {
+            // Show expanded view with collapsible middle section
+            expandedView
         }
     }
 
@@ -107,7 +149,7 @@ public struct ExpandableAuthorList: View {
     @ViewBuilder
     private var collapsedView: some View {
         // Build the display as concatenated Text for proper line wrapping
-        // Format: "Author1; Author2; ...; Author9; ...; LastAuthor"
+        // Format: "Author1; Author2; ...; Author9; [...]; LastAuthor"
         let firstAuthors = Array(authors.prefix(visibleStartCount))
         let lastAuthor = showLastAuthor ? authors.last : nil
 
@@ -115,7 +157,7 @@ public struct ExpandableAuthorList: View {
         let combinedText: Text = {
             var result = Text(firstAuthors.joined(separator: separator))
 
-            // Add separator and ellipsis
+            // Add separator and ellipsis link
             result = result + Text(separator)
             result = result + Text("...")
                 .foregroundStyle(.blue)
@@ -140,6 +182,50 @@ public struct ExpandableAuthorList: View {
             .accessibilityIdentifier(AccessibilityID.Detail.Info.authorsExpand)
             #if os(macOS)
             .help("Click to show all \(authors.count) authors (\(hiddenCount) hidden)")
+            #endif
+    }
+
+    // MARK: - Expanded View
+
+    @ViewBuilder
+    private var expandedView: some View {
+        // Build the display with middle authors as a collapsible link
+        // Format: "Author1; ...; Author9; [Author10; Author11; ...]; LastAuthor"
+        let firstAuthors = Array(authors.prefix(visibleStartCount))
+        let lastAuthor = showLastAuthor ? authors.last : nil
+        let middle = middleAuthors
+
+        // Use Text concatenation (+) instead of HStack for proper text wrapping
+        let combinedText: Text = {
+            var result = Text(firstAuthors.joined(separator: separator))
+
+            // Add middle authors as a link
+            if !middle.isEmpty {
+                result = result + Text(separator)
+                result = result + Text(middle.joined(separator: separator))
+                    .foregroundStyle(.blue)
+                    .underline()
+            }
+
+            // Add last author if shown
+            if let last = lastAuthor {
+                result = result + Text(separator)
+                result = result + Text(last)
+            }
+
+            return result
+        }()
+
+        combinedText
+            .textSelection(.enabled)
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded = false
+                }
+            }
+            .accessibilityIdentifier(AccessibilityID.Detail.Info.authorsCollapse)
+            #if os(macOS)
+            .help("Click to collapse author list")
             #endif
     }
 }

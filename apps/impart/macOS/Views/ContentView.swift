@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MessageManagerCore
+import ImpressKeyboard
 
 // MARK: - Content View
 
@@ -21,6 +22,7 @@ struct ContentView: View {
     @State private var viewModeState = ViewModeState()
     @State private var selectedSection: ImpartSidebarSection?
     @State private var selectedFolder: UUID?
+    @State private var developmentViewModel = DevelopmentConversationViewModel()
 
     // Keyboard shortcuts store
     @State private var keyboardStore = ImpartKeyboardShortcutsStore.shared
@@ -94,6 +96,7 @@ struct ContentView: View {
         .keyboardShortcut("2", modifiers: .command) // Chat view
         .keyboardShortcut("3", modifiers: .command) // Category view
         .keyboardShortcut("4", modifiers: .command) // Research view
+        .keyboardShortcut("5", modifiers: .command) // Development view
         // Notification handlers
         .onReceive(NotificationCenter.default.publisher(for: .composeMessage)) { notification in
             handleComposeNotification(notification)
@@ -113,6 +116,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("switchToResearchView"))) { _ in
             viewModeState.mode = .research
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("switchToDevelopmentView"))) { _ in
+            viewModeState.mode = .development
+        }
     }
 
     // MARK: - View Mode Content
@@ -131,6 +137,8 @@ struct ContentView: View {
             CategoryView(viewModel: viewModel)
         case .research:
             ResearchConversationListView()
+        case .development:
+            DevelopmentConversationListView(viewModel: developmentViewModel)
         }
     }
 
@@ -144,7 +152,7 @@ struct ContentView: View {
             }
         }
         .pickerStyle(.segmented)
-        .help("Switch view mode (Cmd+1/2/3/4)")
+        .help("Switch view mode (Cmd+1/2/3/4/5)")
     }
 
     // MARK: - Keyboard Handling
@@ -171,13 +179,17 @@ struct ContentView: View {
             case "4":
                 viewModeState.mode = .research
                 return .handled
+            case "5":
+                viewModeState.mode = .development
+                return .handled
             default:
                 break
             }
         }
 
         // Handle vim-style navigation (no modifiers)
-        if press.modifiers.isEmpty {
+        // Skip when composing or when a text field has focus
+        if press.modifiers.isEmpty && !appState.isComposing && !TextFieldFocusDetection.isTextFieldFocused() {
             switch press.characters {
             case "j":
                 navigateToNextMessage()
@@ -208,8 +220,8 @@ struct ContentView: View {
             }
         }
 
-        // Shift+s for toggle star
-        if press.modifiers == .shift && press.characters.lowercased() == "s" {
+        // Shift+s for toggle star (skip when text field has focus)
+        if press.modifiers == .shift && press.characters.lowercased() == "s" && !appState.isComposing && !TextFieldFocusDetection.isTextFieldFocused() {
             toggleStarOnSelected()
             return .handled
         }

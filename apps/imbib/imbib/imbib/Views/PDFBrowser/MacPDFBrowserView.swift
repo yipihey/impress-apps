@@ -944,6 +944,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
             Task { @MainActor in
                 viewModel.downloadProgress = 0
+                viewModel.isDownloading = true
             }
 
             // Always use a temp file - returning nil causes sandbox extension errors
@@ -993,6 +994,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                     viewModel.detectedPDFFilename = downloadFilename
                     viewModel.detectedPDFData = finalData
                     viewModel.downloadProgress = nil
+                    viewModel.isDownloading = false
                 }
             } else {
                 // Log diagnostic info to help debug why it's not a PDF
@@ -1001,6 +1003,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 Task { @MainActor in
                     viewModel.errorMessage = "Downloaded file is not a PDF"
                     viewModel.downloadProgress = nil
+                    viewModel.isDownloading = false
                 }
             }
 
@@ -1052,6 +1055,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             Task { @MainActor in
                 viewModel.errorMessage = "Download failed: \(error.localizedDescription)"
                 viewModel.downloadProgress = nil
+                viewModel.isDownloading = false
             }
             downloadData = Data()
         }

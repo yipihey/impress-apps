@@ -49,6 +49,9 @@ public final class PDFBrowserViewModel {
     /// Download progress (0.0 to 1.0)
     public var downloadProgress: Double?
 
+    /// Whether a download is currently in progress
+    public var isDownloading: Bool = false
+
     /// Data of a detected PDF download
     public var detectedPDFData: Data?
 
@@ -224,10 +227,41 @@ public final class PDFBrowserViewModel {
         isCapturing = false
     }
 
-    /// Save the detected PDF to the library and close the browser
+    /// Save the detected PDF to the library and close the browser.
+    ///
+    /// If a download is in progress, this will wait for it to complete before saving.
+    /// This prevents saving corrupted/incomplete PDFs.
     public func saveDetectedPDF() async {
+        // Wait for any in-progress download to complete
+        if isDownloading {
+            Logger.pdfBrowser.info("Download in progress, waiting for completion...")
+
+            // Poll until download completes (max 60 seconds)
+            let maxWaitTime: TimeInterval = 60
+            let startTime = Date()
+
+            while isDownloading && Date().timeIntervalSince(startTime) < maxWaitTime {
+                try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
+            }
+
+            if isDownloading {
+                Logger.pdfBrowser.warning("Download timed out after \(maxWaitTime)s")
+                errorMessage = "Download timed out. Please try again."
+                return
+            }
+
+            Logger.pdfBrowser.info("Download completed, proceeding with save")
+        }
+
         guard let data = detectedPDFData else {
             Logger.pdfBrowser.warning("No PDF data to save")
+            return
+        }
+
+        // Verify the PDF is valid (has proper magic bytes and reasonable size)
+        guard data.count >= 100, data.prefix(4) == Data([0x25, 0x50, 0x44, 0x46]) else {
+            Logger.pdfBrowser.warning("PDF data appears invalid or incomplete")
+            errorMessage = "PDF appears incomplete. Please try downloading again."
             return
         }
 
@@ -250,6 +284,7 @@ public final class PDFBrowserViewModel {
         detectedPDFFilename = filename
         detectedPDFData = data
         downloadProgress = nil
+        isDownloading = false  // Download complete
 
         Logger.pdfBrowser.info("PDF detected: \(filename), \(data.count) bytes")
     }
@@ -451,12 +486,14 @@ public final class PDFBrowserViewModel {
     /// Called when download starts
     public func downloadDidStart(filename: String) {
         downloadProgress = 0
+        isDownloading = true
         Logger.pdfBrowser.info("Download started: \(filename)")
     }
 
     /// Called when download fails
     public func downloadDidFail(error: Error) {
         downloadProgress = nil
+        isDownloading = false
         errorMessage = "Download failed: \(error.localizedDescription)"
 
         Logger.pdfBrowser.error("Download failed: \(error.localizedDescription)")

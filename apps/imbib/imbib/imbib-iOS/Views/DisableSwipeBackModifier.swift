@@ -37,15 +37,21 @@ private struct DisableSwipeBackView: UIViewControllerRepresentable {
 /// View controller that disables the navigation controller's pop gesture on appear
 private class DisableSwipeBackViewController: UIViewController {
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        // Disable the interactive pop gesture recognizer
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Disable the interactive pop gesture recognizer early
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        // Re-enable when leaving this view
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Ensure it stays disabled after view is fully visible
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Re-enable after view is fully gone
         navigationController?.interactivePopGestureRecognizer?.isEnabled = true
     }
 }
@@ -84,16 +90,22 @@ private struct DisableSplitViewGestureView: UIViewControllerRepresentable {
 /// View controller that finds and disables the split view controller's presentation gesture
 private class DisableSplitViewGestureViewController: UIViewController {
 
-    private var gestureWasEnabled: Bool?
+    private var disabledGestures: [UIGestureRecognizer] = []
     private weak var cachedSplitVC: UISplitViewController?
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
         disableSplitViewGesture()
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Ensure gestures stay disabled after view is fully visible
+        disableSplitViewGesture()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
         restoreSplitViewGesture()
     }
 
@@ -105,11 +117,22 @@ private class DisableSplitViewGestureViewController: UIViewController {
                 cachedSplitVC = split
 
                 // Disable the presentation gesture by finding and disabling
-                // the edge pan gesture recognizer on the split view controller's view
+                // edge pan gesture recognizers on the split view controller's view
+                // and all parent views up to the window
                 disableEdgePanGestures(in: split.view)
+
+                // Also check the view controller's view hierarchy
+                if let window = split.view.window {
+                    disableEdgePanGestures(in: window)
+                }
                 break
             }
             current = vc.parent
+        }
+
+        // Also check our own view hierarchy for any edge pan gestures
+        if let window = view.window {
+            disableEdgePanGestures(in: window)
         }
     }
 
@@ -118,12 +141,13 @@ private class DisableSplitViewGestureViewController: UIViewController {
         // to show/hide the primary column. We need to disable it.
         for gestureRecognizer in view.gestureRecognizers ?? [] {
             if let edgePan = gestureRecognizer as? UIScreenEdgePanGestureRecognizer {
-                if edgePan.edges.contains(.left) {
-                    // This is the sidebar reveal gesture
-                    if gestureWasEnabled == nil {
-                        gestureWasEnabled = edgePan.isEnabled
+                // Disable left edge gestures (sidebar reveal) and right edge gestures
+                // to prevent any navigation interference with swipe actions
+                if edgePan.edges.contains(.left) || edgePan.edges.contains(.right) {
+                    if edgePan.isEnabled && !disabledGestures.contains(where: { $0 === edgePan }) {
+                        edgePan.isEnabled = false
+                        disabledGestures.append(edgePan)
                     }
-                    edgePan.isEnabled = false
                 }
             }
         }
@@ -135,30 +159,11 @@ private class DisableSplitViewGestureViewController: UIViewController {
     }
 
     private func restoreSplitViewGesture() {
-        guard let split = cachedSplitVC else { return }
-
-        // Re-enable the gesture when leaving this view
-        restoreEdgePanGestures(in: split.view)
-        gestureWasEnabled = nil
-    }
-
-    private func restoreEdgePanGestures(in view: UIView) {
-        for gestureRecognizer in view.gestureRecognizers ?? [] {
-            if let edgePan = gestureRecognizer as? UIScreenEdgePanGestureRecognizer {
-                if edgePan.edges.contains(.left) {
-                    // Only restore if it was originally enabled
-                    if let wasEnabled = gestureWasEnabled {
-                        edgePan.isEnabled = wasEnabled
-                    } else {
-                        edgePan.isEnabled = true
-                    }
-                }
-            }
+        // Re-enable all gestures we disabled
+        for gesture in disabledGestures {
+            gesture.isEnabled = true
         }
-
-        for subview in view.subviews {
-            restoreEdgePanGestures(in: subview)
-        }
+        disabledGestures.removeAll()
     }
 }
 

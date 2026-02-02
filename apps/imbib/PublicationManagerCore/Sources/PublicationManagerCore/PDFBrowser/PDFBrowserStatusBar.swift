@@ -88,12 +88,20 @@ public struct PDFBrowserStatusBar: View {
                     await viewModel.saveDetectedPDF()
                 }
             } label: {
-                Label("Save PDF", systemImage: "square.and.arrow.down")
+                if viewModel.isDownloading {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Downloading...")
+                    }
+                } else {
+                    Label("Save PDF", systemImage: "square.and.arrow.down")
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(viewModel.detectedPDFData == nil)
-            .help(viewModel.detectedPDFData != nil ? "Save detected PDF to library" : "No PDF detected")
+            .disabled(viewModel.detectedPDFData == nil && !viewModel.isDownloading)
+            .help(savePDFButtonHelp)
         }
     }
 
@@ -106,6 +114,16 @@ public struct PDFBrowserStatusBar: View {
             return "Already using library proxy"
         } else {
             return "Reload page through library proxy"
+        }
+    }
+
+    private var savePDFButtonHelp: String {
+        if viewModel.isDownloading {
+            return "PDF is downloading - click to save when complete"
+        } else if viewModel.detectedPDFData != nil {
+            return "Save detected PDF to library"
+        } else {
+            return "No PDF detected"
         }
     }
 

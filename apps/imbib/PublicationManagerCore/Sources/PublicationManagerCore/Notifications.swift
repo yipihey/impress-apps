@@ -585,4 +585,17 @@ public extension Notification.Name {
 
     /// Scroll detail tab content up by half page (k key in detail tabs)
     static let scrollDetailUp = Notification.Name("scrollDetailUp")
+
+    // MARK: - PDF Import
+
+    /// Posted when PDF import completes successfully.
+    ///
+    /// object: [UUID] - Array of imported publication IDs
+    ///
+    /// Views should respond by:
+    /// 1. Refreshing the publication list
+    /// 2. Selecting the imported publications
+    /// 3. Scrolling to make the first imported publication visible
+    /// 4. Showing the PDF viewer tab
+    static let pdfImportCompleted = Notification.Name("pdfImportCompleted")
 }

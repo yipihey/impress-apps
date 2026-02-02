@@ -21,7 +21,8 @@ let package = Package(
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),
         .package(path: "../ImbibRustCore"),
         .package(path: "../../../packages/ImpressAutomation"),
-        .package(path: "../../../packages/ImpressAI")
+        .package(path: "../../../packages/ImpressAI"),
+        .package(path: "../../../packages/ImpressKeyboard")
     ],
     targets: [
         .target(
@@ -33,7 +34,8 @@ let package = Package(
                 .product(name: "HighlightSwift", package: "HighlightSwift"),
                 "ImbibRustCore",
                 "ImpressAutomation",
-                "ImpressAI"
+                "ImpressAI",
+                "ImpressKeyboard"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),

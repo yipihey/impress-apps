@@ -9,6 +9,7 @@ import SwiftUI
 import PublicationManagerCore
 import CoreData
 import OSLog
+import ImpressKeyboard
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
 
@@ -342,6 +343,35 @@ struct UnifiedPublicationListWrapper: View {
                 if case .lastSearch = source {
                     logger.info("Last search updated notification received, refreshing list")
                     refreshPublicationsList()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pdfImportCompleted)) { notification in
+                // Handle PDF import completion: select imported publications, scroll to them, and show PDF viewer
+                guard let importedIDs = notification.object as? [UUID], !importedIDs.isEmpty else { return }
+
+                logger.info("PDF import completed with \(importedIDs.count) publications")
+
+                // Refresh list first to ensure imported publications are visible
+                refreshPublicationsList()
+
+                // Select the imported publications
+                selectedPublicationIDs = Set(importedIDs)
+
+                // Set the first imported publication as the selected publication for detail view
+                if let firstID = importedIDs.first,
+                   let firstPub = publications.first(where: { $0.id == firstID }) {
+                    selectedPublication = firstPub
+                }
+
+                // Scroll to selection and show PDF tab after a brief delay to allow UI to update
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    // Scroll to make the imported publication visible
+                    NotificationCenter.default.post(name: .scrollToSelection, object: nil)
+
+                    // Show PDF tab
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NotificationCenter.default.post(name: .showPDFTab, object: nil)
+                    }
                 }
             }
             .modifier(InboxTriageModifier(
@@ -965,27 +995,11 @@ struct UnifiedPublicationListWrapper: View {
         refreshPublicationsList()
     }
 
-    // MARK: - Text Field Focus Detection
-
-    /// Check if a text field is currently focused (to avoid intercepting text input)
-    private func isTextFieldFocused() -> Bool {
-        #if os(macOS)
-        guard let window = NSApp.keyWindow,
-              let firstResponder = window.firstResponder else {
-            return false
-        }
-        // NSTextView is used by TextEditor, TextField, and other text controls
-        return firstResponder is NSTextView
-        #else
-        return false  // iOS uses different focus management
-        #endif
-    }
-
     // MARK: - Inbox Triage Handlers
 
     /// Handle 'S' key - save selected to default library
     private func handleSaveKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !TextFieldFocusDetection.isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         saveSelectedToDefaultLibrary()
         return .handled
     }
@@ -994,7 +1008,7 @@ struct UnifiedPublicationListWrapper: View {
     /// For exploration collections: removes from collection only (doesn't dismiss to Dismissed library)
     /// For inbox/other views: moves to Dismissed library
     private func handleDismissKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !TextFieldFocusDetection.isTextFieldFocused(), !selectedPublicationIDs.isEmpty else { return .ignored }
 
         if isExplorationCollection {
             // Exploration collection: just remove from collection, don't move to Dismissed
@@ -1008,7 +1022,7 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Handle vim-style navigation keys (j/k for paper nav, h/l for pane cycling, i/p/n/b for tabs) and inbox triage keys (s/S/t)
     private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
-        guard !isTextFieldFocused() else { return .ignored }
+        guard !TextFieldFocusDetection.isTextFieldFocused() else { return .ignored }
 
         let store = KeyboardShortcutsStore.shared
 
