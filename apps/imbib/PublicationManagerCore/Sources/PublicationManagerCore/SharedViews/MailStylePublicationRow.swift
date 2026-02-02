@@ -83,8 +83,8 @@ public struct MailStylePublicationRow: View, Equatable {
     // MARK: - Equatable
 
     public static func == (lhs: MailStylePublicationRow, rhs: MailStylePublicationRow) -> Bool {
-        // Only compare data and settings - closures don't affect visual output
-        // Also compare isInInbox, hasPDF, collections count, recommendationScore, highlightedCitationCount, and triageFlashColor as they affect display
+        // Compare all properties that affect visual output (closures are excluded as they don't affect rendering)
+        // Note: collections.count is compared rather than full equality for performance - only count changes matter for badge display
         lhs.data == rhs.data &&
         lhs.settings == rhs.settings &&
         lhs.isInInbox == rhs.isInInbox &&
@@ -484,7 +484,9 @@ public struct MailStylePublicationRow: View, Equatable {
         }
         // Swipe actions (works on both iOS and macOS with trackpad)
         // Swipe LEFT (.trailing) = Dismiss (moves to dismissed library, like Mail archive)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        // Note: allowsFullSwipe is disabled to prevent gesture conflicts with
+        // iOS NavigationSplitView navigation gestures on iPhone
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let onDismiss = onDismiss {
                 Button {
                     onDismiss()

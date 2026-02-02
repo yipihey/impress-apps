@@ -100,14 +100,15 @@ struct CollectionTreeRow: View {
 
             // Collection name (editable when renaming)
             if isEditing {
-                TextField("Collection Name", text: $editingName, onCommit: {
-                    onRenameComplete?(editingName)
-                })
-                .textFieldStyle(.plain)
-                .padding(.leading, 4)
-                .onAppear {
-                    editingName = collection.name
-                }
+                TextField("Collection Name", text: $editingName)
+                    .textFieldStyle(.plain)
+                    .padding(.leading, 4)
+                    .onSubmit {
+                        onRenameComplete?(editingName)
+                    }
+                    .onAppear {
+                        editingName = collection.name
+                    }
             } else {
                 Text(collection.name)
                     .lineLimit(1)
