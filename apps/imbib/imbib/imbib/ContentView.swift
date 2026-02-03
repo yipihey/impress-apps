@@ -115,6 +115,12 @@ struct ContentView: View {
     /// Using @State instead of @FocusState because we're tracking logical pane focus, not SwiftUI keyboard focus
     @State private var focusedPane: FocusedPane?
 
+    /// Whether to show the stale search index alert
+    @State private var showStaleIndexAlert = false
+
+    /// Whether search index rebuild is in progress
+    @State private var isRebuildingSearchIndex = false
+
     // MARK: - Derived Selection
 
     /// The primary selected publication ID (first of multi-selection).
@@ -170,6 +176,8 @@ struct ContentView: View {
             return .smartSearch(smartSearch.id, smartSearch.name)
         case .scixLibrary(let library):
             return .library(library.id, library.name)
+        case .inboxCollection(let collection):
+            return .collection(collection.id, collection.name)
         case .inbox, .inboxFeed, .search, .searchForm, .none:
             return .global
         }
@@ -305,6 +313,7 @@ struct ContentView: View {
                     GlobalSearchPaletteView(
                         isPresented: $showGlobalSearch,
                         onSelect: { publicationID in
+                            print("🔍 [GlobalSearch] onSelect called with ID: \(publicationID)")
                             navigateToPublication(publicationID)
                         },
                         onPDFSearch: handlePDFSearch
@@ -340,6 +349,14 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
+            }
+            .alert("Paper Not Found", isPresented: $showStaleIndexAlert) {
+                Button("Rebuild Index") {
+                    rebuildSearchIndex()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This paper may have been deleted. The search index might be out of date. Would you like to rebuild it?")
             }
             .task {
                 await libraryViewModel.loadPublications()
@@ -512,21 +529,41 @@ struct ContentView: View {
     /// Navigate to a specific publication from global search.
     ///
     /// Finds the library containing the publication and navigates to it.
+    /// Also expands the library in the sidebar so the user can see which library
+    /// contains the paper. Shows an alert if the publication can't be found (stale index).
     func navigateToPublication(_ publicationID: UUID) {
+        print("🔍 [Navigate] navigateToPublication called with ID: \(publicationID)")
+
         guard let publication = libraryViewModel.publication(for: publicationID) else {
-            contentLogger.warning("Cannot navigate to publication \(publicationID): not found")
+            // Publication not found - search index is stale
+            print("🔍 [Navigate] Publication NOT FOUND - showing stale index alert")
+            contentLogger.warning("Cannot navigate to publication \(publicationID): not found (stale index)")
+            showStaleIndexAlert = true
             return
         }
 
+        print("🔍 [Navigate] Found publication: \(publication.citeKey)")
+        print("🔍 [Navigate] Libraries count: \(publication.libraries?.count ?? 0)")
+        print("🔍 [Navigate] SciX libraries count: \(publication.scixLibraries?.count ?? 0)")
+
         // Find the library containing this publication (check regular libraries first, then SciX)
         if let library = publication.libraries?.first {
+            print("🔍 [Navigate] Navigating to library: \(library.displayName)")
             // Navigate to the regular library
             selectedSection = .library(library)
+            // Expand the library in the sidebar so it's visible and the user can see
+            // which library contains the paper
+            expandedLibraries.insert(library.id)
+            print("🔍 [Navigate] Set selectedSection and expanded library")
         } else if let scixLibrary = publication.scixLibraries?.first {
+            print("🔍 [Navigate] Navigating to SciX library: \(scixLibrary.name)")
             // Navigate to the SciX library
             selectedSection = .scixLibrary(scixLibrary)
         } else {
-            contentLogger.warning("Publication \(publication.citeKey) not in any library")
+            // Publication exists but has no library - also a stale index symptom
+            print("🔍 [Navigate] Publication has NO library - showing stale index alert")
+            contentLogger.warning("Publication \(publication.citeKey) not in any library (stale index)")
+            showStaleIndexAlert = true
             return
         }
 
@@ -543,6 +580,26 @@ struct ContentView: View {
         }
 
         contentLogger.info("Navigated to publication: \(publication.citeKey)")
+    }
+
+    /// Rebuild the search indexes (fulltext and semantic) when they become stale.
+    private func rebuildSearchIndex() {
+        guard !isRebuildingSearchIndex else { return }
+        isRebuildingSearchIndex = true
+
+        Task {
+            contentLogger.info("Starting search index rebuild...")
+
+            // Rebuild fulltext search index
+            await FullTextSearchService.shared.rebuildIndex()
+
+            // Rebuild semantic search index from all libraries
+            let libraries = libraryManager.libraries
+            await EmbeddingService.shared.buildIndex(from: libraries)
+
+            contentLogger.info("Search index rebuild complete")
+            isRebuildingSearchIndex = false
+        }
     }
 
     // MARK: - Notification Handlers
@@ -618,6 +675,12 @@ struct ContentView: View {
             }
             return nil
 
+        case .inboxCollection(let id):
+            if let collection = findCollection(by: id) {
+                return .inboxCollection(collection)
+            }
+            return nil
+
         case .library(let id):
             if let library = libraryManager.libraries.first(where: { $0.id == id }) {
                 return .library(library)
@@ -659,6 +722,8 @@ struct ContentView: View {
             return .inbox
         case .inboxFeed(let smartSearch):
             return .inboxFeed(smartSearch.id)
+        case .inboxCollection(let collection):
+            return .inboxCollection(collection.id)
         case .library(let library):
             return .library(library.id)
         case .search:
@@ -724,6 +789,15 @@ struct ContentView: View {
             // Show papers from a specific inbox feed (same as smart search)
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
+            )
+
+        case .inboxCollection(let collection):
+            // Show papers in an Inbox collection
+            UnifiedPublicationListWrapper(
+                source: .collection(collection),
                 selectedPublication: selectedPublicationBinding,
                 selectedPublicationIDs: $selectedPublicationIDs,
                 onDownloadPDFs: handleDownloadPDFs
@@ -880,7 +954,7 @@ struct ContentView: View {
                 .navigationTitle("Vague Memory Search")
 
         case .openalex:
-            OpenAlexSearchFormView()
+            OpenAlexEnhancedSearchFormView()
                 .navigationTitle("OpenAlex Search")
         }
     }
@@ -893,6 +967,9 @@ struct ContentView: View {
         case .inboxFeed(let smartSearch):
             // Inbox feeds belong to the Inbox library
             return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
+        case .inboxCollection:
+            // Inbox collections belong to the Inbox library
+            return InboxManager.shared.inboxLibrary?.id
         case .library(let library):
             return library.id
         case .smartSearch(let smartSearch):
@@ -917,6 +994,8 @@ struct ContentView: View {
             return InboxManager.shared.inboxLibrary
         case .inboxFeed(let smartSearch):
             return InboxManager.shared.inboxLibrary ?? smartSearch.library
+        case .inboxCollection:
+            return InboxManager.shared.inboxLibrary
         case .library(let library):
             return library
         case .smartSearch(let smartSearch):
@@ -1107,6 +1186,7 @@ struct ContentView: View {
 enum SidebarSection: Hashable {
     case inbox                         // Inbox - all papers waiting for triage
     case inboxFeed(CDSmartSearch)      // Inbox feed (smart search with feedsToInbox)
+    case inboxCollection(CDCollection) // Collection within Inbox (for organizing feeds)
     case library(CDLibrary)           // All publications for specific library
     case search                        // Global search (legacy, kept for compatibility)
     case searchForm(SearchFormType)   // Specific search form (ADS Modern, Classic, Paper)

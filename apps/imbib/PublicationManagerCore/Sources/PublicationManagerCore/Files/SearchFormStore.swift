@@ -90,7 +90,7 @@ public actor SearchFormStore {
 
     // MARK: - Default Values
 
-    public static let defaultOrder: [SearchFormType] = [.adsModern, .adsClassic, .adsPaper, .adsVagueMemory, .arxivAdvanced, .arxivFeed, .arxivGroupFeed]
+    public static let defaultOrder: [SearchFormType] = [.adsModern, .adsClassic, .adsPaper, .adsVagueMemory, .arxivAdvanced, .arxivFeed, .arxivGroupFeed, .openalex]
 
     // MARK: - Order Methods
 

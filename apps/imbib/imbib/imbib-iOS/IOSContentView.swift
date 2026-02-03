@@ -206,6 +206,12 @@ struct IOSContentView: View {
                 selectedPublication: $selectedPublication
             )
 
+        case .inboxCollection(let collection):
+            IOSUnifiedPublicationListWrapper(
+                source: .collection(collection),
+                selectedPublication: $selectedPublication
+            )
+
         case .library(let library):
             IOSUnifiedPublicationListWrapper(
                 source: .library(library),
@@ -239,7 +245,7 @@ struct IOSContentView: View {
             case .arxivGroupFeed:
                 GroupArXivFeedFormView()
             case .openalex:
-                OpenAlexSearchFormView()
+                OpenAlexEnhancedSearchFormView()
             }
 
         case .smartSearch(let smartSearch):
@@ -295,6 +301,8 @@ struct IOSContentView: View {
             return InboxManager.shared.inboxLibrary?.id
         case .inboxFeed(let smartSearch):
             return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
+        case .inboxCollection:
+            return InboxManager.shared.inboxLibrary?.id
         case .library(let library):
             return library.id
         case .smartSearch(let smartSearch):
@@ -316,6 +324,8 @@ struct IOSContentView: View {
             return InboxManager.shared.inboxLibrary.map { .library($0.id) }
         case .inboxFeed(let smartSearch):
             return .smartSearch(smartSearch.id)
+        case .inboxCollection(let collection):
+            return .collection(collection.id)
         case .library(let library):
             return .library(library.id)
         case .smartSearch(let smartSearch):
@@ -352,6 +362,9 @@ struct IOSContentView: View {
 
         case .scixLibrary(let library):
             return .library(library.id, library.name)
+
+        case .inboxCollection(let collection):
+            return .collection(collection.id, collection.name)
 
         case .inbox, .inboxFeed, .search, .searchForm, .none:
             // Inbox and search contexts default to global
@@ -442,6 +455,7 @@ struct BibTeXDocument: FileDocument {
 enum SidebarSection: Hashable {
     case inbox
     case inboxFeed(CDSmartSearch)
+    case inboxCollection(CDCollection)
     case library(CDLibrary)
     case search                        // Legacy, kept for compatibility
     case searchForm(SearchFormType)    // Specific search form

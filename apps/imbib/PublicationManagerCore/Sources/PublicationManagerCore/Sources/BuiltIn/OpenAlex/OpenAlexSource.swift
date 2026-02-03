@@ -74,17 +74,37 @@ public actor OpenAlexSource: SourcePlugin {
 
         await rateLimiter.waitIfNeeded()
 
+        // Parse query to separate search text from filters
+        let parsed = OpenAlexQueryParser.parse(query)
+
         var components = URLComponents(string: "\(baseURL)/works")!
-        components.queryItems = [
-            URLQueryItem(name: "search", value: query),
-            URLQueryItem(name: "per-page", value: "\(min(maxResults, 200))"),  // Max 200 per page
-            URLQueryItem(name: "sort", value: "relevance_score:desc"),
-        ]
+        var queryItems: [URLQueryItem] = []
+
+        // Add search text if present
+        let hasSearchText = parsed.searchText != nil && !parsed.searchText!.isEmpty
+        if hasSearchText {
+            queryItems.append(URLQueryItem(name: "search", value: parsed.searchText!))
+        }
+
+        // Add filters if present
+        if !parsed.filters.isEmpty {
+            let filterString = parsed.filters.joined(separator: ",")
+            queryItems.append(URLQueryItem(name: "filter", value: filterString))
+        }
+
+        queryItems.append(URLQueryItem(name: "per-page", value: "\(min(maxResults, 200))"))
+
+        // Sort by relevance when there's search text, otherwise by citation count
+        // (OpenAlex doesn't allow relevance_score sort without a search query)
+        let sortOrder = hasSearchText ? "relevance_score:desc" : "cited_by_count:desc"
+        queryItems.append(URLQueryItem(name: "sort", value: sortOrder))
 
         // Add email for polite pool if available
         if let email = await credentialManager.email(for: "openalex") {
-            components.queryItems?.append(URLQueryItem(name: "mailto", value: email))
+            queryItems.append(URLQueryItem(name: "mailto", value: email))
         }
+
+        components.queryItems = queryItems
 
         guard let url = components.url else {
             throw SourceError.invalidRequest("Invalid URL")
@@ -453,21 +473,93 @@ public actor OpenAlexSource: SourcePlugin {
         return results
     }
 
+    // MARK: - Autocomplete
+
+    /// Autocomplete for a specific entity type.
+    ///
+    /// - Parameters:
+    ///   - query: The partial text to complete
+    ///   - entityType: The type of entity to search for
+    /// - Returns: Array of suggestions
+    public func autocomplete(
+        query: String,
+        entityType: OpenAlexEntityType
+    ) async throws -> [OpenAlexAutocompleteSuggestion] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
+        guard trimmedQuery.count >= 2 else {
+            return []
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        var components = URLComponents(string: "\(baseURL)/autocomplete/\(entityType.rawValue)")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: trimmedQuery)
+        ]
+
+        if let email = await credentialManager.email(for: "openalex") {
+            components.queryItems?.append(URLQueryItem(name: "mailto", value: email))
+        }
+
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid autocomplete URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        let (data, response) = try await session.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 429 {
+                throw SourceError.rateLimited(retryAfter: nil)
+            }
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        let decoder = JSONDecoder()
+        let autocompleteResponse = try decoder.decode(OpenAlexAutocompleteResponse.self, from: data)
+
+        Logger.sources.debug("OpenAlex autocomplete: \(autocompleteResponse.results.count) results for \(entityType.rawValue)")
+
+        return autocompleteResponse.results
+    }
+
     // MARK: - Preview Count
 
     /// Get the count of results for a query (for query assistance preview).
     public func fetchPreviewCount(query: String) async throws -> Int {
         await rateLimiter.waitIfNeeded()
 
+        // Parse query to separate search text from filters
+        let parsed = OpenAlexQueryParser.parse(query)
+
         var components = URLComponents(string: "\(baseURL)/works")!
-        components.queryItems = [
-            URLQueryItem(name: "search", value: query),
-            URLQueryItem(name: "per-page", value: "1"),  // Just need the count
-        ]
+        var queryItems: [URLQueryItem] = []
+
+        // Add search text if present
+        if let searchText = parsed.searchText, !searchText.isEmpty {
+            queryItems.append(URLQueryItem(name: "search", value: searchText))
+        }
+
+        // Add filters if present
+        if !parsed.filters.isEmpty {
+            let filterString = parsed.filters.joined(separator: ",")
+            queryItems.append(URLQueryItem(name: "filter", value: filterString))
+        }
+
+        queryItems.append(URLQueryItem(name: "per-page", value: "1"))  // Just need the count
 
         if let email = await credentialManager.email(for: "openalex") {
-            components.queryItems?.append(URLQueryItem(name: "mailto", value: email))
+            queryItems.append(URLQueryItem(name: "mailto", value: email))
         }
+
+        components.queryItems = queryItems
 
         guard let url = components.url else {
             throw SourceError.invalidRequest("Invalid URL")
