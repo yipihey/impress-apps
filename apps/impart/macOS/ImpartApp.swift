@@ -23,7 +23,7 @@ struct ImpartApp: App {
         ])
 
         // Start HTTP automation server for AI/MCP integration
-        Task {
+        Task { @MainActor in
             await ImpartHTTPServer.shared.start()
         }
     }

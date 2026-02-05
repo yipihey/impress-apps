@@ -1,5 +1,6 @@
 #if os(macOS)
 import SwiftUI
+import AppKit
 
 // MARK: - Appearance Modifier
 
@@ -27,6 +28,26 @@ extension View {
     }
 }
 
+/// App delegate to handle app lifecycle events
+final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start HTTP automation server for AI/MCP integration
+        Task {
+            await ImprintHTTPServer.shared.start()
+        }
+    }
+
+    /// Prevent automatic "Open" dialog on launch - allow app to open without a document
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    /// Also prevent open panel from showing on reactivate if no windows
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        return flag
+    }
+}
+
 /// Main application entry point for imprint (macOS)
 ///
 /// imprint is a collaborative academic writing application that uses:
@@ -35,6 +56,7 @@ extension View {
 /// - imbib integration for citation management
 @main
 struct ImprintApp: App {
+    @NSApplicationDelegateAdaptor(ImprintAppDelegate.self) var appDelegate
     @State private var appState = AppState()
 
     /// Whether running in UI testing mode
@@ -58,10 +80,7 @@ struct ImprintApp: App {
             configureForUITesting()
         }
 
-        // Start HTTP automation server for AI/MCP integration
-        Task {
-            await ImprintHTTPServer.shared.start()
-        }
+        // HTTP server is started via ImprintAppDelegate.applicationDidFinishLaunching
     }
 
     private func configureForUITesting() {

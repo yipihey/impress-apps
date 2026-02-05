@@ -46,13 +46,11 @@ public actor ImprintHTTPServer {
     // MARK: - Settings
 
     /// Whether the HTTP server is enabled
-    @MainActor
     private static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
     }
 
     /// The configured port
-    @MainActor
     private static var configuredPort: UInt16 {
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         return port > 0 ? UInt16(port) : defaultPort
@@ -73,7 +71,6 @@ public actor ImprintHTTPServer {
     // MARK: - Lifecycle
 
     /// Start the HTTP server on the configured port.
-    @MainActor
     public func start() async {
         let alreadyRunning = await server.running
         guard !alreadyRunning else {
@@ -94,6 +91,7 @@ public actor ImprintHTTPServer {
         )
 
         await server.start(configuration: configuration)
+        httpLogger.info("HTTP server started on port \(Self.configuredPort)")
     }
 
     /// Stop the HTTP server.
@@ -102,7 +100,6 @@ public actor ImprintHTTPServer {
     }
 
     /// Restart the server (e.g., after port change).
-    @MainActor
     public func restart() async {
         let configuration = HTTPServerConfiguration(
             port: Self.configuredPort,
