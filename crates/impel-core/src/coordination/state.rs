@@ -169,6 +169,72 @@ impl CoordinationState {
         self.paused = self.projection.is_paused;
         Ok(())
     }
+
+    // ==================== Persistence Integration ====================
+
+    /// Load state from a repository
+    ///
+    /// This loads threads, agents, and escalations from the given repository
+    /// and populates the coordination state.
+    #[cfg(feature = "sqlite")]
+    pub fn load_from_repository(
+        &mut self,
+        repo: &crate::persistence::Repository,
+    ) -> Result<()> {
+        // Load threads
+        let threads = repo.get_all_threads()?;
+        for thread in threads {
+            self.projection.threads.add_thread(thread);
+        }
+
+        // Load agents
+        let agents = repo.get_all_agents()?;
+        for agent in agents {
+            self.projection.agents.registry_mut().add_agent(agent);
+        }
+
+        // Load escalations
+        let escalations = repo.get_open_escalations()?;
+        for escalation in escalations {
+            self.escalations.insert(escalation.id.clone(), escalation);
+        }
+
+        // Load system state
+        if let Some(paused_str) = repo.get_system_state("paused")? {
+            self.paused = paused_str == "true";
+        }
+
+        Ok(())
+    }
+
+    /// Save current state to a repository
+    ///
+    /// This persists threads, agents, and escalations to the given repository.
+    #[cfg(feature = "sqlite")]
+    pub fn save_to_repository(
+        &self,
+        repo: &crate::persistence::Repository,
+    ) -> Result<()> {
+        // Save threads
+        for thread in self.threads() {
+            repo.save_thread(thread)?;
+        }
+
+        // Save agents
+        for agent in self.agents().all() {
+            repo.save_agent(agent)?;
+        }
+
+        // Save escalations
+        for escalation in self.escalations.values() {
+            repo.save_escalation(escalation)?;
+        }
+
+        // Save system state
+        repo.set_system_state("paused", if self.paused { "true" } else { "false" })?;
+
+        Ok(())
+    }
 }
 
 impl Default for CoordinationState {

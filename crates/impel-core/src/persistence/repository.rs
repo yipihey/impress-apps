@@ -367,6 +367,24 @@ impl Repository {
         Ok(escalations)
     }
 
+    /// Get all escalations
+    pub fn get_all_escalations(&self) -> Result<Vec<Escalation>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, category, priority, status, title, description, thread_id, created_by, created_at,
+                   acknowledged_at, acknowledged_by, resolved_at, resolved_by, resolution, options, selected_option
+            FROM escalations
+            ORDER BY priority DESC, created_at ASC
+            "#,
+        )?;
+
+        let escalations = stmt
+            .query_map([], Self::row_to_escalation)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(escalations)
+    }
+
     fn row_to_escalation(row: &rusqlite::Row) -> rusqlite::Result<Escalation> {
         use crate::escalation::{
             EscalationCategory, EscalationOption, EscalationPriority, EscalationStatus,

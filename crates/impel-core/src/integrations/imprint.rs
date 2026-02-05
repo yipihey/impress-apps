@@ -1,14 +1,45 @@
 //! Imprint integration adapter for document management
 //!
-//! Provides access to imprint-core functionality for:
-//! - Document creation
-//! - Collaborative editing (CRDT-based)
-//! - Export to various formats
+//! This module provides types and interfaces for integrating with imprint,
+//! the Typst-based manuscript authoring system. It enables impel to:
+//! - Create and manage documents
+//! - Insert citations and figures
+//! - Export to various formats (PDF, LaTeX, etc.)
+//!
+//! # Integration Patterns
+//!
+//! There are two primary ways to integrate with imprint:
+//!
+//! ## 1. Via MCP (Recommended for agents)
+//!
+//! Agents should use the impress-mcp server which provides HTTP-based access
+//! to imprint via tools like `imprint_create_document`, `imprint_insert_citation`,
+//! `imprint_compile`, etc. This is the primary integration path for agent workflows.
+//!
+//! For cross-app workflows, use the bridge tools:
+//! - `impress_cite_paper` - Cite an imbib paper in an imprint document
+//! - `impress_conversation_to_outline` - Generate outline from impart conversation
+//!
+//! ## 2. Direct library calls (for native integration)
+//!
+//! For native macOS/iOS integration, the adapter can be connected to imprint-core
+//! directly via Swift interop. This provides lower latency for real-time editing.
+//!
+//! # Example Agent Workflow
+//!
+//! ```text
+//! 1. Agent creates a research thread in impel
+//! 2. Agent creates a new document via imprint_create_document
+//! 3. Agent searches papers via imbib_search_library
+//! 4. Agent inserts citations via impress_cite_paper
+//! 5. Agent compiles via imprint_compile
+//! 6. Agent submits thread for review
+//! ```
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error::{IntegrationError, Result};
+use crate::error::Result;
 
 /// Handle to a document in imprint
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

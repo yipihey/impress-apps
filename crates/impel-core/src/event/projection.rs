@@ -63,6 +63,13 @@ impl ThreadProjection {
         });
         threads
     }
+
+    /// Add a thread directly (for loading from persistence)
+    ///
+    /// This bypasses event sourcing and is intended for initial state loading.
+    pub fn add_thread(&mut self, thread: Thread) {
+        self.threads.insert(thread.id.to_string(), thread);
+    }
 }
 
 impl Projection for ThreadProjection {

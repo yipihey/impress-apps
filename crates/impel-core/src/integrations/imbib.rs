@@ -1,13 +1,40 @@
 //! Imbib integration adapter for reference management
 //!
-//! Provides access to imbib-core functionality for:
-//! - Reference verification
-//! - Literature search
-//! - Bibliography generation
+//! This module provides types and interfaces for integrating with imbib,
+//! the academic paper library manager. It enables impel to:
+//! - Verify references for validity
+//! - Search the academic literature
+//! - Generate bibliographies
+//!
+//! # Integration Patterns
+//!
+//! There are two primary ways to integrate with imbib:
+//!
+//! ## 1. Via MCP (Recommended for agents)
+//!
+//! Agents should use the impress-mcp server which provides HTTP-based access
+//! to imbib via tools like `imbib_search_library`, `imbib_get_paper`, etc.
+//! This is the primary integration path for agent workflows.
+//!
+//! ## 2. Direct library calls (for native integration)
+//!
+//! For native macOS/iOS integration, the adapter can be connected to imbib-core
+//! directly via Swift interop. This provides lower latency but requires the
+//! app to be running in the same process.
+//!
+//! # Example Agent Workflow
+//!
+//! ```text
+//! 1. Agent creates an escalation asking for paper recommendations
+//! 2. Human provides search terms
+//! 3. Agent uses imbib_search_library to find papers
+//! 4. Agent uses imbib_get_paper to get full details
+//! 5. Agent records findings via impart_record_artifact
+//! ```
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{IntegrationError, Result};
+use crate::error::Result;
 
 /// Result of verifying a reference
 #[derive(Debug, Clone, Serialize, Deserialize)]

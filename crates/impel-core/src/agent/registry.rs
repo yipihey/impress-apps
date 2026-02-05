@@ -43,6 +43,24 @@ impl AgentRegistry {
         Ok(())
     }
 
+    /// Add an agent directly (for loading from persistence)
+    ///
+    /// This bypasses validation and overwrites existing agents with the same ID.
+    /// Intended for initial state loading from persistent storage.
+    pub fn add_agent(&mut self, agent: Agent) {
+        // Update type counter to track highest agent number
+        let count = self.type_counters.entry(agent.agent_type).or_insert(0);
+        *count = (*count).max(
+            agent
+                .id
+                .split('-')
+                .last()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+        );
+        self.agents.insert(agent.id.clone(), agent);
+    }
+
     /// Create and register a new agent of the given type
     pub fn create_agent(&mut self, agent_type: AgentType) -> Result<&Agent> {
         let counter = self.type_counters.entry(agent_type).or_insert(0);

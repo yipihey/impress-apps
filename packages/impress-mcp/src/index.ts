@@ -23,14 +23,28 @@ import {
 
 import { ImbibClient } from "./imbib/client.js";
 import { ImbibTools, IMBIB_TOOLS } from "./imbib/tools.js";
+import { ImpartClient } from "./impart/client.js";
+import { ImpartTools, IMPART_TOOLS } from "./impart/tools.js";
 import { ImprintClient } from "./imprint/client.js";
 import { ImprintTools, IMPRINT_TOOLS } from "./imprint/tools.js";
+import { ImpelClient } from "./impel/client.js";
+import { ImpelTools, IMPEL_TOOLS } from "./impel/tools.js";
 import { PaperResources } from "./resources/papers.js";
 import { DocumentResources } from "./resources/documents.js";
+
+// Cross-app bridges
+import {
+  ALL_BRIDGE_TOOLS,
+  CitationBridge,
+  ConversationManuscriptBridge,
+  ArtifactResolverBridge,
+} from "./bridges/index.js";
 
 // Configuration
 const IMBIB_PORT = Number(process.env.IMBIB_PORT) || 23120;
 const IMPRINT_PORT = Number(process.env.IMPRINT_PORT) || 23121;
+const IMPART_PORT = Number(process.env.IMPART_PORT) || 23122;
+const IMPEL_PORT = Number(process.env.IMPEL_PORT) || 23123;
 
 // ANSI color codes for terminal output
 const colors = {
@@ -50,6 +64,7 @@ async function runCheck(): Promise<void> {
   console.log(`\n${colors.bold}impress-mcp connection check${colors.reset}\n`);
 
   const imbibClient = new ImbibClient(`http://127.0.0.1:${IMBIB_PORT}`);
+  const impartClient = new ImpartClient(`http://127.0.0.1:${IMPART_PORT}`);
   const imprintClient = new ImprintClient(`http://127.0.0.1:${IMPRINT_PORT}`);
 
   let allGood = true;
@@ -81,6 +96,30 @@ async function runCheck(): Promise<void> {
 
   console.log("");
 
+  // Check impart
+  const impartStatus = await impartClient.checkStatus();
+  if (impartStatus) {
+    console.log(
+      `${colors.green}✓${colors.reset} impart HTTP API responding on port ${IMPART_PORT}`
+    );
+    console.log(
+      `  ${colors.dim}→ Accounts: ${impartStatus.accounts}${colors.reset}`
+    );
+  } else {
+    allGood = false;
+    console.log(
+      `${colors.red}✗${colors.reset} impart HTTP API not responding on port ${IMPART_PORT}`
+    );
+    console.log(
+      `  ${colors.dim}→ Make sure impart is running${colors.reset}`
+    );
+    console.log(
+      `  ${colors.dim}→ Enable HTTP Server in Settings → Automation${colors.reset}`
+    );
+  }
+
+  console.log("");
+
   // Check imprint
   const imprintStatus = await imprintClient.checkStatus();
   if (imprintStatus) {
@@ -100,6 +139,37 @@ async function runCheck(): Promise<void> {
     );
     console.log(
       `  ${colors.dim}→ Enable HTTP API in Settings → Automation${colors.reset}`
+    );
+  }
+
+  console.log("");
+
+  // Check impel
+  const impelCheckClient = new ImpelClient(`http://127.0.0.1:${IMPEL_PORT}`);
+  const impelStatus = await impelCheckClient.checkStatus();
+  if (impelStatus) {
+    console.log(
+      `${colors.green}✓${colors.reset} impel HTTP API responding on port ${IMPEL_PORT}`
+    );
+    console.log(
+      `  ${colors.dim}→ Threads: ${impelStatus.threads.active} active / ${impelStatus.threads.total} total${colors.reset}`
+    );
+    console.log(
+      `  ${colors.dim}→ Agents: ${impelStatus.agents.total}${colors.reset}`
+    );
+    console.log(
+      `  ${colors.dim}→ Escalations: ${impelStatus.escalations.open} open${colors.reset}`
+    );
+  } else {
+    // impel is optional - don't mark as failure
+    console.log(
+      `${colors.yellow}○${colors.reset} impel HTTP API not responding on port ${IMPEL_PORT}`
+    );
+    console.log(
+      `  ${colors.dim}→ impel is optional for agent orchestration${colors.reset}`
+    );
+    console.log(
+      `  ${colors.dim}→ Start with: cd crates/impel-server && IMPEL_ADDR=127.0.0.1:23123 cargo run${colors.reset}`
     );
   }
 
@@ -140,11 +210,27 @@ ${colors.dim}Configuration file locations:
 
 // Initialize clients
 const imbibClient = new ImbibClient(`http://127.0.0.1:${IMBIB_PORT}`);
+const impartClient = new ImpartClient(`http://127.0.0.1:${IMPART_PORT}`);
 const imprintClient = new ImprintClient(`http://127.0.0.1:${IMPRINT_PORT}`);
+const impelClient = new ImpelClient(`http://127.0.0.1:${IMPEL_PORT}`);
 
 // Initialize tool handlers
 const imbibTools = new ImbibTools(imbibClient);
+const impartTools = new ImpartTools(impartClient);
 const imprintTools = new ImprintTools(imprintClient);
+const impelTools = new ImpelTools(impelClient);
+
+// Initialize bridge handlers
+const citationBridge = new CitationBridge(imbibClient, imprintClient);
+const conversationManuscriptBridge = new ConversationManuscriptBridge(
+  impartClient,
+  imprintClient
+);
+const artifactResolverBridge = new ArtifactResolverBridge(
+  imbibClient,
+  imprintClient,
+  impartClient
+);
 
 // Initialize resource handlers
 const paperResources = new PaperResources(imbibClient);
@@ -167,7 +253,13 @@ const server = new Server(
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [...IMBIB_TOOLS, ...IMPRINT_TOOLS],
+    tools: [
+      ...IMBIB_TOOLS,
+      ...IMPART_TOOLS,
+      ...IMPRINT_TOOLS,
+      ...IMPEL_TOOLS,
+      ...ALL_BRIDGE_TOOLS,
+    ],
   };
 });
 
@@ -181,9 +273,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await imbibTools.handleTool(name, args);
     }
 
+    // impart tools
+    if (name.startsWith("impart_")) {
+      return await impartTools.handleTool(name, args);
+    }
+
     // imprint tools
     if (name.startsWith("imprint_")) {
       return await imprintTools.handleTool(name, args);
+    }
+
+    // impel tools
+    if (name.startsWith("impel_")) {
+      return await impelTools.handleTool(name, args);
+    }
+
+    // Cross-app bridge tools
+    if (name.startsWith("impress_cite")) {
+      return await citationBridge.handleTool(name, args);
+    }
+    if (name.startsWith("impress_conversation") || name === "impress_export_conversation_citations") {
+      return await conversationManuscriptBridge.handleTool(name, args);
+    }
+    if (name.startsWith("impress_resolve") || name === "impress_list_artifacts") {
+      return await artifactResolverBridge.handleTool(name, args);
     }
 
     return {
@@ -269,7 +382,7 @@ async function main() {
   // Handle --help flag
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-impress-mcp - MCP Server for imbib and imprint
+impress-mcp - MCP Server for imbib, impart, imprint, and impel
 
 Usage:
   npx impress-mcp          Run the MCP server (stdio transport)
@@ -279,6 +392,8 @@ Usage:
 Environment Variables:
   IMBIB_PORT     imbib HTTP API port (default: 23120)
   IMPRINT_PORT   imprint HTTP API port (default: 23121)
+  IMPART_PORT    impart HTTP API port (default: 23122)
+  IMPEL_PORT     impel HTTP API port (default: 23123)
 
 For setup instructions, see:
   https://imbib.com/docs/MCP-Setup-Guide
@@ -296,6 +411,15 @@ For setup instructions, see:
     console.error("Warning: imbib is not running or HTTP API is disabled");
   }
 
+  const impartStatus = await impartClient.checkStatus();
+  if (impartStatus) {
+    console.error(
+      `Connected to impart (${impartStatus.accounts} accounts)`
+    );
+  } else {
+    console.error("Warning: impart is not running or HTTP API is disabled");
+  }
+
   const imprintStatus = await imprintClient.checkStatus();
   if (imprintStatus) {
     console.error(
@@ -303,6 +427,15 @@ For setup instructions, see:
     );
   } else {
     console.error("Warning: imprint is not running or HTTP API is disabled");
+  }
+
+  const impelStatus = await impelClient.checkStatus();
+  if (impelStatus) {
+    console.error(
+      `Connected to impel (${impelStatus.threads.total} threads, ${impelStatus.agents.total} agents)`
+    );
+  } else {
+    console.error("Note: impel is not running (optional for agent orchestration)");
   }
 
   // Start server with stdio transport
