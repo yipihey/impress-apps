@@ -52,6 +52,7 @@ pub mod event;
 pub mod integrations;
 pub mod message;
 pub mod persistence;
+pub mod persona;
 pub mod program;
 pub mod project;
 pub mod thread;
@@ -69,6 +70,11 @@ pub use project::{
     Deliverable, DeliverableKind, Project, ProjectId, ProjectRelation, ProjectStatus,
 };
 pub use thread::{Temperature, TemperatureCoefficients, Thread, ThreadId, ThreadState};
+
+pub use persona::{
+    builtin_personas, Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig,
+    PersonaRegistry, ToolAccess, ToolPolicy, ToolPolicySet, WorkingStyle,
+};
 
 // Setup UniFFI when the feature is enabled
 #[cfg(feature = "uniffi")]

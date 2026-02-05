@@ -32,7 +32,7 @@ public struct HTTPResponse: Sendable {
 
         // Add CORS headers for browser/tool requests
         allHeaders["Access-Control-Allow-Origin"] = "*"
-        allHeaders["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        allHeaders["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         allHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
 
         for (key, value) in allHeaders {
@@ -129,10 +129,12 @@ public struct HTTPResponse: Sendable {
     private static func statusText(for code: Int) -> String {
         switch code {
         case 200: return "OK"
+        case 201: return "Created"
         case 204: return "No Content"
         case 400: return "Bad Request"
         case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 429: return "Too Many Requests"
         case 500: return "Internal Server Error"
         default: return "Unknown"
         }

@@ -7,8 +7,11 @@ let package = Package(
     products: [
         .library(name: "ImpressAutomation", targets: ["ImpressAutomation"])
     ],
+    dependencies: [
+        .package(path: "../ImpressLogging")
+    ],
     targets: [
-        .target(name: "ImpressAutomation"),
+        .target(name: "ImpressAutomation", dependencies: ["ImpressLogging"]),
         .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"])
     ]
 )

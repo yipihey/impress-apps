@@ -70,8 +70,8 @@ public final class LibraryViewModel {
         let sortKey = sortOrder.sortKey
         publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
 
-        // Build ID lookup cache for O(1) access
-        publicationsByID = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0) })
+        // Build ID lookup cache for O(1) access (keep last in case of duplicates)
+        publicationsByID = Dictionary(publications.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
 
         // Create LocalPaper wrappers for unified view layer
         papers = LocalPaper.from(publications: publications, libraryID: libraryID)
@@ -133,7 +133,7 @@ public final class LibraryViewModel {
             } else {
                 isLoading = true
                 publications = await repository.search(query: searchQuery)
-                publicationsByID = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0) })
+                publicationsByID = Dictionary(publications.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                 papers = LocalPaper.from(publications: publications, libraryID: libraryID)
                 isLoading = false
             }

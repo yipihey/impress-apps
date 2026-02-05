@@ -36,6 +36,7 @@ struct DetachedPDFView: View {
                     linkedFile: linked,
                     library: library,
                     publicationID: publication.id,
+                    isDetachedWindow: true,
                     onCorruptPDF: { _ in }
                 )
             } else if isCheckingPDF || isDownloading {

@@ -178,7 +178,7 @@ struct ContentView: View {
             return .library(library.id, library.name)
         case .inboxCollection(let collection):
             return .collection(collection.id, collection.name)
-        case .inbox, .inboxFeed, .search, .searchForm, .none:
+        case .inbox, .inboxFeed, .search, .searchForm, .flagged, .none:
             return .global
         }
     }
@@ -710,6 +710,9 @@ struct ContentView: View {
                 return .scixLibrary(scixLibrary)
             }
             return nil
+
+        case .flagged(let color):
+            return .flagged(color)
         }
     }
 
@@ -736,6 +739,8 @@ struct ContentView: View {
             return .collection(collection.id)
         case .scixLibrary(let scixLibrary):
             return .scixLibrary(scixLibrary.id)
+        case .flagged(let color):
+            return .flagged(color)
         }
     }
 
@@ -869,6 +874,14 @@ struct ContentView: View {
         case .scixLibrary(let scixLibrary):
             SciXLibraryListView(library: scixLibrary, selection: selectedPublicationBinding, multiSelection: $selectedPublicationIDs)
 
+        case .flagged(let color):
+            UnifiedPublicationListWrapper(
+                source: .flagged(color),
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
+            )
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -982,6 +995,9 @@ struct ContentView: View {
         case .search, .searchForm:
             // Search results are imported to the active library's "Last Search" collection
             return libraryManager.activeLibrary?.id
+        case .flagged:
+            // Flagged is cross-library; use active library for detail view
+            return libraryManager.activeLibrary?.id
         default:
             return nil
         }
@@ -1002,7 +1018,7 @@ struct ContentView: View {
             return smartSearch.library
         case .collection(let collection):
             return collection.effectiveLibrary
-        case .search, .searchForm:
+        case .search, .searchForm, .flagged:
             return libraryManager.activeLibrary
         default:
             return nil
@@ -1193,6 +1209,7 @@ enum SidebarSection: Hashable {
     case smartSearch(CDSmartSearch)   // Smart search (library-scoped via relationship)
     case collection(CDCollection)     // Collection (library-scoped via relationship)
     case scixLibrary(CDSciXLibrary)   // SciX online library
+    case flagged(String?)              // Flagged publications (nil = any flag, or specific color name)
 }
 
 // MARK: - Batch Download Data

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressFTUI
 
 // MARK: - Row Density
 
@@ -80,6 +81,25 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
     /// Number of abstract preview lines (0 = hidden)
     public var abstractLineLimit: Int
 
+    // MARK: - Flags & Tags
+
+    /// Show the colored flag stripe at the leading edge of rows
+    public var showFlagStripe: Bool
+
+    /// How tags are displayed in publication rows (dots, text, or hybrid)
+    public var tagDisplayStyle: TagDisplayStyle
+
+    /// How tag paths are rendered in text/chip mode (full, leaf-only, or truncated)
+    public var tagPathStyle: TagPathStyle
+
+    // MARK: - Auto-Import
+
+    /// Automatically create tags from ADS/source keywords when importing papers
+    public var importKeywordsAsTags: Bool
+
+    /// Optional prefix prepended to imported keyword tags (e.g., "keywords/")
+    public var keywordTagPrefix: String
+
     // MARK: - Visual Style
 
     /// Row density affecting padding and spacing
@@ -97,6 +117,11 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         showCategories: Bool = true,
         showDateAdded: Bool = true,
         abstractLineLimit: Int = 2,
+        showFlagStripe: Bool = true,
+        tagDisplayStyle: TagDisplayStyle = .dots(maxVisible: 5),
+        tagPathStyle: TagPathStyle = .leafOnly,
+        importKeywordsAsTags: Bool = false,
+        keywordTagPrefix: String = "",
         rowDensity: RowDensity = .default
     ) {
         self.showYear = showYear
@@ -108,6 +133,11 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         self.showCategories = showCategories
         self.showDateAdded = showDateAdded
         self.abstractLineLimit = max(0, min(10, abstractLineLimit))
+        self.showFlagStripe = showFlagStripe
+        self.tagDisplayStyle = tagDisplayStyle
+        self.tagPathStyle = tagPathStyle
+        self.importKeywordsAsTags = importKeywordsAsTags
+        self.keywordTagPrefix = keywordTagPrefix
         self.rowDensity = rowDensity
     }
 

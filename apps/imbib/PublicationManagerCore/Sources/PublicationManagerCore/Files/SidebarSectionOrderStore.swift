@@ -2,20 +2,23 @@
 //  SidebarSectionOrderStore.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-09.
+//  Sidebar section types and persistence using ImpressSidebar generic stores.
 //
 
 import Foundation
+import ImpressSidebar
 
 // MARK: - Sidebar Section Type
 
 /// Represents the reorderable and collapsible sections in the sidebar
-public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equatable {
+public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equatable, Hashable {
     case inbox
     case libraries
+    case sharedWithMe
     case scixLibraries
     case search
     case exploration
+    case flagged
     case dismissed
 
     public var id: String { rawValue }
@@ -24,163 +27,133 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         switch self {
         case .inbox: return "Inbox"
         case .libraries: return "Libraries"
+        case .sharedWithMe: return "Shared With Me"
         case .scixLibraries: return "SciX Libraries"
         case .search: return "Search"
         case .exploration: return "Exploration"
+        case .flagged: return "Flagged"
         case .dismissed: return "Dismissed"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .inbox: return "building.columns"
+        case .libraries: return "books.vertical"
+        case .sharedWithMe: return "person.2.fill"
+        case .scixLibraries: return "cloud"
+        case .search: return "magnifyingglass"
+        case .exploration: return "sparkle.magnifyingglass"
+        case .flagged: return "flag.fill"
+        case .dismissed: return "trash"
         }
     }
 }
 
 // MARK: - Sidebar Section Order Store
 
-/// Persists the user's preferred order of sidebar sections
-public actor SidebarSectionOrderStore {
+/// Persists the user's preferred order of sidebar sections.
+///
+/// Thin wrapper over ImpressSidebar's generic `SidebarSectionOrderStore`,
+/// specialized for imbib's `SidebarSectionType`.
+public final class SidebarSectionOrderStoreWrapper: Sendable {
 
-    // MARK: - Singleton
-
-    public static let shared = SidebarSectionOrderStore()
-
-    // MARK: - Properties
-
-    private let key = "sidebarSectionOrder"
-    private var cachedOrder: [SidebarSectionType]?
-
-    // MARK: - Default Order
+    public static let shared = SidebarSectionOrderStoreWrapper()
 
     public static let defaultOrder: [SidebarSectionType] = [
         .inbox,
         .libraries,
+        .sharedWithMe,
         .scixLibraries,
         .search,
         .exploration,
+        .flagged,
         .dismissed
     ]
 
-    // MARK: - Public API
+    private let store: ImpressSidebar.SidebarSectionOrderStore<SidebarSectionType>
 
-    /// Get the current section order
-    public func order() -> [SidebarSectionType] {
-        if let cached = cachedOrder {
-            return cached
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([SidebarSectionType].self, from: data) else {
-            cachedOrder = Self.defaultOrder
-            return Self.defaultOrder
-        }
-
-        // Ensure all sections are present (in case new sections were added)
-        var result = decoded.filter { Self.defaultOrder.contains($0) }
-        for section in Self.defaultOrder where !result.contains(section) {
-            result.append(section)
-        }
-
-        cachedOrder = result
-        return result
+    private init() {
+        self.store = ImpressSidebar.SidebarSectionOrderStore<SidebarSectionType>(
+            key: "sidebarSectionOrder",
+            defaultOrder: Self.defaultOrder
+        )
     }
 
-    /// Save a new section order
-    public func save(_ order: [SidebarSectionType]) {
-        cachedOrder = order
-        if let data = try? JSONEncoder().encode(order) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+    public func order() async -> [SidebarSectionType] {
+        await store.order()
     }
 
-    /// Reset to default order
-    public func reset() {
-        cachedOrder = Self.defaultOrder
-        UserDefaults.standard.removeObject(forKey: key)
+    public func save(_ order: [SidebarSectionType]) async {
+        await store.save(order)
     }
 
-    // MARK: - Synchronous Load (for SwiftUI @State init)
+    public func reset() async {
+        await store.reset()
+    }
 
-    /// Load order synchronously (for initial SwiftUI state)
-    public nonisolated static func loadOrderSync() -> [SidebarSectionType] {
-        guard let data = UserDefaults.standard.data(forKey: "sidebarSectionOrder"),
-              let decoded = try? JSONDecoder().decode([SidebarSectionType].self, from: data) else {
-            return defaultOrder
-        }
+    public func loadOrderSync() -> [SidebarSectionType] {
+        store.loadSync()
+    }
 
-        // Ensure all sections are present
-        var result = decoded.filter { defaultOrder.contains($0) }
-        for section in defaultOrder where !result.contains(section) {
-            result.append(section)
-        }
-        return result
+    /// Static convenience for SwiftUI @State initialization.
+    public static func loadOrderSync() -> [SidebarSectionType] {
+        shared.loadOrderSync()
     }
 }
 
 // MARK: - Sidebar Collapsed State Store
 
-/// Persists which sidebar sections are collapsed
-public actor SidebarCollapsedStateStore {
+/// Persists which sidebar sections are collapsed.
+///
+/// Thin wrapper over ImpressSidebar's generic `SidebarCollapsedStateStore`.
+public final class SidebarCollapsedStateStoreWrapper: Sendable {
 
-    // MARK: - Singleton
+    public static let shared = SidebarCollapsedStateStoreWrapper()
 
-    public static let shared = SidebarCollapsedStateStore()
+    private let store: ImpressSidebar.SidebarCollapsedStateStore<SidebarSectionType>
 
-    // MARK: - Properties
-
-    private let key = "sidebarCollapsedSections"
-    private var cachedState: Set<SidebarSectionType>?
-
-    // MARK: - Public API
-
-    /// Get the set of collapsed sections
-    public func collapsedSections() -> Set<SidebarSectionType> {
-        if let cached = cachedState {
-            return cached
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(Set<SidebarSectionType>.self, from: data) else {
-            cachedState = []
-            return []
-        }
-
-        cachedState = decoded
-        return decoded
+    private init() {
+        self.store = ImpressSidebar.SidebarCollapsedStateStore<SidebarSectionType>(
+            key: "sidebarCollapsedSections"
+        )
     }
 
-    /// Save the collapsed state
-    public func save(_ collapsed: Set<SidebarSectionType>) {
-        cachedState = collapsed
-        if let data = try? JSONEncoder().encode(collapsed) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+    public func collapsedSections() async -> Set<SidebarSectionType> {
+        await store.collapsedSections()
     }
 
-    /// Toggle collapsed state for a section
-    public func toggle(_ section: SidebarSectionType) -> Set<SidebarSectionType> {
-        var current = collapsedSections()
-        if current.contains(section) {
-            current.remove(section)
-        } else {
-            current.insert(section)
-        }
-        save(current)
-        return current
+    public func save(_ collapsed: Set<SidebarSectionType>) async {
+        await store.save(collapsed)
     }
 
-    /// Check if a section is collapsed
-    public func isCollapsed(_ section: SidebarSectionType) -> Bool {
-        collapsedSections().contains(section)
+    public func toggle(_ section: SidebarSectionType) async -> Set<SidebarSectionType> {
+        await store.toggle(section)
     }
 
-    // MARK: - Synchronous Load (for SwiftUI @State init)
+    public func isCollapsed(_ section: SidebarSectionType) async -> Bool {
+        await store.isCollapsed(section)
+    }
 
-    /// Load collapsed state synchronously (for initial SwiftUI state)
-    public nonisolated static func loadCollapsedSync() -> Set<SidebarSectionType> {
-        guard let data = UserDefaults.standard.data(forKey: "sidebarCollapsedSections"),
-              let decoded = try? JSONDecoder().decode(Set<SidebarSectionType>.self, from: data) else {
-            return []
-        }
-        return decoded
+    public func loadCollapsedSync() -> Set<SidebarSectionType> {
+        store.loadSync()
+    }
+
+    /// Static convenience for SwiftUI @State initialization.
+    public static func loadCollapsedSync() -> Set<SidebarSectionType> {
+        shared.loadCollapsedSync()
     }
 }
+
+// MARK: - Backward Compatibility Typealiases
+
+/// Backward compatibility: the old `SidebarSectionOrderStore` actor API
+/// is now `SidebarSectionOrderStoreWrapper` (a final class wrapping the generic actor).
+public typealias SidebarSectionOrderStore = SidebarSectionOrderStoreWrapper
+
+/// Backward compatibility: the old `SidebarCollapsedStateStore` actor API
+/// is now `SidebarCollapsedStateStoreWrapper`.
+public typealias SidebarCollapsedStateStore = SidebarCollapsedStateStoreWrapper
 
 // MARK: - Notification
 

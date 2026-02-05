@@ -26,6 +26,7 @@ public enum ListViewID: Hashable, Sendable {
     case smartSearch(UUID)
     case lastSearch(UUID)  // "Last Search" system collection
     case scixLibrary(UUID)  // SciX online library
+    case flagged(UUID)      // Flagged publications virtual list
 
     /// Storage key for this list view
     var storageKey: String {
@@ -40,6 +41,8 @@ public enum ListViewID: Hashable, Sendable {
             return "lastsearch_\(id.uuidString)"
         case .scixLibrary(let id):
             return "scixlibrary_\(id.uuidString)"
+        case .flagged(let id):
+            return "flagged_\(id.uuidString)"
         }
     }
 }
@@ -267,6 +270,10 @@ public actor ListViewStateStore {
             return .smartSearch(uuid)
         case "lastsearch":
             return .lastSearch(uuid)
+        case "scixlibrary":
+            return .scixLibrary(uuid)
+        case "flagged":
+            return .flagged(uuid)
         default:
             return nil
         }

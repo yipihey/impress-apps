@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressSidebar
 
 // MARK: - Sidebar Sheet Enum
 
@@ -36,6 +37,21 @@ public enum SidebarSheet: Identifiable {
     }
 }
 
+// MARK: - Shareable Item
+
+/// Represents an item that can be shared via iCloud
+public enum ShareableItem: Identifiable {
+    case library(CDLibrary)
+    case collection(CDCollection)
+
+    public var id: String {
+        switch self {
+        case .library(let lib): return "library-\(lib.id)"
+        case .collection(let col): return "collection-\(col.id)"
+        }
+    }
+}
+
 // MARK: - Sidebar State
 
 /// Consolidated state for SidebarView.
@@ -52,9 +68,6 @@ public final class SidebarState {
 
     // MARK: - Drop State
 
-    /// The library currently being targeted by a drag operation (for "All Publications" row)
-    var dropTargetedLibrary: UUID?
-
     /// The library header currently being targeted by a drag operation
     var dropTargetedLibraryHeader: UUID?
 
@@ -67,10 +80,7 @@ public final class SidebarState {
     // MARK: - Multi-selection State
 
     /// Multi-selection for exploration collections (Option+click to toggle, Shift+click for range)
-    var explorationMultiSelection: Set<UUID> = []
-
-    /// Last selected exploration collection ID for Shift+click range selection
-    var lastSelectedExplorationID: UUID?
+    var explorationSelection = SidebarMultiSelection<UUID>()
 
     /// Expanded state for exploration collection tree disclosure groups
     var expandedExplorationCollections: Set<UUID> = []
@@ -78,16 +88,25 @@ public final class SidebarState {
     /// Expanded state for library collection tree, keyed by library ID
     var expandedLibraryCollections: [UUID: Set<UUID>] = [:]
 
-    /// Multi-selection for smart searches in exploration section
-    var searchMultiSelection: Set<UUID> = []
+    /// Expanded state for inbox collection tree
+    var expandedInboxCollections: Set<UUID> = []
 
-    /// Last selected smart search ID for Shift+click range selection
-    var lastSelectedSearchID: UUID?
+    /// Multi-selection for smart searches in exploration section
+    var searchSelection = SidebarMultiSelection<UUID>()
 
     // MARK: - Editing State
 
     /// Collection currently being renamed inline
     var renamingCollection: CDCollection?
+
+    /// The name being edited (used during inline rename)
+    var renamingCollectionName: String = ""
+
+    /// Inbox collection currently being renamed inline
+    var renamingInboxCollection: CDCollection?
+
+    /// The name being edited for inbox collection rename
+    var renamingInboxCollectionName: String = ""
 
     // MARK: - Confirmation Dialogs
 
@@ -116,6 +135,37 @@ public final class SidebarState {
 
     /// Mbox import preview data (used with activeSheet.mboxImport)
     var mboxImportPreview: MboxImportPreview?
+
+    // MARK: - CloudKit Sharing State
+
+    /// Item to share via iCloud (triggers sharing sheet)
+    var itemToShareViaICloud: ShareableItem?
+
+    /// Shared library to manage participants for (triggers manage sheet)
+    var sharedLibraryToManage: CDLibrary?
+
+    /// Shared library to show activity feed for
+    var activityFeedLibrary: CDLibrary?
+
+    /// Shared library to show assignments (reading suggestions) for
+    var assignmentLibrary: CDLibrary?
+
+    /// Shared library to show citation graph for
+    var citationGraphLibrary: CDLibrary?
+
+    /// Publication to suggest to a participant (triggers suggest sheet)
+    var publicationToSuggest: CDPublication?
+
+    /// Library context for the suggestion sheet
+    var suggestInLibrary: CDLibrary?
+
+    // MARK: - Flag Counts
+
+    /// Counts of flagged publications for sidebar badges
+    var flagCounts = FlagCounts.empty
+
+    /// NotificationCenter observer for flag changes
+    private var flagChangeObserver: Any?
 
     // MARK: - UI Refresh Triggers
 
@@ -196,13 +246,52 @@ public final class SidebarState {
 
     /// Clear exploration multi-selection
     func clearExplorationSelection() {
-        explorationMultiSelection.removeAll()
-        lastSelectedExplorationID = nil
+        explorationSelection.clear()
     }
 
     /// Clear search multi-selection
     func clearSearchSelection() {
-        searchMultiSelection.removeAll()
-        lastSelectedSearchID = nil
+        searchSelection.clear()
     }
+
+    /// Refresh flag counts from all libraries.
+    /// Called on initial load and when `.flagDidChange` fires.
+    func refreshFlagCounts(libraries: [CDLibrary]) {
+        var total = 0
+        var byColor: [String: Int] = [:]
+
+        for library in libraries {
+            guard let pubs = library.publications else { continue }
+            for pub in pubs where !pub.isDeleted {
+                if let color = pub.flagColor {
+                    total += 1
+                    byColor[color, default: 0] += 1
+                }
+            }
+        }
+
+        flagCounts = FlagCounts(total: total, byColor: byColor)
+    }
+
+    /// Register for flag change notifications, refreshing counts when fires.
+    /// Must pass `libraries` closure since SidebarState doesn't own LibraryManager.
+    func observeFlagChanges(libraries: @escaping () -> [CDLibrary]) {
+        flagChangeObserver = NotificationCenter.default.addObserver(
+            forName: .flagDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshFlagCounts(libraries: libraries())
+            }
+        }
+    }
+}
+
+/// Sidebar flag counts for badge display
+struct FlagCounts {
+    var total: Int = 0
+    var byColor: [String: Int] = [:]
+
+    static let empty = FlagCounts()
 }

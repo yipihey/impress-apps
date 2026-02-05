@@ -12,6 +12,63 @@
 
 import SwiftUI
 
+// MARK: - Quick Start Examples (shared across platforms)
+
+private struct QuickStartExample {
+    let label: String
+    let icon: String
+    let query: String
+}
+
+private let quickStartExamples: [QuickStartExample] = [
+    QuickStartExample(
+        label: "Recent AI",
+        icon: "cpu",
+        query: "title.search:\"artificial intelligence\" publication_year:2023-2024"
+    ),
+    QuickStartExample(
+        label: "Highly Cited",
+        icon: "star.fill",
+        query: "cited_by_count:>1000 open_access.is_oa:true"
+    ),
+    QuickStartExample(
+        label: "Reviews 2024",
+        icon: "doc.text.magnifyingglass",
+        query: "type:review publication_year:2024"
+    ),
+    QuickStartExample(
+        label: "Open Access",
+        icon: "lock.open.fill",
+        query: "open_access.is_oa:true has_pdf_url:true publication_year:2024"
+    ),
+    QuickStartExample(
+        label: "Climate Science",
+        icon: "leaf.fill",
+        query: "title.search:\"climate change\" type:article publication_year:2020-2024"
+    )
+]
+
+// MARK: - Syntax Help Items (shared across platforms)
+
+private struct SyntaxHelpItem {
+    let field: String
+    let example: String
+    let description: String
+}
+
+private let syntaxHelpItems: [SyntaxHelpItem] = [
+    SyntaxHelpItem(field: "author:", example: "author:\"Einstein, Albert\"", description: "Search by author name"),
+    SyntaxHelpItem(field: "title.search:", example: "title.search:\"neural network\"", description: "Search in title"),
+    SyntaxHelpItem(field: "abstract.search:", example: "abstract.search:\"machine learning\"", description: "Search in abstract"),
+    SyntaxHelpItem(field: "publication_year:", example: "publication_year:2020-2024", description: "Year or range"),
+    SyntaxHelpItem(field: "cited_by_count:", example: "cited_by_count:>100", description: "Citation threshold"),
+    SyntaxHelpItem(field: "open_access.is_oa:", example: "open_access.is_oa:true", description: "Open access filter"),
+    SyntaxHelpItem(field: "type:", example: "type:article", description: "Work type"),
+    SyntaxHelpItem(field: "doi:", example: "doi:10.1234/example", description: "Exact DOI lookup"),
+    SyntaxHelpItem(field: "authorships.author.orcid:", example: "orcid:0000-0001-2345-6789", description: "Author by ORCID"),
+    SyntaxHelpItem(field: "authorships.institutions.display_name.search:", example: "institution:\"MIT\"", description: "Affiliation search")
+]
+
 #if os(macOS)
 
 // MARK: - OpenAlex Enhanced Search Form View (macOS)
@@ -644,63 +701,6 @@ private struct SyntaxHelpRow: View {
         .padding(.vertical, 4)
     }
 }
-
-// MARK: - Quick Start Examples
-
-private struct QuickStartExample {
-    let label: String
-    let icon: String
-    let query: String
-}
-
-private let quickStartExamples: [QuickStartExample] = [
-    QuickStartExample(
-        label: "Recent AI",
-        icon: "cpu",
-        query: "title.search:\"artificial intelligence\" publication_year:2023-2024"
-    ),
-    QuickStartExample(
-        label: "Highly Cited",
-        icon: "star.fill",
-        query: "cited_by_count:>1000 open_access.is_oa:true"
-    ),
-    QuickStartExample(
-        label: "Reviews 2024",
-        icon: "doc.text.magnifyingglass",
-        query: "type:review publication_year:2024"
-    ),
-    QuickStartExample(
-        label: "Open Access",
-        icon: "lock.open.fill",
-        query: "open_access.is_oa:true has_pdf_url:true publication_year:2024"
-    ),
-    QuickStartExample(
-        label: "Climate Science",
-        icon: "leaf.fill",
-        query: "title.search:\"climate change\" type:article publication_year:2020-2024"
-    )
-]
-
-// MARK: - Syntax Help Items
-
-private struct SyntaxHelpItem {
-    let field: String
-    let example: String
-    let description: String
-}
-
-private let syntaxHelpItems: [SyntaxHelpItem] = [
-    SyntaxHelpItem(field: "author:", example: "author:\"Einstein, Albert\"", description: "Search by author name"),
-    SyntaxHelpItem(field: "title.search:", example: "title.search:\"neural network\"", description: "Search in title"),
-    SyntaxHelpItem(field: "abstract.search:", example: "abstract.search:\"machine learning\"", description: "Search in abstract"),
-    SyntaxHelpItem(field: "publication_year:", example: "publication_year:2020-2024", description: "Year or range"),
-    SyntaxHelpItem(field: "cited_by_count:", example: "cited_by_count:>100", description: "Citation threshold"),
-    SyntaxHelpItem(field: "open_access.is_oa:", example: "open_access.is_oa:true", description: "Open access filter"),
-    SyntaxHelpItem(field: "type:", example: "type:article", description: "Work type"),
-    SyntaxHelpItem(field: "doi:", example: "doi:10.1234/example", description: "Exact DOI lookup"),
-    SyntaxHelpItem(field: "authorships.author.orcid:", example: "orcid:0000-0001-2345-6789", description: "Author by ORCID"),
-    SyntaxHelpItem(field: "authorships.institutions.display_name.search:", example: "institution:\"MIT\"", description: "Affiliation search")
-]
 
 #elseif os(iOS)
 

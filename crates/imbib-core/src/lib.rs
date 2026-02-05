@@ -30,6 +30,15 @@ pub mod search;
 pub mod sources;
 pub mod text;
 
+// Flagging and tagging (Phase 3)
+pub mod input_mode;
+pub mod filter;
+
+pub use input_mode::InputMode;
+pub use filter::ReadState;
+#[cfg(feature = "native")]
+pub use filter::ParsedFilter;
+
 // Phase 3: Full-text search, PDF extraction, and annotations
 pub mod annotations;
 #[cfg(not(target_arch = "wasm32"))]

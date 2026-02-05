@@ -88,10 +88,20 @@ public enum AutomationCommand: Sendable {
     /// Action on the PDF viewer
     case pdf(action: PDFAction)
 
+    // MARK: - Shared Library Actions
+
+    /// Navigate to a paper in a shared library
+    /// URL: imbib://shared/library/<libraryID>/paper/<citeKey>
+    case sharedPaper(libraryID: UUID, citeKey: String)
+
     // MARK: - App Actions
 
     /// General app actions
     case app(action: AppAction)
+
+    /// Execute a command by notification name (for universal command palette)
+    /// URL: impress://imbib/command/<notificationName>
+    case executeCommand(notificationName: String)
 }
 
 // MARK: - Navigation Target
@@ -242,6 +252,7 @@ public struct URLCommandParser {
     /// Parse a URL into an automation command.
     ///
     /// URL format: `imbib://<command>/<subcommand>?param1=value1&param2=value2`
+    /// Cross-app format: `impress://imbib/<command>/<subcommand>?param1=value1&param2=value2`
     ///
     /// Examples:
     /// - `imbib://search?query=einstein&source=ads&max=50`
@@ -250,16 +261,28 @@ public struct URLCommandParser {
     /// - `imbib://selected/toggle-read`
     /// - `imbib://inbox/keep`
     /// - `imbib://pdf/go-to-page?page=5`
+    /// - `impress://imbib/command/showLibrary` (cross-app deep link)
+    /// - `impress://imbib/papers/Einstein1905?tab=pdf&page=3` (cross-app navigation)
     public func parse(_ url: URL) throws -> AutomationCommand {
-        guard url.scheme == "imbib" else {
+        // Support both imbib:// and impress://imbib/ schemes
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "imbib" || scheme == "impress" else {
             throw AutomationError.invalidScheme(url.scheme ?? "nil")
+        }
+
+        // For impress:// URLs, verify the target is imbib
+        if scheme == "impress" {
+            guard url.host?.lowercased() == "imbib" else {
+                throw AutomationError.invalidScheme("impress://\(url.host ?? "unknown") - expected impress://imbib/...")
+            }
         }
 
         // Get path components (host is first path component for imbib:// URLs)
         var pathComponents = url.pathComponents.filter { $0 != "/" }
 
-        // For URLs like imbib://search, host becomes the command
-        if let host = url.host, !host.isEmpty {
+        // For imbib:// URLs like imbib://search, host becomes the command
+        // For impress:// URLs like impress://imbib/papers, host is the app target (already validated above)
+        if scheme == "imbib", let host = url.host, !host.isEmpty {
             pathComponents.insert(host, at: 0)
         }
 
@@ -315,6 +338,16 @@ public struct URLCommandParser {
 
         case "remarkable":
             return try parseRemarkableCommand(pathComponents, queryParams)
+
+        case "shared":
+            return try parseSharedCommand(pathComponents, queryParams)
+
+        case "command":
+            return try parseCommandCommand(pathComponents, queryParams)
+
+        case "papers":
+            // Cross-app navigation: impress://imbib/papers/<citeKey>?tab=pdf&page=3
+            return try parsePapersCommand(pathComponents, queryParams)
 
         default:
             throw AutomationError.unknownCommand(command)
@@ -621,6 +654,64 @@ public struct URLCommandParser {
         default:
             throw AutomationError.unknownCommand("remarkable/\(subcommand)")
         }
+    }
+
+    private func parseSharedCommand(_ pathComponents: [String], _ params: [String: String]) throws -> AutomationCommand {
+        // imbib://shared/library/<libraryID>/paper/<citeKey>
+        guard pathComponents.count >= 4,
+              pathComponents[1] == "library" else {
+            throw AutomationError.missingParameter("Expected: shared/library/<libraryID>/paper/<citeKey>")
+        }
+
+        guard let libraryID = UUID(uuidString: pathComponents[2]) else {
+            throw AutomationError.missingParameter("Invalid library ID: \(pathComponents[2])")
+        }
+
+        if pathComponents.count >= 5 && pathComponents[3] == "paper" {
+            let citeKey = pathComponents[4]
+            return .sharedPaper(libraryID: libraryID, citeKey: citeKey)
+        }
+
+        throw AutomationError.unknownCommand("shared/library/\(pathComponents.count > 3 ? pathComponents[3] : "?")")
+    }
+
+    private func parseCommandCommand(_ pathComponents: [String], _ params: [String: String]) throws -> AutomationCommand {
+        // impress://imbib/command/<notificationName>
+        // Example: impress://imbib/command/showLibrary
+        guard pathComponents.count >= 2 else {
+            throw AutomationError.missingParameter("notification name")
+        }
+
+        let notificationName = pathComponents[1]
+        return .executeCommand(notificationName: notificationName)
+    }
+
+    private func parsePapersCommand(_ pathComponents: [String], _ params: [String: String]) throws -> AutomationCommand {
+        // impress://imbib/papers/<citeKey>?tab=pdf&page=3
+        // Deep link directly to a paper with optional tab and page
+        guard pathComponents.count >= 2 else {
+            throw AutomationError.missingParameter("cite key")
+        }
+
+        let citeKey = pathComponents[1]
+        let tab = params["tab"]
+
+        // Determine action based on tab parameter
+        let action: PaperAction
+        switch tab?.lowercased() {
+        case "pdf":
+            action = .openPDF
+        case "notes":
+            action = .openNotes
+        case "bibtex":
+            action = .open  // open paper, then show bibtex tab
+        case "references":
+            action = .openReferences
+        default:
+            action = .open
+        }
+
+        return .paper(citeKey: citeKey, action: action)
     }
 }
 

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressFTUI
 import QuickLook
 
 /// iOS Info tab showing publication details, abstract, identifiers, and attachments.
@@ -51,6 +52,10 @@ struct IOSInfoTab: View {
                     Divider()
                 }
 
+                // Flag & Tags
+                flagAndTagsSection
+                Divider()
+
                 // Abstract
                 if let abstract = publication.abstract, !abstract.isEmpty {
                     abstractSection(abstract)
@@ -66,6 +71,12 @@ struct IOSInfoTab: View {
                 // Attachments
                 attachmentsSection
                 Divider()
+
+                // Comments (shared libraries)
+                if publication.libraries?.contains(where: { $0.isSharedLibrary }) == true {
+                    CommentSectionView(publication: publication)
+                    Divider()
+                }
 
                 // Identifiers (DOI, arXiv, ADS, PubMed)
                 if hasIdentifiers {
@@ -257,6 +268,41 @@ struct IOSInfoTab: View {
     /// Whether any exploration is in progress
     private var isExploring: Bool {
         isExploringReferences || isExploringCitations || isExploringSimilar || isExploringCoReads || isExploringWoSRelated
+    }
+
+    @ViewBuilder
+    private var flagAndTagsSection: some View {
+        let tags = publication.tags ?? []
+        let sortedTags = tags.sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
+        let hasFlag = publication.flag != nil
+        let hasTags = !sortedTags.isEmpty
+
+        if hasFlag || hasTags {
+            VStack(alignment: .leading, spacing: 8) {
+                if let flag = publication.flag {
+                    HStack(spacing: 6) {
+                        FlagStripe(flag: flag, rowHeight: 16)
+                        Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if hasTags {
+                    FlowLayout(spacing: 4) {
+                        ForEach(sortedTags, id: \.id) { tag in
+                            TagChip(tag: TagDisplayData(
+                                id: tag.id,
+                                path: tag.canonicalPath ?? tag.name,
+                                leaf: tag.leaf,
+                                colorLight: tag.colorLight ?? tag.effectiveLightColor(),
+                                colorDark: tag.colorDark ?? tag.effectiveDarkColor()
+                            ))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var exploreSection: some View {
@@ -588,6 +634,19 @@ struct IOSInfoTab: View {
                 }
             }
 
+            recordInfoRow("Flag") {
+                if let flag = publication.flag {
+                    HStack(spacing: 6) {
+                        FlagStripe(flag: flag, rowHeight: 16)
+                        Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
+                    }
+                } else {
+                    Text("None")
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+
             if publication.citationCount > 0 {
                 recordInfoRow("Citations") {
                     Text("\(publication.citationCount)")
@@ -602,8 +661,10 @@ struct IOSInfoTab: View {
 
             // Libraries this paper belongs to
             if let libraries = publication.libraries, !libraries.isEmpty {
-                recordInfoRow(libraries.count == 1 ? "Library" : "Libraries") {
-                    Text(libraries.map { $0.displayName }.sorted().joined(separator: ", "))
+                // Use Set to deduplicate display names (handles duplicate inbox libraries)
+                let uniqueNames = Set(libraries.map { $0.displayName }).sorted()
+                recordInfoRow(uniqueNames.count == 1 ? "Library" : "Libraries") {
+                    Text(uniqueNames.joined(separator: ", "))
                         .textSelection(.enabled)
                 }
             }

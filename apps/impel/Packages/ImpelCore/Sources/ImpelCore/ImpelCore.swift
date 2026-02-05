@@ -44,7 +44,7 @@ public enum ThreadState: String, Codable, CaseIterable, Sendable {
 }
 
 /// A research thread being worked on by agents
-public struct ResearchThread: Identifiable, Codable, Sendable {
+public struct ResearchThread: Identifiable, Codable, Sendable, Hashable {
     public let id: String
     public var title: String
     public var description: String
@@ -258,20 +258,26 @@ public struct Escalation: Identifiable, Codable, Sendable {
 public struct SystemState: Sendable {
     public var threads: [ResearchThread]
     public var agents: [Agent]
+    public var personas: [Persona]
     public var escalations: [Escalation]
+    public var suggestions: [AgentSuggestion]
     public var isPaused: Bool
     public var lastUpdated: Date
 
     public init(
         threads: [ResearchThread] = [],
         agents: [Agent] = [],
+        personas: [Persona] = [],
         escalations: [Escalation] = [],
+        suggestions: [AgentSuggestion] = [],
         isPaused: Bool = false,
         lastUpdated: Date = Date()
     ) {
         self.threads = threads
         self.agents = agents
+        self.personas = personas
         self.escalations = escalations
+        self.suggestions = suggestions
         self.isPaused = isPaused
         self.lastUpdated = lastUpdated
     }
@@ -294,6 +300,31 @@ public struct SystemState: Sendable {
     public var threadsByState: [ThreadState: [ResearchThread]] {
         Dictionary(grouping: threads, by: { $0.state })
     }
+
+    public var builtinPersonas: [Persona] {
+        personas.filter { $0.builtin }
+    }
+
+    public var customPersonas: [Persona] {
+        personas.filter { !$0.builtin }
+    }
+
+    /// Get persona by ID
+    public func persona(id: String) -> Persona? {
+        personas.first { $0.id == id }
+    }
+
+    /// Active (non-dismissed) suggestions sorted by confidence
+    public var activeSuggestions: [AgentSuggestion] {
+        suggestions
+            .filter { !$0.isDismissed }
+            .sorted { $0.confidence > $1.confidence }
+    }
+
+    /// High-confidence suggestions (>= 0.7)
+    public var importantSuggestions: [AgentSuggestion] {
+        activeSuggestions.filter { $0.confidence >= 0.7 }
+    }
 }
 
 // MARK: - Impel Client
@@ -307,6 +338,10 @@ public class ImpelClient: ObservableObject {
 
     private var serverURL: URL?
     private var refreshTask: Task<Void, Never>?
+    private let suggestionEngine = SuggestionEngine()
+
+    /// Default impel server port
+    public static let defaultPort = 23123
 
     public init() {
         self.state = SystemState()
@@ -328,6 +363,12 @@ public class ImpelClient: ObservableObject {
         }
     }
 
+    /// Connect to localhost with default port
+    public func connectToLocalhost() async {
+        guard let url = URL(string: "http://127.0.0.1:\(Self.defaultPort)") else { return }
+        await connect(to: url)
+    }
+
     /// Disconnect from the server
     public func disconnect() {
         refreshTask?.cancel()
@@ -340,20 +381,188 @@ public class ImpelClient: ObservableObject {
     public func refresh() async {
         guard let url = serverURL else { return }
 
-        // TODO: Implement actual HTTP request to impel-server
+        // TODO: Implement actual HTTP requests to impel-server
         // For now, use mock data
         _ = url
 
         // Simulate successful connection with mock data
-        state = Self.mockState()
+        var newState = Self.mockState()
+
+        // Generate proactive suggestions based on current state
+        let suggestions = await suggestionEngine.generateSuggestions(for: newState)
+        newState.suggestions = suggestions
+
+        state = newState
         isConnected = true
         connectionError = nil
     }
 
+    /// Dismiss a suggestion
+    public func dismissSuggestion(id: String) {
+        if let index = state.suggestions.firstIndex(where: { $0.id == id }) {
+            state.suggestions[index].isDismissed = true
+        }
+    }
+
+    /// Execute a suggested action
+    public func executeSuggestion(_ suggestion: AgentSuggestion) async throws {
+        switch suggestion.action {
+        case .assignThread(let threadId, let agentId):
+            // In production, this would call the server to assign the thread
+            if let threadIndex = state.threads.firstIndex(where: { $0.id == threadId }),
+               let agentIndex = state.agents.firstIndex(where: { $0.id == agentId }) {
+                state.threads[threadIndex].claimedBy = agentId
+                state.agents[agentIndex].currentThread = threadId
+                state.agents[agentIndex].status = .working
+            }
+
+        case .raiseTemperature(let threadId, let newTemp),
+             .lowerTemperature(let threadId, let newTemp):
+            if let index = state.threads.firstIndex(where: { $0.id == threadId }) {
+                state.threads[index].temperature = newTemp
+            }
+
+        case .spawnAgent(let agentType, _):
+            // In production, this would call the server to spawn an agent
+            let newAgent = Agent(
+                id: "\(agentType.rawValue)-\(UUID().uuidString.prefix(4))",
+                agentType: agentType,
+                status: .idle
+            )
+            state.agents.append(newAgent)
+
+        case .resolveBlock(let threadId, _):
+            // Navigate to the thread's escalation
+            // This would trigger UI navigation in the view layer
+            _ = threadId
+
+        case .viewDetails:
+            // This would trigger UI navigation
+            break
+        }
+
+        // Mark suggestion as dismissed after execution
+        dismissSuggestion(id: suggestion.id)
+    }
+
+    /// Fetch personas from server
+    public func fetchPersonas() async throws -> [Persona] {
+        guard let url = serverURL else {
+            return Persona.mockPersonas()
+        }
+
+        let personasURL = url.appendingPathComponent("personas")
+        let (data, _) = try await URLSession.shared.data(from: personasURL)
+
+        struct PersonasResponse: Decodable {
+            let personas: [PersonaSummary]
+        }
+
+        // For now, return mock data since we need the full persona detail
+        // In production, this would fetch from /personas and then
+        // fetch each persona's details from /personas/{id}
+        _ = data
+        return Persona.mockPersonas()
+    }
+
+    /// Fetch a specific persona by ID
+    public func fetchPersona(id: String) async throws -> Persona? {
+        guard let url = serverURL else {
+            return Persona.mockPersonas().first { $0.id == id }
+        }
+
+        let personaURL = url.appendingPathComponent("personas").appendingPathComponent(id)
+        let (data, response) = try await URLSession.shared.data(from: personaURL)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+
+        return try JSONDecoder().decode(Persona.self, from: data)
+    }
+
     /// Load mock data for development/demo
-    public func loadMockData() {
-        state = Self.mockState()
+    public func loadMockData() async {
+        var mockState = Self.mockState()
+        let suggestions = await suggestionEngine.generateSuggestions(for: mockState)
+        mockState.suggestions = suggestions
+        state = mockState
         isConnected = true
+    }
+
+    // MARK: - Escalation Actions
+
+    /// Resolve an escalation by selecting an option
+    /// - Parameters:
+    ///   - escalationId: The ID of the escalation to resolve
+    ///   - optionIndex: The 0-based index of the selected option
+    ///   - optionLabel: The label of the selected option (used as resolution text)
+    public func resolveEscalation(id escalationId: String, optionIndex: Int, optionLabel: String) async throws {
+        guard let url = serverURL else {
+            throw ImpelClientError.notConnected
+        }
+
+        let resolveURL = url.appendingPathComponent("escalations/\(escalationId)/resolve")
+
+        var request = URLRequest(url: resolveURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "by": "user",
+            "resolution": optionLabel,
+            "selected_option": optionIndex
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ImpelClientError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw ImpelClientError.serverError(statusCode: httpResponse.statusCode, message: errorMessage)
+        }
+
+        // Remove from local state immediately for responsive UI
+        if let index = state.escalations.firstIndex(where: { $0.id == escalationId }) {
+            state.escalations[index].status = .resolved
+        }
+    }
+
+    /// Acknowledge an escalation
+    public func acknowledgeEscalation(id escalationId: String) async throws {
+        guard let url = serverURL else {
+            throw ImpelClientError.notConnected
+        }
+
+        let ackURL = url.appendingPathComponent("escalations/\(escalationId)/acknowledge")
+
+        var request = URLRequest(url: ackURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["by": "user"]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ImpelClientError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw ImpelClientError.serverError(statusCode: httpResponse.statusCode, message: errorMessage)
+        }
+
+        // Update local state
+        if let index = state.escalations.firstIndex(where: { $0.id == escalationId }) {
+            state.escalations[index].status = .acknowledged
+        }
     }
 
     // MARK: - Mock Data
@@ -426,9 +635,301 @@ public class ImpelClient: ObservableObject {
         return SystemState(
             threads: threads,
             agents: agents,
+            personas: Persona.mockPersonas(),
             escalations: escalations,
             isPaused: false,
             lastUpdated: Date()
         )
+    }
+}
+
+// MARK: - Errors
+
+public enum ImpelClientError: LocalizedError {
+    case notConnected
+    case invalidResponse
+    case serverError(statusCode: Int, message: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected:
+            return "Not connected to impel server"
+        case .invalidResponse:
+            return "Invalid response from server"
+        case .serverError(let code, let message):
+            return "Server error (\(code)): \(message)"
+        }
+    }
+}
+
+// MARK: - Proactive Suggestions
+
+/// Category of proactive suggestion
+public enum SuggestionCategory: String, Codable, CaseIterable, Sendable {
+    case threadAssignment = "thread_assignment"
+    case threadPriority = "thread_priority"
+    case agentSpawn = "agent_spawn"
+    case workflowOptimization = "workflow_optimization"
+    case blockResolution = "block_resolution"
+
+    public var displayName: String {
+        switch self {
+        case .threadAssignment: return "Thread Assignment"
+        case .threadPriority: return "Priority Change"
+        case .agentSpawn: return "Spawn Agent"
+        case .workflowOptimization: return "Workflow Tip"
+        case .blockResolution: return "Resolve Block"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .threadAssignment: return "arrow.right.circle"
+        case .threadPriority: return "flame"
+        case .agentSpawn: return "plus.circle"
+        case .workflowOptimization: return "lightbulb"
+        case .blockResolution: return "hand.point.right"
+        }
+    }
+}
+
+/// A proactive suggestion for the user
+public struct AgentSuggestion: Identifiable, Codable, Sendable {
+    public let id: String
+    public let category: SuggestionCategory
+    public let title: String
+    public let reason: String
+    public let confidence: Double
+    public let threadId: String?
+    public let agentId: String?
+    public let action: SuggestedAction
+    public let createdAt: Date
+    public var isDismissed: Bool
+
+    public init(
+        id: String = UUID().uuidString,
+        category: SuggestionCategory,
+        title: String,
+        reason: String,
+        confidence: Double,
+        threadId: String? = nil,
+        agentId: String? = nil,
+        action: SuggestedAction,
+        createdAt: Date = Date(),
+        isDismissed: Bool = false
+    ) {
+        self.id = id
+        self.category = category
+        self.title = title
+        self.reason = reason
+        self.confidence = confidence
+        self.threadId = threadId
+        self.agentId = agentId
+        self.action = action
+        self.createdAt = createdAt
+        self.isDismissed = isDismissed
+    }
+}
+
+/// An action that can be taken on a suggestion
+public enum SuggestedAction: Codable, Sendable {
+    case assignThread(threadId: String, agentId: String)
+    case raiseTemperature(threadId: String, newTemperature: Double)
+    case lowerTemperature(threadId: String, newTemperature: Double)
+    case spawnAgent(agentType: AgentType, forThread: String?)
+    case resolveBlock(threadId: String, hint: String)
+    case viewDetails(resourceType: String, resourceId: String)
+
+    public var buttonLabel: String {
+        switch self {
+        case .assignThread: return "Assign"
+        case .raiseTemperature: return "Raise Priority"
+        case .lowerTemperature: return "Lower Priority"
+        case .spawnAgent: return "Spawn"
+        case .resolveBlock: return "Investigate"
+        case .viewDetails: return "View"
+        }
+    }
+}
+
+// MARK: - Suggestion Engine
+
+/// Engine for generating proactive suggestions
+public actor SuggestionEngine {
+
+    /// Generate suggestions based on current system state
+    public func generateSuggestions(for state: SystemState) -> [AgentSuggestion] {
+        var suggestions: [AgentSuggestion] = []
+
+        // 1. Idle agents + unassigned hot threads
+        suggestions.append(contentsOf: suggestThreadAssignments(state))
+
+        // 2. Blocked threads with idle agents that could help
+        suggestions.append(contentsOf: suggestBlockResolutions(state))
+
+        // 3. Priority adjustments based on activity patterns
+        suggestions.append(contentsOf: suggestPriorityChanges(state))
+
+        // 4. Agent spawn suggestions for backlogged work
+        suggestions.append(contentsOf: suggestAgentSpawns(state))
+
+        // Sort by confidence and limit
+        return suggestions
+            .sorted { $0.confidence > $1.confidence }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    // MARK: - Private Suggestion Generators
+
+    private func suggestThreadAssignments(_ state: SystemState) -> [AgentSuggestion] {
+        var suggestions: [AgentSuggestion] = []
+
+        // Find idle agents
+        let idleAgents = state.agents.filter { $0.status == .idle }
+
+        // Find unassigned hot threads
+        let unassignedHotThreads = state.threads.filter {
+            $0.claimedBy == nil && $0.temperature >= 0.6 && !$0.state.isTerminal
+        }
+
+        for thread in unassignedHotThreads {
+            // Find a matching idle agent
+            let matchingAgent = idleAgents.first { agent in
+                // Match agent type to thread needs (simplified heuristic)
+                switch thread.state {
+                case .embryo:
+                    return agent.agentType == .research
+                case .active:
+                    return agent.agentType == .code || agent.agentType == .research
+                case .review:
+                    return agent.agentType == .review || agent.agentType == .verification
+                case .blocked:
+                    return agent.agentType == .adversarial
+                default:
+                    return false
+                }
+            }
+
+            if let agent = matchingAgent {
+                let confidence = thread.temperature * 0.8 + 0.2
+                suggestions.append(AgentSuggestion(
+                    category: .threadAssignment,
+                    title: "Assign \(agent.agentType.displayName) to \"\(thread.title)\"",
+                    reason: "Thread is hot (\(Int(thread.temperature * 100))%) and \(agent.id) is idle",
+                    confidence: confidence,
+                    threadId: thread.id,
+                    agentId: agent.id,
+                    action: .assignThread(threadId: thread.id, agentId: agent.id)
+                ))
+            }
+        }
+
+        return suggestions
+    }
+
+    private func suggestBlockResolutions(_ state: SystemState) -> [AgentSuggestion] {
+        var suggestions: [AgentSuggestion] = []
+
+        let blockedThreads = state.threads.filter { $0.state == .blocked }
+
+        for thread in blockedThreads {
+            // Check if there's a pending escalation for this thread
+            let hasEscalation = state.escalations.contains {
+                $0.threadId == thread.id && $0.status == .pending
+            }
+
+            if hasEscalation {
+                suggestions.append(AgentSuggestion(
+                    category: .blockResolution,
+                    title: "Resolve block on \"\(thread.title)\"",
+                    reason: "Thread is blocked with pending escalation",
+                    confidence: 0.9,
+                    threadId: thread.id,
+                    action: .resolveBlock(threadId: thread.id, hint: "Review pending escalation")
+                ))
+            }
+        }
+
+        return suggestions
+    }
+
+    private func suggestPriorityChanges(_ state: SystemState) -> [AgentSuggestion] {
+        var suggestions: [AgentSuggestion] = []
+
+        // Suggest raising priority for stale active threads
+        let staleActiveThreads = state.threads.filter {
+            $0.state == .active &&
+            $0.temperature < 0.5 &&
+            $0.updatedAt.timeIntervalSinceNow < -3600 // Stale for > 1 hour
+        }
+
+        for thread in staleActiveThreads {
+            suggestions.append(AgentSuggestion(
+                category: .threadPriority,
+                title: "Raise priority of \"\(thread.title)\"",
+                reason: "Active thread with low priority hasn't progressed recently",
+                confidence: 0.7,
+                threadId: thread.id,
+                action: .raiseTemperature(threadId: thread.id, newTemperature: 0.7)
+            ))
+        }
+
+        // Suggest lowering priority for too many hot threads
+        let hotThreads = state.threads.filter { $0.temperature >= 0.7 && !$0.state.isTerminal }
+        if hotThreads.count > 3 {
+            // Suggest lowering the least recently updated hot thread
+            if let coldestHot = hotThreads.sorted(by: { $0.updatedAt < $1.updatedAt }).first {
+                suggestions.append(AgentSuggestion(
+                    category: .threadPriority,
+                    title: "Lower priority of \"\(coldestHot.title)\"",
+                    reason: "Too many hot threads (\(hotThreads.count)) - focus efforts",
+                    confidence: 0.65,
+                    threadId: coldestHot.id,
+                    action: .lowerTemperature(threadId: coldestHot.id, newTemperature: 0.5)
+                ))
+            }
+        }
+
+        return suggestions
+    }
+
+    private func suggestAgentSpawns(_ state: SystemState) -> [AgentSuggestion] {
+        var suggestions: [AgentSuggestion] = []
+
+        // Count agents by type
+        let agentsByType = Dictionary(grouping: state.agents, by: { $0.agentType })
+
+        // Check for bottlenecks
+        let activeResearchThreads = state.threads.filter {
+            $0.state == .active && $0.claimedBy != nil
+        }
+        let researchAgents = agentsByType[.research]?.count ?? 0
+
+        if activeResearchThreads.count > researchAgents * 2 {
+            suggestions.append(AgentSuggestion(
+                category: .agentSpawn,
+                title: "Spawn additional Research agent",
+                reason: "\(activeResearchThreads.count) active research threads with only \(researchAgents) research agents",
+                confidence: 0.75,
+                action: .spawnAgent(agentType: .research, forThread: nil)
+            ))
+        }
+
+        // Suggest verification agent if many threads pending review
+        let reviewThreads = state.threads.filter { $0.state == .review }
+        let verificationAgents = agentsByType[.verification]?.count ?? 0
+
+        if reviewThreads.count >= 2 && verificationAgents == 0 {
+            suggestions.append(AgentSuggestion(
+                category: .agentSpawn,
+                title: "Spawn Verification agent",
+                reason: "\(reviewThreads.count) threads pending review with no verification agents",
+                confidence: 0.8,
+                action: .spawnAgent(agentType: .verification, forThread: reviewThreads.first?.id)
+            ))
+        }
+
+        return suggestions
     }
 }

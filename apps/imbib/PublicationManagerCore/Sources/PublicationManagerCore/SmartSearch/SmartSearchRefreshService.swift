@@ -281,6 +281,8 @@ public actor SmartSearchRefreshService {
         let name: String
         let isGroupFeed: Bool
         let sources: [String]
+        /// Name of the shared library this feed belongs to, if any
+        let sharedLibraryName: String?
     }
 
     /// Start a single refresh operation.
@@ -300,11 +302,16 @@ public actor SmartSearchRefreshService {
             guard let smartSearch = try? PersistenceController.shared.viewContext.fetch(request).first else {
                 return nil
             }
+            let sharedLibName: String? = {
+                guard let library = smartSearch.library, library.isSharedLibrary else { return nil }
+                return library.displayName
+            }()
             return SmartSearchMetadata(
                 id: smartSearch.id,
                 name: smartSearch.name ?? "Unnamed",
                 isGroupFeed: smartSearch.isGroupFeed,
-                sources: smartSearch.sources
+                sources: smartSearch.sources,
+                sharedLibraryName: sharedLibName
             )
         }
 
@@ -391,6 +398,25 @@ public actor SmartSearchRefreshService {
             // Post notification for UI updates
             await MainActor.run {
                 NotificationCenter.default.post(name: .smartSearchRefreshCompleted, object: smartSearchID)
+
+                // For shared library feeds, post a notification so participants see new results
+                if let sharedLibName = metadata.sharedLibraryName {
+                    let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+                    request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
+                    request.fetchLimit = 1
+                    if let smartSearch = try? PersistenceController.shared.viewContext.fetch(request).first,
+                       let count = smartSearch.resultCollection?.publications?.count, count > 0 {
+                        NotificationCenter.default.post(
+                            name: .sharedFeedNewResults,
+                            object: nil,
+                            userInfo: [
+                                "libraryName": sharedLibName,
+                                "feedName": metadata.name,
+                                "count": count
+                            ]
+                        )
+                    }
+                }
             }
 
         } catch {

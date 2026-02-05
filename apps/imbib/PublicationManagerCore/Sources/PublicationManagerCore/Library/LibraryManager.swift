@@ -28,8 +28,14 @@ public final class LibraryManager {
 
     // MARK: - Published State
 
-    /// All known libraries (excludes system libraries like Exploration)
+    /// All known libraries (excludes system libraries like Exploration and shared libraries)
     public private(set) var libraries: [CDLibrary] = []
+
+    /// Shared libraries received from other users (lives in shared store, not owned by current user)
+    public private(set) var sharedWithMeLibraries: [CDLibrary] = []
+
+    /// Libraries I own that are shared with others (lives in shared store, I am the owner)
+    public private(set) var mySharedLibraries: [CDLibrary] = []
 
     /// Currently active library
     public private(set) var activeLibrary: CDLibrary?
@@ -70,10 +76,14 @@ public final class LibraryManager {
     /// Observer for reset notifications
     private var resetObserver: (any NSObjectProtocol)?
 
+    /// Observer for exploration sync setting changes
+    private var explorationSettingObserver: (any NSObjectProtocol)?
+
     public init(persistenceController: PersistenceController = .shared) {
         self.persistenceController = persistenceController
         setupCloudKitObserver()
         setupResetObserver()
+        setupExplorationSettingObserver()
         loadLibraries()
 
         // Load default library set if none exist (first run)
@@ -118,6 +128,35 @@ public final class LibraryManager {
         }
     }
 
+    /// Set up observer for exploration sync setting changes
+    private func setupExplorationSettingObserver() {
+        explorationSettingObserver = NotificationCenter.default.addObserver(
+            forName: .explorationSyncSettingChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self = self,
+                      let userInfo = notification.userInfo,
+                      let isLocalOnly = userInfo["isLocalOnly"] as? Bool else { return }
+
+                self.updateExplorationLibrarySyncSetting(isLocalOnly: isLocalOnly)
+            }
+        }
+    }
+
+    /// Update the exploration library's sync setting
+    private func updateExplorationLibrarySyncSetting(isLocalOnly: Bool) {
+        guard let library = explorationLibrary else { return }
+
+        Logger.library.infoCapture("Updating Exploration library sync setting: isLocalOnly=\(isLocalOnly)", category: "library")
+
+        library.isLocalOnly = isLocalOnly
+        library.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
+
+        persistenceController.save()
+    }
+
     /// Schedule a reload with debouncing (max once per 0.5 seconds)
     private func scheduleReload() {
         // Cancel any pending reload
@@ -131,11 +170,17 @@ public final class LibraryManager {
                 guard !Task.isCancelled else { return }
                 self.loadLibraries()
                 self.lastReloadTime = Date()
+                // Run deduplication after CloudKit sync to merge any duplicates
+                await self.runDeduplication()
             }
         } else {
             // Reload immediately
             loadLibraries()
             lastReloadTime = Date()
+            // Run deduplication after CloudKit sync
+            Task { @MainActor in
+                await self.runDeduplication()
+            }
         }
     }
 
@@ -160,21 +205,50 @@ public final class LibraryManager {
         do {
             let allLibraries = try persistenceController.viewContext.fetch(request)
 
-            // Separate system libraries from user libraries
-            // Exclude local-only libraries from other devices (shouldn't exist after cleanup, but be safe)
-            libraries = allLibraries.filter { !$0.isSystemLibrary && !($0.isLocalOnly && $0.deviceIdentifier != Self.currentDeviceIdentifier) }
+            // Categorize libraries: private, shared-owned, shared-received
+            var privateLibs: [CDLibrary] = []
+            var sharedOwned: [CDLibrary] = []
+            var sharedReceived: [CDLibrary] = []
 
-            // Find exploration library for THIS device only
+            for library in allLibraries {
+                // Skip system libraries and foreign local-only libraries
+                if library.isSystemLibrary { continue }
+                if library.isLocalOnly && library.deviceIdentifier != Self.currentDeviceIdentifier { continue }
+
+                if persistenceController.isShared(library) {
+                    #if canImport(CloudKit)
+                    if library.isShareOwner {
+                        sharedOwned.append(library)
+                    } else {
+                        sharedReceived.append(library)
+                    }
+                    #else
+                    sharedReceived.append(library)
+                    #endif
+                } else {
+                    privateLibs.append(library)
+                }
+            }
+
+            libraries = privateLibs
+            mySharedLibraries = sharedOwned
+            sharedWithMeLibraries = sharedReceived
+
+            // Find exploration library (syncs across devices now)
+            // Prefer canonical ID, fallback to any exploration library
             explorationLibrary = allLibraries.first {
                 $0.isSystemLibrary &&
                 $0.name == "Exploration" &&
-                $0.deviceIdentifier == Self.currentDeviceIdentifier
+                $0.id == CDLibrary.canonicalExplorationLibraryID
+            } ?? allLibraries.first {
+                $0.isSystemLibrary && $0.name == "Exploration"
             }
 
             // Only log when count changes to reduce noise
-            if libraries.count != previousLibraryCount {
-                Logger.library.infoCapture("Libraries: \(libraries.count) (was \(previousLibraryCount))", category: "library")
-                previousLibraryCount = libraries.count
+            let totalCount = libraries.count + sharedWithMeLibraries.count + mySharedLibraries.count
+            if totalCount != previousLibraryCount {
+                Logger.library.infoCapture("Libraries: \(libraries.count) private, \(mySharedLibraries.count) shared-owned, \(sharedWithMeLibraries.count) shared-received (was \(previousLibraryCount) total)", category: "library")
+                previousLibraryCount = totalCount
             }
 
             // Set active to default library if not set
@@ -187,6 +261,8 @@ public final class LibraryManager {
         } catch {
             Logger.library.errorCapture("Failed to load libraries: \(error.localizedDescription)", category: "library")
             libraries = []
+            sharedWithMeLibraries = []
+            mySharedLibraries = []
         }
     }
 
@@ -197,6 +273,8 @@ public final class LibraryManager {
     public func invalidateCaches() {
         Logger.library.infoCapture("Invalidating LibraryManager caches", category: "library")
         libraries = []
+        sharedWithMeLibraries = []
+        mySharedLibraries = []
         activeLibrary = nil
         explorationLibrary = nil
         previousLibraryCount = -1
@@ -558,46 +636,83 @@ public final class LibraryManager {
     /// This is a system library that holds exploration results (references/citations).
     /// Collections in this library are created when exploring a paper's references or citations.
     ///
-    /// **Note:** Exploration libraries are local-only and do not sync via CloudKit.
-    /// Each device maintains its own exploration library independently.
+    /// **Sync behavior** is controlled by `ExplorationSettingsStore.shared.isLocalOnly`:
+    /// - When true (default): Library is local-only, not synced via CloudKit
+    /// - When false: Library syncs across devices via CloudKit
     @discardableResult
     public func getOrCreateExplorationLibrary() -> CDLibrary {
-        // Return existing if available (must match this device)
-        if let lib = explorationLibrary,
-           lib.deviceIdentifier == Self.currentDeviceIdentifier {
+        let isLocalOnly = ExplorationSettingsStore.shared.isLocalOnly
+
+        // Validate cached reference is still valid
+        if let lib = explorationLibrary, !lib.isDeleted, lib.managedObjectContext != nil {
+            // Ensure sync setting is current
+            if lib.isLocalOnly != isLocalOnly {
+                lib.isLocalOnly = isLocalOnly
+                lib.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
+                persistenceController.save()
+            }
             return lib
         }
 
-        // Check for existing exploration library for this device
+        // Clear invalid cached reference
+        explorationLibrary = nil
+
+        // Check for existing exploration library - prefer one with canonical ID
         let context = persistenceController.viewContext
         let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(
-            format: "isSystemLibrary == YES AND name == %@ AND deviceIdentifier == %@",
-            "Exploration",
-            Self.currentDeviceIdentifier
-        )
-        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "isSystemLibrary == YES AND name == %@", "Exploration")
 
-        if let existing = try? context.fetch(request).first {
-            explorationLibrary = existing
-            return existing
+        do {
+            let allExplorations = try context.fetch(request)
+
+            if !allExplorations.isEmpty {
+                // Prefer exploration with canonical ID, or migrate the oldest to canonical
+                let canonical = allExplorations.first { $0.id == CDLibrary.canonicalExplorationLibraryID }
+                let existing = canonical ?? allExplorations.sorted { $0.dateCreated < $1.dateCreated }.first!
+
+                // Migrate to canonical ID if needed
+                var needsSave = false
+                if existing.id != CDLibrary.canonicalExplorationLibraryID {
+                    Logger.library.infoCapture("Migrating Exploration library to canonical ID", category: "library")
+                    existing.id = CDLibrary.canonicalExplorationLibraryID
+                    needsSave = true
+                }
+
+                // Apply current sync setting
+                if existing.isLocalOnly != isLocalOnly {
+                    existing.isLocalOnly = isLocalOnly
+                    existing.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
+                    needsSave = true
+                }
+
+                if needsSave {
+                    persistenceController.save()
+                }
+
+                Logger.library.infoCapture("Found existing Exploration library (isLocalOnly: \(existing.isLocalOnly))", category: "library")
+                explorationLibrary = existing
+                return existing
+            }
+        } catch {
+            Logger.library.errorCapture("Failed to fetch Exploration library: \(error.localizedDescription)", category: "library")
         }
 
-        // Create new Exploration library for this device
-        Logger.library.infoCapture("Creating Exploration system library (local-only)", category: "library")
+        // Create new Exploration library with canonical ID
+        Logger.library.infoCapture("Creating Exploration system library (isLocalOnly: \(isLocalOnly))", category: "library")
 
         let library = CDLibrary(context: context)
-        library.id = UUID()
+        library.id = CDLibrary.canonicalExplorationLibraryID  // Use canonical ID
         library.name = "Exploration"
         library.isSystemLibrary = true
         library.isDefault = false
         library.dateCreated = Date()
         library.sortOrder = Int16.max  // Always at the end
-        library.isLocalOnly = true
-        library.deviceIdentifier = Self.currentDeviceIdentifier
+        library.isLocalOnly = isLocalOnly
+        library.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
 
         persistenceController.save()
 
+        Logger.library.infoCapture("Created Exploration library with canonical ID: \(library.id)", category: "library")
         explorationLibrary = library
         return library
     }
@@ -934,6 +1049,17 @@ public extension LibraryManager {
             for result in results {
                 Logger.library.infoCapture("Library merge: \(result.summary)", category: "library")
             }
+        }
+
+        // Also deduplicate tags (same canonicalPath, different UUIDs from sync)
+        let tagService = TagDeduplicationService(persistenceController: persistenceController)
+        let tagResults = await tagService.deduplicateTags()
+
+        for result in tagResults {
+            Logger.library.infoCapture(
+                "Tag merge: '\(result.canonicalPath)' — \(result.duplicatesMerged) dups, \(result.publicationsRetagged) re-tagged",
+                category: "library"
+            )
         }
     }
 }

@@ -87,8 +87,20 @@ GET  /api/accounts             # List accounts
 GET  /api/mailboxes            # List mailboxes
 GET  /api/messages?mailbox={id} # List messages
 GET  /api/messages/{id}        # Get message detail
+GET  /api/logs                 # Query in-app log entries
 POST /api/messages/send        # Send message (future)
 ```
+
+### Live Log Access
+
+When the HTTP server is enabled, logs are accessible for debugging:
+
+```bash
+curl 'http://localhost:23122/api/logs?limit=20&level=info,warning,error'
+curl 'http://localhost:23122/api/logs?category=imap&limit=20'
+```
+
+The MCP tool `impart_get_logs` provides the same access for AI agents. **Always verify new features by checking logs after testing.**
 
 ## Project Status
 

@@ -42,6 +42,45 @@ public final class AnnotationPersistence {
         self.persistenceController = persistenceController
     }
 
+    // MARK: - Author Resolution
+
+    /// Resolve the author name for a new annotation.
+    /// For shared libraries, uses CloudKit participant display name.
+    /// For private libraries, uses device name.
+    private func resolveAuthorName(for linkedFile: CDLinkedFile) -> String {
+        #if canImport(CloudKit)
+        if let publication = linkedFile.publication,
+           let library = publication.libraries?.first(where: { $0.isSharedLibrary }),
+           let share = PersistenceController.shared.share(for: library),
+           let participant = share.currentUserParticipant,
+           let nameComponents = participant.userIdentity.nameComponents {
+            let formatter = PersonNameComponentsFormatter()
+            formatter.style = .default
+            let name = formatter.string(from: nameComponents)
+            if !name.isEmpty { return name }
+        }
+        #endif
+
+        #if os(macOS)
+        return Host.current().localizedName ?? "Unknown"
+        #else
+        return UIDevice.current.name
+        #endif
+    }
+
+    // MARK: - Author Color Assignment
+
+    /// Palette of colors assigned to different authors in shared libraries
+    private static let authorColorPalette: [HighlightColor] = [.blue, .green, .pink, .purple, .orange, .yellow]
+
+    /// Get the assigned color for an author in a shared library context.
+    /// Colors are deterministically assigned based on author name hash.
+    public func authorColor(for authorName: String) -> HighlightColor {
+        let hash = abs(authorName.hashValue)
+        let index = hash % Self.authorColorPalette.count
+        return Self.authorColorPalette[index]
+    }
+
     // MARK: - Save Annotation
 
     /// Save a PDFAnnotation to Core Data
@@ -96,12 +135,8 @@ public final class AnnotationPersistence {
         // Save contents
         cdAnnotation.contents = pdfAnnotation.contents
 
-        // Set author
-        #if os(macOS)
-        cdAnnotation.author = Host.current().localizedName ?? "Unknown"
-        #else
-        cdAnnotation.author = UIDevice.current.name
-        #endif
+        // Set author (uses CloudKit participant name for shared libraries)
+        cdAnnotation.author = resolveAuthorName(for: linkedFile)
 
         try context.save()
 
@@ -124,6 +159,7 @@ public final class AnnotationPersistence {
         linkedFile: CDLinkedFile
     ) throws -> [CDAnnotation] {
         let context = persistenceController.viewContext
+        let authorName = resolveAuthorName(for: linkedFile)
 
         var results: [CDAnnotation] = []
 
@@ -148,11 +184,7 @@ public final class AnnotationPersistence {
             // Contents
             cdAnnotation.contents = item.annotation.contents
 
-            #if os(macOS)
-            cdAnnotation.author = Host.current().localizedName ?? "Unknown"
-            #else
-            cdAnnotation.author = UIDevice.current.name
-            #endif
+            cdAnnotation.author = authorName
 
             results.append(cdAnnotation)
         }

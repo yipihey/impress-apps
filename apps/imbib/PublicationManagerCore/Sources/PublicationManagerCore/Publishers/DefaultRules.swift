@@ -25,7 +25,9 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
             requiresProxy: true,
             captchaRisk: .low,
-            notes: "American Astronomical Society journals hosted by IOP"
+            notes: "American Astronomical Society journals hosted by IOP",
+            htmlParserID: "iop",
+            supportsLandingPageScraping: true
         ),
 
         // IOP Publishing - Legacy ApJ DOIs
@@ -36,7 +38,9 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
             requiresProxy: true,
             captchaRisk: .low,
-            notes: "Legacy Astrophysical Journal DOIs before 2016"
+            notes: "Legacy Astrophysical Journal DOIs before 2016",
+            htmlParserID: "iop",
+            supportsLandingPageScraping: true
         ),
 
         // IOP Publishing - Other IOP Journals
@@ -47,7 +51,9 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
             requiresProxy: true,
             captchaRisk: .low,
-            notes: "IOP physics journals (JCAP, CQG, etc.)"
+            notes: "IOP physics journals (JCAP, CQG, etc.)",
+            htmlParserID: "iop",
+            supportsLandingPageScraping: true
         ),
 
         // APS - Physical Review Journals
@@ -58,7 +64,9 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://link.aps.org/pdf/{doi}",
             requiresProxy: true,
             captchaRisk: .low,
-            notes: "Physical Review journals (PRL, PRD, PRX, etc.)"
+            notes: "Physical Review journals (PRL, PRD, PRX, etc.)",
+            htmlParserID: "aps",
+            supportsLandingPageScraping: true
         ),
 
         // Nature Publishing Group
@@ -69,7 +77,9 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://www.nature.com/articles/{articleID}.pdf",
             requiresProxy: true,
             captchaRisk: .medium,
-            notes: "Nature, Nature Astronomy, Nature Physics, etc."
+            notes: "Nature, Nature Astronomy, Nature Physics, etc.",
+            htmlParserID: "nature",
+            supportsLandingPageScraping: true
         ),
 
         // Science (AAAS)
@@ -81,7 +91,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .high,
             preferOpenAlex: true,
-            notes: "Science and Science Advances - high CAPTCHA risk"
+            notes: "Science and Science Advances - high CAPTCHA risk",
+            htmlParserID: "science",
+            supportsLandingPageScraping: false  // High CAPTCHA risk
         ),
 
         // Elsevier
@@ -93,7 +105,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .high,
             preferOpenAlex: true,
-            notes: "No predictable PDF URL pattern - use OpenAlex OA"
+            notes: "No predictable PDF URL pattern - use OpenAlex OA",
+            htmlParserID: "elsevier",
+            supportsLandingPageScraping: true
         ),
 
         // Wiley
@@ -105,7 +119,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .medium,
             preferOpenAlex: true,
-            notes: "Complex URL pattern - prefer OpenAlex"
+            notes: "Complex URL pattern - prefer OpenAlex",
+            htmlParserID: "wiley",
+            supportsLandingPageScraping: true
         ),
 
         // A&A (Astronomy & Astrophysics)
@@ -117,7 +133,9 @@ public struct DefaultPublisherRules {
             requiresProxy: false,
             captchaRisk: .low,
             preferOpenAlex: true,
-            notes: "Usually open access - prefer OpenAlex"
+            notes: "Usually open access - prefer OpenAlex",
+            htmlParserID: "aanda",
+            supportsLandingPageScraping: true
         ),
 
         // MNRAS (Oxford)
@@ -129,7 +147,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .medium,
             preferOpenAlex: true,
-            notes: "Oxford Academic has complex authentication"
+            notes: "Oxford Academic has complex authentication",
+            htmlParserID: "oxford",
+            supportsLandingPageScraping: true
         ),
 
         // MDPI (Open Access)
@@ -141,7 +161,9 @@ public struct DefaultPublisherRules {
             requiresProxy: false,
             captchaRisk: .low,
             preferOpenAlex: true,
-            notes: "Fully open access - use OpenAlex for direct URL"
+            notes: "Fully open access - use OpenAlex for direct URL",
+            htmlParserID: "mdpi",
+            supportsLandingPageScraping: true
         ),
 
         // arXiv
@@ -152,7 +174,8 @@ public struct DefaultPublisherRules {
             pdfURLPattern: "https://arxiv.org/pdf/{arxivID}.pdf",
             requiresProxy: false,
             captchaRisk: .low,
-            notes: "arXiv preprints - always accessible"
+            notes: "arXiv preprints - always accessible",
+            supportsLandingPageScraping: false  // Direct pattern works
         ),
 
         // AIP (American Institute of Physics)
@@ -164,7 +187,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .medium,
             preferOpenAlex: true,
-            notes: "AIP journals (JCP, APL, etc.)"
+            notes: "AIP journals (JCP, APL, etc.)",
+            htmlParserID: "aip",
+            supportsLandingPageScraping: true
         ),
 
         // Annual Reviews
@@ -176,7 +201,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .low,
             preferOpenAlex: true,
-            notes: "Annual Review journals"
+            notes: "Annual Review journals",
+            htmlParserID: "annual-reviews",
+            supportsLandingPageScraping: true
         ),
 
         // Springer
@@ -188,7 +215,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .medium,
             preferOpenAlex: true,
-            notes: "Springer journals and books"
+            notes: "Springer journals and books",
+            htmlParserID: "springer",
+            supportsLandingPageScraping: true
         ),
 
         // Cambridge University Press
@@ -200,7 +229,9 @@ public struct DefaultPublisherRules {
             requiresProxy: true,
             captchaRisk: .medium,
             preferOpenAlex: true,
-            notes: "Cambridge journals (PASA, etc.)"
+            notes: "Cambridge journals (PASA, etc.)",
+            htmlParserID: "cambridge",
+            supportsLandingPageScraping: true
         ),
     ]
 

@@ -8,6 +8,7 @@
 import Foundation
 import CoreData
 import OSLog
+import NaturalLanguage
 
 // Logger extension for recommendation subsystem
 extension Logger {
@@ -68,6 +69,9 @@ public actor EmbeddingService {
     private var lastBuildDate: Date?
     private var observersSetUp = false
 
+    // Guard against concurrent builds
+    private var isBuilding = false
+
     // MARK: - Initialization
 
     private init() {}
@@ -104,6 +108,14 @@ public actor EmbeddingService {
     /// - Returns: Number of publications indexed
     @discardableResult
     public func buildIndex(from libraries: [CDLibrary]) async -> Int {
+        // Guard against concurrent builds
+        guard !isBuilding else {
+            Logger.embeddingService.debug("Skipping index build - already in progress")
+            return 0
+        }
+        isBuilding = true
+        defer { isBuilding = false }
+
         Logger.embeddingService.infoCapture("Building embedding index for \(libraries.count) libraries", category: "embedding")
 
         // Initialize new index
@@ -282,6 +294,72 @@ public actor EmbeddingService {
         Logger.embeddingService.info("Embedding index cleared")
     }
 
+    // MARK: - Group Recommendations
+
+    /// Find publications similar to the collective content of a library.
+    ///
+    /// Computes a centroid embedding from all publications in the library,
+    /// then searches a candidate set (e.g., inbox or exploration results)
+    /// for papers most similar to that centroid. This provides "suggested
+    /// for the group" recommendations based on the shared library's
+    /// collective content rather than any individual's reading habits.
+    ///
+    /// - Parameters:
+    ///   - library: The library to compute the group profile from
+    ///   - candidates: Publications to score against the group profile
+    ///   - topK: Maximum number of recommendations
+    /// - Returns: Array of candidate publications sorted by relevance
+    public func groupRecommendations(
+        for library: CDLibrary,
+        candidates: [CDPublication],
+        topK: Int = 10
+    ) async -> [CDPublication] {
+        guard isAvailable else { return [] }
+
+        // Compute centroid embedding from all library publications
+        let libraryEmbeddings: [[Float]] = await MainActor.run {
+            let publications = Array(library.publications ?? [])
+            return publications.map { self.computeEmbedding(for: $0) }
+        }
+
+        guard !libraryEmbeddings.isEmpty else { return [] }
+
+        // Average all embeddings to get group centroid
+        var centroid = [Float](repeating: 0, count: embeddingDimension)
+        for emb in libraryEmbeddings {
+            for i in 0..<embeddingDimension {
+                centroid[i] += emb[i]
+            }
+        }
+        let count = Float(libraryEmbeddings.count)
+        centroid = centroid.map { $0 / count }
+
+        // Normalize centroid
+        let norm = sqrt(centroid.reduce(0) { $0 + $1 * $1 })
+        if norm > 0 {
+            centroid = centroid.map { $0 / norm }
+        }
+
+        // Score each candidate against the centroid
+        var scored: [(CDPublication, Float)] = []
+        for candidate in candidates {
+            let embedding = await MainActor.run {
+                self.computeEmbedding(for: candidate)
+            }
+
+            // Cosine similarity
+            var dot: Float = 0
+            for i in 0..<embeddingDimension {
+                dot += centroid[i] * embedding[i]
+            }
+            scored.append((candidate, dot))
+        }
+
+        // Sort by similarity descending and return top-K
+        scored.sort { $0.1 > $1.1 }
+        return Array(scored.prefix(topK).map(\.0))
+    }
+
     // MARK: - Private Methods
 
     /// Compute an embedding vector for a publication.
@@ -310,21 +388,110 @@ public actor EmbeddingService {
         return computeTextEmbedding(text)
     }
 
-    /// Compute a simple embedding from text.
+    /// Compute a semantic embedding from text using Apple's NaturalLanguage framework.
     ///
-    /// Uses a hash-based approach to create a fixed-size vector.
-    /// This is a placeholder for proper sentence embeddings.
+    /// Uses word embeddings from NLEmbedding and aggregates them with IDF weighting
+    /// to create sentence-level embeddings. This provides better semantic understanding
+    /// than simple bag-of-words approaches.
+    ///
+    /// Falls back to hash-based embeddings for unsupported languages or missing words.
     nonisolated private func computeTextEmbedding(_ text: String) -> [Float] {
         var embedding = [Float](repeating: 0.0, count: embeddingDimension)
 
-        // Tokenize
-        let words = text.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 3 }
+        // Tokenize using NaturalLanguage
+        let tokenizer = NLTokenizer(unit: .word)
+        let lowercasedText = text.lowercased()
+        tokenizer.string = lowercasedText
 
-        // Simple bag-of-words with hashing
-        for word in words {
-            // Hash word to multiple indices (simulating sparse embeddings)
+        var tokens: [String] = []
+        tokenizer.enumerateTokens(in: lowercasedText.startIndex..<lowercasedText.endIndex) { range, _ in
+            let token = String(lowercasedText[range])
+            if token.count >= 2 {
+                tokens.append(token)
+            }
+            return true
+        }
+
+        guard !tokens.isEmpty else {
+            return embedding
+        }
+
+        // Get word embeddings from Apple's NLEmbedding (English, 512-dim)
+        guard let nlEmbedding = NLEmbedding.wordEmbedding(for: .english) else {
+            // Fall back to hash-based if no embedding available
+            return hashBasedEmbedding(tokens)
+        }
+
+        // Collect word embeddings with IDF-style weighting
+        var wordVectors: [[Double]] = []
+        var weights: [Double] = []
+        var wordCounts: [String: Int] = [:]
+
+        // Count word frequencies for IDF
+        for token in tokens {
+            wordCounts[token, default: 0] += 1
+        }
+
+        for token in tokens {
+            if let vector = nlEmbedding.vector(for: token) {
+                wordVectors.append(vector)
+                // IDF-style weight: words appearing less often in this text matter more
+                // Also weight by inverse document frequency if we had a corpus
+                let tf = Double(wordCounts[token] ?? 1)
+                let weight = 1.0 / log(tf + 1.0)
+                weights.append(weight)
+            }
+        }
+
+        // If no word embeddings found, fall back to hash-based
+        if wordVectors.isEmpty {
+            return hashBasedEmbedding(tokens)
+        }
+
+        // Weighted average of word embeddings
+        let nlDimension = wordVectors[0].count  // Apple uses 512-dim
+        var aggregated = [Double](repeating: 0.0, count: nlDimension)
+        var totalWeight = 0.0
+
+        for (vector, weight) in zip(wordVectors, weights) {
+            for i in 0..<nlDimension {
+                aggregated[i] += vector[i] * weight
+            }
+            totalWeight += weight
+        }
+
+        if totalWeight > 0 {
+            aggregated = aggregated.map { $0 / totalWeight }
+        }
+
+        // Normalize to unit vector
+        let norm = sqrt(aggregated.reduce(0.0) { $0 + $1 * $1 })
+        if norm > 0 {
+            aggregated = aggregated.map { $0 / norm }
+        }
+
+        // Resize to target dimension (384) using truncation or PCA-style projection
+        // For simplicity, we'll use strided sampling to reduce from 512 to 384
+        let stride = Double(nlDimension) / Double(embeddingDimension)
+        for i in 0..<embeddingDimension {
+            let sourceIdx = min(Int(Double(i) * stride), nlDimension - 1)
+            embedding[i] = Float(aggregated[sourceIdx])
+        }
+
+        // Re-normalize after dimension reduction
+        let finalNorm = sqrt(embedding.reduce(0.0) { $0 + $1 * $1 })
+        if finalNorm > 0 {
+            embedding = embedding.map { $0 / finalNorm }
+        }
+
+        return embedding
+    }
+
+    /// Hash-based fallback embedding for when word embeddings aren't available.
+    nonisolated private func hashBasedEmbedding(_ tokens: [String]) -> [Float] {
+        var embedding = [Float](repeating: 0.0, count: embeddingDimension)
+
+        for word in tokens where word.count >= 3 {
             let hash1 = abs(word.hashValue)
             let hash2 = abs(word.hashValue &* 31)
             let hash3 = abs(word.hashValue &* 37)
@@ -338,7 +505,6 @@ public actor EmbeddingService {
             embedding[idx3] += 0.25
         }
 
-        // Normalize to unit vector
         let norm = sqrt(embedding.reduce(0) { $0 + $1 * $1 })
         if norm > 0 {
             embedding = embedding.map { $0 / norm }

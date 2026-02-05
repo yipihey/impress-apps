@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		03B4D22BE7F2EE52A5B191F3 /* ImprintHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC917526021AE8E09574FC8A /* ImprintHTTPServer.swift */; };
 		0405F0819FEDBD474347CCF6 /* CollaborationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793F3105ECF5D34AB750E20D /* CollaborationService.swift */; };
+		05840690A1213EA7FDECA521 /* DocumentOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B910C238CEB0E76C467C66 /* DocumentOperation.swift */; };
 		086934B7845E5A7A443B7A87 /* IOSScribbleSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED675147A727CA394129D2F8 /* IOSScribbleSupport.swift */; };
 		092CC673426350EE7BB2B1E9 /* PDFPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B7C0F823D92EA37C65D39D /* PDFPreviewTests.swift */; };
 		0D3E7111E81F108775E5E69E /* RewriteSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E28FED10438FADDD921D285 /* RewriteSuggestion.swift */; };
@@ -18,8 +19,10 @@
 		1946CF4DBE13E58B0D8E1923 /* DirectPDFView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */; };
 		1BEF3CCADC63104C41D451D0 /* ImpressAutomation in Frameworks */ = {isa = PBXBuildFile; productRef = 567E9E3CACE9EC2DE9C00042 /* ImpressAutomation */; };
 		27282A611C7FFF71635C18FB /* ImprintCore in Frameworks */ = {isa = PBXBuildFile; productRef = 353A89432C8827CE3B49F381 /* ImprintCore */; };
+		27E745D12903BCDC837DA835 /* DocumentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C434467284F0F838C875E4 /* DocumentRegistry.swift */; };
 		339D2EAB6595CAE1D6384774 /* ImprintTestDataFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CD16DAB51FC93B2BB77F8B8 /* ImprintTestDataFactory.swift */; };
 		3A862E987B562B19E3E1256A /* CitationPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200DAE86D2EC4D99498A8D46 /* CitationPickerView.swift */; };
+		4125846AA1750FA1D42DBB87 /* DocumentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C434467284F0F838C875E4 /* DocumentRegistry.swift */; };
 		42D46C8AC8EC51C9C9131853 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2CDE35399E25774A690015FB /* Assets.xcassets */; };
 		4694810B7FC99C6B5705C9BF /* DocumentWorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8B903DDCDF46C43E6916E0 /* DocumentWorkflowTests.swift */; };
 		4BE2F3E6937C08C7969C8077 /* URLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239150EC33A76C09B10A04D3 /* URLSchemeHandler.swift */; };
@@ -34,6 +37,7 @@
 		65585EEE730B74A282BAC99F /* CRDTHealthValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9109B68CF7A42AC37C2C433E /* CRDTHealthValidator.swift */; };
 		6623CC7404A5C7F43BF0D9A4 /* ToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83DD964817663C020DEEF41 /* ToolbarTests.swift */; };
 		670645D1EC4F70CD73D59151 /* ImpressAI in Frameworks */ = {isa = PBXBuildFile; productRef = 552AC7A96D227AA4AB793F32 /* ImpressAI */; };
+		6920EE63853A352D28267366 /* ImpressOperationQueue in Frameworks */ = {isa = PBXBuildFile; productRef = 656D9EB9153AAEBC4BA35FC9 /* ImpressOperationQueue */; };
 		69BD9583B3246D8F5AC50467 /* TemplateBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B80C7D0E33E8CC20C5FEDE /* TemplateBrowserView.swift */; };
 		6A7C2B8D7C8B7E744821B048 /* ImprintHTTPRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9718EB54121DE0009ACEC74C /* ImprintHTTPRouter.swift */; };
 		6CDCA0A7FC412754E3C9AED1 /* PDFPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B031DA11AFC25AE5C8F8513 /* PDFPreviewView.swift */; };
@@ -77,6 +81,7 @@
 		B3185F5BD8B3E0F22CE54580 /* CRDTHealthValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9109B68CF7A42AC37C2C433E /* CRDTHealthValidator.swift */; };
 		B659CDE4B0D08E6BC59C8059 /* AIAssistantServiceCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D61B010FFF358A61F41C0F5 /* AIAssistantServiceCompat.swift */; };
 		B66E9415FEC114E8E63BCE04 /* CitedPapersSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB637BF76FC8B2F78F6DD3D /* CitedPapersSection.swift */; };
+		B6D58B82F8DCB56273E7191E /* InlineCompletionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E02471B1669B4E709D5AB3 /* InlineCompletionService.swift */; };
 		B9CE014FBD408B92724ABDBB /* VersionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBC8CF5B6BD8346A6256AB0 /* VersionHistoryView.swift */; };
 		BA0AA31C41F9B14CEE890B6A /* DocumentSchemaVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5629BB44B89101C75CC9C4B /* DocumentSchemaVersion.swift */; };
 		BBCFBE76A59C029C640F29EE /* IOSDictationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFF7CDBC40262CE1EDD138C /* IOSDictationService.swift */; };
@@ -91,11 +96,13 @@
 		D4DA6D72B673A728F197EFE1 /* ai-prompts.yaml in Resources */ = {isa = PBXBuildFile; fileRef = C05846299E3149698C8BB0F7 /* ai-prompts.yaml */; };
 		D4DC9B24147706D80898571B /* ImprintiOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006826C614F8C9636F82EB2B /* ImprintiOSTests.swift */; };
 		D6FC472D3E359687DCE06E5C /* TemplateDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA59DCE2DD41E56BE03141A8 /* TemplateDetailView.swift */; };
+		D7DA570669E1C6EF0D31A33F /* ImpressOperationQueue in Frameworks */ = {isa = PBXBuildFile; productRef = 1E56233BD5DF1BF5BED747AF /* ImpressOperationQueue */; };
 		DA54B3F0970D4053C2870CC8 /* AIChatSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DE2F80D1FC07D771919786 /* AIChatSidebar.swift */; };
 		DBE602B468F54535243FE90F /* CitationPickerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A027F6A1C5C0EF10B151554D /* CitationPickerPage.swift */; };
 		E149ADFA2792EFE2BB0A896D /* ImpressTestKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB28B5A664690507DCD22D94 /* ImpressTestKit */; };
 		E1A95D5300E4D5342EF3A511 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A9A11A77F87344291DC15C /* ContentView.swift */; };
 		E35542CAA30A23F6A449700B /* IOSSourceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0AA693D1466C4CB0D381B5 /* IOSSourceEditorView.swift */; };
+		E7D088E3A7C99876ACDE353B /* GhostTextOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3610132CADA69D99F3382D /* GhostTextOverlay.swift */; };
 		E82E2F550F96C68E4721ECD7 /* AnnotationDeepLinkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872CEF854A6B86A5673BB0BE /* AnnotationDeepLinkView.swift */; };
 		EC81EA25F5B41154101A7382 /* ImprintRustCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0794C19FA83D58DFE46289D /* ImprintRustCore */; };
 		F165C73E5358B9DF6547091D /* ImprintAccessibilityID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081A80A304C7BAB778E12B73 /* ImprintAccessibilityID.swift */; };
@@ -103,6 +110,7 @@
 		F55A19406E7B5182228EF247 /* AIContextMenuAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C2445A133E37394B8932EE /* AIContextMenuAction.swift */; };
 		F8D01C6DA711ADB1F92BDE3D /* ImprintCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9E3820151F783153325EA58F /* ImprintCore */; };
 		FC2E6F0207D9D1699AAF4CD1 /* DocumentOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAAC6E8DB572798AF29D88F /* DocumentOutlineView.swift */; };
+		FD68C45831873BDEEFCF68FE /* DocumentOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B910C238CEB0E76C467C66 /* DocumentOperation.swift */; };
 		FF02C0E646E5793E59B16D37 /* DocumentMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF842A6108FB6C9625DD0D58 /* DocumentMigrationTests.swift */; };
 		FF97D12A1CD010CF7FBA8A82 /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD68F0571FEC0EFE9F2E246 /* SettingsPage.swift */; };
 		FFE64C32F643AF2957BC56F4 /* SharedICloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A51C054058B93F83514C17 /* SharedICloudService.swift */; };
@@ -189,8 +197,10 @@
 		8CD16DAB51FC93B2BB77F8B8 /* ImprintTestDataFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintTestDataFactory.swift; sourceTree = "<group>"; };
 		9044E468BE465B7BA8A29D76 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		9109B68CF7A42AC37C2C433E /* CRDTHealthValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CRDTHealthValidator.swift; sourceTree = "<group>"; };
+		95E02471B1669B4E709D5AB3 /* InlineCompletionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineCompletionService.swift; sourceTree = "<group>"; };
 		9718EB54121DE0009ACEC74C /* ImprintHTTPRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintHTTPRouter.swift; sourceTree = "<group>"; };
 		97ECCC3437E5C09792892E73 /* DocumentBackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentBackupService.swift; sourceTree = "<group>"; };
+		9C3610132CADA69D99F3382D /* GhostTextOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTextOverlay.swift; sourceTree = "<group>"; };
 		A027F6A1C5C0EF10B151554D /* CitationPickerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CitationPickerPage.swift; sourceTree = "<group>"; };
 		A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectPDFView.swift; sourceTree = "<group>"; };
 		A36EE826300F91D62BAB88E5 /* IOSContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSContentView.swift; sourceTree = "<group>"; };
@@ -204,6 +214,8 @@
 		C05846299E3149698C8BB0F7 /* ai-prompts.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = "ai-prompts.yaml"; sourceTree = "<group>"; };
 		C069C2E038D2FD080AAC436C /* AccessibilityAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuditTests.swift; sourceTree = "<group>"; };
 		C46D62BF08FD98C8ACE03E2B /* BibliographyGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BibliographyGenerator.swift; sourceTree = "<group>"; };
+		C4F0C477F8E7238171371A1E /* ImpressOperationQueue */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressOperationQueue; path = ../../packages/ImpressOperationQueue; sourceTree = SOURCE_ROOT; };
+		C7B910C238CEB0E76C467C66 /* DocumentOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentOperation.swift; sourceTree = "<group>"; };
 		CBB80F6AE251B4E779BA8E7B /* sample.typ */ = {isa = PBXFileReference; path = sample.typ; sourceTree = "<group>"; };
 		CEAAC6E8DB572798AF29D88F /* DocumentOutlineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentOutlineView.swift; sourceTree = "<group>"; };
 		CF842A6108FB6C9625DD0D58 /* DocumentMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentMigrationTests.swift; sourceTree = "<group>"; };
@@ -221,6 +233,7 @@
 		F3ECFC3E191426917FFF5E36 /* SourceEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEditorTests.swift; sourceTree = "<group>"; };
 		F4FC5B4BACDCD64EFC7ED7AA /* ImprintApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintApp.swift; sourceTree = "<group>"; };
 		F880885989065F54463C8A62 /* CollaboratorAvatarsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollaboratorAvatarsView.swift; sourceTree = "<group>"; };
+		F9C434467284F0F838C875E4 /* DocumentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -233,6 +246,7 @@
 				14B3E859D53E3041FABA8877 /* ImpressHelixCore in Frameworks */,
 				7014CD448D1AB9C9301E1D55 /* ImpressAI in Frameworks */,
 				1BEF3CCADC63104C41D451D0 /* ImpressAutomation in Frameworks */,
+				6920EE63853A352D28267366 /* ImpressOperationQueue in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -245,6 +259,7 @@
 				81988862902E9B79BAE49C21 /* ImpressHelixCore in Frameworks */,
 				670645D1EC4F70CD73D59151 /* ImpressAI in Frameworks */,
 				5E55353DBE87BB19393504BB /* ImpressAutomation in Frameworks */,
+				D7DA570669E1C6EF0D31A33F /* ImpressOperationQueue in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -269,6 +284,7 @@
 				793F3105ECF5D34AB750E20D /* CollaborationService.swift */,
 				32C93B7AC3DB6D142E84E3AB /* CommentService.swift */,
 				2B2E11D082E7A8072873D329 /* ImbibIntegrationService.swift */,
+				95E02471B1669B4E709D5AB3 /* InlineCompletionService.swift */,
 				15F37193D340E4137221365D /* TemplateService.swift */,
 			);
 			path = Services;
@@ -306,6 +322,7 @@
 				45EE4CCA6B15BC4AA86F3878 /* ImpressAI */,
 				72D122627FFE6D51DD0DBD9A /* ImpressAutomation */,
 				B43D62711309C28A78DBA3BC /* ImpressHelixCore */,
+				C4F0C477F8E7238171371A1E /* ImpressOperationQueue */,
 				094CAB5368BE43666D38D4A6 /* ImpressTestKit */,
 				07CEE4F4CD2716BEE538C8C6 /* ImprintCore */,
 				3DFCAA35BC380074A402134E /* ImprintRustCore */,
@@ -374,6 +391,8 @@
 			children = (
 				9109B68CF7A42AC37C2C433E /* CRDTHealthValidator.swift */,
 				97ECCC3437E5C09792892E73 /* DocumentBackupService.swift */,
+				C7B910C238CEB0E76C467C66 /* DocumentOperation.swift */,
+				F9C434467284F0F838C875E4 /* DocumentRegistry.swift */,
 				9718EB54121DE0009ACEC74C /* ImprintHTTPRouter.swift */,
 				EC917526021AE8E09574FC8A /* ImprintHTTPServer.swift */,
 				06A51C054058B93F83514C17 /* SharedICloudService.swift */,
@@ -492,6 +511,7 @@
 				A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */,
 				CEAAC6E8DB572798AF29D88F /* DocumentOutlineView.swift */,
 				6D0529920CDD3DAE47B66AF6 /* FocusModeView.swift */,
+				9C3610132CADA69D99F3382D /* GhostTextOverlay.swift */,
 				5DCADD127913DDE6A63AA4AB /* ImbibSettingsView.swift */,
 				3B031DA11AFC25AE5C8F8513 /* PDFPreviewView.swift */,
 				DBA0188A43B19C3BD8429D82 /* PresenceCursorView.swift */,
@@ -606,6 +626,7 @@
 				DFD5C6D3D462E5D7EA67B0B5 /* ImpressHelixCore */,
 				552AC7A96D227AA4AB793F32 /* ImpressAI */,
 				A9FB7D229BAC6AAF619BB78D /* ImpressAutomation */,
+				1E56233BD5DF1BF5BED747AF /* ImpressOperationQueue */,
 			);
 			productName = "imprint-iOS";
 			productReference = 6F291EFCFB450ADB4550E21B /* imprint-iOS.app */;
@@ -630,6 +651,7 @@
 				8EC9D1A11A01C2743A353F79 /* ImpressHelixCore */,
 				92B5726FAC1ADA45A006C597 /* ImpressAI */,
 				567E9E3CACE9EC2DE9C00042 /* ImpressAutomation */,
+				656D9EB9153AAEBC4BA35FC9 /* ImpressOperationQueue */,
 			);
 			productName = imprint;
 			productReference = A6C1C382D917860B9054B1CC /* imprint.app */;
@@ -699,6 +721,7 @@
 				E44CBE747F02D43D5FC08034 /* XCLocalSwiftPackageReference "../../packages/ImpressAI" */,
 				CE65C5A500D04AF5784F10C0 /* XCLocalSwiftPackageReference "../../packages/ImpressAutomation" */,
 				17C5078BF6F62A4415E223B7 /* XCLocalSwiftPackageReference "../../packages/ImpressHelixCore" */,
+				C6A041F67004FC590562D85D /* XCLocalSwiftPackageReference "../../packages/ImpressOperationQueue" */,
 				4587DE5DB9955180BDA2029E /* XCLocalSwiftPackageReference "../../packages/ImpressTestKit" */,
 				1C5A62778997ED795072477F /* XCLocalSwiftPackageReference "Packages/ImprintCore" */,
 				1089D26903AED4E0B6BE7C34 /* XCLocalSwiftPackageReference "ImprintRustCore" */,
@@ -766,6 +789,8 @@
 				86D26E342BA2A82A244C3B82 /* CitationDropDelegate.swift in Sources */,
 				E1A95D5300E4D5342EF3A511 /* ContentView.swift in Sources */,
 				C99DC74C2305D854A410E742 /* DocumentBackupService.swift in Sources */,
+				05840690A1213EA7FDECA521 /* DocumentOperation.swift in Sources */,
+				4125846AA1750FA1D42DBB87 /* DocumentRegistry.swift in Sources */,
 				6E5B21D58232C44DE1311330 /* DocumentSchemaVersion.swift in Sources */,
 				6DDFE3FEB48918B2F501DE1C /* IOSContentView.swift in Sources */,
 				BBCFBE76A59C029C640F29EE /* IOSDictationService.swift in Sources */,
@@ -839,15 +864,19 @@
 				AA73C3B4B8F8B46381B61579 /* ContentView.swift in Sources */,
 				1946CF4DBE13E58B0D8E1923 /* DirectPDFView.swift in Sources */,
 				8F45F61FD4EF7A2858A8F82A /* DocumentBackupService.swift in Sources */,
+				FD68C45831873BDEEFCF68FE /* DocumentOperation.swift in Sources */,
 				FC2E6F0207D9D1699AAF4CD1 /* DocumentOutlineView.swift in Sources */,
+				27E745D12903BCDC837DA835 /* DocumentRegistry.swift in Sources */,
 				BA0AA31C41F9B14CEE890B6A /* DocumentSchemaVersion.swift in Sources */,
 				754EC6D3771E2B27AD633401 /* FocusModeView.swift in Sources */,
+				E7D088E3A7C99876ACDE353B /* GhostTextOverlay.swift in Sources */,
 				5CD823FC6CB15DC00C386C14 /* ImbibIntegrationService.swift in Sources */,
 				D29687730D196932BAC954D2 /* ImbibSettingsView.swift in Sources */,
 				947A5A3522576AC14468992E /* ImprintApp.swift in Sources */,
 				6ED0CF4A9A309E77604216E3 /* ImprintDocument.swift in Sources */,
 				C7B5C4B164904845F5D87379 /* ImprintHTTPRouter.swift in Sources */,
 				1031E4621144B112F76AD73B /* ImprintHTTPServer.swift in Sources */,
+				B6D58B82F8DCB56273E7191E /* InlineCompletionService.swift in Sources */,
 				6CDCA0A7FC412754E3C9AED1 /* PDFPreviewView.swift in Sources */,
 				A23C90234D65FF3C4DD50B34 /* PresenceCursorView.swift in Sources */,
 				99B593AE130DA6971CA0BED7 /* RewriteSuggestion.swift in Sources */,
@@ -1264,6 +1293,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../packages/ImpressTestKit;
 		};
+		C6A041F67004FC590562D85D /* XCLocalSwiftPackageReference "../../packages/ImpressOperationQueue" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../packages/ImpressOperationQueue;
+		};
 		CE65C5A500D04AF5784F10C0 /* XCLocalSwiftPackageReference "../../packages/ImpressAutomation" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../packages/ImpressAutomation;
@@ -1275,6 +1308,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1E56233BD5DF1BF5BED747AF /* ImpressOperationQueue */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ImpressOperationQueue;
+		};
 		353A89432C8827CE3B49F381 /* ImprintCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ImprintCore;
@@ -1286,6 +1323,10 @@
 		567E9E3CACE9EC2DE9C00042 /* ImpressAutomation */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ImpressAutomation;
+		};
+		656D9EB9153AAEBC4BA35FC9 /* ImpressOperationQueue */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ImpressOperationQueue;
 		};
 		8EC9D1A11A01C2743A353F79 /* ImpressHelixCore */ = {
 			isa = XCSwiftPackageProductDependency;

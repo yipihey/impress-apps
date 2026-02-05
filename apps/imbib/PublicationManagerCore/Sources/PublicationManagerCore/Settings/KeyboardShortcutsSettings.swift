@@ -232,14 +232,25 @@ public struct KeyboardShortcutBinding: Codable, Identifiable, Equatable, Hashabl
     /// Used for `.onKeyPress` handlers to support customizable shortcuts.
     public func matches(_ press: KeyPress) -> Bool {
         let keyMatches: Bool
+        var isShiftedSymbol = false
         switch key {
         case .character(let char):
             keyMatches = press.characters.lowercased() == char.lowercased()
+            // Symbols like *, !, @, # require Shift to type but Shift isn't a
+            // semantic modifier — it's just how the character is produced.
+            // Strip Shift from comparison for non-letter characters.
+            if keyMatches {
+                let scalar = char.unicodeScalars.first
+                let isLetter = scalar.map { CharacterSet.letters.contains($0) } ?? false
+                if !isLetter { isShiftedSymbol = true }
+            }
         case .special(let special):
             keyMatches = press.key == special.keyEquivalent
         }
         guard keyMatches else { return false }
-        return ShortcutModifiers(press.modifiers) == modifiers
+        var pressModifiers = ShortcutModifiers(press.modifiers)
+        if isShiftedSymbol { pressModifiers.remove(.shift) }
+        return pressModifiers == modifiers
     }
 }
 
@@ -731,7 +742,7 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             id: "inboxToggleStar",
             displayName: "Toggle Star",
             category: .inboxTriage,
-            key: .character("t"),
+            key: .character("*"),
             modifiers: .none,
             notificationName: "inboxToggleStar"
         ),
@@ -782,6 +793,40 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             key: .character("o"),
             modifiers: .none,
             notificationName: "inboxOpenItem"
+        ),
+
+        // MARK: Flags & Tags
+        KeyboardShortcutBinding(
+            id: "flagMode",
+            displayName: "Flag Mode",
+            category: .paperActions,
+            key: .character("f"),
+            modifiers: .none,
+            notificationName: "enterFlagMode"
+        ),
+        KeyboardShortcutBinding(
+            id: "tagMode",
+            displayName: "Tag Mode",
+            category: .paperActions,
+            key: .character("t"),
+            modifiers: .none,
+            notificationName: "enterTagMode"
+        ),
+        KeyboardShortcutBinding(
+            id: "tagDeleteMode",
+            displayName: "Tag Delete Mode",
+            category: .paperActions,
+            key: .character("t"),
+            modifiers: .shift,
+            notificationName: "enterTagDeleteMode"
+        ),
+        KeyboardShortcutBinding(
+            id: "filterMode",
+            displayName: "Filter Mode",
+            category: .paperActions,
+            key: .character("/"),
+            modifiers: .none,
+            notificationName: "enterFilterMode"
         ),
 
         // MARK: PDF Viewer

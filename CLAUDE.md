@@ -139,6 +139,104 @@ impress-apps/
 - Domain errors conform to `LocalizedError`
 - **Naming**: Protocols `*ing`/`*able`, implementations no suffix, view models `*ViewModel`
 
+## Swift Concurrency & SwiftUI Pitfalls
+
+These rules prevent subtle bugs that are hard to diagnose. Follow them strictly.
+
+### Capture @State Before Async Work
+
+**Never read `@State`/`@Binding` properties inside `Task { }` closures.** Always capture into local variables first.
+
+```swift
+// CORRECT
+let targetIDs = self.targetIDs   // capture the snapshot
+let items = self.items
+Task {
+    for id in targetIDs { ... }  // uses captured value
+}
+
+// WRONG — @State may change before Task body runs
+Task {
+    for id in self.targetIDs { ... }  // may be empty/stale
+}
+```
+
+SwiftUI `@State` is backed by heap storage. A `Task` closure captures a reference to that storage, not a snapshot of the value. If another view (e.g., an overlay dismissing, a binding resetting) modifies the state between `Task { }` creation and execution, the Task sees the modified value. This class of bug is invisible without logging.
+
+### Console-First Debugging
+
+All impress apps have an internal console window. When implementing features that involve async data flow:
+
+1. **Log the mutation** — what was requested, with what parameters
+2. **Log the save** — did the persistence layer see changes?
+3. **Log the display** — did the UI layer read the data back?
+
+This three-point trace makes async timing bugs immediately visible (as seen above: "applying to 0 pubs" instantly reveals the capture bug).
+
+### Core Data To-Many Relationships
+
+Use `mutableSetValue(forKey:)` for to-many relationship mutations, not direct property assignment. See [imbib CLAUDE.md](apps/imbib/CLAUDE.md) for details.
+
+## Observability & Debugging
+
+### Always Verify with Logs
+
+When implementing new features or debugging issues, **use the live log infrastructure** to confirm behavior. Do not assume code works just because it compiled. All impress apps expose logs via HTTP and MCP.
+
+### Shared Logging Infrastructure (`ImpressLogging`)
+
+All apps share the `ImpressLogging` package (`packages/ImpressLogging/`). Use these APIs:
+
+```swift
+// In any service or view model — logs to both OSLog and in-app console
+Logger.library.infoCapture("message", category: "tags")   // app-specific Logger
+logInfo("message", category: "tags")                        // global convenience
+
+// Performance timing
+measureTime("rebuild row data", count: rows.count) { ... }
+```
+
+### Live Log Access
+
+Each app runs a local HTTP server exposing `GET /api/logs`:
+
+| App | Port | Endpoint |
+|-----|------|----------|
+| imbib | 23120 | `curl 'http://localhost:23120/api/logs?limit=20&level=info,warning,error'` |
+| impart | 23122 | `curl 'http://localhost:23122/api/logs?limit=20'` |
+
+Query parameters: `limit`, `offset`, `level` (comma-separated), `category`, `search`, `after` (ISO8601).
+
+The MCP server (`impress-mcp`) also exposes `imbib_get_logs` and `impart_get_logs` tools for AI agent access.
+
+### Three-Point Trace Pattern
+
+When adding features that touch persistence (Core Data, UserDefaults, files), always add logging at three points:
+
+1. **Mutation** — what was requested, with what parameters
+2. **Save** — did the persistence layer see changes?
+3. **Display** — did the UI layer read the data back?
+
+```swift
+Logger.library.infoCapture("Applying tag '\(tagPath)' to \(pubIDs.count) pubs", category: "tags")
+// ... perform mutation ...
+Logger.library.infoCapture("Save: context.hasChanges = \(context.hasChanges)", category: "tags")
+// ... after rebuild ...
+Logger.library.infoCapture("Display: \(taggedCount) rows now show tags", category: "tags")
+```
+
+### Debugging Workflow for Claude Code Sessions
+
+1. **Build and launch** the app from the debug build
+2. **Verify** the HTTP server is responding: `curl http://localhost:23120/api/status`
+3. **Watch logs** while testing: `curl 'http://localhost:23120/api/logs?level=info,warning,error&limit=30'`
+4. **Filter by category** to focus: `curl 'http://localhost:23120/api/logs?category=tags'`
+5. **Use `after` timestamp** to see only new entries since last poll
+
+If the HTTP server isn't responding, check:
+- Settings > General > Automation: both "Enable Automation API" and "Enable HTTP server" must be on
+- The `com.apple.security.network.server` entitlement must be in the app's `.entitlements` file
+
 ## App-Specific Guidance
 
 See `apps/*/CLAUDE.md` for detailed app documentation:

@@ -377,6 +377,23 @@ public actor URLSchemeHandler {
 
         case .app(let action):
             return await executeAppAction(action)
+
+        case .sharedPaper(let libraryID, let citeKey):
+            // Navigate to a paper in a shared library
+            let userInfo: [String: Any] = [
+                "libraryID": libraryID.uuidString,
+                "citeKey": citeKey,
+                "isShared": true
+            ]
+            await postNotification(.openSelectedPaper, userInfo: userInfo)
+            return .success(command: "sharedPaper", result: ["libraryID": AnyCodable(libraryID.uuidString), "citeKey": AnyCodable(citeKey)])
+
+        case .executeCommand(let notificationName):
+            // Execute a command by notification name (for universal command palette)
+            // Map notification name to Notification.Name and post it
+            let notification = Notification.Name(notificationName)
+            await postNotification(notification)
+            return .success(command: "executeCommand", result: ["notification": AnyCodable(notificationName)])
         }
     }
 

@@ -9,6 +9,26 @@ import SwiftUI
 import PublicationManagerCore
 import CoreData
 import os
+import UniformTypeIdentifiers
+
+// MARK: - Library Drag Item
+
+/// Transferable wrapper for dragging libraries (for reordering)
+struct LibraryDragItem: Transferable {
+    let id: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(contentType: .libraryID) { item in
+            item.id.uuidString.data(using: .utf8) ?? Data()
+        } importing: { data in
+            guard let string = String(data: data, encoding: .utf8),
+                  let uuid = UUID(uuidString: string) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return LibraryDragItem(id: uuid)
+        }
+    }
+}
 
 /// iOS sidebar with library navigation, smart searches, and collections.
 ///
@@ -66,11 +86,20 @@ struct IOSSidebarView: View {
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
     @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
+    // Section reorder sheet
+    @State private var showSectionReorderSheet = false
+
     // Library expansion state (for DisclosureGroups)
     @State private var expandedLibraries: Set<UUID> = []
 
     // Expanded state for library collection tree, keyed by library ID
     @State private var expandedLibraryCollections: [UUID: Set<UUID>] = [:]
+
+    // Expanded state for inbox collection tree
+    @State private var expandedInboxCollections: Set<UUID> = []
+
+    // Collection rename state
+    @State private var renamingCollection: CDCollection?
 
     // Search form ordering and visibility (persisted)
     @State private var searchFormOrder: [SearchFormType] = SearchFormStore.loadOrderSync()
@@ -85,7 +114,6 @@ struct IOSSidebarView: View {
                 sectionView(for: sectionType)
                     .id(sectionType == .exploration ? explorationRefreshID : nil)
             }
-            .onMove(perform: moveSections)
             .id(refreshID)  // Force refresh when smart searches change
         }
         .listStyle(.sidebar)
@@ -159,8 +187,19 @@ struct IOSSidebarView: View {
             }
             refreshID = UUID()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitDataDidChange)) { _ in
+            // Refresh when CloudKit syncs data from other devices
+            refreshID = UUID()
+        }
         .navigationTitle("imbib")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showSectionReorderSheet = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                }
+            }
             ToolbarItem(placement: .bottomBar) {
                 HStack {
                     Menu {
@@ -298,6 +337,12 @@ struct IOSSidebarView: View {
                     }
             }
         }
+        .sheet(isPresented: $showSectionReorderSheet) {
+            SectionReorderSheet(
+                sectionOrder: $sectionOrder,
+                isPresented: $showSectionReorderSheet
+            )
+        }
         .alert("Delete Library?", isPresented: $showDeleteLibraryConfirmation, presenting: libraryToDelete) { library in
             Button("Delete", role: .destructive) {
                 try? libraryManager.deleteLibrary(library)
@@ -306,17 +351,35 @@ struct IOSSidebarView: View {
         } message: { library in
             Text("Are you sure you want to delete \"\(library.displayName)\"? This will remove all publications and cannot be undone.")
         }
+        .sheet(item: $renamingCollection) { collection in
+            CollectionRenameSheet(
+                collection: collection,
+                onDismiss: { renamingCollection = nil },
+                onSave: { refreshID = UUID() }
+            )
+        }
         .onChange(of: selection) { _, newValue in
-            // Track which library is selected for contextual actions
+            // Check if new selection is in the exploration section
+            let isExplorationSelection: Bool
             switch newValue {
-            case .library(let lib):
-                selectedLibraryForAction = lib
+            case .collection(let collection):
+                isExplorationSelection = collection.library?.id == libraryManager.explorationLibrary?.id
+                selectedLibraryForAction = collection.effectiveLibrary
             case .smartSearch(let ss):
+                isExplorationSelection = ss.library?.id == libraryManager.explorationLibrary?.id
                 selectedLibraryForAction = ss.library
-            case .collection(let col):
-                selectedLibraryForAction = col.effectiveLibrary
+            case .library(let lib):
+                isExplorationSelection = false
+                selectedLibraryForAction = lib
             default:
-                break
+                isExplorationSelection = false
+            }
+
+            // Clear exploration multi-selection when navigating outside exploration section
+            // This ensures only one item appears selected at a time
+            if !isExplorationSelection && !explorationMultiSelection.isEmpty {
+                explorationMultiSelection.removeAll()
+                isExplorationEditMode = false
             }
         }
     }
@@ -328,12 +391,19 @@ struct IOSSidebarView: View {
     private func sectionView(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
         case .inbox:
-            collapsibleSection(for: .inbox) {
+            // Inbox uses selectable header - tapping "Inbox" shows all papers
+            selectableCollapsibleSection(for: .inbox, tag: .inbox) {
                 inboxSectionContent
             }
         case .libraries:
             collapsibleSection(for: .libraries) {
                 librariesSectionContent
+            }
+        case .sharedWithMe:
+            if !libraryManager.sharedWithMeLibraries.isEmpty {
+                collapsibleSection(for: .sharedWithMe) {
+                    sharedWithMeSectionContent
+                }
             }
         case .scixLibraries:
             if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
@@ -352,6 +422,10 @@ struct IOSSidebarView: View {
                 collapsibleSection(for: .exploration) {
                     explorationSectionContent
                 }
+            }
+        case .flagged:
+            selectableCollapsibleSection(for: .flagged, tag: .flagged(nil)) {
+                flaggedSectionContent
             }
         case .dismissed:
             // Dismissed section (not implemented on iOS yet)
@@ -402,6 +476,66 @@ struct IOSSidebarView: View {
         }
     }
 
+    /// Wraps section content in a collapsible Section with a SELECTABLE header.
+    /// Used for Inbox where tapping the header text selects the section (shows all papers).
+    @ViewBuilder
+    private func selectableCollapsibleSection<Content: View>(
+        for sectionType: SidebarSectionType,
+        tag: SidebarSection,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isCollapsed = collapsedSections.contains(sectionType)
+
+        Section {
+            if !isCollapsed {
+                content()
+            }
+        } header: {
+            HStack(spacing: 6) {
+                // Collapse/expand button
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        toggleSectionCollapsed(sectionType)
+                    }
+                } label: {
+                    // Chevron indicator only
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                }
+                .buttonStyle(.plain)
+
+                // Selectable section title with unread badge
+                HStack(spacing: 6) {
+                    Text(sectionType.displayName)
+                        .foregroundStyle(.primary)
+
+                    // Show unread badge for Inbox
+                    if sectionType == .inbox && InboxManager.shared.unreadCount > 0 {
+                        Text("\(InboxManager.shared.unreadCount)")
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selection = tag
+                }
+
+                Spacer()
+
+                // Section-specific header extras
+                sectionHeaderExtras(for: sectionType)
+            }
+            .contentShape(Rectangle())
+        }
+    }
+
     /// Additional header content for specific section types
     @ViewBuilder
     private func sectionHeaderExtras(for sectionType: SidebarSectionType) -> some View {
@@ -418,8 +552,17 @@ struct IOSSidebarView: View {
                 }
                 .buttonStyle(.plain)
 
-                // Add feed menu - creates feeds that auto-refresh and populate inbox
+                // Add feed/collection menu - creates feeds or collections for organizing
                 Menu {
+                    // New Collection option
+                    Button {
+                        createInboxRootCollection()
+                    } label: {
+                        Label("New Collection", systemImage: "folder.badge.plus")
+                    }
+
+                    Divider()
+
                     Button {
                         showArXivFeedForInbox = true
                     } label: {
@@ -499,8 +642,70 @@ struct IOSSidebarView: View {
     /// Libraries section content (without Section wrapper)
     @ViewBuilder
     private var librariesSectionContent: some View {
-        ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
+        let libraries = libraryManager.libraries.filter { !$0.isInbox }
+        ForEach(libraries) { library in
             librarySection(for: library)
+        }
+        .onInsert(of: [.libraryID]) { index, providers in
+            handleLibraryInsert(at: index, providers: providers, libraries: libraries)
+        }
+    }
+
+    /// Handle library reordering via drag-and-drop
+    private func handleLibraryInsert(at targetIndex: Int, providers: [NSItemProvider], libraries: [CDLibrary]) {
+        guard let provider = providers.first else { return }
+
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.libraryID.identifier) { data, _ in
+            guard let data = data,
+                  let uuidString = String(data: data, encoding: .utf8),
+                  let draggedID = UUID(uuidString: uuidString) else { return }
+
+            Task { @MainActor in
+                var reordered = libraries
+                guard let sourceIndex = reordered.firstIndex(where: { $0.id == draggedID }) else { return }
+
+                // Calculate destination accounting for removal
+                let destinationIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+                let clampedDestination = max(0, min(destinationIndex, reordered.count - 1))
+
+                // Perform the move
+                let library = reordered.remove(at: sourceIndex)
+                reordered.insert(library, at: clampedDestination)
+
+                // Update sort order
+                for (index, lib) in reordered.enumerated() {
+                    lib.sortOrder = Int16(index)
+                }
+                try? PersistenceController.shared.viewContext.save()
+                refreshID = UUID()
+            }
+        }
+    }
+
+    /// Shared With Me section content
+    @ViewBuilder
+    private var sharedWithMeSectionContent: some View {
+        ForEach(libraryManager.sharedWithMeLibraries, id: \.id) { library in
+            HStack(spacing: 6) {
+                Image(systemName: "person.2")
+                    .foregroundStyle(.blue)
+                    .frame(width: 20)
+                Text(library.displayName)
+                    .lineLimit(1)
+                Spacer()
+                if !library.canEditLibrary {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                let count = library.publications?.count ?? 0
+                if count > 0 {
+                    Text("\(count)")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+            }
+            .tag(SidebarSection.library(library))
         }
     }
 
@@ -869,15 +1074,62 @@ struct IOSSidebarView: View {
         return publications.filter { !$0.isRead && !$0.isDeleted }.count
     }
 
+    /// Flagged section content — shows per-color flag items
+    @ViewBuilder
+    private var flaggedSectionContent: some View {
+        let colors: [(String, Color)] = [
+            ("red", .red),
+            ("amber", .orange),
+            ("blue", .blue),
+            ("gray", .gray)
+        ]
+        ForEach(colors, id: \.0) { colorName, swiftColor in
+            NavigationLink(value: SidebarSection.flagged(colorName)) {
+                Label {
+                    Text(colorName.capitalized)
+                } icon: {
+                    Image(systemName: "flag.fill")
+                        .foregroundStyle(swiftColor)
+                }
+            }
+        }
+    }
+
     /// Inbox section content (without Section wrapper)
+    /// Now tapping the "Inbox" header shows all papers, so we don't need an "Inbox" row.
+    /// Content includes: top-level feeds, collections (with their nested feeds)
     @ViewBuilder
     private var inboxSectionContent: some View {
-        // Main Inbox
+        // Top-level feeds (no parent collection)
+        let topLevelFeeds = inboxFeeds.filter { $0.inboxParentCollection == nil }
+
+        ForEach(topLevelFeeds, id: \.id) { feed in
+            iosInboxFeedRow(for: feed)
+        }
+
+        // Inbox collections (hierarchical) with their nested feeds
+        if let inboxLibrary = InboxManager.shared.inboxLibrary,
+           let collections = inboxLibrary.collections,
+           !collections.isEmpty {
+            let rootCollections = collections
+                .filter { $0.parentCollection == nil && !$0.isSystemCollection && !$0.isSmartSearchResults }
+                .sorted { $0.name < $1.name }
+
+            ForEach(rootCollections, id: \.id) { collection in
+                iosInboxCollectionRow(collection: collection, depth: 0)
+            }
+        }
+    }
+
+    /// Row for an inbox feed on iOS
+    @ViewBuilder
+    private func iosInboxFeedRow(for feed: CDSmartSearch) -> some View {
         HStack {
-            Label("Inbox", systemImage: "tray")
+            Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
             Spacer()
-            if InboxManager.shared.unreadCount > 0 {
-                Text("\(InboxManager.shared.unreadCount)")
+            let unread = unreadCountForFeed(feed)
+            if unread > 0 {
+                Text("\(unread)")
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -886,13 +1138,83 @@ struct IOSSidebarView: View {
                     .clipShape(Capsule())
             }
         }
-        .tag(SidebarSection.inbox)
-        .accessibilityIdentifier(AccessibilityID.Sidebar.inbox)
+        .tag(SidebarSection.inboxFeed(feed))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                removeFromInbox(feed)
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+        }
+    }
 
-        // Inbox Feeds (Smart Searches that feed to inbox)
-        let feeds = inboxFeeds
-        if !feeds.isEmpty {
-            ForEach(feeds, id: \.id) { feed in
+    /// Row for an inbox collection on iOS (with expand/collapse)
+    @ViewBuilder
+    private func iosInboxCollectionRow(collection: CDCollection, depth: Int) -> some View {
+        let isExpanded = expandedInboxCollections.contains(collection.id)
+        let hasChildren = collection.hasChildren
+        let nestedFeeds = inboxFeeds.filter { $0.inboxParentCollection?.id == collection.id }
+        let hasContent = hasChildren || !nestedFeeds.isEmpty
+
+        // Collection row
+        HStack {
+            if hasContent {
+                Button {
+                    toggleInboxCollectionExpanded(collection)
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Label(collection.name, systemImage: "folder")
+
+            Spacer()
+
+            let pubCount = collection.publications?.count ?? 0
+            if pubCount > 0 {
+                Text("\(pubCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, CGFloat(depth) * 16)
+        .tag(SidebarSection.inboxCollection(collection))
+        .contextMenu {
+            Button {
+                renamingCollection = collection
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button {
+                createSubcollectionInInbox(parent: collection)
+            } label: {
+                Label("New Subcollection", systemImage: "folder.badge.plus")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                deleteInboxCollection(collection)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleteInboxCollection(collection)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+
+        // Show nested content when expanded
+        if isExpanded {
+            // Nested feeds
+            ForEach(nestedFeeds, id: \.id) { feed in
                 HStack {
                     Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
                     Spacer()
@@ -907,9 +1229,89 @@ struct IOSSidebarView: View {
                             .clipShape(Capsule())
                     }
                 }
+                .padding(.leading, CGFloat(depth + 1) * 16)
                 .tag(SidebarSection.inboxFeed(feed))
             }
+
+            // Nested collections (use AnyView to break recursive type inference)
+            ForEach(collection.sortedChildren, id: \.id) { childCollection in
+                AnyView(iosInboxCollectionRow(collection: childCollection, depth: depth + 1))
+            }
         }
+    }
+
+    /// Toggle expanded state for an inbox collection
+    private func toggleInboxCollectionExpanded(_ collection: CDCollection) {
+        if expandedInboxCollections.contains(collection.id) {
+            expandedInboxCollections.remove(collection.id)
+        } else {
+            expandedInboxCollections.insert(collection.id)
+        }
+    }
+
+    /// Delete an inbox collection
+    private func deleteInboxCollection(_ collection: CDCollection) {
+        let context = PersistenceController.shared.viewContext
+
+        // Move any feeds in this collection to top level
+        if let feeds = collection.inboxFeeds {
+            for feed in feeds {
+                feed.inboxParentCollection = nil
+            }
+        }
+
+        context.delete(collection)
+        try? context.save()
+        refreshID = UUID()
+    }
+
+    /// Create a new root-level collection in the Inbox
+    private func createInboxRootCollection() {
+        guard let inboxLibrary = InboxManager.shared.inboxLibrary else { return }
+
+        let context = PersistenceController.shared.viewContext
+        let newCollection = CDCollection(context: context)
+        newCollection.id = UUID()
+        newCollection.name = "New Collection"
+        newCollection.library = inboxLibrary
+        newCollection.dateCreated = Date()
+        newCollection.sortOrder = Int16((inboxLibrary.collections?.count ?? 0))
+
+        try? context.save()
+        refreshID = UUID()
+
+        // Show rename sheet for immediate editing
+        renamingCollection = newCollection
+    }
+
+    /// Create a subcollection under an inbox collection
+    private func createSubcollectionInInbox(parent: CDCollection) {
+        guard let inboxLibrary = InboxManager.shared.inboxLibrary else { return }
+
+        let context = PersistenceController.shared.viewContext
+        let newCollection = CDCollection(context: context)
+        newCollection.id = UUID()
+        newCollection.name = "New Subcollection"
+        newCollection.library = inboxLibrary
+        newCollection.parentCollection = parent
+        newCollection.dateCreated = Date()
+        newCollection.sortOrder = Int16((parent.childCollections?.count ?? 0))
+
+        try? context.save()
+
+        // Expand parent to show the new subcollection
+        expandedInboxCollections.insert(parent.id)
+        refreshID = UUID()
+
+        // Show rename sheet for immediate editing
+        renamingCollection = newCollection
+    }
+
+    /// Remove a feed from the Inbox (disable feedsToInbox)
+    private func removeFromInbox(_ feed: CDSmartSearch) {
+        feed.feedsToInbox = false
+        try? PersistenceController.shared.viewContext.save()
+        refreshID = UUID()
     }
 
     // MARK: - Library Section
@@ -933,39 +1335,9 @@ struct IOSSidebarView: View {
         )
     }
 
-    /// Check if library has any visible children (smart searches or collections).
-    /// Used to determine whether to show "All Publications" row - if no children exist,
-    /// the row is redundant with the library header itself.
-    private func libraryHasChildren(_ library: CDLibrary) -> Bool {
-        let hasSmartSearches = library.smartSearches?.contains { !$0.feedsToInbox } ?? false
-        let hasCollections = library.collections?.isEmpty == false
-        return hasSmartSearches || hasCollections
-    }
-
-    /// Whether a library should always show "All Publications" even without children.
-    /// Save and Dismissed libraries need this since they have no children but users
-    /// need to navigate to them to see triaged papers.
-    private func shouldAlwaysShowAllPublications(_ library: CDLibrary) -> Bool {
-        library.isSaveLibrary || library.isDismissedLibrary
-    }
-
     @ViewBuilder
     private func librarySection(for library: CDLibrary) -> some View {
         DisclosureGroup(isExpanded: expansionBinding(for: library.id)) {
-            // All Publications - show if library has children OR is a special library (Keep/Dismissed)
-            // that users need to navigate to even without children
-            if libraryHasChildren(library) || shouldAlwaysShowAllPublications(library) {
-                HStack {
-                    Label("All Publications", systemImage: "books.vertical")
-                    Spacer()
-                    Text("\(allPublications(for: library).count)")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
-                .tag(SidebarSection.library(library))
-                .accessibilityIdentifier(AccessibilityID.Sidebar.libraryRow(library.id))
-            }
-
             // Smart Searches
             if let searchSet = library.smartSearches?.filter({ !$0.feedsToInbox }), !searchSet.isEmpty {
                 DisclosureGroup("Smart Searches") {
@@ -1080,6 +1452,14 @@ struct IOSSidebarView: View {
                     showDeleteLibraryConfirmation = true
                 }
             }
+        }
+        // Tag for list selection - clicking library header shows all publications
+        .tag(SidebarSection.library(library))
+        .accessibilityIdentifier(AccessibilityID.Sidebar.libraryRow(library.id))
+        .draggable(LibraryDragItem(id: library.id)) {
+            Label(library.displayName, systemImage: "books.vertical")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -1230,15 +1610,21 @@ struct IOSSidebarView: View {
         .contentShape(Rectangle())
         .tag(SidebarSection.collection(collection))
         .contextMenu {
+            Button {
+                renamingCollection = collection
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
             if !collection.isSmartCollection {
                 Button {
                     createSubcollection(in: library, parent: collection)
                 } label: {
                     Label("New Subcollection", systemImage: "folder.badge.plus")
                 }
-
-                Divider()
             }
+
+            Divider()
 
             Button(role: .destructive) {
                 deleteCollection(collection)
@@ -1274,6 +1660,9 @@ struct IOSSidebarView: View {
         expandedLibraryCollections[library.id] = expanded
 
         refreshID = UUID()
+
+        // Show rename sheet for immediate editing
+        renamingCollection = collection
     }
 
     // MARK: - Helpers
@@ -1707,6 +2096,119 @@ struct IOSArXivCategoryPickerSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Collection Rename Sheet
+
+/// Sheet for renaming a collection
+struct CollectionRenameSheet: View {
+    let collection: CDCollection
+    var onDismiss: (() -> Void)?
+    var onSave: (() -> Void)?
+
+    @State private var name: String = ""
+    @FocusState private var isNameFieldFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Collection Name", text: $name)
+                    .focused($isNameFieldFocused)
+            }
+            .navigationTitle("Rename Collection")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss?()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .disabled(name.isEmpty)
+                }
+            }
+            .onAppear {
+                name = collection.name
+                // Focus the text field after a brief delay to ensure the view is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isNameFieldFocused = true
+                }
+            }
+        }
+    }
+
+    private func saveChanges() {
+        collection.name = name
+        // Use shared view context to ensure save happens even if collection's context is nil
+        let context = collection.managedObjectContext ?? PersistenceController.shared.viewContext
+        try? context.save()
+        onSave?()
+        onDismiss?()
+        dismiss()
+    }
+}
+
+// MARK: - Section Reorder Sheet
+
+/// Sheet for reordering sidebar sections
+struct SectionReorderSheet: View {
+    @Binding var sectionOrder: [SidebarSectionType]
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(sectionOrder) { sectionType in
+                    HStack {
+                        Image(systemName: sectionType.iconName)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24)
+                        Text(sectionType.displayName)
+                        Spacer()
+                    }
+                }
+                .onMove(perform: moveSections)
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Reorder Sections")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        isPresented = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func moveSections(from source: IndexSet, to destination: Int) {
+        sectionOrder.move(fromOffsets: source, toOffset: destination)
+        Task {
+            await SidebarSectionOrderStore.shared.save(sectionOrder)
+        }
+    }
+}
+
+// MARK: - SidebarSectionType Icon Extension
+
+extension SidebarSectionType {
+    var iconName: String {
+        switch self {
+        case .inbox: return "tray"
+        case .libraries: return "books.vertical"
+        case .sharedWithMe: return "person.2"
+        case .scixLibraries: return "star"
+        case .search: return "magnifyingglass"
+        case .exploration: return "safari"
+        case .dismissed: return "xmark.circle"
         }
     }
 }

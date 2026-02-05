@@ -15,12 +15,14 @@ import OSLog
 public enum SidebarSelectionState: Codable, Equatable, Sendable {
     case inbox
     case inboxFeed(UUID)              // Smart search ID (feeds to inbox)
+    case inboxCollection(UUID)        // Collection ID within Inbox
     case library(UUID)                // Library ID
     case search                       // Legacy search (kept for compatibility)
     case searchForm(SearchFormType)   // Specific search form
     case smartSearch(UUID)            // Smart search ID
     case collection(UUID)             // Collection ID
     case scixLibrary(UUID)            // SciX online library ID
+    case flagged(String?)             // Flagged publications (nil = any flag, color name)
 }
 
 // MARK: - App State

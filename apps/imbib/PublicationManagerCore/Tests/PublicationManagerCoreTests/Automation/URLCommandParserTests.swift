@@ -440,4 +440,181 @@ final class URLCommandParserTests: XCTestCase {
             XCTFail("Expected collection command")
         }
     }
+
+    // MARK: - Cross-App Scheme (impress://)
+
+    func testImpressScheme_validImbibTarget() throws {
+        let url = URL(string: "impress://imbib/search?query=test")!
+        let command = try parser.parse(url)
+
+        if case .search(let query, _, _) = command {
+            XCTAssertEqual(query, "test")
+        } else {
+            XCTFail("Expected search command")
+        }
+    }
+
+    func testImpressScheme_invalidTarget_throwsError() throws {
+        let url = URL(string: "impress://imprint/search?query=test")!
+        XCTAssertThrowsError(try parser.parse(url)) { error in
+            guard case AutomationError.invalidScheme(let scheme) = error else {
+                XCTFail("Expected invalidScheme error, got \(error)")
+                return
+            }
+            XCTAssertTrue(scheme.contains("imprint"))
+        }
+    }
+
+    func testImpressScheme_navigate() throws {
+        let url = URL(string: "impress://imbib/navigate/library")!
+        let command = try parser.parse(url)
+
+        if case .navigate(let target) = command {
+            XCTAssertEqual(target, .library)
+        } else {
+            XCTFail("Expected navigate command")
+        }
+    }
+
+    // MARK: - Command Route (Universal Command Palette)
+
+    func testCommandRoute_basic() throws {
+        let url = URL(string: "impress://imbib/command/showLibrary")!
+        let command = try parser.parse(url)
+
+        if case .executeCommand(let notificationName) = command {
+            XCTAssertEqual(notificationName, "showLibrary")
+        } else {
+            XCTFail("Expected executeCommand")
+        }
+    }
+
+    func testCommandRoute_withSpecialCharacters() throws {
+        let url = URL(string: "imbib://command/toggleUnreadFilter")!
+        let command = try parser.parse(url)
+
+        if case .executeCommand(let notificationName) = command {
+            XCTAssertEqual(notificationName, "toggleUnreadFilter")
+        } else {
+            XCTFail("Expected executeCommand")
+        }
+    }
+
+    func testCommandRoute_missingNotificationName_throwsError() throws {
+        let url = URL(string: "imbib://command")!
+        XCTAssertThrowsError(try parser.parse(url)) { error in
+            guard case AutomationError.missingParameter = error else {
+                XCTFail("Expected missingParameter error, got \(error)")
+                return
+            }
+        }
+    }
+
+    // MARK: - Papers Route (Deep Navigation)
+
+    func testPapersRoute_basic() throws {
+        let url = URL(string: "impress://imbib/papers/Einstein1905")!
+        let command = try parser.parse(url)
+
+        if case .paper(let citeKey, let action) = command {
+            XCTAssertEqual(citeKey, "Einstein1905")
+            if case .open = action {
+                // Success - default action is open
+            } else {
+                XCTFail("Expected open action")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
+
+    func testPapersRoute_withPDFTab() throws {
+        let url = URL(string: "impress://imbib/papers/Vaswani2017?tab=pdf")!
+        let command = try parser.parse(url)
+
+        if case .paper(let citeKey, let action) = command {
+            XCTAssertEqual(citeKey, "Vaswani2017")
+            if case .openPDF = action {
+                // Success
+            } else {
+                XCTFail("Expected openPDF action")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
+
+    func testPapersRoute_withNotesTab() throws {
+        let url = URL(string: "impress://imbib/papers/TestPaper?tab=notes")!
+        let command = try parser.parse(url)
+
+        if case .paper(let citeKey, let action) = command {
+            XCTAssertEqual(citeKey, "TestPaper")
+            if case .openNotes = action {
+                // Success
+            } else {
+                XCTFail("Expected openNotes action")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
+
+    func testPapersRoute_withReferencesTab() throws {
+        let url = URL(string: "impress://imbib/papers/TestPaper?tab=references")!
+        let command = try parser.parse(url)
+
+        if case .paper(let citeKey, let action) = command {
+            XCTAssertEqual(citeKey, "TestPaper")
+            if case .openReferences = action {
+                // Success
+            } else {
+                XCTFail("Expected openReferences action")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
+
+    func testPapersRoute_withPageParameter() throws {
+        // Page parameter is parsed but handled by the URLSchemeHandler, not the parser
+        let url = URL(string: "impress://imbib/papers/TestPaper?tab=pdf&page=42")!
+        let command = try parser.parse(url)
+
+        if case .paper(let citeKey, let action) = command {
+            XCTAssertEqual(citeKey, "TestPaper")
+            if case .openPDF = action {
+                // Success - page is handled later
+            } else {
+                XCTFail("Expected openPDF action")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
+
+    func testPapersRoute_missingCiteKey_throwsError() throws {
+        let url = URL(string: "impress://imbib/papers")!
+        XCTAssertThrowsError(try parser.parse(url)) { error in
+            guard case AutomationError.missingParameter = error else {
+                XCTFail("Expected missingParameter error, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testPapersRoute_caseInsensitiveTab() throws {
+        let url = URL(string: "impress://imbib/papers/TestPaper?tab=PDF")!
+        let command = try parser.parse(url)
+
+        if case .paper(_, let action) = command {
+            if case .openPDF = action {
+                // Success - tab parameter is case-insensitive
+            } else {
+                XCTFail("Expected openPDF action for uppercase PDF")
+            }
+        } else {
+            XCTFail("Expected paper command")
+        }
+    }
 }

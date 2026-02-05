@@ -8,6 +8,7 @@
 import Foundation
 import CoreData
 import OSLog
+import ImpressFTUI
 
 // MARK: - Publication Repository
 
@@ -297,27 +298,104 @@ public actor PublicationRepository {
         return "misc"
     }
 
-    /// Import multiple entries
+    /// Import multiple entries with batched Core Data operations for performance.
     ///
     /// - Parameters:
     ///   - entries: BibTeX entries to import
     ///   - library: Optional library for resolving file paths (for Bdsk-File-* fields)
     public func importEntries(_ entries: [BibTeXEntry], in library: CDLibrary? = nil) async -> Int {
-        Logger.persistence.info("Importing \(entries.count) entries")
+        guard !entries.isEmpty else { return 0 }
+        Logger.persistence.info("Importing \(entries.count) entries (batched)")
 
-        var imported = 0
-        for entry in entries {
-            // Check for duplicate
-            if await fetch(byCiteKey: entry.citeKey) == nil {
-                await create(from: entry, in: library)
-                imported += 1
-            } else {
-                Logger.persistence.debug("Skipping duplicate: \(entry.citeKey)")
+        let context = persistenceController.viewContext
+
+        // Step 1: Batch fetch existing cite keys to check for duplicates
+        let citeKeys = entries.map { $0.citeKey }
+        let existingCiteKeys = await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "citeKey IN %@", citeKeys)
+            request.propertiesToFetch = ["citeKey"]
+            request.resultType = .dictionaryResultType
+            do {
+                let results = try context.fetch(request as! NSFetchRequest<NSFetchRequestResult>) as? [[String: Any]] ?? []
+                return Set(results.compactMap { $0["citeKey"] as? String })
+            } catch {
+                Logger.persistence.error("Failed to fetch existing cite keys: \(error)")
+                return Set<String>()
             }
         }
 
-        Logger.persistence.info("Imported \(imported) new entries")
-        return imported
+        // Step 2: Filter to non-duplicate entries
+        let newEntries = entries.filter { !existingCiteKeys.contains($0.citeKey) }
+        let skippedCount = entries.count - newEntries.count
+        if skippedCount > 0 {
+            Logger.persistence.debug("Skipping \(skippedCount) duplicate entries")
+        }
+
+        guard !newEntries.isEmpty else {
+            Logger.persistence.info("No new entries to import (all duplicates)")
+            return 0
+        }
+
+        // Step 3: Apply import settings to all entries
+        var processedEntries: [BibTeXEntry] = []
+        for entry in newEntries {
+            let processed = await applyImportSettings(to: entry)
+            processedEntries.append(processed)
+        }
+
+        // Step 4: Create all publications in a single Core Data transaction
+        let publications = await context.perform {
+            var created: [CDPublication] = []
+            created.reserveCapacity(processedEntries.count)
+
+            for entry in processedEntries {
+                let publication = CDPublication(context: context)
+                publication.id = UUID()
+                publication.dateAdded = Date()
+                publication.update(from: entry, context: context)
+                created.append(publication)
+            }
+
+            // Single save for all publications
+            self.persistenceController.save()
+            Logger.persistence.debug("Batch saved \(created.count) publications")
+            return created
+        }
+
+        // Step 5: Process linked files (must be on MainActor)
+        await MainActor.run {
+            for (publication, entry) in zip(publications, processedEntries) {
+                AttachmentManager.shared.processBdskFiles(from: entry, for: publication, in: library)
+            }
+        }
+
+        // Step 5.5: Import keywords as tags (respects user setting)
+        let tagSettings = await ListViewSettingsStore.shared.settings
+        if tagSettings.importKeywordsAsTags {
+            let prefix = tagSettings.keywordTagPrefix
+            for (publication, entry) in zip(publications, processedEntries) {
+                if let keywords = entry.fields["keywords"], !keywords.isEmpty {
+                    let tagPaths = keywords
+                        .components(separatedBy: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+
+                    for path in tagPaths {
+                        let fullPath = prefix.isEmpty ? path : "\(prefix)/\(path)"
+                        let tag = await findOrCreateTagByPath(fullPath)
+                        await addTag(tag, to: publication)
+                    }
+                }
+            }
+        }
+
+        // Step 6: Batch index for search
+        await FullTextSearchService.shared.indexPublications(publications)
+        await SpotlightIndexingService.shared.indexPublications(publications)
+
+        Logger.persistence.info("Imported \(publications.count) new entries (batched)")
+        return publications.count
     }
 
     // MARK: - Update Operations
@@ -613,6 +691,187 @@ public actor PublicationRepository {
         }
     }
 
+    // MARK: - Flag Operations
+
+    /// Set a flag on a single publication.
+    public func setFlag(_ publication: CDPublication, flag: PublicationFlag?) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            publication.flag = flag
+            self.persistenceController.save()
+        }
+    }
+
+    /// Set a flag on multiple publications by ID.
+    public func setFlagForIDs(_ ids: Set<UUID>, flag: PublicationFlag?) async {
+        guard !ids.isEmpty else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+
+            guard let publications = try? context.fetch(request) else { return }
+
+            for publication in publications {
+                publication.flag = flag
+            }
+            self.persistenceController.save()
+        }
+    }
+
+    // MARK: - Tag Operations
+
+    /// Find or create a tag by its canonical path.
+    ///
+    /// Creates intermediate parent tags as needed. For example, "methods/sims/hydro"
+    /// creates "methods", "methods/sims", and "methods/sims/hydro".
+    public func findOrCreateTagByPath(_ path: String) async -> CDTag {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let segments = path.components(separatedBy: "/").filter { !$0.isEmpty }
+            var currentPath = ""
+            var parentTag: CDTag?
+
+            for segment in segments {
+                currentPath = currentPath.isEmpty ? segment : "\(currentPath)/\(segment)"
+
+                // Try to find existing tag at this path
+                let request = NSFetchRequest<CDTag>(entityName: "Tag")
+                request.predicate = NSPredicate(format: "canonicalPath == %@", currentPath)
+                request.fetchLimit = 1
+
+                if let existing = try? context.fetch(request).first {
+                    parentTag = existing
+                    continue
+                }
+
+                // Create new tag
+                let tag = CDTag(entity: NSEntityDescription.entity(forEntityName: "Tag", in: context)!, insertInto: context)
+                tag.id = UUID()
+                tag.name = segment
+                tag.canonicalPath = currentPath
+                tag.parentID = parentTag?.id
+                tag.parentTag = parentTag
+                tag.useCount = 0
+                tag.sortOrder = 0
+
+                // Assign default color based on the root segment
+                let defaults = defaultTagColor(for: segments[0])
+                tag.colorLight = defaults.light
+                tag.colorDark = defaults.dark
+
+                parentTag = tag
+            }
+
+            self.persistenceController.save()
+            return parentTag!
+        }
+    }
+
+    /// Add a tag to a publication.
+    public func addTag(_ tag: CDTag, to publication: CDPublication) async {
+        let context = persistenceController.viewContext
+        let tagPath = tag.canonicalPath ?? tag.name
+        let citeKey = publication.citeKey
+
+        await context.perform {
+            // Use mutableSetValue for reliable Core Data to-many relationship mutation.
+            // This returns a live proxy set that properly notifies Core Data of changes.
+            let tagSet = publication.mutableSetValue(forKey: "tags")
+            let beforeCount = tagSet.count
+
+            if tagSet.contains(tag) {
+                Logger.library.infoCapture(
+                    "Tag '\(tagPath)' already on '\(citeKey)' (\(beforeCount) tags)",
+                    category: "tags"
+                )
+                return
+            }
+
+            tagSet.add(tag)
+            tag.useCount += 1
+            tag.lastUsedAt = Date()
+
+            let hasChanges = context.hasChanges
+            self.persistenceController.save()
+
+            // Verify the relationship was saved
+            let afterCount = publication.tags?.count ?? 0
+            Logger.library.infoCapture(
+                "Tag added: '\(tagPath)' → '\(citeKey)' (was \(beforeCount), now \(afterCount), hadChanges=\(hasChanges))",
+                category: "tags"
+            )
+        }
+    }
+
+    /// Remove a tag from a publication.
+    public func removeTag(_ tagID: UUID, from publication: CDPublication) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            let tagSet = publication.mutableSetValue(forKey: "tags")
+            guard let tag = (tagSet as? Set<AnyHashable>)?.compactMap({ $0 as? CDTag }).first(where: { $0.id == tagID })
+                    ?? publication.tags?.first(where: { $0.id == tagID }) else {
+                Logger.library.infoCapture(
+                    "Tag remove: tag \(tagID) not found on '\(publication.citeKey)'",
+                    category: "tags"
+                )
+                return
+            }
+
+            let tagPath = tag.canonicalPath ?? tag.name
+            tagSet.remove(tag)
+            self.persistenceController.save()
+
+            let afterCount = publication.tags?.count ?? 0
+            Logger.library.infoCapture(
+                "Tag removed: '\(tagPath)' from '\(publication.citeKey)' (now \(afterCount) tags)",
+                category: "tags"
+            )
+        }
+    }
+
+    /// Fetch all tags as a flat list sorted by canonical path.
+    public func fetchAllTags() async -> [CDTag] {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDTag>(entityName: "Tag")
+            request.sortDescriptors = [NSSortDescriptor(key: "canonicalPath", ascending: true)]
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
+    /// Record tag usage (increment count and update timestamp).
+    public func recordTagUsage(_ tag: CDTag) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            tag.useCount += 1
+            tag.lastUsedAt = Date()
+            self.persistenceController.save()
+        }
+    }
+
+    /// Find tags matching a prefix path.
+    public func allTags(matching prefix: String, limit: Int = 20) async -> [CDTag] {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDTag>(entityName: "Tag")
+            request.predicate = NSPredicate(format: "canonicalPath BEGINSWITH[cd] %@", prefix)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "useCount", ascending: false),
+                NSSortDescriptor(key: "canonicalPath", ascending: true)
+            ]
+            request.fetchLimit = limit
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
     // MARK: - Export Operations
 
     /// Export all publications to BibTeX string
@@ -862,6 +1121,21 @@ public actor PublicationRepository {
 
             self.persistenceController.save()
             return publication
+        }
+    }
+
+    /// Import categories from a search result as tags if keyword import is enabled.
+    private func importCategoriesAsTags(from result: SearchResult, to publication: CDPublication) async {
+        let settings = await ListViewSettingsStore.shared.settings
+        guard settings.importKeywordsAsTags else { return }
+
+        let prefix = settings.keywordTagPrefix
+        if let categories = result.categories {
+            for category in categories {
+                let path = prefix.isEmpty ? category : "\(prefix)/\(category)"
+                let tag = await findOrCreateTagByPath(path)
+                await addTag(tag, to: publication)
+            }
         }
     }
 
@@ -1225,30 +1499,20 @@ public actor PublicationRepository {
         return await create(from: bibtexEntry, in: library, processLinkedFiles: false)
     }
 
-    /// Import multiple RIS entries
+    /// Import multiple RIS entries with batched Core Data operations for performance.
     ///
     /// - Parameters:
     ///   - entries: RIS entries to import
     ///   - library: Optional library for resolving file paths
     public func importRISEntries(_ entries: [RISEntry], in library: CDLibrary? = nil) async -> Int {
-        Logger.persistence.info("Importing \(entries.count) RIS entries")
+        guard !entries.isEmpty else { return 0 }
+        Logger.persistence.info("Importing \(entries.count) RIS entries (batched)")
 
-        var imported = 0
-        for entry in entries {
-            // Convert to BibTeX to get cite key
-            let bibtexEntry = RISBibTeXConverter.toBibTeX(entry)
+        // Convert all RIS entries to BibTeX first
+        let bibtexEntries = entries.map { RISBibTeXConverter.toBibTeX($0) }
 
-            // Check for duplicate
-            if await fetch(byCiteKey: bibtexEntry.citeKey) == nil {
-                await create(from: entry, in: library)
-                imported += 1
-            } else {
-                Logger.persistence.debug("Skipping duplicate: \(bibtexEntry.citeKey)")
-            }
-        }
-
-        Logger.persistence.info("Imported \(imported) new RIS entries")
-        return imported
+        // Use the batched BibTeX import (which handles deduplication and batching)
+        return await importEntries(bibtexEntries, in: library)
     }
 
     /// Import RIS content from string

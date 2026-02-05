@@ -2,10 +2,8 @@
 //  AIAssistantService.swift
 //  imprint
 //
-//  AI writing assistant service using Claude or OpenAI APIs.
+//  AI writing assistant service that delegates to ImpressAI providers.
 //  Provides rewriting, expansion, summarization, and chat capabilities.
-//
-//  Migrated to use ImpressAI credentials (ADR-020: AI Integration).
 //
 
 import Foundation
@@ -18,7 +16,7 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant
 
 /// Service for AI-powered writing assistance.
 ///
-/// Supports multiple providers:
+/// Supports multiple providers via ImpressAI:
 /// - Claude (Anthropic)
 /// - GPT (OpenAI)
 ///
@@ -27,9 +25,6 @@ private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant
 /// - Expand outlines to prose
 /// - Summarize long passages
 /// - General chat for writing help
-///
-/// Note: Credentials are now managed by ImpressAI's AICredentialManager
-/// which stores them securely in the system Keychain.
 @MainActor @Observable
 public final class AIAssistantService {
 
@@ -37,17 +32,20 @@ public final class AIAssistantService {
 
     public static let shared = AIAssistantService()
 
+    // MARK: - Dependencies
+
+    private let completionService = AITextCompletionService.shared
+
     // MARK: - Published State
 
     /// Current AI provider
-    public var provider: AIProvider = .claude {
-        didSet {
-            UserDefaults.standard.set(provider.rawValue, forKey: "ai.provider")
-        }
+    public var provider: AIProvider {
+        get { AIProvider(fromTextProvider: completionService.selectedProvider) }
+        set { completionService.selectedProvider = newValue.toTextProvider }
     }
 
     /// Whether a request is in progress
-    public private(set) var isLoading = false
+    public var isLoading: Bool { completionService.isLoading }
 
     /// Last error encountered
     public var lastError: AIAssistantError?
@@ -55,39 +53,21 @@ public final class AIAssistantService {
     /// Chat history for current session
     public var chatHistory: [ChatMessage] = []
 
-    // MARK: - Configuration
-
-    /// Credential manager from ImpressAI for secure storage
-    private let credentialManager = AICredentialManager.shared
-
-    // API endpoints
-    private let claudeEndpoint = "https://api.anthropic.com/v1/messages"
-    private let openaiEndpoint = "https://api.openai.com/v1/chat/completions"
-
     // MARK: - Initialization
 
-    private init() {
-        let storedProvider = UserDefaults.standard.string(forKey: "ai.provider") ?? "claude"
-        provider = AIProvider(rawValue: storedProvider) ?? .claude
-    }
+    private init() {}
 
     // MARK: - Configuration
 
     /// Check if API key is configured for current provider
     public var isConfigured: Bool {
         get async {
-            switch provider {
-            case .claude:
-                return await credentialManager.hasCredential(for: "anthropic", field: "apiKey")
-            case .openai:
-                return await credentialManager.hasCredential(for: "openai", field: "apiKey")
-            }
+            await completionService.isConfigured
         }
     }
 
     /// Synchronous check for UI (uses cached state)
     public var isConfiguredSync: Bool {
-        // Check using a task - for immediate UI this uses a cached approach
         switch provider {
         case .claude:
             return UserDefaults.standard.bool(forKey: "ai.anthropic.hasKey")
@@ -98,40 +78,15 @@ public final class AIAssistantService {
 
     /// Set API key for a provider (uses ImpressAI credential manager)
     public func setAPIKey(_ key: String, for provider: AIProvider) async throws {
-        let providerId: String
-        switch provider {
-        case .claude:
-            providerId = "anthropic"
-        case .openai:
-            providerId = "openai"
-        }
-
-        try await credentialManager.store(key, for: providerId, field: "apiKey")
+        try await completionService.setAPIKey(key, for: provider.toTextProvider)
 
         // Update cached state for sync checks
-        UserDefaults.standard.set(!key.isEmpty, forKey: "ai.\(providerId).hasKey")
-    }
-
-    /// Get API key for a provider (from secure storage)
-    private func getAPIKey(for provider: AIProvider) async -> String? {
-        let providerId: String
-        switch provider {
-        case .claude:
-            providerId = "anthropic"
-        case .openai:
-            providerId = "openai"
-        }
-
-        return await credentialManager.retrieve(for: providerId, field: "apiKey")
+        UserDefaults.standard.set(!key.isEmpty, forKey: "ai.\(provider.toTextProvider.rawValue).hasKey")
     }
 
     /// Get API key for a provider (masked for display)
     public func maskedAPIKey(for provider: AIProvider) async -> String {
-        guard let key = await getAPIKey(for: provider) else { return "" }
-
-        if key.isEmpty { return "" }
-        if key.count <= 8 { return String(repeating: "•", count: key.count) }
-        return key.prefix(4) + String(repeating: "•", count: key.count - 8) + key.suffix(4)
+        await completionService.maskedAPIKey(for: provider.toTextProvider)
     }
 
     // MARK: - Writing Actions
@@ -247,364 +202,47 @@ public final class AIAssistantService {
         userMessage: String,
         maxTokens: Int = 2000
     ) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    guard await self.isConfigured else {
-                        throw AIAssistantError.notConfigured
-                    }
-
-                    await MainActor.run {
-                        isLoading = true
-                        lastError = nil
-                    }
-
-                    switch provider {
-                    case .claude:
-                        try await streamClaudeRequest(
-                            system: systemPrompt,
-                            user: userMessage,
-                            maxTokens: maxTokens,
-                            continuation: continuation
-                        )
-                    case .openai:
-                        try await streamOpenAIRequest(
-                            system: systemPrompt,
-                            user: userMessage,
-                            maxTokens: maxTokens,
-                            continuation: continuation
-                        )
-                    }
-
-                    await MainActor.run {
-                        isLoading = false
-                    }
-
-                    continuation.finish()
-
-                } catch {
-                    await MainActor.run {
-                        isLoading = false
-                        lastError = error as? AIAssistantError ?? .requestFailed(error.localizedDescription)
-                    }
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-
-    private func streamClaudeRequest(
-        system: String,
-        user: String,
-        maxTokens: Int,
-        continuation: AsyncThrowingStream<String, Error>.Continuation
-    ) async throws {
-        guard let url = URL(string: claudeEndpoint) else {
-            throw AIAssistantError.invalidConfiguration
-        }
-
-        guard let apiKey = await getAPIKey(for: .claude) else {
-            throw AIAssistantError.notConfigured
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-
-        let body: [String: Any] = [
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": maxTokens,
-            "stream": true,
-            "system": system,
-            "messages": [
-                ["role": "user", "content": user]
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        logger.info("Starting Claude streaming request...")
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIAssistantError.requestFailed("Invalid response")
-        }
-
-        if httpResponse.statusCode != 200 {
-            // Read error body
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            if let errorJson = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
-               let error = errorJson["error"] as? [String: Any],
-               let message = error["message"] as? String {
-                throw AIAssistantError.apiError(httpResponse.statusCode, message)
-            }
-            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
-        }
-
-        // Parse SSE stream
-        var buffer = ""
-        for try await byte in bytes {
-            buffer.append(Character(UnicodeScalar(byte)))
-
-            // Check for complete SSE event (ends with double newline)
-            while let eventEnd = buffer.range(of: "\n\n") {
-                let eventString = String(buffer[..<eventEnd.lowerBound])
-                buffer.removeSubrange(..<eventEnd.upperBound)
-
-                // Parse SSE event
-                for line in eventString.components(separatedBy: "\n") {
-                    if line.hasPrefix("data: ") {
-                        let jsonString = String(line.dropFirst(6))
-                        if jsonString == "[DONE]" {
-                            continue
-                        }
-
-                        if let data = jsonString.data(using: .utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-
-                            // Extract text from content_block_delta event
-                            if let eventType = json["type"] as? String,
-                               eventType == "content_block_delta",
-                               let delta = json["delta"] as? [String: Any],
-                               let text = delta["text"] as? String {
-                                continuation.yield(text)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        logger.info("Claude streaming complete")
-    }
-
-    private func streamOpenAIRequest(
-        system: String,
-        user: String,
-        maxTokens: Int,
-        continuation: AsyncThrowingStream<String, Error>.Continuation
-    ) async throws {
-        guard let url = URL(string: openaiEndpoint) else {
-            throw AIAssistantError.invalidConfiguration
-        }
-
-        guard let apiKey = await getAPIKey(for: .openai) else {
-            throw AIAssistantError.notConfigured
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let body: [String: Any] = [
-            "model": "gpt-4o",
-            "max_tokens": maxTokens,
-            "stream": true,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": user]
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        logger.info("Starting OpenAI streaming request...")
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIAssistantError.requestFailed("Invalid response")
-        }
-
-        if httpResponse.statusCode != 200 {
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            if let errorJson = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
-               let error = errorJson["error"] as? [String: Any],
-               let message = error["message"] as? String {
-                throw AIAssistantError.apiError(httpResponse.statusCode, message)
-            }
-            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
-        }
-
-        // Parse SSE stream
-        var buffer = ""
-        for try await byte in bytes {
-            buffer.append(Character(UnicodeScalar(byte)))
-
-            while let eventEnd = buffer.range(of: "\n\n") {
-                let eventString = String(buffer[..<eventEnd.lowerBound])
-                buffer.removeSubrange(..<eventEnd.upperBound)
-
-                for line in eventString.components(separatedBy: "\n") {
-                    if line.hasPrefix("data: ") {
-                        let jsonString = String(line.dropFirst(6))
-                        if jsonString == "[DONE]" {
-                            continue
-                        }
-
-                        if let data = jsonString.data(using: .utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let choices = json["choices"] as? [[String: Any]],
-                           let firstChoice = choices.first,
-                           let delta = firstChoice["delta"] as? [String: Any],
-                           let content = delta["content"] as? String {
-                            continuation.yield(content)
-                        }
-                    }
-                }
-            }
-        }
-
-        logger.info("OpenAI streaming complete")
+        completionService.stream(
+            systemPrompt: systemPrompt,
+            userMessage: userMessage,
+            maxTokens: maxTokens
+        )
     }
 
     // MARK: - API Communication
 
     private func sendRequest(systemPrompt: String, userMessage: String, maxTokens: Int) async throws -> String {
-        guard await isConfigured else {
-            throw AIAssistantError.notConfigured
-        }
-
-        isLoading = true
         lastError = nil
 
-        defer { isLoading = false }
-
         do {
-            let response: String
-            switch provider {
-            case .claude:
-                response = try await sendClaudeRequest(system: systemPrompt, user: userMessage, maxTokens: maxTokens)
-            case .openai:
-                response = try await sendOpenAIRequest(system: systemPrompt, user: userMessage, maxTokens: maxTokens)
-            }
+            let response = try await completionService.complete(
+                systemPrompt: systemPrompt,
+                userMessage: userMessage,
+                maxTokens: maxTokens
+            )
+            logger.info("AI response received: \(response.prefix(100))...")
             return response
         } catch {
-            let aiError = error as? AIAssistantError ?? .requestFailed(error.localizedDescription)
+            let aiError: AIAssistantError
+            if let textError = error as? AITextCompletionError {
+                switch textError {
+                case .notConfigured:
+                    aiError = .notConfigured
+                case .requestFailed(let msg):
+                    aiError = .requestFailed(msg)
+                }
+            } else if let impressError = error as? AIError {
+                aiError = AIAssistantError.from(impressError)
+            } else {
+                aiError = .requestFailed(error.localizedDescription)
+            }
             lastError = aiError
             throw aiError
         }
     }
 
-    private func sendClaudeRequest(system: String, user: String, maxTokens: Int) async throws -> String {
-        guard let url = URL(string: claudeEndpoint) else {
-            throw AIAssistantError.invalidConfiguration
-        }
-
-        guard let apiKey = await getAPIKey(for: .claude) else {
-            throw AIAssistantError.notConfigured
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-
-        let body: [String: Any] = [
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": maxTokens,
-            "system": system,
-            "messages": [
-                ["role": "user", "content": user]
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        logger.info("Sending Claude request...")
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIAssistantError.requestFailed("Invalid response")
-        }
-
-        if httpResponse.statusCode != 200 {
-            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = errorJson["error"] as? [String: Any],
-               let message = error["message"] as? String {
-                throw AIAssistantError.apiError(httpResponse.statusCode, message)
-            }
-            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? [[String: Any]],
-              let firstContent = content.first,
-              let text = firstContent["text"] as? String else {
-            throw AIAssistantError.parseError
-        }
-
-        logger.info("Claude response received: \(text.prefix(100))...")
-        return text
-    }
-
-    private func sendOpenAIRequest(system: String, user: String, maxTokens: Int) async throws -> String {
-        guard let url = URL(string: openaiEndpoint) else {
-            throw AIAssistantError.invalidConfiguration
-        }
-
-        guard let apiKey = await getAPIKey(for: .openai) else {
-            throw AIAssistantError.notConfigured
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let body: [String: Any] = [
-            "model": "gpt-4o",
-            "max_tokens": maxTokens,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": user]
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        logger.info("Sending OpenAI request...")
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIAssistantError.requestFailed("Invalid response")
-        }
-
-        if httpResponse.statusCode != 200 {
-            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = errorJson["error"] as? [String: Any],
-               let message = error["message"] as? String {
-                throw AIAssistantError.apiError(httpResponse.statusCode, message)
-            }
-            throw AIAssistantError.apiError(httpResponse.statusCode, "Unknown error")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            throw AIAssistantError.parseError
-        }
-
-        logger.info("OpenAI response received: \(content.prefix(100))...")
-        return content
-    }
-
     private func buildChatMessages() -> String {
         // For simplicity, concatenate recent history
-        // In production, would send as proper message array
         let recentHistory = chatHistory.suffix(10)
         return recentHistory.map { "\($0.role.rawValue): \($0.content)" }.joined(separator: "\n\n")
     }
@@ -623,6 +261,20 @@ public enum AIProvider: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return "Claude (Anthropic)"
         case .openai: return "GPT (OpenAI)"
+        }
+    }
+
+    init(fromTextProvider provider: AITextProvider) {
+        switch provider {
+        case .anthropic: self = .claude
+        case .openai: self = .openai
+        }
+    }
+
+    var toTextProvider: AITextProvider {
+        switch self {
+        case .claude: return .anthropic
+        case .openai: return .openai
         }
     }
 }
@@ -734,15 +386,21 @@ public enum AIAssistantError: LocalizedError {
             return "Rate limited. Please wait a moment and try again."
         }
     }
+
+    static func from(_ error: AIError) -> AIAssistantError {
+        switch error {
+        case .unauthorized:
+            return .notConfigured
+        case .rateLimited:
+            return .rateLimited
+        case .apiError(let code, let message):
+            return .apiError(code, message)
+        case .parseError:
+            return .parseError
+        case .networkError(let underlying):
+            return .requestFailed(underlying.localizedDescription)
+        default:
+            return .requestFailed(error.localizedDescription)
+        }
+    }
 }
-
-// MARK: - Migration Note
-
-// The @AppStorage keys for API keys have been migrated to ImpressAI's
-// AICredentialManager which stores them securely in the system Keychain.
-// Previous keys were:
-// - "ai.claudeApiKey" -> now "anthropic" provider, "apiKey" field
-// - "ai.openaiApiKey" -> now "openai" provider, "apiKey" field
-//
-// Users will need to re-enter their API keys after this migration.
-// The provider selection ("ai.provider") remains in UserDefaults.

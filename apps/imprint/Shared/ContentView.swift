@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import ImprintCore
+import ImpressOperationQueue
 
 /// Main content view for an imprint document (macOS)
 struct ContentView: View {
@@ -182,6 +183,8 @@ struct ContentView: View {
                 appState.showingComments.toggle()
             }
         }
+        // HTTP API automation handlers (applied before platform-specific handlers)
+        .modifier(AutomationHandlersModifier(document: $document))
         #if os(macOS)
         .onReceive(NotificationCenter.default.publisher(for: .addCommentAtSelection)) { _ in
             // Add comment at current selection
@@ -443,6 +446,8 @@ struct ContentView: View {
                 pdfData = output.pdfData
                 sourceMapEntries = output.sourceMapEntries
                 compilationWarnings = output.warnings
+                // Cache PDF for HTTP API access
+                DocumentRegistry.shared.cachePDF(output.pdfData, for: document.id)
                 debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
                 debugHistory += "6:ok "
                 log("PDF data set, size: \(output.pdfData.count), source map entries: \(output.sourceMapEntries.count)")
@@ -524,6 +529,91 @@ struct EditModeSegmentButton: View {
     }
 }
 
+
+// MARK: - Automation Handlers
+
+/// ViewModifier to process pending automation operations from the HTTP API.
+/// Uses the shared OperationQueueModifier from ImpressOperationQueue.
+private struct AutomationHandlersModifier: ViewModifier {
+    @Binding var document: ImprintDocument
+
+    func body(content: Content) -> some View {
+        content
+            .operationQueueHandler(
+                registry: DocumentRegistry.shared,
+                entityId: document.id
+            ) { operation in
+                processOperation(operation)
+            }
+    }
+
+    private func processOperation(_ operation: DocumentOperation) {
+        // Build updated document BEFORE mutating binding
+        var updatedDoc = document
+
+        switch operation {
+        case .updateContent(let source, let title):
+            if let source = source {
+                updatedDoc.source = source
+                document.source = source
+            }
+            if let title = title {
+                updatedDoc.title = title
+                document.title = title
+            }
+            updatedDoc.modifiedAt = Date()
+
+        case .insertText(let position, let text):
+            updatedDoc.insertText(text, at: position)
+            document.insertText(text, at: position)
+
+        case .deleteText(let start, let end):
+            updatedDoc.deleteText(in: start..<end)
+            document.deleteText(in: start..<end)
+
+        case .replace(let search, let replacement, let all):
+            if all {
+                updatedDoc.source = updatedDoc.source.replacingOccurrences(of: search, with: replacement)
+                document.source = document.source.replacingOccurrences(of: search, with: replacement)
+            } else if let range = updatedDoc.source.range(of: search) {
+                updatedDoc.source.replaceSubrange(range, with: replacement)
+                if let bindingRange = document.source.range(of: search) {
+                    document.source.replaceSubrange(bindingRange, with: replacement)
+                }
+            }
+            updatedDoc.modifiedAt = Date()
+            document.modifiedAt = Date()
+
+        case .addCitation(let citeKey, let bibtex):
+            updatedDoc.bibliography[citeKey] = bibtex
+            updatedDoc.modifiedAt = Date()
+            document.addCitation(key: citeKey, bibtex: bibtex)
+
+        case .removeCitation(let citeKey):
+            updatedDoc.bibliography.removeValue(forKey: citeKey)
+            updatedDoc.modifiedAt = Date()
+            document.bibliography.removeValue(forKey: citeKey)
+            document.modifiedAt = Date()
+
+        case .updateMetadata(let title, let authors):
+            if let title = title {
+                updatedDoc.title = title
+                document.title = title
+            }
+            if let authors = authors {
+                updatedDoc.authors = authors
+                document.authors = authors
+            }
+            updatedDoc.modifiedAt = Date()
+            document.modifiedAt = Date()
+        }
+
+        // Update registry so HTTP API sees the change
+        DocumentRegistry.shared.register(updatedDoc, fileURL: nil)
+
+        NSLog("[Automation] Processed operation for document %@: %@", document.id.uuidString, operation.operationDescription)
+    }
+}
 
 // MARK: - Preview
 

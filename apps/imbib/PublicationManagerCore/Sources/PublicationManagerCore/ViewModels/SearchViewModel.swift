@@ -640,9 +640,9 @@ public final class SearchViewModel {
 
         Logger.viewModels.infoCapture("Exploration library found: \(explorationLib.name), has \(explorationLib.smartSearches?.count ?? 0) smart searches", category: "search")
 
-        // Truncate query for display name
-        let truncatedQuery = String(query.prefix(40)) + (query.count > 40 ? "..." : "")
-        let searchName = "Search: \(truncatedQuery)"
+        // Truncate query for display name (no "Search:" prefix - icon indicates it's a search)
+        let truncatedQuery = String(query.prefix(50)) + (query.count > 50 ? "…" : "")
+        let searchName = truncatedQuery
 
         // Check if a search with the same query already exists
         let existingSearches = explorationLib.smartSearches ?? []
@@ -660,6 +660,18 @@ public final class SearchViewModel {
                 }
 
                 try? PersistenceController.shared.viewContext.save()
+
+                // Index publications for global search (Cmd+F) after a short delay
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    // Index for fulltext search
+                    await FullTextSearchService.shared.indexPublications(publications)
+                    // Index for semantic search
+                    for pub in publications {
+                        await EmbeddingService.shared.addToIndex(pub)
+                    }
+                    Logger.viewModels.infoCapture("Indexed \(publications.count) exploration search results for global search", category: "search")
+                }
 
                 // Navigate to the existing search
                 NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
@@ -686,6 +698,18 @@ public final class SearchViewModel {
         }
 
         Logger.viewModels.infoCapture("Created exploration search: \(searchName) with \(publications.count) results", category: "search")
+
+        // Index publications for global search (Cmd+F) after a short delay
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            // Index for fulltext search
+            await FullTextSearchService.shared.indexPublications(publications)
+            // Index for semantic search
+            for pub in publications {
+                await EmbeddingService.shared.addToIndex(pub)
+            }
+            Logger.viewModels.infoCapture("Indexed \(publications.count) exploration search results for global search", category: "search")
+        }
 
         // Notify sidebar to refresh and navigate to the new search
         NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)

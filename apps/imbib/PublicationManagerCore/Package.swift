@@ -22,7 +22,11 @@ let package = Package(
         .package(path: "../ImbibRustCore"),
         .package(path: "../../../packages/ImpressAutomation"),
         .package(path: "../../../packages/ImpressAI"),
-        .package(path: "../../../packages/ImpressKeyboard")
+        .package(path: "../../../packages/ImpressKeyboard"),
+        .package(path: "../../../packages/ImpressSidebar"),
+        .package(path: "../../../packages/ImpressFTUI"),
+        .package(path: "../../../packages/ImpressLogging"),
+        .package(path: "../../../packages/ImpressOperationQueue")
     ],
     targets: [
         .target(
@@ -35,7 +39,11 @@ let package = Package(
                 "ImbibRustCore",
                 "ImpressAutomation",
                 "ImpressAI",
-                "ImpressKeyboard"
+                "ImpressKeyboard",
+                "ImpressSidebar",
+                "ImpressFTUI",
+                "ImpressLogging",
+                "ImpressOperationQueue"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),

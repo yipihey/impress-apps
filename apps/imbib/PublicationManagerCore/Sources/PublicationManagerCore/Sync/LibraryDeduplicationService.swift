@@ -103,7 +103,19 @@ public actor LibraryDeduplicationService {
             results.append(result)
         }
 
-        // Step 2: Handle name-based duplicates (same name, created within time window)
+        // Step 2: Handle inbox library duplicates (all isInbox == true libraries)
+        let inboxResult = await mergeInboxLibraries(context: context)
+        if let result = inboxResult {
+            results.append(result)
+        }
+
+        // Step 3: Handle exploration library duplicates (all system libraries named "Exploration")
+        let explorationResult = await mergeExplorationLibraries(context: context)
+        if let result = explorationResult {
+            results.append(result)
+        }
+
+        // Step 4: Handle name-based duplicates (same name, created within time window)
         let nameResults = await mergeNameBasedDuplicates(context: context)
         results.append(contentsOf: nameResults)
 
@@ -140,6 +152,62 @@ public actor LibraryDeduplicationService {
 
         Logger.dedup.info("Found \(libraries.count) libraries with canonical default ID")
         return mergeLibraries(libraries, context: context)
+    }
+
+    // MARK: - Inbox Library Merging
+
+    /// Merge all inbox libraries into one.
+    ///
+    /// Unlike other libraries, all inbox libraries should be merged regardless of creation time
+    /// since there should only ever be one inbox per user account.
+    @MainActor
+    private func mergeInboxLibraries(context: NSManagedObjectContext) async -> LibraryMergeResult? {
+        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
+        request.predicate = NSPredicate(format: "isInbox == YES")
+
+        guard let inboxLibraries = try? context.fetch(request),
+              inboxLibraries.count > 1 else {
+            return nil
+        }
+
+        Logger.dedup.info("Found \(inboxLibraries.count) inbox libraries - merging")
+
+        // Sort by: canonical ID first, then oldest
+        let sorted = inboxLibraries.sorted { lib1, lib2 in
+            if lib1.id == CDLibrary.canonicalInboxLibraryID { return true }
+            if lib2.id == CDLibrary.canonicalInboxLibraryID { return false }
+            return lib1.dateCreated < lib2.dateCreated
+        }
+
+        return mergeLibraries(sorted, context: context)
+    }
+
+    // MARK: - Exploration Library Merging
+
+    /// Merge all exploration libraries into one.
+    ///
+    /// All exploration libraries should be merged regardless of creation time or device
+    /// since there should only ever be one exploration library per user account.
+    @MainActor
+    private func mergeExplorationLibraries(context: NSManagedObjectContext) async -> LibraryMergeResult? {
+        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
+        request.predicate = NSPredicate(format: "isSystemLibrary == YES AND name == %@", "Exploration")
+
+        guard let explorationLibraries = try? context.fetch(request),
+              explorationLibraries.count > 1 else {
+            return nil
+        }
+
+        Logger.dedup.info("Found \(explorationLibraries.count) exploration libraries - merging")
+
+        // Sort by: canonical ID first, then oldest
+        let sorted = explorationLibraries.sorted { lib1, lib2 in
+            if lib1.id == CDLibrary.canonicalExplorationLibraryID { return true }
+            if lib2.id == CDLibrary.canonicalExplorationLibraryID { return false }
+            return lib1.dateCreated < lib2.dateCreated
+        }
+
+        return mergeLibraries(sorted, context: context)
     }
 
     // MARK: - Name-Based Duplicate Merging

@@ -7,6 +7,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
+# Sync shared files before building
+SYNC_SCRIPT="$(dirname "$SCRIPT_DIR")/sync-extension-shared.sh"
+if [ -f "$SYNC_SCRIPT" ]; then
+    echo "Syncing shared extension files..."
+    bash "$SYNC_SCRIPT"
+    echo ""
+fi
+
 echo "Building browser extensions..."
 echo "Source: $SCRIPT_DIR"
 echo "Output: $BUILD_DIR"

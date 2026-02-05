@@ -118,6 +118,8 @@ struct IOSBibTeXEditorRepresentable: UIViewRepresentable {
 
         // Handle focus
         if isFocused && !textView.isFirstResponder {
+            // Set cursor to beginning to prevent scrolling to end
+            textView.selectedRange = NSRange(location: 0, length: 0)
             textView.becomeFirstResponder()
         } else if !isFocused && textView.isFirstResponder {
             textView.resignFirstResponder()

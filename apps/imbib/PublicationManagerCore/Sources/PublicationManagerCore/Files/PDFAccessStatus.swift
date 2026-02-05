@@ -117,6 +117,7 @@ public enum ResolvedPDFSourceType: String, Sendable, Codable, CaseIterable {
     case arxiv
     case openAlex
     case publisher
+    case landingPage  // Resolved from landing page scraping
     case adsScan
     case repository
     case unknown
@@ -126,6 +127,7 @@ public enum ResolvedPDFSourceType: String, Sendable, Codable, CaseIterable {
         case .arxiv: return "arXiv"
         case .openAlex: return "Open Access"
         case .publisher: return "Publisher"
+        case .landingPage: return "Publisher"  // Display same as publisher
         case .adsScan: return "ADS Scan"
         case .repository: return "Repository"
         case .unknown: return "Unknown"

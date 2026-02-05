@@ -11,6 +11,15 @@
 import Foundation
 import OSLog
 import CoreData
+import ImpressFTUI
+#if canImport(CloudKit)
+import CloudKit
+#endif
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "automationService")
 
@@ -125,6 +134,22 @@ public actor AutomationService: AutomationOperations {
                 guard let pubCollections = pub.collections else { return false }
                 return pubCollections.contains { collections.contains($0.id) }
             }
+        }
+        if let tags = filters.tags, !tags.isEmpty {
+            result = result.filter { pub in
+                guard let pubTags = pub.tags else { return false }
+                let pubTagPaths = Set(pubTags.compactMap { $0.canonicalPath })
+                return tags.contains { pubTagPaths.contains($0) }
+            }
+        }
+        if let flagColor = filters.flagColor {
+            result = result.filter { $0.flagColor == flagColor }
+        }
+        if let addedAfter = filters.addedAfter {
+            result = result.filter { $0.dateAdded > addedAfter }
+        }
+        if let addedBefore = filters.addedBefore {
+            result = result.filter { $0.dateAdded < addedBefore }
         }
 
         return result
@@ -653,6 +678,633 @@ public actor AutomationService: AutomationOperations {
         return results
     }
 
+    // MARK: - Tag Operations
+
+    public func addTag(path: String, to papers: [PaperIdentifier]) async throws -> Int {
+        try await checkAuthorization()
+        logger.info("Adding tag '\(path)' to \(papers.count) papers")
+
+        let tag = await repository.findOrCreateTagByPath(path)
+        var count = 0
+        for identifier in papers {
+            if let publication = await findPublication(by: identifier) {
+                await repository.addTag(tag, to: publication)
+                count += 1
+            }
+        }
+        return count
+    }
+
+    public func removeTag(path: String, from papers: [PaperIdentifier]) async throws -> Int {
+        try await checkAuthorization()
+        logger.info("Removing tag '\(path)' from \(papers.count) papers")
+
+        let allTags = await repository.fetchAllTags()
+        guard let tag = allTags.first(where: { $0.canonicalPath == path }) else {
+            throw AutomationOperationError.operationFailed("Tag not found: \(path)")
+        }
+
+        var count = 0
+        for identifier in papers {
+            if let publication = await findPublication(by: identifier) {
+                await repository.removeTag(tag.id, from: publication)
+                count += 1
+            }
+        }
+        return count
+    }
+
+    public func listTags(matching prefix: String?, limit: Int) async throws -> [TagResult] {
+        try await checkAuthorization()
+
+        let tags: [CDTag]
+        if let prefix = prefix, !prefix.isEmpty {
+            tags = await repository.allTags(matching: prefix, limit: limit)
+        } else {
+            let allTags = await repository.fetchAllTags()
+            tags = Array(allTags.prefix(limit))
+        }
+
+        return tags.map { toTagResult($0) }
+    }
+
+    public func getTagTree() async throws -> String {
+        try await checkAuthorization()
+        return await TagManagementService.shared.tagTree()
+    }
+
+    // MARK: - Flag Operations
+
+    public func setFlag(color: String, style: String?, length: String?, papers: [PaperIdentifier]) async throws -> Int {
+        try await checkAuthorization()
+        logger.info("Setting flag '\(color)' on \(papers.count) papers")
+
+        guard let flagColor = FlagColor(rawValue: color) else {
+            throw AutomationOperationError.operationFailed("Invalid flag color: \(color). Use: red, amber, blue, gray")
+        }
+        let flagStyle = style.flatMap { FlagStyle(rawValue: $0) } ?? .solid
+        let flagLength = length.flatMap { FlagLength(rawValue: $0) } ?? .full
+        let flag = PublicationFlag(color: flagColor, style: flagStyle, length: flagLength)
+
+        var count = 0
+        for identifier in papers {
+            if let publication = await findPublication(by: identifier) {
+                await repository.setFlag(publication, flag: flag)
+                count += 1
+            }
+        }
+        return count
+    }
+
+    public func clearFlag(papers: [PaperIdentifier]) async throws -> Int {
+        try await checkAuthorization()
+        logger.info("Clearing flag from \(papers.count) papers")
+
+        var count = 0
+        for identifier in papers {
+            if let publication = await findPublication(by: identifier) {
+                await repository.setFlag(publication, flag: nil)
+                count += 1
+            }
+        }
+        return count
+    }
+
+    // MARK: - Collection Papers
+
+    public func listPapersInCollection(
+        collectionID: UUID,
+        limit: Int,
+        offset: Int
+    ) async throws -> (papers: [PaperResult], totalCount: Int) {
+        try await checkAuthorization()
+
+        let collections = await collectionRepository.fetchAll()
+        guard let collection = collections.first(where: { $0.id == collectionID }) else {
+            throw AutomationOperationError.collectionNotFound(collectionID)
+        }
+
+        let allPubs = Array(collection.publications ?? [])
+        let totalCount = allPubs.count
+        let paginated = Array(allPubs.dropFirst(offset).prefix(limit))
+        let papers = paginated.compactMap { toPaperResult($0) }
+
+        return (papers: papers, totalCount: totalCount)
+    }
+
+    // MARK: - Participant Operations
+
+    public func listParticipants(libraryID: UUID) async throws -> [ParticipantResult] {
+        try await checkAuthorization()
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        guard library.isSharedLibrary else {
+            return []  // Not shared, no participants
+        }
+
+        #if canImport(CloudKit)
+        guard let share = PersistenceController.shared.share(for: library) else {
+            return []
+        }
+
+        return share.participants.map { participant in
+            let formatter = PersonNameComponentsFormatter()
+            formatter.style = .default
+            let displayName = participant.userIdentity.nameComponents.map { formatter.string(from: $0) }
+            let email = participant.userIdentity.lookupInfo?.emailAddress
+
+            let permission: String
+            switch participant.permission {
+            case .readOnly:
+                permission = "readOnly"
+            case .readWrite:
+                permission = "readWrite"
+            default:
+                permission = "unknown"
+            }
+
+            let status: String
+            switch participant.acceptanceStatus {
+            case .accepted:
+                status = "accepted"
+            case .pending:
+                status = "pending"
+            case .removed:
+                status = "removed"
+            default:
+                status = "unknown"
+            }
+
+            return ParticipantResult(
+                id: participant.participantID,
+                displayName: displayName,
+                email: email,
+                permission: permission,
+                isOwner: participant == share.owner,
+                status: status
+            )
+        }
+        #else
+        return []
+        #endif
+    }
+
+    public func setParticipantPermission(
+        libraryID: UUID,
+        participantID: String,
+        permission: String
+    ) async throws {
+        try await checkAuthorization()
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        guard library.isSharedLibrary else {
+            throw AutomationOperationError.notShared
+        }
+
+        guard library.isShareOwner else {
+            throw AutomationOperationError.notShareOwner
+        }
+
+        #if canImport(CloudKit)
+        guard let share = PersistenceController.shared.share(for: library) else {
+            throw AutomationOperationError.notShared
+        }
+
+        guard let participant = share.participants.first(where: { $0.participantID == participantID }) else {
+            throw AutomationOperationError.participantNotFound(participantID)
+        }
+
+        let ckPermission: CKShare.ParticipantPermission
+        switch permission {
+        case "readOnly":
+            ckPermission = .readOnly
+        case "readWrite":
+            ckPermission = .readWrite
+        default:
+            throw AutomationOperationError.operationFailed("Invalid permission: \(permission). Use 'readOnly' or 'readWrite'")
+        }
+
+        try await CloudKitSharingService.shared.setPermission(ckPermission, for: participant, in: library)
+        logger.info("Set permission '\(permission)' for participant in library '\(library.displayName)'")
+        #else
+        throw AutomationOperationError.sharingUnavailable
+        #endif
+    }
+
+    // MARK: - Activity Feed Operations
+
+    public func recentActivity(libraryID: UUID, limit: Int) async throws -> [ActivityResult] {
+        try await checkAuthorization()
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        let records = await MainActor.run {
+            ActivityFeedService.shared.recentActivity(in: library, limit: limit)
+        }
+
+        return records.map { toActivityResult($0) }
+    }
+
+    // MARK: - Comment Operations
+
+    public func listComments(publicationIdentifier: PaperIdentifier) async throws -> [CommentResult] {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        let comments = await MainActor.run {
+            CommentService.shared.comments(for: publication)
+        }
+
+        return comments.map { toCommentResult($0, allComments: publication.comments ?? []) }
+    }
+
+    public func addComment(
+        text: String,
+        publicationIdentifier: PaperIdentifier,
+        parentCommentID: UUID?
+    ) async throws -> CommentResult {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        let comment = try await MainActor.run {
+            try CommentService.shared.addComment(
+                text: text,
+                to: publication,
+                parentCommentID: parentCommentID
+            )
+        }
+
+        logger.info("Added comment to '\(publication.citeKey)'")
+        return toCommentResult(comment, allComments: [])
+    }
+
+    public func deleteComment(commentID: UUID) async throws {
+        try await checkAuthorization()
+
+        let context = PersistenceController.shared.viewContext
+        let comment: CDComment? = await context.perform {
+            let request = NSFetchRequest<CDComment>(entityName: "Comment")
+            request.predicate = NSPredicate(format: "id == %@", commentID as CVarArg)
+            request.fetchLimit = 1
+            return try? context.fetch(request).first
+        }
+
+        guard let comment = comment else {
+            throw AutomationOperationError.commentNotFound(commentID)
+        }
+
+        try await MainActor.run {
+            try CommentService.shared.deleteComment(comment)
+        }
+
+        logger.info("Deleted comment \(commentID)")
+    }
+
+    // MARK: - Assignment Operations
+
+    public func listAssignments(libraryID: UUID) async throws -> [AssignmentResult] {
+        try await checkAuthorization()
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        let assignments = await MainActor.run {
+            AssignmentService.shared.assignments(in: library)
+        }
+
+        return assignments.map { toAssignmentResult($0) }
+    }
+
+    public func listAssignmentsForPublication(publicationIdentifier: PaperIdentifier) async throws -> [AssignmentResult] {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        let assignments = await MainActor.run {
+            AssignmentService.shared.assignments(for: publication)
+        }
+
+        return assignments.map { toAssignmentResult($0) }
+    }
+
+    public func createAssignment(
+        publicationIdentifier: PaperIdentifier,
+        assigneeName: String,
+        libraryID: UUID,
+        note: String?,
+        dueDate: Date?
+    ) async throws -> AssignmentResult {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        let assignment = try await MainActor.run {
+            try AssignmentService.shared.suggest(
+                publication: publication,
+                to: assigneeName,
+                in: library,
+                note: note,
+                dueDate: dueDate
+            )
+        }
+
+        logger.info("Created assignment: '\(publication.citeKey)' suggested to '\(assigneeName)'")
+        return toAssignmentResult(assignment)
+    }
+
+    public func deleteAssignment(assignmentID: UUID) async throws {
+        try await checkAuthorization()
+
+        let context = PersistenceController.shared.viewContext
+        let assignment: CDAssignment? = await context.perform {
+            let request = NSFetchRequest<CDAssignment>(entityName: "Assignment")
+            request.predicate = NSPredicate(format: "id == %@", assignmentID as CVarArg)
+            request.fetchLimit = 1
+            return try? context.fetch(request).first
+        }
+
+        guard let assignment = assignment else {
+            throw AutomationOperationError.assignmentNotFound(assignmentID)
+        }
+
+        try await MainActor.run {
+            try AssignmentService.shared.remove(assignment)
+        }
+
+        logger.info("Deleted assignment \(assignmentID)")
+    }
+
+    public func participantNames(libraryID: UUID) async throws -> [String] {
+        try await checkAuthorization()
+
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        return await MainActor.run {
+            AssignmentService.shared.participantNames(in: library)
+        }
+    }
+
+    // MARK: - Sharing Operations
+
+    public func shareLibrary(libraryID: UUID) async throws -> ShareResult {
+        try await checkAuthorization()
+
+        #if canImport(CloudKit)
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        // If already shared, return existing share info
+        if library.isSharedLibrary {
+            if let share = PersistenceController.shared.share(for: library) {
+                return ShareResult(
+                    libraryID: library.id,
+                    shareURL: share.url?.absoluteString,
+                    isShared: true
+                )
+            }
+        }
+
+        let (sharedLibrary, share) = try await CloudKitSharingService.shared.shareLibrary(library)
+        logger.info("Shared library '\(library.displayName)'")
+
+        return ShareResult(
+            libraryID: sharedLibrary.id,
+            shareURL: share.url?.absoluteString,
+            isShared: true
+        )
+        #else
+        throw AutomationOperationError.sharingUnavailable
+        #endif
+    }
+
+    public func unshareLibrary(libraryID: UUID) async throws {
+        try await checkAuthorization()
+
+        #if canImport(CloudKit)
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        guard library.isSharedLibrary else {
+            throw AutomationOperationError.notShared
+        }
+
+        guard library.isShareOwner else {
+            throw AutomationOperationError.notShareOwner
+        }
+
+        try await CloudKitSharingService.shared.unshare(library)
+        logger.info("Unshared library '\(library.displayName)'")
+        #else
+        throw AutomationOperationError.sharingUnavailable
+        #endif
+    }
+
+    public func leaveShare(libraryID: UUID, keepCopy: Bool) async throws {
+        try await checkAuthorization()
+
+        #if canImport(CloudKit)
+        let libraries = await fetchLibraries()
+        guard let library = libraries.first(where: { $0.id == libraryID }) else {
+            throw AutomationOperationError.libraryNotFound(libraryID)
+        }
+
+        guard library.isSharedLibrary else {
+            throw AutomationOperationError.notShared
+        }
+
+        try await CloudKitSharingService.shared.leaveShare(library, keepCopy: keepCopy)
+        logger.info("Left shared library '\(library.displayName)' (keepCopy: \(keepCopy))")
+        #else
+        throw AutomationOperationError.sharingUnavailable
+        #endif
+    }
+
+    // MARK: - Annotation Operations
+
+    /// List annotations for a publication's PDF.
+    public func listAnnotations(
+        publicationIdentifier: PaperIdentifier,
+        pageNumber: Int?
+    ) async throws -> [AnnotationResult] {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        guard let linkedFile = publication.linkedFiles?.first else {
+            throw AutomationOperationError.linkedFileNotFound(publication.citeKey)
+        }
+
+        let annotations = await MainActor.run {
+            AnnotationPersistence.shared.loadAnnotations(for: linkedFile)
+        }
+
+        var filtered = annotations
+        if let pageNumber = pageNumber {
+            filtered = filtered.filter { $0.pageNumber == Int32(pageNumber) }
+        }
+
+        return filtered.map { toAnnotationResult($0) }
+    }
+
+    /// Add an annotation to a publication's PDF.
+    public func addAnnotation(
+        publicationIdentifier: PaperIdentifier,
+        type: String,
+        pageNumber: Int,
+        contents: String?,
+        selectedText: String?,
+        color: String?
+    ) async throws -> AnnotationResult {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        guard let linkedFile = publication.linkedFiles?.first else {
+            throw AutomationOperationError.linkedFileNotFound(publication.citeKey)
+        }
+
+        // Validate annotation type
+        guard let annotationType = AnnotationType(rawValue: type) else {
+            throw AutomationOperationError.operationFailed("Invalid annotation type: \(type). Use: highlight, underline, strikethrough, note, freeText")
+        }
+
+        let hexColor = color ?? annotationType.defaultColor
+
+        // Create annotation in Core Data directly (without PDFKit)
+        let annotation = try await MainActor.run {
+            let context = PersistenceController.shared.viewContext
+            let cdAnnotation = CDAnnotation(context: context)
+            cdAnnotation.id = UUID()
+            cdAnnotation.pageNumber = Int32(pageNumber)
+            cdAnnotation.annotationType = annotationType.rawValue
+            cdAnnotation.color = hexColor
+            cdAnnotation.contents = contents
+            cdAnnotation.selectedText = selectedText
+            cdAnnotation.linkedFile = linkedFile
+            cdAnnotation.dateCreated = Date()
+            cdAnnotation.dateModified = Date()
+
+            // Set author from current user
+            #if os(macOS)
+            cdAnnotation.author = Host.current().localizedName ?? "Unknown"
+            #else
+            cdAnnotation.author = UIDevice.current.name
+            #endif
+
+            // Set default bounds for note annotations
+            if annotationType == .note || annotationType == .freeText {
+                cdAnnotation.boundsJSON = "{\"x\":50,\"y\":50,\"width\":200,\"height\":100}"
+            }
+
+            try context.save()
+            return cdAnnotation
+        }
+
+        logger.info("Added \(type) annotation to '\(publication.citeKey)' page \(pageNumber)")
+        return toAnnotationResult(annotation)
+    }
+
+    /// Delete an annotation by ID.
+    public func deleteAnnotation(annotationID: UUID) async throws {
+        try await checkAuthorization()
+
+        let context = PersistenceController.shared.viewContext
+        let annotation: CDAnnotation? = await context.perform {
+            let request = NSFetchRequest<CDAnnotation>(entityName: "Annotation")
+            request.predicate = NSPredicate(format: "id == %@", annotationID as CVarArg)
+            request.fetchLimit = 1
+            return try? context.fetch(request).first
+        }
+
+        guard let annotation = annotation else {
+            throw AutomationOperationError.annotationNotFound(annotationID)
+        }
+
+        try await MainActor.run {
+            try AnnotationPersistence.shared.delete(annotation)
+        }
+
+        logger.info("Deleted annotation \(annotationID)")
+    }
+
+    // MARK: - Notes Operations
+
+    /// Get the notes for a publication.
+    public func getNotes(publicationIdentifier: PaperIdentifier) async throws -> String? {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        return publication.fields["note"]
+    }
+
+    /// Update the notes for a publication.
+    public func updateNotes(publicationIdentifier: PaperIdentifier, notes: String?) async throws {
+        try await checkAuthorization()
+
+        guard let publication = await findPublication(by: publicationIdentifier) else {
+            throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
+        }
+
+        await MainActor.run {
+            let context = publication.managedObjectContext
+            context?.performAndWait {
+                var fields = publication.fields
+                if let notes = notes, !notes.isEmpty {
+                    fields["note"] = notes
+                } else {
+                    fields.removeValue(forKey: "note")
+                }
+                publication.fields = fields
+                publication.dateModified = Date()
+                try? context?.save()
+            }
+        }
+
+        logger.info("Updated notes for '\(publication.citeKey)'")
+    }
+
     // MARK: - Conversion Helpers
 
     private func toPaperResult(_ publication: CDPublication) -> PaperResult? {
@@ -662,6 +1314,34 @@ public actor AutomationService: AutomationOperations {
         }
 
         let fields = publication.fields
+
+        // Extract tag paths
+        let tagPaths: [String] = (publication.tags ?? [])
+            .compactMap { $0.canonicalPath }
+            .sorted()
+
+        // Extract flag
+        let flagResult: FlagResult? = publication.flag.map {
+            FlagResult(
+                color: $0.color.rawValue,
+                style: $0.style.rawValue,
+                length: $0.length.rawValue
+            )
+        }
+
+        // Extract collection IDs
+        let collIDs: [UUID] = (publication.collections ?? []).map { $0.id }
+
+        // Extract library IDs
+        let libIDs: [UUID] = (publication.libraries ?? []).map { $0.id }
+
+        // Extract notes from BibTeX fields
+        let notes = fields["note"]
+
+        // Count annotations from linked files
+        let annotationCount = (publication.linkedFiles ?? [])
+            .reduce(0) { $0 + ($1.annotations?.count ?? 0) }
+
         return PaperResult(
             id: publication.id,
             citeKey: publication.citeKey,
@@ -684,7 +1364,13 @@ public actor AutomationService: AutomationOperations {
             dateModified: publication.dateModified,
             bibtex: publication.rawBibTeX ?? "",
             webURL: publication.webURL,
-            pdfURLs: publication.pdfLinks.map { $0.url.absoluteString }
+            pdfURLs: publication.pdfLinks.map { $0.url.absoluteString },
+            tags: tagPaths,
+            flag: flagResult,
+            collectionIDs: collIDs,
+            libraryIDs: libIDs,
+            notes: notes,
+            annotationCount: annotationCount
         )
     }
 
@@ -713,7 +1399,82 @@ public actor AutomationService: AutomationOperations {
             paperCount: library.publications?.count ?? 0,
             collectionCount: library.collections?.count ?? 0,
             isDefault: library.isDefault,
-            isInbox: library.isInbox
+            isInbox: library.isInbox,
+            isShared: library.isSharedLibrary,
+            isShareOwner: library.isShareOwner,
+            participantCount: library.shareParticipantCount,
+            canEdit: library.canEdit
+        )
+    }
+
+    private func toTagResult(_ tag: CDTag) -> TagResult {
+        TagResult(
+            id: tag.id,
+            name: tag.leaf,
+            canonicalPath: tag.canonicalPath ?? tag.name,
+            parentPath: tag.parentTag?.canonicalPath,
+            useCount: Int(tag.useCount),
+            publicationCount: tag.publicationCount
+        )
+    }
+
+    private func toActivityResult(_ record: CDActivityRecord) -> ActivityResult {
+        ActivityResult(
+            id: record.id,
+            activityType: record.activityType,
+            actorDisplayName: record.actorDisplayName,
+            targetTitle: record.targetTitle,
+            targetID: record.targetID,
+            detail: record.detail,
+            date: record.date
+        )
+    }
+
+    private func toCommentResult(_ comment: CDComment, allComments: Set<CDComment>) -> CommentResult {
+        // Find replies to this comment
+        let replies = allComments
+            .filter { $0.parentCommentID == comment.id }
+            .sorted { $0.dateCreated < $1.dateCreated }
+            .map { toCommentResult($0, allComments: allComments) }
+
+        return CommentResult(
+            id: comment.id,
+            text: comment.text,
+            authorDisplayName: comment.authorDisplayName,
+            authorIdentifier: comment.authorIdentifier,
+            dateCreated: comment.dateCreated,
+            dateModified: comment.dateModified,
+            parentCommentID: comment.parentCommentID,
+            replies: replies
+        )
+    }
+
+    private func toAssignmentResult(_ assignment: CDAssignment) -> AssignmentResult {
+        AssignmentResult(
+            id: assignment.id,
+            publicationID: assignment.publication?.id ?? UUID(),
+            publicationTitle: assignment.publication?.title,
+            publicationCiteKey: assignment.publication?.citeKey,
+            assigneeName: assignment.assigneeName,
+            assignedByName: assignment.assignedByName,
+            note: assignment.note,
+            dateCreated: assignment.dateCreated,
+            dueDate: assignment.dueDate,
+            libraryID: assignment.library?.id
+        )
+    }
+
+    private func toAnnotationResult(_ annotation: CDAnnotation) -> AnnotationResult {
+        AnnotationResult(
+            id: annotation.id,
+            type: annotation.annotationType,
+            pageNumber: Int(annotation.pageNumber),
+            contents: annotation.contents,
+            selectedText: annotation.selectedText,
+            color: annotation.color ?? "#FFFF00",
+            author: annotation.author,
+            dateCreated: annotation.dateCreated,
+            dateModified: annotation.dateModified
         )
     }
 }

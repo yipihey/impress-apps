@@ -364,7 +364,7 @@ public struct ArXivFeedFormView: View {
                 // Create the smart search using the appropriate factory method based on mode
                 // Use formMaxResults if > 0, otherwise pass nil to use default
                 let maxResultsParam: Int16? = formMaxResults > 0 ? Int16(formMaxResults) : nil
-                let smartSearch: CDSmartSearch
+                let smartSearch: CDSmartSearch?
                 switch mode {
                 case .inboxFeed:
                     smartSearch = SmartSearchRepository.shared.createInboxFeed(
@@ -391,6 +391,11 @@ public struct ArXivFeedFormView: View {
                         sourceIDs: ["arxiv"],
                         maxResults: maxResultsParam
                     )
+                }
+
+                guard let smartSearch else {
+                    Logger.viewModels.warningCapture("Failed to create smart search (permission denied?)", category: "feed")
+                    return
                 }
 
                 Logger.viewModels.infoCapture(
@@ -795,7 +800,7 @@ public struct ArXivFeedFormView: View {
                 // Create the smart search using the appropriate factory method based on mode
                 // Use formMaxResults if > 0, otherwise pass nil to use default
                 let maxResultsParam: Int16? = formMaxResults > 0 ? Int16(formMaxResults) : nil
-                let smartSearch: CDSmartSearch
+                let smartSearch: CDSmartSearch?
                 switch mode {
                 case .inboxFeed:
                     smartSearch = SmartSearchRepository.shared.createInboxFeed(
@@ -822,6 +827,11 @@ public struct ArXivFeedFormView: View {
                         sourceIDs: ["arxiv"],
                         maxResults: maxResultsParam
                     )
+                }
+
+                guard let smartSearch else {
+                    Logger.viewModels.warningCapture("Failed to create smart search (permission denied?)", category: "feed")
+                    return
                 }
 
                 Logger.viewModels.infoCapture(

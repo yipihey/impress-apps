@@ -505,13 +505,21 @@ public final class SmartSearchRepository {
         return smartSearch
     }
 
-    /// Update an existing smart search
+    /// Update an existing smart search.
+    ///
+    /// For smart searches in shared libraries, only read-write participants can update.
     public func update(
         _ smartSearch: CDSmartSearch,
         name: String? = nil,
         query: String? = nil,
         sourceIDs: [String]? = nil
     ) {
+        // Permission check for shared libraries
+        if let library = smartSearch.library, library.isSharedLibrary, !library.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot update smart search in shared library: read-only participant", category: "smartsearch")
+            return
+        }
+
         Logger.smartSearch.infoCapture("Updating smart search: \(smartSearch.name)", category: "smartsearch")
 
         if let name { smartSearch.name = name }
@@ -522,12 +530,20 @@ public final class SmartSearchRepository {
         loadSmartSearches(for: currentLibrary)
     }
 
-    /// Delete a smart search
+    /// Delete a smart search.
     ///
     /// Publications in the smart search's result collection are only deleted if they
     /// are not members of any other collection. This preserves publications that have
     /// been dragged to user-created collections.
+    ///
+    /// For smart searches in shared libraries, only read-write participants can delete.
     public func delete(_ smartSearch: CDSmartSearch) {
+        // Permission check for shared libraries
+        if let library = smartSearch.library, library.isSharedLibrary, !library.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot delete smart search in shared library: read-only participant", category: "smartsearch")
+            return
+        }
+
         Logger.smartSearch.infoCapture("Deleting smart search: \(smartSearch.name)", category: "smartsearch")
 
         let context = persistenceController.viewContext
@@ -571,8 +587,16 @@ public final class SmartSearchRepository {
         loadSmartSearches(for: currentLibrary)
     }
 
-    /// Reorder smart searches
+    /// Reorder smart searches.
+    ///
+    /// For shared libraries, only read-write participants can reorder.
     public func reorder(_ searches: [CDSmartSearch]) {
+        // Permission check: if any search is in a shared library, check permissions
+        if let library = searches.first?.library, library.isSharedLibrary, !library.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot reorder smart searches in shared library: read-only participant", category: "smartsearch")
+            return
+        }
+
         Logger.smartSearch.debugCapture("Reordering \(searches.count) smart searches", category: "smartsearch")
 
         for (index, search) in searches.enumerated() {
@@ -589,8 +613,21 @@ public final class SmartSearchRepository {
         persistenceController.save()
     }
 
-    /// Move a smart search to a different library
+    /// Move a smart search to a different library.
+    ///
+    /// Requires write permission on both source and destination libraries.
     public func move(_ smartSearch: CDSmartSearch, to library: CDLibrary) {
+        // Permission check on source library
+        if let sourceLibrary = smartSearch.library, sourceLibrary.isSharedLibrary, !sourceLibrary.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot move smart search from shared library: read-only participant", category: "smartsearch")
+            return
+        }
+        // Permission check on destination library
+        if library.isSharedLibrary, !library.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot move smart search to shared library: read-only participant", category: "smartsearch")
+            return
+        }
+
         Logger.smartSearch.infoCapture("Moving smart search '\(smartSearch.name)' to library '\(library.displayName)'", category: "smartsearch")
 
         smartSearch.library = library
@@ -606,6 +643,9 @@ public final class SmartSearchRepository {
     /// - Stored in the specified library
     /// - Do NOT feed to inbox
     /// - Do NOT auto-refresh (manual execution only)
+    ///
+    /// For shared libraries, only read-write participants can create smart searches.
+    /// Returns nil if the current user lacks permission.
     @discardableResult
     public func createLibrarySmartSearch(
         name: String,
@@ -613,7 +653,13 @@ public final class SmartSearchRepository {
         sourceIDs: [String],
         library: CDLibrary,
         maxResults: Int16? = nil
-    ) -> CDSmartSearch {
+    ) -> CDSmartSearch? {
+        // Permission check for shared libraries
+        if library.isSharedLibrary, !library.canEditLibrary {
+            Logger.smartSearch.warningCapture("Cannot create smart search in shared library: read-only participant", category: "smartsearch")
+            return nil
+        }
+
         let context = persistenceController.viewContext
         let effectiveMaxResults = maxResults ?? loadDefaultMaxResults()
 

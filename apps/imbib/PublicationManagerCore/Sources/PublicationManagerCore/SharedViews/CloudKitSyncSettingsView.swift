@@ -28,6 +28,7 @@ public struct CloudKitSyncSettingsView: View {
     @State private var lastSyncDate: Date?
     @State private var lastError: String?
     @State private var isCloudKitEnabled: Bool = false
+    @State private var explorationIsLocalOnly: Bool = true
 
     // MARK: - Body
 
@@ -105,6 +106,19 @@ public struct CloudKitSyncSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section {
+                Toggle("Keep exploration results on this device only", isOn: $explorationIsLocalOnly)
+                    .onChange(of: explorationIsLocalOnly) { _, newValue in
+                        ExplorationSettingsStore.shared.isLocalOnly = newValue
+                    }
+            } header: {
+                Text("Exploration Sync")
+            } footer: {
+                Text(explorationIsLocalOnly
+                    ? "Exploration results stay on this device and are not synced to iCloud."
+                    : "Exploration results sync across all your devices via iCloud.")
             }
 
             Section {
@@ -196,6 +210,7 @@ public struct CloudKitSyncSettingsView: View {
         lastSyncDate = CloudKitSyncSettingsStore.shared.lastSyncDate
         lastError = CloudKitSyncSettingsStore.shared.lastError
         isCloudKitEnabled = PersistenceController.shared.isCloudKitEnabled
+        explorationIsLocalOnly = ExplorationSettingsStore.shared.isLocalOnly
     }
 
     private func checkAccountStatus() async {

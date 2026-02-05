@@ -40,6 +40,7 @@ public actor FullTextSearchService {
     private var isIndexReady = false
     private var indexPath: URL?
     private let persistenceController: PersistenceController
+    private var isRebuilding = false
 
     // MARK: - Initialization
 
@@ -178,6 +179,14 @@ public actor FullTextSearchService {
     /// - Recovery from corruption
     /// - After bulk imports
     public func rebuildIndex() async {
+        // Guard against concurrent rebuilds
+        guard !isRebuilding else {
+            Logger.search.debug("Skipping index rebuild - already in progress")
+            return
+        }
+        isRebuilding = true
+        defer { isRebuilding = false }
+
         guard let index = searchIndex else {
             Logger.search.warning("Cannot rebuild: index not initialized")
             return

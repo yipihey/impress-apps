@@ -7,7 +7,9 @@
 
 import SwiftUI
 import PublicationManagerCore
+import CoreData
 import OSLog
+import ImpressFTUI
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "ios-list")
 
@@ -31,6 +33,7 @@ struct IOSUnifiedPublicationListWrapper: View {
         case smartSearch(CDSmartSearch)
         case collection(CDCollection)
         case scixLibrary(CDSciXLibrary)
+        case flagged(String?)  // Flagged publications (nil = any flag, or specific color name)
 
         var id: UUID {
             switch self {
@@ -38,6 +41,14 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .smartSearch(let ss): return ss.id
             case .collection(let col): return col.id
             case .scixLibrary(let lib): return lib.id
+            case .flagged(let color):
+                switch color {
+                case "red":   return UUID(uuidString: "F1A99ED0-0001-4000-8000-000000000000")!
+                case "amber": return UUID(uuidString: "F1A99ED0-0002-4000-8000-000000000000")!
+                case "blue":  return UUID(uuidString: "F1A99ED0-0003-4000-8000-000000000000")!
+                case "gray":  return UUID(uuidString: "F1A99ED0-0004-4000-8000-000000000000")!
+                default:      return UUID(uuidString: "F1A99ED0-0000-4000-8000-000000000000")!
+                }
             }
         }
 
@@ -45,7 +56,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             switch self {
             case .library(let lib): return lib.isInbox
             case .smartSearch(let ss): return ss.feedsToInbox
-            case .collection, .scixLibrary: return false
+            case .collection, .scixLibrary, .flagged: return false
             }
         }
 
@@ -55,6 +66,9 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .smartSearch(let ss): return ss.name
             case .collection(let col): return col.name
             case .scixLibrary(let lib): return lib.displayName
+            case .flagged(let color):
+                if let color { return "\(color.capitalized) Flagged" }
+                return "Flagged"
             }
         }
 
@@ -70,6 +84,9 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "No Publications"
             case .scixLibrary:
                 return "No Papers"
+            case .flagged(let color):
+                if let color { return "No \(color.capitalized) Flagged Papers" }
+                return "No Flagged Papers"
             }
         }
 
@@ -85,6 +102,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "Add publications to this collection."
             case .scixLibrary:
                 return "This SciX library is empty or hasn't been synced yet."
+            case .flagged:
+                return "Flag papers to see them here."
             }
         }
 
@@ -94,6 +113,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .smartSearch(let ss): return .smartSearch(ss.id)
             case .collection(let col): return .collection(col.id)
             case .scixLibrary(let lib): return .scixLibrary(lib.id)
+            case .flagged: return .flagged(id)
             }
         }
 
@@ -104,6 +124,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .smartSearch(let ss): return ss.library
             case .collection(let col): return col.effectiveLibrary
             case .scixLibrary: return nil // SciX libraries are remote
+            case .flagged: return nil // Cross-library virtual source
             }
         }
     }
@@ -139,16 +160,35 @@ struct IOSUnifiedPublicationListWrapper: View {
     @State private var showBibTeXEditor = false
     @State private var publicationForSheet: CDPublication?
 
+    // Selection mode (for multi-selection like Mail app)
+    @State private var isSelectionMode = false
+
+    // Library picker for bulk add
+    @State private var showLibraryPicker = false
+
     // MARK: - Body
 
     var body: some View {
         publicationListContent
             .navigationTitle(source.navigationTitle)
             .toolbar { toolbarContent }
+            .environment(\.editMode, isSelectionMode ? .constant(.active) : .constant(.inactive))
             .sheet(isPresented: $showBibTeXEditor) {
                 if let publication = publicationForSheet {
                     IOSBibTeXEditorSheet(publication: publication)
                 }
+            }
+            .sheet(isPresented: $showLibraryPicker) {
+                LibraryPickerSheet(
+                    isPresented: $showLibraryPicker,
+                    libraries: libraryManager.libraries.filter { !$0.isInbox },
+                    onSelect: { library in
+                        Task {
+                            await handleAddToLibrary(multiSelection, library)
+                            exitSelectionMode()
+                        }
+                    }
+                )
             }
             .task(id: source.id) {
                 await loadPublications()
@@ -161,6 +201,12 @@ struct IOSUnifiedPublicationListWrapper: View {
             // Disable swipe-back gesture when inbox has swipe actions
             // to prevent conflict with "keep" swipe right gesture
             .modifier(ConditionalDisableSwipeBackModifier(isEnabled: source.isInbox))
+    }
+
+    /// Exit selection mode and clear selections
+    private func exitSelectionMode() {
+        isSelectionMode = false
+        multiSelection.removeAll()
     }
 
     /// Separated to help Swift type checker
@@ -196,6 +242,9 @@ struct IOSUnifiedPublicationListWrapper: View {
             onOpenPDF: { pub in handleOpenPDF(pub) },
             onSaveToLibrary: source.isInbox ? { ids, lib in await handleSaveToLibrary(ids, lib) } : nil,
             onDismiss: { ids in await handleDismiss(ids) },
+            onSetFlag: { ids, color in await handleSetFlag(ids, color) },
+            onClearFlag: { ids in await handleClearFlag(ids) },
+            onRemoveTag: { pubID, tagID in handleRemoveTag(pubID: pubID, tagID: tagID) },
             onCategoryTap: { cat in handleCategoryTap(cat) },
             onRefresh: { await refreshFromSource() },
             onOpenInBrowser: { pub, dest in handleOpenInBrowser(pub, dest) },
@@ -212,8 +261,23 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Select/Done button (always visible when there are publications)
+        if !publications.isEmpty {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(isSelectionMode ? "Done" : "Select") {
+                    withAnimation {
+                        if isSelectionMode {
+                            exitSelectionMode()
+                        } else {
+                            isSelectionMode = true
+                        }
+                    }
+                }
+            }
+        }
+
         // Refresh button for smart searches
-        if case .smartSearch = source {
+        if case .smartSearch = source, !isSelectionMode {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await refreshFromSource() }
@@ -230,7 +294,7 @@ struct IOSUnifiedPublicationListWrapper: View {
         }
 
         // Sync status for SciX libraries
-        if case .scixLibrary(let lib) = source {
+        if case .scixLibrary(let lib) = source, !isSelectionMode {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
                     syncStatusIcon(for: lib)
@@ -241,6 +305,34 @@ struct IOSUnifiedPublicationListWrapper: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(isRefreshing)
+                }
+            }
+        }
+
+        // Bottom bar actions when items are selected
+        if isSelectionMode && !multiSelection.isEmpty {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    showLibraryPicker = true
+                } label: {
+                    Label("Add to Library", systemImage: "folder.badge.plus")
+                }
+
+                Spacer()
+
+                Text("\(multiSelection.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button(role: .destructive) {
+                    Task {
+                        await handleDelete(multiSelection)
+                        exitSelectionMode()
+                    }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
         }
@@ -266,7 +358,7 @@ struct IOSUnifiedPublicationListWrapper: View {
     private var shouldShowImportButton: Bool {
         switch source {
         case .library(let lib): return !lib.isInbox
-        case .smartSearch, .collection, .scixLibrary: return false
+        case .smartSearch, .collection, .scixLibrary, .flagged: return false
         }
     }
 
@@ -288,6 +380,12 @@ struct IOSUnifiedPublicationListWrapper: View {
             return .inboxLibrary
         case .scixLibrary:
             return .inboxLibrary // SciX doesn't support triage
+        case .flagged:
+            // Flagged is cross-library; use active library for triage
+            if let lib = libraryManager.activeLibrary {
+                return .regularLibrary(lib)
+            }
+            return .inboxLibrary
         }
     }
 
@@ -367,6 +465,9 @@ struct IOSUnifiedPublicationListWrapper: View {
             if publications.isEmpty && library.documentCount > 0 {
                 await refreshSciXLibrary(library)
             }
+
+        case .flagged(let colorName):
+            loadFlaggedPublications(colorName: colorName)
         }
     }
 
@@ -405,11 +506,25 @@ struct IOSUnifiedPublicationListWrapper: View {
         if collection.isSmartCollection {
             result = await libraryViewModel.executeSmartCollection(collection)
         } else {
-            result = Array(collection.publications ?? [])
+            // For static collections, include publications from this collection
+            // AND all descendant subcollections
+            result = Array(collection.allPublicationsIncludingDescendants)
                 .filter { !$0.isDeleted }
         }
 
         publications = result.sorted { $0.dateAdded > $1.dateAdded }
+    }
+
+    private func loadFlaggedPublications(colorName: String?) {
+        let context = PersistenceController.shared.viewContext
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        if let colorName {
+            request.predicate = NSPredicate(format: "flagColor == %@", colorName)
+        } else {
+            request.predicate = NSPredicate(format: "flagColor != nil")
+        }
+        request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
+        publications = (try? context.fetch(request))?.filter { !$0.isDeleted } ?? []
     }
 
     private func loadSciXPublications(_ library: CDSciXLibrary) {
@@ -438,6 +553,9 @@ struct IOSUnifiedPublicationListWrapper: View {
 
         case .scixLibrary(let library):
             await refreshSciXLibrary(library)
+
+        case .flagged(let colorName):
+            loadFlaggedPublications(colorName: colorName)
         }
     }
 
@@ -584,6 +702,37 @@ struct IOSUnifiedPublicationListWrapper: View {
         await loadPublications()
     }
 
+    // MARK: - Flag Handlers
+
+    private func handleSetFlag(_ ids: Set<UUID>, _ color: FlagColor) async {
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.flag = .simple(color)
+            }
+        }
+        PersistenceController.shared.save()
+        await loadPublications()
+    }
+
+    private func handleClearFlag(_ ids: Set<UUID>) async {
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.flag = nil
+            }
+        }
+        PersistenceController.shared.save()
+        await loadPublications()
+    }
+
+    /// Remove a tag from a publication
+    private func handleRemoveTag(pubID: UUID, tagID: UUID) {
+        guard let pub = publications.first(where: { $0.id == pubID }) else { return }
+        Task {
+            await repository.removeTag(tagID, from: pub)
+            await loadPublications()
+        }
+    }
+
     // MARK: - Context Menu Handlers
 
     private func handleCategoryTap(_ category: String) {
@@ -681,6 +830,38 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     private func handleExploreSimilar(_ publication: CDPublication) {
         NotificationCenter.default.post(name: .exploreSimilar, object: publication)
+    }
+}
+
+// MARK: - Library Picker Sheet
+
+/// Sheet for selecting a library to add publications to
+struct LibraryPickerSheet: View {
+    @Binding var isPresented: Bool
+    let libraries: [CDLibrary]
+    let onSelect: (CDLibrary) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(libraries) { library in
+                Button {
+                    onSelect(library)
+                    isPresented = false
+                } label: {
+                    Label(library.displayName, systemImage: "folder")
+                }
+                .foregroundStyle(.primary)
+            }
+            .navigationTitle("Add to Library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+            }
+        }
     }
 }
 

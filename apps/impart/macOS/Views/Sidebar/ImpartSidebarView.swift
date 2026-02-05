@@ -3,11 +3,12 @@
 //  impart
 //
 //  Main sidebar view showing accounts and folder hierarchy.
-//  Ported from imbib's SidebarView for visual consistency.
+//  Uses ImpressSidebar for tree rendering infrastructure.
 //
 
 import SwiftUI
 import MessageManagerCore
+import ImpressSidebar
 import UniformTypeIdentifiers
 
 // MARK: - Sidebar Section
@@ -33,7 +34,7 @@ struct ImpartSidebarView: View {
     // MARK: - State
 
     @State private var expandedAccounts: Set<UUID> = []
-    @State private var expandedFolders: Set<UUID> = []
+    @State private var folderExpansion = TreeExpansionState()
     @State private var renamingFolder: CDFolder?
     @State private var showNewFolderSheet = false
     @State private var newFolderParent: CDFolder?
@@ -117,10 +118,19 @@ struct ImpartSidebarView: View {
                 }
             }
         )) {
-            // Flatten folder hierarchy for display
             let accountFolders = viewModel.folders(for: account.id)
-            ForEach(flattenFolderHierarchy(accountFolders)) { folder in
-                folderRow(folder, allFolders: accountFolders)
+            let adapters = rootAdapters(from: accountFolders)
+            let flattened = TreeFlattener.flatten(
+                roots: adapters,
+                children: { node in
+                    node.underlyingFolder.sortedChildren.asFolderAdapters()
+                },
+                isExpanded: { node in
+                    folderExpansion.isExpanded(node.id)
+                }
+            )
+            ForEach(flattened) { flattenedNode in
+                folderRow(flattenedNode, allFolders: accountFolders)
             }
         } header: {
             accountHeader(account)
@@ -147,12 +157,12 @@ struct ImpartSidebarView: View {
     // MARK: - Folder Row
 
     @ViewBuilder
-    private func folderRow(_ folder: CDFolder, allFolders: [CDFolder]) -> some View {
+    private func folderRow(_ flattenedNode: FlattenedTreeNode<FolderNodeAdapter>, allFolders: [CDFolder]) -> some View {
+        let folder = flattenedNode.node.underlyingFolder
         FolderTreeRow(
-            folder: folder,
+            flattenedNode: flattenedNode,
             allFolders: allFolders,
-            selection: $selectedFolder,
-            expandedFolders: $expandedFolders,
+            isExpanded: folderExpansion.binding(for: folder.id),
             onRename: { folder in
                 renamingFolder = folder
             },
@@ -188,31 +198,14 @@ struct ImpartSidebarView: View {
         )
     }
 
-    // MARK: - Hierarchy Flattening
+    // MARK: - Helpers
 
-    /// Flatten folder hierarchy for display, respecting expansion state.
-    private func flattenFolderHierarchy(_ folders: [CDFolder]) -> [CDFolder] {
-        // Get root folders (no parent)
-        let roots = folders
+    /// Get root-level folder adapters sorted by sortOrder then name.
+    private func rootAdapters(from folders: [CDFolder]) -> [FolderNodeAdapter] {
+        folders
             .filter { $0.parentFolder == nil }
             .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
-
-        var result: [CDFolder] = []
-
-        func addFolder(_ folder: CDFolder) {
-            result.append(folder)
-            if expandedFolders.contains(folder.id) {
-                for child in folder.sortedChildren {
-                    addFolder(child)
-                }
-            }
-        }
-
-        for root in roots {
-            addFolder(root)
-        }
-
-        return result
+            .asFolderAdapters()
     }
 }
 

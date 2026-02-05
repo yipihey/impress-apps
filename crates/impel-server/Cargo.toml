@@ -15,8 +15,9 @@ path = "src/main.rs"
 required-features = ["binary"]
 
 [features]
-default = []
+default = ["sqlite"]
 binary = []
+sqlite = []
 
 [dependencies]
 # Core library

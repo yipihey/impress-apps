@@ -228,12 +228,15 @@ public final class PersistenceController: @unchecked Sendable {
                 for item in contents {
                     let name = item.lastPathComponent
 
-                    // Delete SQLite store files
+                    // Delete SQLite store files (including shared.sqlite for CloudKit sharing)
                     let shouldDelete = name.hasPrefix("PublicationManager") ||
                         name.hasPrefix(".PublicationManager") ||
                         name.hasPrefix("CoreDataCloudKit") ||
                         name.hasPrefix("ckAssetFiles") ||
                         name.contains("CloudKit") ||
+                        name == "shared.sqlite" ||
+                        name == "shared.sqlite-shm" ||
+                        name == "shared.sqlite-wal" ||
                         name.hasSuffix(".sqlite") ||
                         name.hasSuffix(".sqlite-shm") ||
                         name.hasSuffix(".sqlite-wal")
@@ -351,6 +354,12 @@ public final class PersistenceController: @unchecked Sendable {
     public let container: NSPersistentContainer
     public let configuration: PersistenceConfiguration
 
+    /// Reference to the private persistent store (main user data)
+    public private(set) var privateStore: NSPersistentStore?
+
+    /// Reference to the shared persistent store (CloudKit shared zones)
+    public private(set) var sharedStore: NSPersistentStore?
+
     /// Current state of the persistent store loading.
     /// Observe `.persistentStoreLoadFailed` or `.persistentStoreFellBackToLocal` notifications
     /// for reactive updates when state changes.
@@ -398,33 +407,64 @@ public final class PersistenceController: @unchecked Sendable {
             Logger.persistence.info("Using standard NSPersistentContainer (no CloudKit)")
         }
 
-        // Configure store description
-        if let description = container.persistentStoreDescriptions.first {
+        // Configure store descriptions
+        if let privateDesc = container.persistentStoreDescriptions.first {
             if configuration.inMemory {
-                description.url = URL(fileURLWithPath: "/dev/null")
+                privateDesc.url = URL(fileURLWithPath: "/dev/null")
             } else if let storeURL = configuration.storeURL {
                 // Use custom store URL (for UI testing isolation)
-                description.url = storeURL
+                privateDesc.url = storeURL
                 Logger.persistence.info("Using custom store URL: \(storeURL.path)")
             }
 
             if configuration.enableCloudKit {
-                // Enable CloudKit sync
+                // Enable CloudKit sync on private store
                 if let containerID = configuration.cloudKitContainerIdentifier {
-                    description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+                    privateDesc.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
                         containerIdentifier: containerID
                     )
-                    Logger.persistence.info("CloudKit container: \(containerID)")
+                    Logger.persistence.info("CloudKit container (private): \(containerID)")
                 }
 
                 // Enable history tracking for CloudKit
-                description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-                description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+                privateDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+                privateDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+                // Add shared store description for CloudKit shared zones
+                if let containerID = configuration.cloudKitContainerIdentifier {
+                    let sharedStoreURL: URL
+                    if configuration.inMemory {
+                        sharedStoreURL = URL(fileURLWithPath: "/dev/null")
+                    } else if let customURL = privateDesc.url {
+                        sharedStoreURL = customURL
+                            .deletingLastPathComponent()
+                            .appendingPathComponent("shared.sqlite")
+                    } else {
+                        sharedStoreURL = NSPersistentContainer.defaultDirectoryURL()
+                            .appendingPathComponent("shared.sqlite")
+                    }
+
+                    let sharedDesc = NSPersistentStoreDescription(url: sharedStoreURL)
+                    let sharedOptions = NSPersistentCloudKitContainerOptions(
+                        containerIdentifier: containerID
+                    )
+                    sharedOptions.databaseScope = .shared
+                    sharedDesc.cloudKitContainerOptions = sharedOptions
+                    sharedDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+                    sharedDesc.setOption(true as NSNumber,
+                        forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+                    container.persistentStoreDescriptions = [privateDesc, sharedDesc]
+                    Logger.persistence.info("CloudKit shared store configured at: \(sharedStoreURL.path)")
+                }
             }
         }
 
         // Capture configuration for use in closure
         let enableCloudKit = configuration.enableCloudKit
+        // Track how many stores we expect to load
+        let expectedStoreCount = container.persistentStoreDescriptions.count
+        var loadedStoreCount = 0
 
         container.loadPersistentStores { [weak self] description, error in
             guard let self = self else { return }
@@ -436,6 +476,21 @@ public final class PersistenceController: @unchecked Sendable {
             }
 
             Logger.persistence.info("Loaded persistent store: \(description.url?.absoluteString ?? "unknown")")
+
+            // Identify and track private vs shared store
+            if let loadedStore = self.container.persistentStoreCoordinator.persistentStore(for: description.url!) {
+                if description.cloudKitContainerOptions?.databaseScope == .shared {
+                    self.sharedStore = loadedStore
+                    Logger.persistence.info("Identified shared store")
+                } else {
+                    self.privateStore = loadedStore
+                    Logger.persistence.info("Identified private store")
+                }
+            }
+
+            loadedStoreCount += 1
+            guard loadedStoreCount == expectedStoreCount else { return }
+
             self.storeLoadState = .loaded
 
             // Record schema version after successful load
@@ -530,6 +585,34 @@ public final class PersistenceController: @unchecked Sendable {
         NotificationCenter.default.post(name: .cloudKitDataDidChange, object: nil)
     }
 
+    // MARK: - CloudKit Sharing Helpers
+
+    /// Whether a managed object lives in the shared store
+    public func isShared(_ object: NSManagedObject) -> Bool {
+        guard let store = object.objectID.persistentStore else { return false }
+        return store == sharedStore
+    }
+
+    #if canImport(CloudKit)
+    /// Get the CKShare for a managed object (if it's shared)
+    public func share(for object: NSManagedObject) -> CKShare? {
+        guard let ckContainer = container as? NSPersistentCloudKitContainer else { return nil }
+        return try? ckContainer.fetchShares(matching: [object.objectID])[object.objectID]
+    }
+
+    /// Whether the current user can edit the given object
+    public func canEdit(_ object: NSManagedObject) -> Bool {
+        guard isShared(object) else { return true }
+        guard let share = share(for: object) else { return true }
+        return share.currentUserParticipant?.permission == .readWrite
+    }
+
+    /// Get all participants for a shared object
+    public func participants(for object: NSManagedObject) -> [CKShare.Participant] {
+        share(for: object)?.participants ?? []
+    }
+    #endif
+
     // MARK: - Core Data Model Creation
 
     /// Cached model to avoid multiple entity descriptions claiming the same NSManagedObject subclasses
@@ -579,6 +662,12 @@ public final class PersistenceController: @unchecked Sendable {
 
         // ADR-016: Set up smart search-collection relationship
         setupSmartSearchCollectionRelationship(
+            smartSearch: smartSearchEntity,
+            collection: collectionEntity
+        )
+
+        // Set up smart search-inboxParentCollection relationship (for feed organization)
+        setupSmartSearchInboxParentRelationship(
             smartSearch: smartSearchEntity,
             collection: collectionEntity
         )
@@ -873,6 +962,25 @@ public final class PersistenceController: @unchecked Sendable {
         isStarred.defaultValue = false
         properties.append(isStarred)
 
+        // Flag attributes (replaces simple isStarred for rich workflow flags)
+        let flagColor = NSAttributeDescription()
+        flagColor.name = "flagColor"
+        flagColor.attributeType = .stringAttributeType
+        flagColor.isOptional = true
+        properties.append(flagColor)
+
+        let flagStyle = NSAttributeDescription()
+        flagStyle.name = "flagStyle"
+        flagStyle.attributeType = .stringAttributeType
+        flagStyle.isOptional = true
+        properties.append(flagStyle)
+
+        let flagLength = NSAttributeDescription()
+        flagLength.name = "flagLength"
+        flagLength.attributeType = .stringAttributeType
+        flagLength.isOptional = true
+        properties.append(flagLength)
+
         // Inbox tracking
         let dateAddedToInbox = NSAttributeDescription()
         dateAddedToInbox.name = "dateAddedToInbox"
@@ -1092,6 +1200,51 @@ public final class PersistenceController: @unchecked Sendable {
         color.attributeType = .stringAttributeType
         color.isOptional = true
         properties.append(color)
+
+        // Hierarchy fields
+        let parentID = NSAttributeDescription()
+        parentID.name = "parentID"
+        parentID.attributeType = .UUIDAttributeType
+        parentID.isOptional = true
+        properties.append(parentID)
+
+        let canonicalPath = NSAttributeDescription()
+        canonicalPath.name = "canonicalPath"
+        canonicalPath.attributeType = .stringAttributeType
+        canonicalPath.isOptional = true
+        properties.append(canonicalPath)
+
+        let colorLight = NSAttributeDescription()
+        colorLight.name = "colorLight"
+        colorLight.attributeType = .stringAttributeType
+        colorLight.isOptional = true
+        properties.append(colorLight)
+
+        let colorDark = NSAttributeDescription()
+        colorDark.name = "colorDark"
+        colorDark.attributeType = .stringAttributeType
+        colorDark.isOptional = true
+        properties.append(colorDark)
+
+        let useCount = NSAttributeDescription()
+        useCount.name = "useCount"
+        useCount.attributeType = .integer32AttributeType
+        useCount.isOptional = false
+        useCount.defaultValue = Int32(0)
+        properties.append(useCount)
+
+        let lastUsedAt = NSAttributeDescription()
+        lastUsedAt.name = "lastUsedAt"
+        lastUsedAt.attributeType = .dateAttributeType
+        lastUsedAt.isOptional = true
+        properties.append(lastUsedAt)
+
+        let sortOrder = NSAttributeDescription()
+        sortOrder.name = "sortOrder"
+        sortOrder.attributeType = .integer16AttributeType
+        sortOrder.isOptional = false
+        sortOrder.defaultValue = Int16(0)
+        properties.append(sortOrder)
 
         entity.properties = properties
         return entity
@@ -2096,6 +2249,37 @@ public final class PersistenceController: @unchecked Sendable {
         collection.properties.append(collectionToSmartSearch)
     }
 
+    /// Set up SmartSearch <-> Collection relationship for organizing feeds into collections within Inbox.
+    /// A feed (SmartSearch with feedsToInbox=true) can optionally belong to a collection in the Inbox.
+    private static func setupSmartSearchInboxParentRelationship(
+        smartSearch: NSEntityDescription,
+        collection: NSEntityDescription
+    ) {
+        // SmartSearch -> inboxParentCollection (many-to-one, optional)
+        let smartSearchToInboxParent = NSRelationshipDescription()
+        smartSearchToInboxParent.name = "inboxParentCollection"
+        smartSearchToInboxParent.destinationEntity = collection
+        smartSearchToInboxParent.maxCount = 1
+        smartSearchToInboxParent.isOptional = true
+        smartSearchToInboxParent.deleteRule = .nullifyDeleteRule  // Nullify when collection is deleted
+
+        // Collection -> inboxFeeds (one-to-many, optional)
+        let collectionToInboxFeeds = NSRelationshipDescription()
+        collectionToInboxFeeds.name = "inboxFeeds"
+        collectionToInboxFeeds.destinationEntity = smartSearch
+        collectionToInboxFeeds.maxCount = 0  // Many
+        collectionToInboxFeeds.isOptional = true
+        collectionToInboxFeeds.deleteRule = .nullifyDeleteRule  // Nullify when smart search is deleted
+
+        // Set inverse relationships
+        smartSearchToInboxParent.inverseRelationship = collectionToInboxFeeds
+        collectionToInboxFeeds.inverseRelationship = smartSearchToInboxParent
+
+        // Add to entities
+        smartSearch.properties.append(smartSearchToInboxParent)
+        collection.properties.append(collectionToInboxFeeds)
+    }
+
     // ADR-016: Library <-> Last Search Collection relationship
     private static func setupLibraryLastSearchRelationship(
         library: NSEntityDescription,
@@ -2259,6 +2443,23 @@ public final class PersistenceController: @unchecked Sendable {
         pubToTags.inverseRelationship = tagToPubs
         tagToPubs.inverseRelationship = pubToTags
 
+        // Tag hierarchy (self-referential parent/children)
+        let tagToParent = NSRelationshipDescription()
+        tagToParent.name = "parentTag"
+        tagToParent.destinationEntity = tag
+        tagToParent.maxCount = 1
+        tagToParent.isOptional = true
+        tagToParent.deleteRule = .nullifyDeleteRule
+
+        let tagToChildren = NSRelationshipDescription()
+        tagToChildren.name = "childTags"
+        tagToChildren.destinationEntity = tag
+        tagToChildren.isOptional = true
+        tagToChildren.deleteRule = .cascadeDeleteRule
+
+        tagToParent.inverseRelationship = tagToChildren
+        tagToChildren.inverseRelationship = tagToParent
+
         // Publication <-> Collection (many-to-many)
         let pubToCollections = NSRelationshipDescription()
         pubToCollections.name = "collections"
@@ -2280,7 +2481,7 @@ public final class PersistenceController: @unchecked Sendable {
         author.properties.append(authorToPAs)
         publicationAuthor.properties.append(contentsOf: [authorToPub, paToAuthor])
         linkedFile.properties.append(fileToPub)
-        tag.properties.append(tagToPubs)
+        tag.properties.append(contentsOf: [tagToPubs, tagToParent, tagToChildren])
         collection.properties.append(collectionToPubs)
     }
 

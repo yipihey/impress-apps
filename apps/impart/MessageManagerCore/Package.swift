@@ -21,7 +21,10 @@ let package = Package(
         .package(path: "../ImpartRustCore"),
         .package(path: "../../../packages/ImpressAutomation"),
         .package(path: "../../../packages/ImpressAI"),
-        .package(path: "../../../packages/ImpressKeyboard")
+        .package(path: "../../../packages/ImpressKeyboard"),
+        .package(path: "../../../packages/ImpressSidebar"),
+        .package(path: "../../../packages/ImpressLogging"),
+        .package(path: "../../../packages/ImpressOperationQueue")
     ],
     targets: [
         .target(
@@ -33,7 +36,10 @@ let package = Package(
                 "ImpartRustCore",
                 "ImpressAutomation",
                 "ImpressAI",
-                "ImpressKeyboard"
+                "ImpressKeyboard",
+                "ImpressSidebar",
+                "ImpressLogging",
+                "ImpressOperationQueue"
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")

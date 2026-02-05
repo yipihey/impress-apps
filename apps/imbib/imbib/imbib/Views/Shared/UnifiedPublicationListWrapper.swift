@@ -10,6 +10,7 @@ import PublicationManagerCore
 import CoreData
 import OSLog
 import ImpressKeyboard
+import ImpressFTUI
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
 
@@ -21,6 +22,7 @@ enum PublicationSource: Hashable {
     case smartSearch(CDSmartSearch)
     case lastSearch(CDCollection)  // ADR-016: Ad-hoc search results from "Last Search" collection
     case collection(CDCollection)  // Regular or smart collection
+    case flagged(String?)           // Flagged publications (nil = any flag, or specific color name)
 
     var id: UUID {
         switch self {
@@ -28,6 +30,15 @@ enum PublicationSource: Hashable {
         case .smartSearch(let smartSearch): return smartSearch.id
         case .lastSearch(let collection): return collection.id
         case .collection(let collection): return collection.id
+        case .flagged(let color):
+            // Use a fixed namespace UUID for flagged virtual sources
+            switch color {
+            case "red":   return UUID(uuidString: "F1A99ED0-0001-4000-8000-000000000000")!
+            case "amber": return UUID(uuidString: "F1A99ED0-0002-4000-8000-000000000000")!
+            case "blue":  return UUID(uuidString: "F1A99ED0-0003-4000-8000-000000000000")!
+            case "gray":  return UUID(uuidString: "F1A99ED0-0004-4000-8000-000000000000")!
+            default:      return UUID(uuidString: "F1A99ED0-0000-4000-8000-000000000000")!
+            }
         }
     }
 
@@ -49,6 +60,24 @@ enum PublicationSource: Hashable {
     var isCollection: Bool {
         if case .collection = self { return true }
         return false
+    }
+
+    var isFlagged: Bool {
+        if case .flagged = self { return true }
+        return false
+    }
+
+    /// Whether the current user can edit content in this source.
+    /// Returns false for read-only shared libraries.
+    var canEdit: Bool {
+        switch self {
+        case .library(let library):
+            return library.canEditLibrary
+        case .collection(let collection):
+            return collection.library?.canEditLibrary ?? true
+        case .smartSearch, .lastSearch, .flagged:
+            return true
+        }
     }
 }
 
@@ -143,6 +172,30 @@ struct UnifiedPublicationListWrapper: View {
     /// until the user navigates away or explicitly refreshes.
     @State private var unreadFilterSnapshot: Set<UUID>?
 
+    // Import toast state
+    @State private var importToastMessage: String?
+    @State private var importToastCount: Int = 0
+
+    // Tag input state
+    @State private var isTagInputActive = false
+    @State private var isTagDeleteActive = false
+    @State private var tagTargetIDs: Set<UUID> = []
+    @State private var tagCompletions: [TagCompletion] = []
+    @State private var tagAutocomplete: TagAutocompleteService?
+
+    // Flag input state
+    @State private var isFlagInputActive = false
+    @State private var flagTargetIDs: Set<UUID> = []
+
+    // Filter input state
+    @State private var isFilterActive = false
+    @State private var filterText = ""
+    @State private var activeFilter: LocalFilter?
+
+    /// Version counter bumped when publication data changes in-place (flag/tag mutations)
+    /// Passed to PublicationListView to force row data cache rebuild.
+    @State private var listDataVersion: Int = 0
+
     /// Focus state for keyboard navigation - list needs focus to receive key events
     @FocusState private var isListFocused: Bool
 
@@ -159,6 +212,8 @@ struct UnifiedPublicationListWrapper: View {
             return collection.managedObjectContext != nil && !collection.isDeleted
         case .collection(let collection):
             return collection.managedObjectContext != nil && !collection.isDeleted
+        case .flagged:
+            return true  // Virtual source, always valid
         }
     }
 
@@ -175,6 +230,9 @@ struct UnifiedPublicationListWrapper: View {
         case .collection(let collection):
             guard collection.managedObjectContext != nil else { return "" }
             return collection.name
+        case .flagged(let color):
+            if let color { return "\(color.capitalized) Flagged" }
+            return "Flagged"
         }
     }
 
@@ -189,6 +247,8 @@ struct UnifiedPublicationListWrapper: View {
             return collection.library ?? collection.owningLibrary
         case .collection(let collection):
             return collection.effectiveLibrary
+        case .flagged:
+            return libraryManager.activeLibrary
         }
     }
 
@@ -202,6 +262,8 @@ struct UnifiedPublicationListWrapper: View {
             return .lastSearch(collection.id)
         case .collection(let collection):
             return .collection(collection.id)
+        case .flagged:
+            return .flagged(source.id)
         }
     }
 
@@ -215,6 +277,9 @@ struct UnifiedPublicationListWrapper: View {
             return "No Results"
         case .collection:
             return "No Publications"
+        case .flagged(let color):
+            if let color { return "No \(color.capitalized) Flagged Papers" }
+            return "No Flagged Papers"
         }
     }
 
@@ -228,6 +293,8 @@ struct UnifiedPublicationListWrapper: View {
             return "Enter a query to search across multiple sources."
         case .collection:
             return "Drag publications to this collection."
+        case .flagged:
+            return "Flag papers to see them here."
         }
     }
 
@@ -247,6 +314,8 @@ struct UnifiedPublicationListWrapper: View {
             return false
         case .collection:
             // Collections are not inbox views
+            return false
+        case .flagged:
             return false
         }
     }
@@ -269,6 +338,30 @@ struct UnifiedPublicationListWrapper: View {
             Color.clear
         } else {
             bodyContent
+                .overlay(alignment: .bottom) {
+                    importToast
+                }
+        }
+    }
+
+    // MARK: - Import Toast
+
+    @ViewBuilder
+    private var importToast: some View {
+        if let message = importToastMessage {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .symbolEffect(.bounce, value: importToastCount)
+                Text(message)
+                    .font(.callout)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
+            .padding(.bottom, 20)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -305,6 +398,19 @@ struct UnifiedPublicationListWrapper: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     isListFocused = true
                 }
+            }
+            // Restore list focus when any input overlay dismisses
+            .onChange(of: isFlagInputActive) { _, active in
+                if !active { restoreListFocus() }
+            }
+            .onChange(of: isTagInputActive) { _, active in
+                if !active { restoreListFocus() }
+            }
+            .onChange(of: isTagDeleteActive) { _, active in
+                if !active { restoreListFocus() }
+            }
+            .onChange(of: isFilterActive) { _, active in
+                if !active { restoreListFocus() }
             }
             .onChange(of: filterMode) { _, newMode in
                 // Capture snapshot when switching TO unread filter (Apple Mail behavior)
@@ -361,6 +467,20 @@ struct UnifiedPublicationListWrapper: View {
                 if let firstID = importedIDs.first,
                    let firstPub = publications.first(where: { $0.id == firstID }) {
                     selectedPublication = firstPub
+                }
+
+                // Show import success toast
+                let count = importedIDs.count
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    importToastMessage = count == 1 ? "1 paper imported" : "\(count) papers imported"
+                    importToastCount += 1
+                }
+
+                // Auto-dismiss toast after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        importToastMessage = nil
+                    }
                 }
 
                 // Scroll to selection and show PDF tab after a brief delay to allow UI to update
@@ -473,7 +593,118 @@ struct UnifiedPublicationListWrapper: View {
         } else if let error {
             errorView(error)
         } else {
-            listView
+            VStack(spacing: 0) {
+                // Read-only banner for shared libraries
+                if !sourceCanEdit {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                        Text("Read Only")
+                            .font(.caption)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .foregroundStyle(.secondary)
+                }
+
+                listView
+
+                // Flag input mode overlay
+                if isFlagInputActive {
+                    FlagInput(
+                        isPresented: $isFlagInputActive,
+                        onCommit: { flag in
+                            commitFlag(flag)
+                        },
+                        onCancel: {
+                            flagTargetIDs = []
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Tag input mode overlay (at bottom, like flag input)
+                if isTagInputActive {
+                    TagInput(
+                        isPresented: $isTagInputActive,
+                        completions: tagCompletions,
+                        onCommit: { path in
+                            commitTag(path: path)
+                        },
+                        onCancel: {
+                            tagTargetIDs = []
+                        },
+                        onTextChanged: { text in
+                            updateTagCompletions(text)
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Tag delete mode overlay
+                if isTagDeleteActive, let pubID = selectedPublicationIDs.first,
+                   let pub = publications.first(where: { $0.id == pubID }) {
+                    let rowData = PublicationRowData(publication: pub)
+                    TagDeleteMode(
+                        isPresented: $isTagDeleteActive,
+                        tags: rowData?.tagDisplays ?? [],
+                        onRemoveTag: { tagID in
+                            handleRemoveTag(pubID: pubID, tagID: tagID)
+                        },
+                        onCancel: {}
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Filter input mode overlay
+                if isFilterActive {
+                    FilterInput(
+                        isPresented: $isFilterActive,
+                        currentText: filterText,
+                        onTextChanged: { text in
+                            filterText = text
+                            applyFilterText(text)
+                        },
+                        onCancel: {
+                            clearFilter()
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Active filter indicator (shown when filter input is dismissed but filter is active)
+                if !isFilterActive, let filter = activeFilter, !filter.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.purple)
+                        Text(filterText)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            clearFilter()
+                        } label: {
+                            Text("Clear")
+                                .font(.caption)
+                                .foregroundStyle(.purple)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isFilterActive = true
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -487,6 +718,11 @@ struct UnifiedPublicationListWrapper: View {
                 Task { await refreshFromNetwork() }
             }
         }
+    }
+
+    /// Whether the current source is editable (false for read-only shared libraries)
+    private var sourceCanEdit: Bool {
+        source.canEdit
     }
 
     private var listView: some View {
@@ -509,7 +745,7 @@ struct UnifiedPublicationListWrapper: View {
             sortOrder: $currentSortOrder,
             sortAscending: $currentSortAscending,
             recommendationScores: $recommendationScores,
-            onDelete: { ids in
+            onDelete: !sourceCanEdit ? nil : { ids in
                 // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
                 // Use isDeleted/isFault check to avoid crash when accessing id on invalid objects
                 publications.removeAll { pub in
@@ -529,11 +765,11 @@ struct UnifiedPublicationListWrapper: View {
             onCopy: { ids in
                 await libraryViewModel.copyToClipboard(ids)
             },
-            onCut: { ids in
+            onCut: !sourceCanEdit ? nil : { ids in
                 await libraryViewModel.cutToClipboard(ids)
                 refreshPublicationsList()
             },
-            onPaste: {
+            onPaste: !sourceCanEdit ? nil : {
                 try? await libraryViewModel.pasteFromClipboard()
                 refreshPublicationsList()
             },
@@ -544,14 +780,14 @@ struct UnifiedPublicationListWrapper: View {
             onAddToCollection: { ids, collection in
                 await libraryViewModel.addToCollection(ids, collection: collection)
             },
-            onRemoveFromAllCollections: { ids in
+            onRemoveFromAllCollections: !sourceCanEdit ? nil : { ids in
                 await libraryViewModel.removeFromAllCollections(ids)
             },
             onImport: nil,
             onOpenPDF: { publication in
                 openPDF(for: publication)
             },
-            onFileDrop: { publication, providers in
+            onFileDrop: !sourceCanEdit ? nil : { publication, providers in
                 Task {
                     await dropHandler.handleDrop(
                         providers: providers,
@@ -605,6 +841,18 @@ struct UnifiedPublicationListWrapper: View {
             onToggleStar: { ids in
                 await toggleStarForIDs(ids)
             },
+            onSetFlag: { ids, color in
+                await setFlagForIDs(ids, color: color)
+            },
+            onClearFlag: { ids in
+                await clearFlagForIDs(ids)
+            },
+            onAddTag: { ids in
+                handleAddTag(ids)
+            },
+            onRemoveTag: { pubID, tagID in
+                handleRemoveTag(pubID: pubID, tagID: tagID)
+            },
             onMuteAuthor: isInboxView ? { authorName in
                 muteAuthor(authorName)
             } : nil,
@@ -616,6 +864,7 @@ struct UnifiedPublicationListWrapper: View {
                 await refreshFromNetwork()
             },
             isRefreshing: isLoading || isBackgroundRefreshing,
+            dataVersion: listDataVersion,
             // External flash trigger for keyboard shortcuts
             externalTriageFlash: $keyboardTriageFlash
         )
@@ -643,6 +892,11 @@ struct UnifiedPublicationListWrapper: View {
         case .allLibraries, .inbox, .everything:
             publications = fetchPublications(for: filterScope)
             logger.info("Refreshed \(filterScope.rawValue): \(self.publications.count) items")
+        }
+
+        // Apply local filter syntax if active
+        if let filter = activeFilter, !filter.isEmpty {
+            publications = LocalFilterService.shared.apply(filter, to: publications)
         }
     }
 
@@ -733,8 +987,9 @@ struct UnifiedPublicationListWrapper: View {
                     // Execute predicate for smart collections
                     result = await libraryViewModel.executeSmartCollection(collection)
                 } else {
-                    // For static collections, use direct relationship
-                    result = (collection.publications ?? [])
+                    // For static collections, include publications from this collection
+                    // AND all descendant subcollections
+                    result = Array(collection.allPublicationsIncludingDescendants)
                         .filter { !$0.isDeleted }
                 }
 
@@ -748,10 +1003,38 @@ struct UnifiedPublicationListWrapper: View {
                 }
 
                 await MainActor.run {
-                    publications = result.sorted { $0.dateAdded > $1.dateAdded }
+                    var sorted = result.sorted { $0.dateAdded > $1.dateAdded }
+                    if let filter = activeFilter, !filter.isEmpty {
+                        sorted = LocalFilterService.shared.apply(filter, to: sorted)
+                    }
+                    publications = sorted
                     logger.info("Refreshed collection: \(self.publications.count) items")
                 }
             }
+
+        case .flagged(let colorName):
+            // Fetch flagged publications across all libraries
+            let context = PersistenceController.shared.viewContext
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            if let colorName {
+                request.predicate = NSPredicate(format: "flagColor == %@", colorName)
+            } else {
+                request.predicate = NSPredicate(format: "flagColor != nil")
+            }
+            request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
+            var result = (try? context.fetch(request))?.filter { !$0.isDeleted } ?? []
+
+            // Apply filter mode
+            if filterMode == .unread {
+                if let snapshot = unreadFilterSnapshot {
+                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
+                } else {
+                    result = result.filter { !$0.isRead }
+                }
+            }
+
+            publications = result
+            logger.info("Refreshed flagged(\(colorName ?? "any")): \(self.publications.count) items")
         }
     }
 
@@ -921,6 +1204,14 @@ struct UnifiedPublicationListWrapper: View {
             await MainActor.run {
                 refreshPublicationsList()
             }
+
+        case .flagged:
+            // For flagged, refresh just re-reads from Core Data
+            logger.info("Flagged refresh requested")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList()
+            }
         }
 
         isLoading = false
@@ -1024,6 +1315,12 @@ struct UnifiedPublicationListWrapper: View {
     private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
         guard !TextFieldFocusDetection.isTextFieldFocused() else { return .ignored }
 
+        // ESC: clear active filter if present
+        if press.key == .escape, activeFilter != nil, !isFilterActive {
+            clearFilter()
+            return .handled
+        }
+
         let store = KeyboardShortcutsStore.shared
 
         // j/k for paper navigation in list
@@ -1102,7 +1399,31 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        // T key: Toggle star (works anywhere)
+        // Flag mode (f): enter flag input for selected publications
+        if store.matches(press, action: "flagMode") {
+            let result = handleFlagKey()
+            if result == .handled { return .handled }
+        }
+
+        // Tag mode (t): enter tag input for selected publications
+        if store.matches(press, action: "tagMode") {
+            let result = handleTagKey()
+            if result == .handled { return .handled }
+        }
+
+        // Tag delete mode (T): enter tag removal for selected publications
+        if store.matches(press, action: "tagDeleteMode") {
+            let result = handleTagDeleteKey()
+            if result == .handled { return .handled }
+        }
+
+        // Filter mode (/): enter local filter syntax
+        if store.matches(press, action: "filterMode") {
+            let result = handleFilterKey()
+            if result == .handled { return .handled }
+        }
+
+        // Toggle star (*): works anywhere
         if store.matches(press, action: "inboxToggleStar") {
             if !selectedPublicationIDs.isEmpty {
                 toggleStarForSelected()
@@ -1235,6 +1556,229 @@ struct UnifiedPublicationListWrapper: View {
         }
         PersistenceController.shared.save()
         refreshPublicationsList()
+    }
+
+    /// Set flag for publications by IDs
+    private func setFlagForIDs(_ ids: Set<UUID>, color: FlagColor) async {
+        guard !ids.isEmpty else { return }
+
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.flag = .simple(color)
+            }
+        }
+        PersistenceController.shared.save()
+        listDataVersion += 1
+        NotificationCenter.default.post(name: .flagDidChange, object: nil)
+        refreshPublicationsList()
+    }
+
+    /// Clear flag for publications by IDs
+    private func clearFlagForIDs(_ ids: Set<UUID>) async {
+        guard !ids.isEmpty else { return }
+
+        for id in ids {
+            if let pub = publications.first(where: { $0.id == id }) {
+                pub.flag = nil
+            }
+        }
+        PersistenceController.shared.save()
+        listDataVersion += 1
+        NotificationCenter.default.post(name: .flagDidChange, object: nil)
+        refreshPublicationsList()
+    }
+
+    /// Handle adding a tag (triggers tag input mode for the given publication IDs)
+    private func handleAddTag(_ ids: Set<UUID>) {
+        // Tag input is handled via keyboard mode (t key) in the wrapper;
+        // context menu "Add Tag..." opens it for the specified publications.
+        tagTargetIDs = ids
+        isTagInputActive = true
+    }
+
+    /// Handle removing a tag from a publication
+    private func handleRemoveTag(pubID: UUID, tagID: UUID) {
+        guard let pub = publications.first(where: { $0.id == pubID }) else { return }
+        Task {
+            await libraryViewModel.repository.removeTag(tagID, from: pub)
+            listDataVersion += 1
+            refreshPublicationsList()
+        }
+    }
+
+    // MARK: - Focus Restoration
+
+    /// Restore focus to the publication list after an input overlay dismisses.
+    /// Uses a short delay to allow SwiftUI to finish removing the overlay's focused TextField.
+    private func restoreListFocus() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            isListFocused = true
+        }
+    }
+
+    // MARK: - Filter Keyboard Handlers
+
+    /// Handle `/` key: enter filter mode
+    private func handleFilterKey() -> KeyPress.Result {
+        guard !isFlagInputActive && !isTagInputActive && !isTagDeleteActive && !isFilterActive else {
+            return .ignored
+        }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isFilterActive = true
+        }
+        return .handled
+    }
+
+    /// Apply filter text to the publication list (called live as user types)
+    private func applyFilterText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            activeFilter = nil
+        } else {
+            activeFilter = LocalFilterService.shared.parse(trimmed)
+        }
+        refreshPublicationsList()
+    }
+
+    /// Clear the active filter and reset filter text
+    private func clearFilter() {
+        filterText = ""
+        activeFilter = nil
+        refreshPublicationsList()
+    }
+
+    // MARK: - Flag Keyboard Handlers
+
+    /// Handle `f` key: enter flag input mode for selected publications
+    private func handleFlagKey() -> KeyPress.Result {
+        guard !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isFlagInputActive && !isTagInputActive && !isTagDeleteActive && !isFilterActive else { return .ignored }
+
+        flagTargetIDs = selectedPublicationIDs
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isFlagInputActive = true
+        }
+        return .handled
+    }
+
+    /// Commit a flag to the target publications
+    private func commitFlag(_ flag: PublicationFlag) {
+        let ids = flagTargetIDs
+        guard let firstID = ids.first else { return }
+
+        // Show triage flash with the flag's color
+        let flashColor: Color = switch flag.color {
+        case .red: .red
+        case .amber: .orange
+        case .blue: .blue
+        case .gray: .gray
+        }
+
+        withAnimation(.easeIn(duration: 0.1)) {
+            keyboardTriageFlash = (firstID, flashColor)
+        }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    keyboardTriageFlash = nil
+                }
+
+                for id in ids {
+                    if let pub = publications.first(where: { $0.id == id }) {
+                        pub.flag = flag
+                    }
+                }
+                PersistenceController.shared.save()
+                listDataVersion += 1
+                NotificationCenter.default.post(name: .flagDidChange, object: nil)
+                flagTargetIDs = []
+                refreshPublicationsList()
+            }
+        }
+    }
+
+    // MARK: - Tag Keyboard Handlers
+
+    /// Handle `t` key: enter tag input mode for selected publications
+    private func handleTagKey() -> KeyPress.Result {
+        guard !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isFlagInputActive && !isTagInputActive && !isTagDeleteActive && !isFilterActive else { return .ignored }
+
+        tagTargetIDs = selectedPublicationIDs
+        tagCompletions = []
+
+        // Lazily initialize autocomplete service
+        if tagAutocomplete == nil {
+            tagAutocomplete = TagAutocompleteService(persistenceController: PersistenceController.shared)
+        }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isTagInputActive = true
+        }
+        return .handled
+    }
+
+    /// Handle `T` key: enter tag delete mode for selected publication
+    private func handleTagDeleteKey() -> KeyPress.Result {
+        guard !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isFlagInputActive && !isTagInputActive && !isTagDeleteActive && !isFilterActive else { return .ignored }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isTagDeleteActive = true
+        }
+        return .handled
+    }
+
+    /// Commit a tag path to the target publications
+    private func commitTag(path: String) {
+        // Capture @State values BEFORE entering the async Task.
+        // TagInput dismisses (clearing tagTargetIDs) before the Task body starts,
+        // so reading @State inside the Task would see empty IDs.
+        let targetIDs = tagTargetIDs
+        let pubs = publications
+
+        logInfo("commitTag: captured \(targetIDs.count) targets, resolving '\(path)'", category: "tags")
+
+        Task {
+            let resolvedPath = TagAliasStore.shared.resolve(path) ?? path
+            let repo = libraryViewModel.repository
+
+            let tag = await repo.findOrCreateTagByPath(resolvedPath)
+
+            logInfo("commitTag: tag '\(tag.canonicalPath ?? tag.name)' id=\(tag.id), applying to \(targetIDs.count) pubs", category: "tags")
+
+            var applied = 0
+            var missed = 0
+            for id in targetIDs {
+                if let pub = pubs.first(where: { $0.id == id }) {
+                    await repo.addTag(tag, to: pub)
+                    applied += 1
+
+                    let tagCount = pub.tags?.count ?? 0
+                    logInfo("commitTag: after addTag, '\(pub.citeKey)' has \(tagCount) tags", category: "tags")
+                } else {
+                    logWarning("commitTag: publication \(id) not found in publications array", category: "tags")
+                    missed += 1
+                }
+            }
+
+            logInfo("commitTag: done — applied=\(applied), missed=\(missed)", category: "tags")
+
+            tagAutocomplete?.invalidate()
+            tagTargetIDs = []
+            listDataVersion += 1
+            refreshPublicationsList()
+        }
+    }
+
+    /// Update tag completions as the user types
+    private func updateTagCompletions(_ text: String) {
+        guard let autocomplete = tagAutocomplete else { return }
+        tagCompletions = autocomplete.complete(text)
     }
 
     /// Compute the visual order of publications synchronously.
@@ -1519,6 +2063,12 @@ struct UnifiedPublicationListWrapper: View {
                 return .regularLibrary(lib)
             }
             return .inboxLibrary
+        case .flagged:
+            // Flagged is a cross-library virtual source; use active library for triage
+            if let lib = libraryManager.activeLibrary {
+                return .regularLibrary(lib)
+            }
+            return .inboxLibrary
         }
     }
 
@@ -1621,6 +2171,9 @@ struct UnifiedPublicationListWrapper: View {
             let unread = (collection.publications ?? [])
                 .filter { !$0.isDeleted && !$0.isRead }
             return Set(unread.map { $0.id })
+        case .flagged:
+            // For flagged view, use current publications list for snapshot
+            return Set(publications.filter { !$0.isRead }.map { $0.id })
         }
     }
 }

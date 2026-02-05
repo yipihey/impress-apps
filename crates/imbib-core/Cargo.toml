@@ -21,6 +21,8 @@ embeddings = ["fastembed"]  # Optional: semantic search requires ~100MB model
 impress-domain = { workspace = true }
 impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
+impress-flags = { workspace = true }
+impress-tags = { workspace = true }
 
 # UniFFI for Swift/Kotlin bindings (optional, native only)
 uniffi = { workspace = true, features = ["tokio"], optional = true }

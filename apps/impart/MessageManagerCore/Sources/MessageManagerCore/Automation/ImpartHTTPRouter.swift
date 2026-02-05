@@ -16,18 +16,30 @@ private let routerLogger = Logger(subsystem: "com.imbib.impart", category: "http
 
 /// Routes HTTP requests to appropriate handlers.
 ///
-/// API Endpoints:
+/// API Endpoints (GET):
 /// - `GET /api/status` - Server health
 /// - `GET /api/accounts` - List accounts
 /// - `GET /api/mailboxes` - List mailboxes
 /// - `GET /api/messages` - List messages in mailbox
 /// - `GET /api/messages/{id}` - Get message detail
-/// - `POST /api/messages/send` - Send message (future)
-/// - Research Conversation endpoints:
 /// - `GET /api/research/conversations` - List research conversations
 /// - `GET /api/research/conversations/{id}` - Get conversation with messages
 /// - `GET /api/artifacts/{encodedUri}` - Resolve artifact reference
 /// - `GET /api/provenance/trace/{messageId}` - Trace provenance chain
+/// - `GET /api/logs` - Query in-app log entries
+///
+/// API Endpoints (POST):
+/// - `POST /api/messages/send` - Send message
+/// - `POST /api/research/conversations` - Create research conversation
+/// - `POST /api/research/conversations/{id}/messages` - Add message to conversation
+/// - `POST /api/research/conversations/{id}/branch` - Branch conversation from message
+/// - `POST /api/research/conversations/{id}/artifacts` - Record artifact reference
+/// - `POST /api/research/conversations/{id}/decisions` - Record decision
+///
+/// API Endpoints (PATCH):
+/// - `PATCH /api/research/conversations/{id}` - Update conversation metadata
+/// - `PATCH /api/research/conversations/{id}/archive` - Archive conversation
+///
 /// - `OPTIONS /*` - CORS preflight
 public actor ImpartHTTPRouter: HTTPRouter {
 
@@ -121,12 +133,78 @@ public actor ImpartHTTPRouter: HTTPRouter {
                 let messageId = String(path.dropFirst("/api/provenance/trace/".count))
                 return await handleProvenanceTrace(messageId: messageId)
             }
+
+            if path == "/api/logs" {
+                return await LogEndpointHandler.handle(request)
+            }
         }
 
         // POST endpoints
         if request.method == "POST" {
             if path == "/api/messages/send" {
                 return await handleSendMessage(request)
+            }
+
+            // Research conversation POST endpoints
+            if path == "/api/research/conversations" {
+                return await handleCreateResearchConversation(request)
+            }
+
+            // POST /api/research/conversations/{id}/messages
+            if path.hasPrefix("/api/research/conversations/") && path.hasSuffix("/messages") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count).dropLast("/messages".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleAddResearchMessage(conversationId: conversationId, request: request)
+            }
+
+            // POST /api/research/conversations/{id}/branch
+            if path.hasPrefix("/api/research/conversations/") && path.hasSuffix("/branch") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count).dropLast("/branch".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleBranchConversation(conversationId: conversationId, request: request)
+            }
+
+            // POST /api/research/conversations/{id}/artifacts
+            if path.hasPrefix("/api/research/conversations/") && path.hasSuffix("/artifacts") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count).dropLast("/artifacts".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleRecordArtifact(conversationId: conversationId, request: request)
+            }
+
+            // POST /api/research/conversations/{id}/decisions
+            if path.hasPrefix("/api/research/conversations/") && path.hasSuffix("/decisions") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count).dropLast("/decisions".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleRecordDecision(conversationId: conversationId, request: request)
+            }
+        }
+
+        // PATCH endpoints
+        if request.method == "PATCH" {
+            // PATCH /api/research/conversations/{id}/archive
+            if path.hasPrefix("/api/research/conversations/") && path.hasSuffix("/archive") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count).dropLast("/archive".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleArchiveConversation(conversationId: conversationId)
+            }
+
+            // PATCH /api/research/conversations/{id}
+            if path.hasPrefix("/api/research/conversations/") {
+                let segment = String(request.path.dropFirst("/api/research/conversations/".count))
+                guard let conversationId = UUID(uuidString: segment) else {
+                    return .badRequest("Invalid conversation ID")
+                }
+                return await handleUpdateResearchConversation(conversationId: conversationId, request: request)
             }
         }
 
@@ -719,6 +797,250 @@ public actor ImpartHTTPRouter: HTTPRouter {
         ])
     }
 
+    // MARK: - Research Conversation Write Handlers
+
+    /// POST /api/research/conversations
+    /// Create a new research conversation.
+    private func handleCreateResearchConversation(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let title = json["title"] as? String, !title.isEmpty else {
+            return .badRequest("Missing 'title' field")
+        }
+
+        let participants = json["participants"] as? [String] ?? []
+        let conversationId = UUID()
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .create(title: title, participants: participants),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued create conversation: \(conversationId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "title": title,
+            "participants": participants,
+            "message": "Conversation creation queued"
+        ], status: 201)
+    }
+
+    /// POST /api/research/conversations/{id}/messages
+    /// Add a message to a research conversation.
+    private func handleAddResearchMessage(conversationId: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let senderRole = json["senderRole"] as? String,
+              ["human", "counsel", "system"].contains(senderRole) else {
+            return .badRequest("Missing or invalid 'senderRole' field (human, counsel, system)")
+        }
+
+        guard let senderId = json["senderId"] as? String, !senderId.isEmpty else {
+            return .badRequest("Missing 'senderId' field")
+        }
+
+        guard let content = json["content"] as? String, !content.isEmpty else {
+            return .badRequest("Missing 'content' field")
+        }
+
+        let causationId = (json["causationId"] as? String).flatMap { UUID(uuidString: $0) }
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .addMessage(senderRole: senderRole, senderId: senderId, content: content, causationId: causationId),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued add message to conversation: \(conversationId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "senderRole": senderRole,
+            "senderId": senderId,
+            "message": "Message addition queued"
+        ], status: 201)
+    }
+
+    /// POST /api/research/conversations/{id}/branch
+    /// Branch a conversation from a specific message.
+    private func handleBranchConversation(conversationId: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let messageIdStr = json["fromMessageId"] as? String,
+              let fromMessageId = UUID(uuidString: messageIdStr) else {
+            return .badRequest("Missing or invalid 'fromMessageId' field")
+        }
+
+        guard let title = json["title"] as? String, !title.isEmpty else {
+            return .badRequest("Missing 'title' field")
+        }
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .branch(fromMessageId: fromMessageId, title: title),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued branch conversation: \(conversationId) from message: \(fromMessageId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "fromMessageId": fromMessageId.uuidString,
+            "title": title,
+            "message": "Branch operation queued"
+        ], status: 201)
+    }
+
+    /// PATCH /api/research/conversations/{id}
+    /// Update conversation metadata.
+    private func handleUpdateResearchConversation(conversationId: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        let title = json["title"] as? String
+        let summary = json["summary"] as? String
+        let tags = json["tags"] as? [String]
+
+        if title == nil && summary == nil && tags == nil {
+            return .badRequest("At least one of 'title', 'summary', or 'tags' must be provided")
+        }
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .update(title: title, summary: summary, tags: tags),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued update conversation: \(conversationId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "message": "Update operation queued"
+        ])
+    }
+
+    /// PATCH /api/research/conversations/{id}/archive
+    /// Archive a conversation.
+    private func handleArchiveConversation(conversationId: UUID) async -> HTTPResponse {
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .archive,
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued archive conversation: \(conversationId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "message": "Archive operation queued"
+        ])
+    }
+
+    /// POST /api/research/conversations/{id}/artifacts
+    /// Record an artifact reference.
+    private func handleRecordArtifact(conversationId: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let uri = json["uri"] as? String, !uri.isEmpty else {
+            return .badRequest("Missing 'uri' field")
+        }
+
+        guard let type = json["type"] as? String, !type.isEmpty else {
+            return .badRequest("Missing 'type' field")
+        }
+
+        let displayName = json["displayName"] as? String
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .recordArtifact(uri: uri, type: type, displayName: displayName),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued record artifact for conversation: \(conversationId), uri: \(uri)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "uri": uri,
+            "type": type,
+            "message": "Artifact recording queued"
+        ], status: 201)
+    }
+
+    /// POST /api/research/conversations/{id}/decisions
+    /// Record a decision.
+    private func handleRecordDecision(conversationId: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let description = json["description"] as? String, !description.isEmpty else {
+            return .badRequest("Missing 'description' field")
+        }
+
+        guard let rationale = json["rationale"] as? String, !rationale.isEmpty else {
+            return .badRequest("Missing 'rationale' field")
+        }
+
+        // Queue the operation for UI synchronization
+        await MainActor.run {
+            ConversationRegistry.shared.queueOperation(
+                .recordDecision(description: description, rationale: rationale),
+                for: conversationId
+            )
+        }
+
+        routerLogger.info("Queued record decision for conversation: \(conversationId)")
+
+        return .json([
+            "status": "ok",
+            "conversationId": conversationId.uuidString,
+            "description": description,
+            "message": "Decision recording queued"
+        ], status: 201)
+    }
+
     // MARK: - Helpers
 
     /// CORS preflight response.
@@ -728,7 +1050,7 @@ public actor ImpartHTTPRouter: HTTPRouter {
             statusText: "No Content",
             headers: [
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, Authorization",
                 "Access-Control-Max-Age": "86400"
             ]
@@ -739,18 +1061,29 @@ public actor ImpartHTTPRouter: HTTPRouter {
     private func handleAPIInfo() -> HTTPResponse {
         let info: [String: Any] = [
             "name": "impart HTTP API",
-            "version": "1.0.0",
+            "version": "2.0.0",
             "endpoints": [
+                // GET endpoints
                 "GET /api/status": "Server health and info",
                 "GET /api/accounts": "List configured accounts",
                 "GET /api/mailboxes?account={id}": "List mailboxes for account",
                 "GET /api/messages?mailbox={id}&limit={n}&offset={n}": "List messages in mailbox",
                 "GET /api/messages/{id}": "Get message detail",
-                "POST /api/messages/send": "Send message (body: {accountId, to, cc?, bcc?, subject, body})",
-                "GET /api/research/conversations": "List research conversations",
-                "GET /api/research/conversations/{id}": "Get conversation with messages",
+                "GET /api/research/conversations": "List research conversations (params: limit, offset, includeArchived)",
+                "GET /api/research/conversations/{id}": "Get conversation with messages and statistics",
                 "GET /api/artifacts/{encodedUri}": "Resolve artifact reference",
-                "GET /api/provenance/trace/{eventId}": "Trace provenance chain"
+                "GET /api/provenance/trace/{eventId}": "Trace provenance chain",
+                "GET /api/logs?limit=&level=&category=&search=&after=": "Query in-app log entries",
+                // POST endpoints
+                "POST /api/messages/send": "Send message (body: {accountId, to, cc?, bcc?, subject, body})",
+                "POST /api/research/conversations": "Create conversation (body: {title, participants?})",
+                "POST /api/research/conversations/{id}/messages": "Add message (body: {senderRole, senderId, content, causationId?})",
+                "POST /api/research/conversations/{id}/branch": "Branch conversation (body: {fromMessageId, title})",
+                "POST /api/research/conversations/{id}/artifacts": "Record artifact (body: {uri, type, displayName?})",
+                "POST /api/research/conversations/{id}/decisions": "Record decision (body: {description, rationale})",
+                // PATCH endpoints
+                "PATCH /api/research/conversations/{id}": "Update conversation (body: {title?, summary?, tags?})",
+                "PATCH /api/research/conversations/{id}/archive": "Archive conversation"
             ],
             "port": ImpartHTTPServer.defaultPort,
             "localhost_only": true

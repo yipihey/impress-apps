@@ -13,9 +13,9 @@ struct ImpelApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(client)
-                .onAppear {
+                .task {
                     // Load mock data for development
-                    client.loadMockData()
+                    await client.loadMockData()
                 }
         }
         .commands {
@@ -40,7 +40,7 @@ struct ImpelApp: App {
                 Divider()
 
                 Button("Load Demo Data") {
-                    client.loadMockData()
+                    Task { await client.loadMockData() }
                 }
             }
         }

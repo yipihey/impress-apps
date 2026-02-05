@@ -115,6 +115,49 @@ public enum PaperIdentifier: Codable, Sendable, Hashable {
     }
 }
 
+// MARK: - Flag Result
+
+/// Serializable representation of a paper's flag.
+public struct FlagResult: Codable, Sendable, Hashable {
+    public let color: String    // "red"|"amber"|"blue"|"gray"
+    public let style: String    // "solid"|"dashed"|"dotted"
+    public let length: String   // "full"|"half"|"quarter"
+
+    public init(color: String, style: String = "solid", length: String = "full") {
+        self.color = color
+        self.style = style
+        self.length = length
+    }
+}
+
+// MARK: - Tag Result
+
+/// Serializable representation of a tag.
+public struct TagResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let name: String           // leaf segment
+    public let canonicalPath: String  // full path e.g. "methods/sims"
+    public let parentPath: String?
+    public let useCount: Int
+    public let publicationCount: Int
+
+    public init(
+        id: UUID,
+        name: String,
+        canonicalPath: String,
+        parentPath: String? = nil,
+        useCount: Int = 0,
+        publicationCount: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.canonicalPath = canonicalPath
+        self.parentPath = parentPath
+        self.useCount = useCount
+        self.publicationCount = publicationCount
+    }
+}
+
 // MARK: - Search Filters
 
 /// Filters for library search operations.
@@ -128,6 +171,10 @@ public struct SearchFilters: Codable, Sendable {
     public var libraries: [UUID]?
     public var limit: Int?
     public var offset: Int?
+    public var tags: [String]?
+    public var flagColor: String?
+    public var addedAfter: Date?
+    public var addedBefore: Date?
 
     public init(
         yearFrom: Int? = nil,
@@ -138,7 +185,11 @@ public struct SearchFilters: Codable, Sendable {
         collections: [UUID]? = nil,
         libraries: [UUID]? = nil,
         limit: Int? = nil,
-        offset: Int? = nil
+        offset: Int? = nil,
+        tags: [String]? = nil,
+        flagColor: String? = nil,
+        addedAfter: Date? = nil,
+        addedBefore: Date? = nil
     ) {
         self.yearFrom = yearFrom
         self.yearTo = yearTo
@@ -149,6 +200,10 @@ public struct SearchFilters: Codable, Sendable {
         self.libraries = libraries
         self.limit = limit
         self.offset = offset
+        self.tags = tags
+        self.flagColor = flagColor
+        self.addedAfter = addedAfter
+        self.addedBefore = addedBefore
     }
 }
 
@@ -179,6 +234,12 @@ public struct PaperResult: Codable, Sendable, Identifiable, Hashable {
     public let bibtex: String
     public let webURL: String?
     public let pdfURLs: [String]
+    public let tags: [String]
+    public let flag: FlagResult?
+    public let collectionIDs: [UUID]
+    public let libraryIDs: [UUID]
+    public let notes: String?
+    public let annotationCount: Int
 
     public init(
         id: UUID,
@@ -202,7 +263,13 @@ public struct PaperResult: Codable, Sendable, Identifiable, Hashable {
         dateModified: Date = Date(),
         bibtex: String = "",
         webURL: String? = nil,
-        pdfURLs: [String] = []
+        pdfURLs: [String] = [],
+        tags: [String] = [],
+        flag: FlagResult? = nil,
+        collectionIDs: [UUID] = [],
+        libraryIDs: [UUID] = [],
+        notes: String? = nil,
+        annotationCount: Int = 0
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -226,6 +293,12 @@ public struct PaperResult: Codable, Sendable, Identifiable, Hashable {
         self.bibtex = bibtex
         self.webURL = webURL
         self.pdfURLs = pdfURLs
+        self.tags = tags
+        self.flag = flag
+        self.collectionIDs = collectionIDs
+        self.libraryIDs = libraryIDs
+        self.notes = notes
+        self.annotationCount = annotationCount
     }
 
     /// First author's last name
@@ -276,6 +349,10 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
     public let collectionCount: Int
     public let isDefault: Bool
     public let isInbox: Bool
+    public let isShared: Bool
+    public let isShareOwner: Bool
+    public let participantCount: Int
+    public let canEdit: Bool
 
     public init(
         id: UUID,
@@ -283,7 +360,11 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
         paperCount: Int,
         collectionCount: Int,
         isDefault: Bool = false,
-        isInbox: Bool = false
+        isInbox: Bool = false,
+        isShared: Bool = false,
+        isShareOwner: Bool = false,
+        participantCount: Int = 0,
+        canEdit: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -291,6 +372,10 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
         self.collectionCount = collectionCount
         self.isDefault = isDefault
         self.isInbox = isInbox
+        self.isShared = isShared
+        self.isShareOwner = isShareOwner
+        self.participantCount = participantCount
+        self.canEdit = canEdit
     }
 }
 
@@ -378,6 +463,203 @@ public struct SearchOperationResult: Codable, Sendable {
     }
 }
 
+// MARK: - Collaboration Types
+
+/// Serializable representation of a share participant.
+public struct ParticipantResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: String
+    public let displayName: String?
+    public let email: String?
+    public let permission: String  // "readOnly" | "readWrite"
+    public let isOwner: Bool
+    public let status: String  // "accepted" | "pending" | "removed"
+
+    public init(
+        id: String,
+        displayName: String? = nil,
+        email: String? = nil,
+        permission: String = "readOnly",
+        isOwner: Bool = false,
+        status: String = "accepted"
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.email = email
+        self.permission = permission
+        self.isOwner = isOwner
+        self.status = status
+    }
+}
+
+/// Serializable representation of an activity record.
+public struct ActivityResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let activityType: String  // "added" | "removed" | "annotated" | "commented" | "organized"
+    public let actorDisplayName: String?
+    public let targetTitle: String?
+    public let targetID: UUID?
+    public let detail: String?
+    public let date: Date
+
+    public init(
+        id: UUID,
+        activityType: String,
+        actorDisplayName: String? = nil,
+        targetTitle: String? = nil,
+        targetID: UUID? = nil,
+        detail: String? = nil,
+        date: Date = Date()
+    ) {
+        self.id = id
+        self.activityType = activityType
+        self.actorDisplayName = actorDisplayName
+        self.targetTitle = targetTitle
+        self.targetID = targetID
+        self.detail = detail
+        self.date = date
+    }
+}
+
+/// Serializable representation of a comment.
+public struct CommentResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let text: String
+    public let authorDisplayName: String?
+    public let authorIdentifier: String?
+    public let dateCreated: Date
+    public let dateModified: Date
+    public let parentCommentID: UUID?
+    public let replies: [CommentResult]
+
+    public init(
+        id: UUID,
+        text: String,
+        authorDisplayName: String? = nil,
+        authorIdentifier: String? = nil,
+        dateCreated: Date = Date(),
+        dateModified: Date = Date(),
+        parentCommentID: UUID? = nil,
+        replies: [CommentResult] = []
+    ) {
+        self.id = id
+        self.text = text
+        self.authorDisplayName = authorDisplayName
+        self.authorIdentifier = authorIdentifier
+        self.dateCreated = dateCreated
+        self.dateModified = dateModified
+        self.parentCommentID = parentCommentID
+        self.replies = replies
+    }
+}
+
+/// Serializable representation of a reading assignment/suggestion.
+public struct AssignmentResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let publicationID: UUID
+    public let publicationTitle: String?
+    public let publicationCiteKey: String?
+    public let assigneeName: String?
+    public let assignedByName: String?
+    public let note: String?
+    public let dateCreated: Date
+    public let dueDate: Date?
+    public let libraryID: UUID?
+
+    public init(
+        id: UUID,
+        publicationID: UUID,
+        publicationTitle: String? = nil,
+        publicationCiteKey: String? = nil,
+        assigneeName: String? = nil,
+        assignedByName: String? = nil,
+        note: String? = nil,
+        dateCreated: Date = Date(),
+        dueDate: Date? = nil,
+        libraryID: UUID? = nil
+    ) {
+        self.id = id
+        self.publicationID = publicationID
+        self.publicationTitle = publicationTitle
+        self.publicationCiteKey = publicationCiteKey
+        self.assigneeName = assigneeName
+        self.assignedByName = assignedByName
+        self.note = note
+        self.dateCreated = dateCreated
+        self.dueDate = dueDate
+        self.libraryID = libraryID
+    }
+}
+
+/// Result of a share operation.
+public struct ShareResult: Codable, Sendable {
+    public let libraryID: UUID
+    public let shareURL: String?
+    public let isShared: Bool
+
+    public init(libraryID: UUID, shareURL: String? = nil, isShared: Bool = false) {
+        self.libraryID = libraryID
+        self.shareURL = shareURL
+        self.isShared = isShared
+    }
+}
+
+// MARK: - Annotation Types
+
+/// Serializable representation of a PDF annotation.
+public struct AnnotationResult: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let type: String  // "highlight" | "underline" | "strikethrough" | "note" | "freeText" | "ink"
+    public let pageNumber: Int
+    public let contents: String?  // Text content for note/freeText annotations
+    public let selectedText: String?  // Selected text for markup annotations
+    public let color: String  // Hex color string e.g. "#FFFF00"
+    public let author: String?
+    public let dateCreated: Date
+    public let dateModified: Date
+
+    public init(
+        id: UUID,
+        type: String,
+        pageNumber: Int,
+        contents: String? = nil,
+        selectedText: String? = nil,
+        color: String = "#FFFF00",
+        author: String? = nil,
+        dateCreated: Date = Date(),
+        dateModified: Date = Date()
+    ) {
+        self.id = id
+        self.type = type
+        self.pageNumber = pageNumber
+        self.contents = contents
+        self.selectedText = selectedText
+        self.color = color
+        self.author = author
+        self.dateCreated = dateCreated
+        self.dateModified = dateModified
+    }
+}
+
+/// Available annotation types for creation.
+public enum AnnotationType: String, Codable, Sendable, CaseIterable {
+    case highlight
+    case underline
+    case strikethrough
+    case note
+    case freeText
+
+    /// Default color for this annotation type
+    public var defaultColor: String {
+        switch self {
+        case .highlight: return "#FFFF00"  // Yellow
+        case .underline: return "#FF0000"  // Red
+        case .strikethrough: return "#FF0000"  // Red
+        case .note: return "#FFFF00"  // Yellow
+        case .freeText: return "#000000"  // Black
+        }
+    }
+}
+
 // MARK: - Automation Errors
 
 /// Errors that can occur during automation operations.
@@ -392,6 +674,14 @@ public enum AutomationOperationError: Error, LocalizedError, Sendable {
     case operationFailed(String)
     case unauthorized
     case rateLimited
+    case commentNotFound(UUID)
+    case assignmentNotFound(UUID)
+    case participantNotFound(String)
+    case sharingUnavailable
+    case notShared
+    case notShareOwner
+    case annotationNotFound(UUID)
+    case linkedFileNotFound(String)  // Publication has no PDF
 
     public var errorDescription: String? {
         switch self {
@@ -415,6 +705,22 @@ public enum AutomationOperationError: Error, LocalizedError, Sendable {
             return "Unauthorized: automation API is disabled"
         case .rateLimited:
             return "Rate limited: too many requests"
+        case .commentNotFound(let id):
+            return "Comment not found: \(id)"
+        case .assignmentNotFound(let id):
+            return "Assignment not found: \(id)"
+        case .participantNotFound(let id):
+            return "Participant not found: \(id)"
+        case .sharingUnavailable:
+            return "CloudKit sharing is not available"
+        case .notShared:
+            return "Library is not shared"
+        case .notShareOwner:
+            return "Only the share owner can perform this operation"
+        case .annotationNotFound(let id):
+            return "Annotation not found: \(id)"
+        case .linkedFileNotFound(let citeKey):
+            return "No PDF attached to paper: \(citeKey)"
         }
     }
 }

@@ -385,6 +385,150 @@ public actor RecommendationEngine {
         return settings.engineType
     }
 
+    // MARK: - "For You" Recommendations
+
+    /// Generate personalized "For You" recommendations.
+    ///
+    /// Uses multiple signals to suggest papers the user should read next:
+    /// - Semantic similarity to recently read papers
+    /// - Citation graph connections to library papers
+    /// - Recency (new papers in active research areas)
+    /// - Reading history patterns (topics, authors)
+    ///
+    /// - Parameters:
+    ///   - candidates: Pool of papers to recommend from (e.g., inbox, exploration results)
+    ///   - recentlyRead: Papers the user has recently read (for similarity)
+    ///   - limit: Maximum number of recommendations
+    /// - Returns: Array of recommended papers with explanations
+    public func forYouRecommendations(
+        candidates: [CDPublication],
+        recentlyRead: [CDPublication],
+        limit: Int = 10
+    ) async -> [ForYouRecommendation] {
+        guard !candidates.isEmpty else { return [] }
+
+        let settings = await settingsStore.settings()
+        let engineType = settings.engineType
+        var recommendations: [ForYouRecommendation] = []
+
+        // Extract IDs on main actor
+        let candidateIDs = await MainActor.run { candidates.map { $0.id } }
+        let recentIDs = await MainActor.run { Set(recentlyRead.map { $0.id }) }
+
+        // Score each candidate
+        var scored: [(CDPublication, UUID, Double, String)] = []
+
+        for (index, candidate) in candidates.enumerated() {
+            let candidateID = candidateIDs[index]
+
+            // Skip papers already in recently read
+            if recentIDs.contains(candidateID) { continue }
+
+            // Compute base score
+            let baseScore = await score(candidate)
+
+            // Compute similarity to recently read papers (if semantic mode)
+            var similarityBoost = 0.0
+            var similarTo: String? = nil
+
+            if engineType.requiresEmbeddings && !recentlyRead.isEmpty {
+                let similarResults = await embeddingService.findSimilar(to: candidate, topK: 3)
+
+                // Check if any similar papers are in recently read
+                for result in similarResults {
+                    if let recentPub = recentlyRead.first(where: { $0.id.uuidString == result.publicationId }) {
+                        let title = await MainActor.run { recentPub.title ?? "Unknown" }
+                        similarityBoost = max(similarityBoost, Double(result.similarity) * 0.5)
+                        if result.similarity > 0.5 {
+                            similarTo = title
+                        }
+                    }
+                }
+            }
+
+            // Combine scores
+            let finalScore = baseScore.total + similarityBoost
+
+            // Generate reason
+            var reason = baseScore.explanation
+            if let similar = similarTo {
+                reason = "Similar to '\(similar.prefix(30))...'"
+            } else if similarityBoost > 0.1 {
+                reason = "Related to your recent reading"
+            }
+
+            scored.append((candidate, candidateID, finalScore, reason))
+        }
+
+        // Sort by score descending
+        scored.sort { $0.2 > $1.2 }
+
+        // Take top recommendations with diversity
+        var selectedIDs: Set<UUID> = []
+        var selectedAuthors: [String: Int] = [:]
+
+        for (candidate, candidateID, score, reason) in scored {
+            guard recommendations.count < limit else { break }
+
+            // Diversity: limit papers from same author
+            let firstAuthor = await MainActor.run {
+                candidate.sortedAuthors.first?.familyName ?? ""
+            }
+            if selectedAuthors[firstAuthor, default: 0] >= 2 { continue }
+
+            selectedIDs.insert(candidateID)
+            selectedAuthors[firstAuthor, default: 0] += 1
+
+            recommendations.append(ForYouRecommendation(
+                publicationID: candidateID,
+                score: score,
+                reason: reason
+            ))
+        }
+
+        Logger.recommendation.infoCapture("Generated \(recommendations.count) 'For You' recommendations", category: "recommendation")
+
+        return recommendations
+    }
+
+    /// Get "For You" recommendations based on the user's library.
+    ///
+    /// Convenience method that uses recently read papers from the library
+    /// and unread papers as candidates.
+    ///
+    /// - Parameters:
+    ///   - library: The user's library
+    ///   - limit: Maximum number of recommendations
+    /// - Returns: Array of recommended papers
+    public func forYouFromLibrary(
+        _ library: CDLibrary,
+        limit: Int = 10
+    ) async -> [ForYouRecommendation] {
+        // Get recently read and unread papers
+        let (recentlyRead, unread) = await MainActor.run {
+            let allPubs = Array(library.publications ?? [])
+
+            // Recently read: read in last 30 days
+            let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 3600)
+            let recent = allPubs.filter { pub in
+                pub.isRead && (pub.dateModified ?? .distantPast) > thirtyDaysAgo
+            }.sorted {
+                ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }.prefix(20)
+
+            // Unread papers
+            let unreadPubs = allPubs.filter { !$0.isRead }
+
+            return (Array(recent), unreadPubs)
+        }
+
+        return await forYouRecommendations(
+            candidates: unread,
+            recentlyRead: recentlyRead,
+            limit: limit
+        )
+    }
+
     // MARK: - Cache Management
 
     /// Invalidate the ranking cache.

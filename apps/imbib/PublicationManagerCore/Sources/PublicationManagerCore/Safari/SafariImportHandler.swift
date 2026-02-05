@@ -140,7 +140,9 @@ public actor SafariImportHandler {
             throw SafariImportError.missingSourceType  // Reuse error for missing query
         }
 
-        let name = item["name"] as? String ?? "Search: \(String(query.prefix(40)))"
+        // No "Search:" prefix - icon indicates it's a search
+        let truncatedQuery = String(query.prefix(50)) + (query.count > 50 ? "…" : "")
+        let name = item["name"] as? String ?? truncatedQuery
         let sourceID = item["sourceID"] as? String ?? "ads"
 
         logger.info("Creating smart search: \(name) with query: \(query)")

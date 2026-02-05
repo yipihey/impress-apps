@@ -1,0 +1,20 @@
+[package]
+name = "impress-flags"
+description = "Flag (workflow state) models, parsing, and query for impress apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+native = ["uniffi"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = "0.18"

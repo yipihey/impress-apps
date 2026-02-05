@@ -112,6 +112,51 @@ public actor OpenAlexPDFService {
         }
     }
 
+    /// Fetch landing page URL for a DOI.
+    ///
+    /// Returns the best landing page URL from OpenAlex data, which can be used
+    /// for landing page scraping when no direct PDF URL is available.
+    ///
+    /// - Parameter doi: The DOI to look up
+    /// - Returns: Landing page URL, or DOI URL as fallback
+    public func fetchLandingPageURL(doi: String) async -> URL? {
+        let cleanDOI = cleanDOI(doi)
+
+        // Check cache for existing result with landing page
+        if let cached = getCachedResult(for: cleanDOI) {
+            // Return landing page from best location, or from any location
+            if let landingPage = cached.locations.first?.landingPageURL {
+                return landingPage
+            }
+        }
+
+        // Fetch from API
+        do {
+            let work = try await source.fetchWorkByDOI(cleanDOI)
+            let result = extractOALocations(from: work, doi: cleanDOI)
+            cacheResult(result, for: cleanDOI)
+
+            // Try to get landing page from best OA location
+            if let landingPage = result.locations.first?.landingPageURL {
+                return landingPage
+            }
+
+            // Try primary location
+            if let primaryLanding = work.primaryLocation?.landingPageUrl,
+               let url = URL(string: primaryLanding) {
+                return url
+            }
+
+            // Fall back to DOI URL
+            return URL(string: "https://doi.org/\(cleanDOI)")
+
+        } catch {
+            Logger.sources.debug("[OpenAlexPDFService] Could not fetch landing page for \(cleanDOI): \(error.localizedDescription)")
+            // Fall back to DOI URL
+            return URL(string: "https://doi.org/\(cleanDOI)")
+        }
+    }
+
     /// Batch fetch OA locations for multiple DOIs.
     ///
     /// Uses OpenAlex batch API for efficiency. Results are cached individually.

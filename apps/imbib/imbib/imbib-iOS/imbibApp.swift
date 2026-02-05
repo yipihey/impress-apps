@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import CloudKit
 import PublicationManagerCore
 import OSLog
 import UserNotifications
@@ -14,8 +15,33 @@ import AppIntents
 
 private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
+// MARK: - App Delegate for CloudKit Share Acceptance
+
+class ImbibAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
+        appLogger.info("Accepting CloudKit share invitation (iOS)")
+        let pc = PersistenceController.shared
+        guard let ckContainer = pc.container as? NSPersistentCloudKitContainer,
+              let sharedStore = pc.sharedStore else {
+            appLogger.error("Cannot accept share: CloudKit container or shared store not available")
+            return
+        }
+        ckContainer.acceptShareInvitations(from: [cloudKitShareMetadata], into: sharedStore) { _, error in
+            if let error {
+                appLogger.error("Share accept failed: \(error.localizedDescription)")
+            } else {
+                appLogger.info("CloudKit share accepted successfully")
+                NotificationCenter.default.post(name: .sharedLibraryAccepted, object: nil)
+            }
+        }
+    }
+}
+
 @main
 struct imbibApp: App {
+
+    @UIApplicationDelegateAdaptor(ImbibAppDelegate.self) var appDelegate
 
     // MARK: - State
 
@@ -167,6 +193,7 @@ struct imbibApp: App {
                         await URLSchemeHandler.shared.handle(url)
                     }
                 }
+                // CloudKit share acceptance handled by ImbibAppDelegate
                 // Clear exploration library when going to background if retention is "While App is Open"
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .background && SyncedSettingsStore.shared.explorationRetention == .sessionOnly {

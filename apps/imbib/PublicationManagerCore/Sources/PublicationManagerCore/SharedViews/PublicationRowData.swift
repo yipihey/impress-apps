@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import ImpressFTUI
+import OSLog
 
 /// Immutable value-type snapshot of publication data for safe list rendering.
 ///
@@ -52,6 +54,9 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
 
     /// Whether the publication is starred/flagged
     public let isStarred: Bool
+
+    /// Rich flag state (color, style, length) — nil if unflagged
+    public let flag: PublicationFlag?
 
     /// Whether a PDF is downloaded locally (or available in iCloud on iOS)
     /// Shows paperclip icon in list view
@@ -102,6 +107,11 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// All arXiv categories (includes cross-listed)
     public let categories: [String]
 
+    // MARK: - Tags
+
+    /// Tag display data for rendering in the list row
+    public let tagDisplays: [TagDisplayData]
+
     // MARK: - Library Context (for grouped search results)
 
     /// Name of the library this publication belongs to (for grouping in search results)
@@ -136,6 +146,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.abstract = publication.abstract
         self.isRead = publication.isRead
         self.isStarred = publication.isStarred
+        self.flag = publication.flag
         let attachmentStatus = Self.checkAttachments(publication)
         self.hasDownloadedPDF = attachmentStatus.hasDownloadedPDF
         self.hasOtherAttachments = attachmentStatus.hasOtherAttachments
@@ -150,6 +161,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.dateModified = publication.dateModified
         self.primaryCategory = Self.extractPrimaryCategory(from: fields)
         self.categories = Self.extractCategories(from: fields)
+        self.tagDisplays = Self.extractTagDisplays(from: publication)
         self.libraryName = libraryName
     }
 
@@ -306,6 +318,40 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         }
 
         return (hasDownloadedPDF, hasOtherAttachments)
+    }
+
+    // MARK: - Tag Extraction
+
+    /// Extract tag display data from a publication's tags.
+    ///
+    /// Converts CDTag entities into lightweight TagDisplayData values sorted by canonical path.
+    private static func extractTagDisplays(from publication: CDPublication) -> [TagDisplayData] {
+        let rawTags = publication.tags
+        guard let tags = rawTags, !tags.isEmpty else {
+            // Log only for the first few to avoid flooding the console
+            if publication.citeKey.hasPrefix("A") || publication.citeKey.hasPrefix("B") {
+                Logger.library.debug("extractTagDisplays: '\(publication.citeKey)' tags=\(rawTags == nil ? "nil" : "empty")")
+            }
+            return []
+        }
+
+        let result = tags
+            .sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
+            .map { tag in
+                TagDisplayData(
+                    id: tag.id,
+                    path: tag.canonicalPath ?? tag.name,
+                    leaf: tag.leaf,
+                    colorLight: tag.colorLight ?? tag.effectiveLightColor(),
+                    colorDark: tag.colorDark ?? tag.effectiveDarkColor()
+                )
+            }
+
+        Logger.library.infoCapture(
+            "extractTagDisplays: '\(publication.citeKey)' has \(result.count) tags: \(result.map(\.path).joined(separator: ", "))",
+            category: "tags"
+        )
+        return result
     }
 
     // MARK: - Category Extraction

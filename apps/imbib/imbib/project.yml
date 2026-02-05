@@ -30,6 +30,8 @@ packages:
     path: ../PublicationManagerCore
   ImpressHelixCore:
     path: ../../../packages/ImpressHelixCore
+  ImpressPresence:
+    path: ../../../packages/ImpressPresence
   ImbibRustCore:
     path: ../ImbibRustCore
 
@@ -58,6 +60,7 @@ targets:
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressHelixCore
+      - package: ImpressPresence
       - target: imbib-ShareExtension
         embed: true
       - target: imbib-SafariExtension

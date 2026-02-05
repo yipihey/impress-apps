@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreData
+import ImpressFTUI
 
 #if os(iOS)
 import UIKit
@@ -64,6 +65,11 @@ public class CDPublication: NSManagedObject {
     // Star/flag status (Inbox triage)
     @NSManaged public var isStarred: Bool
 
+    // Rich flag attributes (workflow state)
+    @NSManaged public var flagColor: String?
+    @NSManaged public var flagStyle: String?
+    @NSManaged public var flagLength: String?
+
     // Inbox tracking
     @NSManaged public var dateAddedToInbox: Date?  // When paper was added to Inbox (for age filtering)
 
@@ -78,6 +84,8 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var libraries: Set<CDLibrary>?     // Publications can belong to multiple libraries
     @NSManaged public var scixLibraries: Set<CDSciXLibrary>?  // SciX online libraries containing this paper
     @NSManaged public var remarkableDocuments: Set<CDRemarkableDocument>?  // reMarkable sync documents (ADR-019)
+    @NSManaged public var comments: Set<CDComment>?            // Comments on this publication (shared libraries)
+    @NSManaged public var assignments: Set<CDAssignment>?      // Reading suggestions (shared libraries)
 }
 
 // MARK: - Publication Helpers
@@ -101,6 +109,36 @@ public extension CDPublication {
                 // Update indexed fields for O(1) lookups
                 updateArxivIDNormalized(from: newValue)
                 updateBibcodeNormalized(from: newValue)
+            }
+        }
+    }
+
+    /// Rich flag state computed from Core Data attributes.
+    ///
+    /// Returns nil if `flagColor` is not set. Setting to nil clears all flag attributes.
+    /// Backward compatibility: `isStarred` is now derived from `flagColor != nil`.
+    var flag: PublicationFlag? {
+        get {
+            guard let colorStr = flagColor,
+                  let color = FlagColor(rawValue: colorStr) else {
+                return nil
+            }
+            let style = flagStyle.flatMap(FlagStyle.init(rawValue:)) ?? .solid
+            let length = flagLength.flatMap(FlagLength.init(rawValue:)) ?? .full
+            return PublicationFlag(color: color, style: style, length: length)
+        }
+        set {
+            if let flag = newValue {
+                flagColor = flag.color.rawValue
+                flagStyle = flag.style.rawValue
+                flagLength = flag.length.rawValue
+                // Keep isStarred in sync for backward compatibility
+                isStarred = true
+            } else {
+                flagColor = nil
+                flagStyle = nil
+                flagLength = nil
+                isStarred = false
             }
         }
     }
@@ -192,6 +230,14 @@ public extension CDPublication {
         let files = (linkedFiles ?? []).map { $0.relativePath }
         if !files.isEmpty {
             BdskFileCodec.addFiles(Array(files), to: &entryFields)
+        }
+
+        // Export tags as keywords
+        let tagPaths = (tags as? Set<CDTag>)?
+            .compactMap(\.canonicalPath)
+            .sorted()
+        if let tagPaths, !tagPaths.isEmpty {
+            entryFields["keywords"] = tagPaths.joined(separator: ", ")
         }
 
         return BibTeXEntry(
@@ -691,8 +737,64 @@ public class CDTag: NSManagedObject {
     @NSManaged public var name: String
     @NSManaged public var color: String?
 
+    // Hierarchy fields
+    @NSManaged public var parentID: UUID?
+    @NSManaged public var canonicalPath: String?
+    @NSManaged public var colorLight: String?
+    @NSManaged public var colorDark: String?
+    @NSManaged public var useCount: Int32
+    @NSManaged public var lastUsedAt: Date?
+    @NSManaged public var sortOrder: Int16
+
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
+    @NSManaged public var parentTag: CDTag?
+    @NSManaged public var childTags: Set<CDTag>?
+}
+
+// MARK: - Tag Hierarchy Helpers
+
+public extension CDTag {
+
+    /// Depth in the hierarchy (0 for root tags).
+    var depth: Int {
+        canonicalPath?.components(separatedBy: "/").count.advanced(by: -1) ?? 0
+    }
+
+    /// Leaf segment of the path (last component).
+    var leaf: String {
+        if let path = canonicalPath {
+            return path.components(separatedBy: "/").last ?? name
+        }
+        return name
+    }
+
+    /// All path segments.
+    var pathSegments: [String] {
+        canonicalPath?.components(separatedBy: "/") ?? [name]
+    }
+
+    /// Effective display color, walking up ancestors for inheritance.
+    func effectiveLightColor() -> String? {
+        if let c = colorLight { return c }
+        return parentTag?.effectiveLightColor()
+    }
+
+    /// Effective dark mode color, walking up ancestors for inheritance.
+    func effectiveDarkColor() -> String? {
+        if let c = colorDark { return c }
+        return parentTag?.effectiveDarkColor()
+    }
+
+    /// Whether this tag has children.
+    var hasChildren: Bool {
+        !(childTags?.isEmpty ?? true)
+    }
+
+    /// Number of publications using this tag.
+    var publicationCount: Int {
+        publications?.count ?? 0
+    }
 }
 
 // MARK: - Attachment Tag
@@ -781,6 +883,7 @@ public class CDCollection: NSManagedObject, Identifiable {
     @NSManaged public var smartSearch: CDSmartSearch?     // Inverse of CDSmartSearch.resultCollection
     @NSManaged public var library: CDLibrary?             // Inverse of CDLibrary.collections
     @NSManaged public var owningLibrary: CDLibrary?       // Inverse of CDLibrary.lastSearchCollection (for system collections)
+    @NSManaged public var inboxFeeds: Set<CDSmartSearch>? // Inverse of CDSmartSearch.inboxParentCollection (feeds in this collection)
 
     // Collection hierarchy for exploration drill-down
     @NSManaged public var parentCollection: CDCollection?     // Parent collection (for nested exploration)
@@ -855,6 +958,27 @@ public extension CDCollection {
         }
     }
 
+    /// All publications in this collection AND all descendant collections AND all nested feeds.
+    /// Use this when displaying a parent collection to include papers from subcollections and feeds.
+    var allPublicationsIncludingDescendants: Set<CDPublication> {
+        var result = publications ?? []
+
+        // Include papers from child collections recursively
+        for child in childCollections ?? [] {
+            result.formUnion(child.allPublicationsIncludingDescendants)
+        }
+
+        // Include papers from inbox feeds nested in this collection
+        // (feeds have their papers in resultCollection)
+        for feed in inboxFeeds ?? [] {
+            if let feedPubs = feed.resultCollection?.publications {
+                result.formUnion(feedPubs)
+            }
+        }
+
+        return result
+    }
+
     /// All ancestor collections from root to parent
     var ancestors: [CDCollection] {
         var result: [CDCollection] = []
@@ -893,6 +1017,19 @@ public class CDLibrary: NSManagedObject, Identifiable {
     /// }
     /// ```
     public static let canonicalDefaultLibraryID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
+    /// Well-known UUID for the Inbox library, shared across all devices.
+    ///
+    /// Like the default library, the Inbox uses a canonical ID to ensure it syncs as ONE
+    /// library across all devices instead of creating duplicates.
+    public static let canonicalInboxLibraryID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+
+    /// Well-known UUID for the Exploration library, shared across all devices.
+    ///
+    /// The Exploration library holds references/citations exploration results.
+    /// Uses a canonical ID to sync properly across devices.
+    public static let canonicalExplorationLibraryID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+
     // Use private primitive accessor to handle CloudKit sync where UUID might be nil
     @NSManaged private var primitiveId: UUID?
 
@@ -940,6 +1077,8 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var collections: Set<CDCollection>?      // All collections in this library
     @NSManaged public var lastSearchCollection: CDCollection?  // ADR-016: System collection for ad-hoc search results
     @NSManaged public var recommendationProfiles: Set<CDRecommendationProfile>?  // ADR-020: Learned preferences for this library
+    @NSManaged public var activityRecords: Set<CDActivityRecord>?  // Activity feed for shared libraries
+    @NSManaged public var assignments: Set<CDAssignment>?          // Reading suggestions for shared libraries
 }
 
 // MARK: - Library Helpers
@@ -1028,6 +1167,43 @@ public extension CDLibrary {
                 return $0.name < $1.name
             }
     }
+
+    // MARK: - CloudKit Sharing
+
+    /// Whether this library lives in the shared persistent store
+    var isSharedLibrary: Bool {
+        PersistenceController.shared.isShared(self)
+    }
+
+    /// Whether the current user can edit this library.
+    /// Returns true for all private libraries, checks CloudKit permissions for shared ones.
+    var canEditLibrary: Bool {
+        guard isSharedLibrary else { return true }
+        #if canImport(CloudKit)
+        return PersistenceController.shared.canEdit(self)
+        #else
+        return true
+        #endif
+    }
+
+    #if canImport(CloudKit)
+    /// Whether the current user is the share owner
+    var isShareOwner: Bool {
+        guard isSharedLibrary,
+              let share = PersistenceController.shared.share(for: self) else { return false }
+        return share.currentUserParticipant?.role == .owner
+    }
+
+    /// Whether the current user can edit this library (CloudKit-only convenience)
+    var canEdit: Bool {
+        PersistenceController.shared.canEdit(self)
+    }
+
+    /// Number of participants in this shared library
+    var shareParticipantCount: Int {
+        PersistenceController.shared.participants(for: self).count
+    }
+    #endif
 }
 
 // MARK: - Smart Search
@@ -1077,6 +1253,7 @@ public class CDSmartSearch: NSManagedObject, Identifiable {
     // Relationships
     @NSManaged public var library: CDLibrary?
     @NSManaged public var resultCollection: CDCollection?  // Collection holding imported results
+    @NSManaged public var inboxParentCollection: CDCollection?  // Parent collection within Inbox (for feed organization)
 }
 
 // MARK: - Smart Search Helpers
@@ -1940,5 +2117,166 @@ public extension CDRemarkableAnnotation {
             return String(text.prefix(100))
         }
         return typeEnum.displayName
+    }
+}
+
+// MARK: - Comment (Shared Library Discussion)
+
+/// Core Data entity for threaded comments on publications in shared libraries.
+@objc(CDComment)
+public class CDComment: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var text: String
+    @NSManaged public var authorIdentifier: String?   // CloudKit participant ID (for color assignment)
+    @NSManaged public var authorDisplayName: String?   // Human-readable name
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var dateModified: Date
+    @NSManaged public var parentCommentID: UUID?       // For threading (nil = top-level)
+    @NSManaged public var syncState: String?
+
+    // Relationships
+    @NSManaged public var publication: CDPublication?
+}
+
+// MARK: - Comment Helpers
+
+public extension CDComment {
+
+    /// Whether this is a top-level comment (not a reply)
+    var isTopLevel: Bool {
+        parentCommentID == nil
+    }
+
+    /// Preview text truncated
+    var previewText: String {
+        String(text.prefix(100))
+    }
+
+    /// Sorted children (replies to this comment) from a flat array
+    func replies(from allComments: [CDComment]) -> [CDComment] {
+        allComments
+            .filter { $0.parentCommentID == self.id }
+            .sorted { $0.dateCreated < $1.dateCreated }
+    }
+}
+
+// MARK: - Activity Record (Shared Library Feed)
+
+/// Core Data entity for tracking content-level activity in shared libraries.
+///
+/// Privacy principle: records what happened to *shared content*
+/// (papers added, annotations made) but never tracks personal behavior
+/// (reading habits, time spent, completion status).
+@objc(CDActivityRecord)
+public class CDActivityRecord: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var activityType: String         // added, removed, annotated, commented, organized
+    @NSManaged public var actorDisplayName: String?    // Who did it (display name only, no tracking ID)
+    @NSManaged public var targetTitle: String?          // Paper title or collection name
+    @NSManaged public var targetID: UUID?               // Publication or collection ID
+    @NSManaged public var date: Date
+    @NSManaged public var detail: String?               // Optional extra context
+
+    // Relationships
+    @NSManaged public var library: CDLibrary?
+}
+
+// MARK: - Activity Record Helpers
+
+public extension CDActivityRecord {
+
+    /// Activity types
+    enum ActivityType: String, CaseIterable, Sendable {
+        case added = "added"
+        case removed = "removed"
+        case annotated = "annotated"
+        case commented = "commented"
+        case organized = "organized"
+
+        /// SF Symbol for this activity type
+        public var icon: String {
+            switch self {
+            case .added: return "plus.circle.fill"
+            case .removed: return "minus.circle.fill"
+            case .annotated: return "highlighter"
+            case .commented: return "text.bubble.fill"
+            case .organized: return "folder.fill"
+            }
+        }
+
+        /// Human-readable verb
+        public var verb: String {
+            switch self {
+            case .added: return "added"
+            case .removed: return "removed"
+            case .annotated: return "annotated"
+            case .commented: return "commented on"
+            case .organized: return "organized"
+            }
+        }
+    }
+
+    /// Get activity type as enum
+    var typeEnum: ActivityType? {
+        ActivityType(rawValue: activityType)
+    }
+
+    /// Formatted description: "Alice added 'Smith 2024 — Dark Matter'"
+    var formattedDescription: String {
+        let actor = actorDisplayName ?? "Someone"
+        let verb = typeEnum?.verb ?? activityType
+        if let title = targetTitle {
+            return "\(actor) \(verb) '\(title)'"
+        }
+        return "\(actor) \(verb) content"
+    }
+}
+
+// MARK: - Assignment (Reading Suggestions)
+
+/// Core Data entity for reading suggestions in shared libraries.
+///
+/// Privacy note: Assignments say "please read this" — they do NOT track
+/// whether someone actually read it. There is no completion tracking,
+/// no read receipts. An assignment is a suggestion, not surveillance.
+@objc(CDAssignment)
+public class CDAssignment: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var assigneeName: String?         // Display name only
+    @NSManaged public var assignedByName: String?
+    @NSManaged public var note: String?                  // "For Friday's meeting"
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var dueDate: Date?
+
+    // Relationships
+    @NSManaged public var publication: CDPublication?
+    @NSManaged public var library: CDLibrary?
+}
+
+// MARK: - Assignment Helpers
+
+public extension CDAssignment {
+
+    /// Formatted description for display
+    var formattedDescription: String {
+        var parts: [String] = []
+        if let assignee = assigneeName {
+            parts.append("For \(assignee)")
+        }
+        if let note = note, !note.isEmpty {
+            parts.append("— \(note)")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Whether this assignment has a due date
+    var hasDueDate: Bool {
+        dueDate != nil
+    }
+
+    /// Whether the due date has passed
+    var isOverdue: Bool {
+        guard let due = dueDate else { return false }
+        return due < Date()
     }
 }

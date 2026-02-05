@@ -1,4 +1,6 @@
 // main.js - Content script orchestrator
+// CANONICAL SOURCE — shared between Chrome/Firefox and Safari extensions.
+// Edit this file in imbibExtensionShared/, then run sync-extension-shared.sh.
 // Detects page type and extracts bibliographic metadata
 
 (function() {
@@ -576,8 +578,11 @@
 
     // ==================== Message Handling ====================
 
+    // Use chrome API (works in Chrome, Edge, and Firefox MV3)
+    const runtime = typeof chrome !== 'undefined' ? chrome.runtime : browser.runtime;
+
     // Listen for messages from popup
-    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'extract') {
             extractMetadata().then(result => {
                 sendResponse(result);
@@ -595,7 +600,7 @@
     });
 
     // Notify background script that content script is ready
-    browser.runtime.sendMessage({
+    runtime.sendMessage({
         action: 'contentReady',
         url: window.location.href
     }).catch(() => {

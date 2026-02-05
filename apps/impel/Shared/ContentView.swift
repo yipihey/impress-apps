@@ -7,6 +7,9 @@ struct ContentView: View {
 
     @State private var selectedThread: ResearchThread?
     @State private var selectedTab: DashboardTab = .threads
+    @State private var selectedEscalationIndex: Int?
+    @State private var selectedSuggestionIndex: Int?
+    @State private var showKeyboardHelp = false
 
     var body: some View {
         NavigationSplitView {
@@ -20,6 +23,127 @@ struct ContentView: View {
                 Spacer()
                 systemStatus
             }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress { press in
+            handleKeyPress(press)
+        }
+        .sheet(isPresented: $showKeyboardHelp) {
+            KeyboardHelpView()
+        }
+    }
+
+    // MARK: - Keyboard Handling
+
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // j/k navigation
+        if press.characters == "j" && press.modifiers.isEmpty {
+            navigateDown()
+            return .handled
+        }
+        if press.characters == "k" && press.modifiers.isEmpty {
+            navigateUp()
+            return .handled
+        }
+
+        // Number keys for escalation options (1-4)
+        if selectedTab == .escalations,
+           let index = selectedEscalationIndex,
+           index < client.state.pendingEscalations.count {
+            let escalation = client.state.pendingEscalations[index]
+            if let options = escalation.options {
+                let keyNum = Int(press.characters) ?? 0
+                if keyNum >= 1 && keyNum <= options.count {
+                    resolveEscalation(escalation, optionIndex: keyNum - 1)
+                    return .handled
+                }
+            }
+        }
+
+        // Enter to accept suggestion
+        if press.key == .return && selectedTab == .suggestions,
+           let index = selectedSuggestionIndex,
+           index < client.state.activeSuggestions.count {
+            let suggestion = client.state.activeSuggestions[index]
+            Task { try? await client.executeSuggestion(suggestion) }
+            return .handled
+        }
+
+        // Escape to dismiss
+        if press.key == .escape {
+            if selectedTab == .suggestions,
+               let index = selectedSuggestionIndex,
+               index < client.state.activeSuggestions.count {
+                let suggestion = client.state.activeSuggestions[index]
+                client.dismissSuggestion(id: suggestion.id)
+                return .handled
+            }
+        }
+
+        // Cmd+/ for keyboard help
+        if press.characters == "/" && press.modifiers.contains(.command) {
+            showKeyboardHelp = true
+            return .handled
+        }
+
+        // Cmd+R to refresh
+        if press.characters == "r" && press.modifiers.contains(.command) {
+            Task { await client.refresh() }
+            return .handled
+        }
+
+        return .ignored
+    }
+
+    private func navigateDown() {
+        switch selectedTab {
+        case .escalations:
+            let count = client.state.pendingEscalations.count
+            if count > 0 {
+                if let current = selectedEscalationIndex {
+                    selectedEscalationIndex = min(current + 1, count - 1)
+                } else {
+                    selectedEscalationIndex = 0
+                }
+            }
+        case .suggestions:
+            let count = client.state.activeSuggestions.count
+            if count > 0 {
+                if let current = selectedSuggestionIndex {
+                    selectedSuggestionIndex = min(current + 1, count - 1)
+                } else {
+                    selectedSuggestionIndex = 0
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    private func navigateUp() {
+        switch selectedTab {
+        case .escalations:
+            if let current = selectedEscalationIndex, current > 0 {
+                selectedEscalationIndex = current - 1
+            }
+        case .suggestions:
+            if let current = selectedSuggestionIndex, current > 0 {
+                selectedSuggestionIndex = current - 1
+            }
+        default:
+            break
+        }
+    }
+
+    private func resolveEscalation(_ escalation: Escalation, optionIndex: Int) {
+        guard let options = escalation.options, optionIndex < options.count else { return }
+        Task {
+            try? await client.resolveEscalation(
+                id: escalation.id,
+                optionIndex: optionIndex,
+                optionLabel: options[optionIndex]
+            )
         }
     }
 
@@ -56,6 +180,13 @@ struct ContentView: View {
                     .tag(DashboardTab.escalations)
                     .badge(pending)
             }
+
+            Section("Suggestions") {
+                let active = client.state.activeSuggestions.count
+                Label("Proactive (\(active))", systemImage: "lightbulb")
+                    .tag(DashboardTab.suggestions)
+                    .badge(active)
+            }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
@@ -79,6 +210,8 @@ struct ContentView: View {
             AgentListView(agents: client.state.agents)
         case .escalations:
             EscalationListView(escalations: client.state.pendingEscalations)
+        case .suggestions:
+            SuggestionListView(suggestions: client.state.activeSuggestions)
         }
     }
 
@@ -89,10 +222,24 @@ struct ContentView: View {
             Circle()
                 .fill(client.isConnected ? Color.green : Color.red)
                 .frame(width: 8, height: 8)
+                .overlay {
+                    if client.isConnected {
+                        Circle()
+                            .stroke(Color.green.opacity(0.5), lineWidth: 2)
+                            .scaleEffect(1.5)
+                            .opacity(0)
+                            .animation(
+                                .easeOut(duration: 1.5).repeatForever(autoreverses: false),
+                                value: client.isConnected
+                            )
+                    }
+                }
             Text(client.isConnected ? "Connected" : "Disconnected")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .contentTransition(.opacity)
         }
+        .animation(.easeInOut(duration: 0.3), value: client.isConnected)
     }
 
     private var systemStatus: some View {
@@ -117,6 +264,7 @@ enum DashboardTab: Hashable {
     case threadsByState(ThreadState)
     case agents
     case escalations
+    case suggestions
 }
 
 // MARK: - Dashboard View
@@ -127,6 +275,7 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [
+                GridItem(.flexible()),
                 GridItem(.flexible()),
                 GridItem(.flexible()),
                 GridItem(.flexible())
@@ -152,8 +301,35 @@ struct DashboardView: View {
                     icon: "exclamationmark.circle.fill",
                     color: .orange
                 )
+
+                StatCard(
+                    title: "Suggestions",
+                    value: "\(client.state.activeSuggestions.count)",
+                    icon: "lightbulb.fill",
+                    color: .purple
+                )
             }
             .padding()
+
+            // Proactive suggestions (show important ones on dashboard)
+            if !client.state.importantSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Proactive Suggestions")
+                            .font(.headline)
+                        Spacer()
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.purple)
+                    }
+                    .padding(.horizontal)
+
+                    ForEach(client.state.importantSuggestions.prefix(3)) { suggestion in
+                        SuggestionRow(suggestion: suggestion)
+                            .padding(.horizontal)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
 
             // Recent escalations
             if !client.state.pendingEscalations.isEmpty {
@@ -199,14 +375,18 @@ struct StatCard: View {
     let icon: String
     let color: Color
 
+    @State private var appeared = false
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.largeTitle)
                 .foregroundColor(color)
+                .symbolEffect(.bounce, value: value)
 
             Text(value)
                 .font(.system(size: 36, weight: .bold))
+                .contentTransition(.numericText())
 
             Text(title)
                 .font(.caption)
@@ -215,7 +395,14 @@ struct StatCard: View {
         .frame(maxWidth: .infinity)
         .padding()
         .background(Color.secondary.opacity(0.1))
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
+        .scaleEffect(appeared ? 1 : 0.9)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                appeared = true
+            }
+        }
     }
 }
 
@@ -241,6 +428,7 @@ struct ThreadRow: View {
         HStack {
             Image(systemName: thread.state.systemImage)
                 .foregroundColor(stateColor)
+                .symbolEffect(.pulse, isActive: thread.state == .active)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(thread.title)
@@ -261,11 +449,20 @@ struct ThreadRow: View {
 
             Spacer()
 
-            // Temperature indicator
+            // Temperature indicator with glow for hot threads
             Circle()
                 .fill(temperatureColor)
                 .frame(width: 12, height: 12)
+                .overlay {
+                    if thread.temperatureLevel == .hot {
+                        Circle()
+                            .fill(temperatureColor.opacity(0.5))
+                            .frame(width: 18, height: 18)
+                            .blur(radius: 4)
+                    }
+                }
                 .help("Temperature: \(String(format: "%.1f", thread.temperature))")
+                .animation(.easeInOut(duration: 0.3), value: thread.temperatureLevel)
         }
         .padding(.vertical, 4)
     }
@@ -352,51 +549,272 @@ struct EscalationListView: View {
 }
 
 struct EscalationRow: View {
+    @EnvironmentObject var client: ImpelClient
     let escalation: Escalation
+    @State private var isResolving = false
+    @State private var isResolved = false
+    @State private var errorMessage: String?
+    @State private var shakeCount = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: escalation.category.systemImage)
-                    .foregroundColor(.orange)
-
-                Text(escalation.title)
-                    .font(.headline)
-
-                Spacer()
-
-                Text("P\(escalation.priority)")
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(priorityColor.opacity(0.2))
-                    .cornerRadius(4)
+        ZStack {
+            // Success overlay
+            if isResolved {
+                HStack {
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.green)
+                        .symbolEffect(.bounce, value: isResolved)
+                    Spacer()
+                }
+                .transition(.scale.combined(with: .opacity))
             }
 
-            Text(escalation.description)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-
-            if let options = escalation.options, !options.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    ForEach(options, id: \.self) { option in
-                        Button(option) {
-                            // TODO: Handle option selection
+                    Image(systemName: escalation.category.systemImage)
+                        .foregroundColor(.orange)
+
+                    Text(escalation.title)
+                        .font(.headline)
+
+                    Spacer()
+
+                    Text("P\(escalation.priority)")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(priorityColor.opacity(0.2))
+                        .clipShape(.rect(cornerRadius: 4))
+                }
+
+                Text(escalation.description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                if let options = escalation.options, !options.isEmpty {
+                    HStack {
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            Button(option) {
+                                resolveWithOption(index: index, label: option)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(isResolving || isResolved)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+
+                        if isResolving {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
                     }
                 }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
             }
+            .opacity(isResolved ? 0.3 : 1)
         }
         .padding(.vertical, 4)
+        .modifier(ShakeEffect(shakes: shakeCount))
+        .animation(.default, value: isResolved)
+    }
+
+    private func resolveWithOption(index: Int, label: String) {
+        let escalationId = escalation.id
+        isResolving = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await client.resolveEscalation(id: escalationId, optionIndex: index, optionLabel: label)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isResolved = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                // Shake on error
+                withAnimation(.default) {
+                    shakeCount += 1
+                }
+            }
+            isResolving = false
+        }
     }
 
     private var priorityColor: Color {
         if escalation.priority >= 8 { return .red }
         if escalation.priority >= 5 { return .orange }
         return .yellow
+    }
+}
+
+// MARK: - Shake Effect
+
+struct ShakeEffect: GeometryEffect {
+    var shakes: Int
+    var animatableData: CGFloat {
+        get { CGFloat(shakes) }
+        set { shakes = Int(newValue) }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let offset = sin(animatableData * .pi * 4) * 6
+        return ProjectionTransform(CGAffineTransform(translationX: offset, y: 0))
+    }
+}
+
+// MARK: - Suggestion List View
+
+struct SuggestionListView: View {
+    let suggestions: [AgentSuggestion]
+
+    var body: some View {
+        List(suggestions) { suggestion in
+            SuggestionRow(suggestion: suggestion)
+        }
+        .navigationTitle("Suggestions")
+        .overlay {
+            if suggestions.isEmpty {
+                ContentUnavailableView(
+                    "No Suggestions",
+                    systemImage: "lightbulb",
+                    description: Text("The system will suggest actions based on current activity.")
+                )
+            }
+        }
+    }
+}
+
+struct SuggestionRow: View {
+    @EnvironmentObject var client: ImpelClient
+    let suggestion: AgentSuggestion
+    @State private var isExecuting = false
+    @State private var isExecuted = false
+    @State private var errorMessage: String?
+    @State private var shakeCount = 0
+
+    var body: some View {
+        ZStack {
+            // Success overlay
+            if isExecuted {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.purple)
+                            .symbolEffect(.bounce, value: isExecuted)
+                        Text("Running...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: suggestion.category.systemImage)
+                        .foregroundColor(.purple)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(suggestion.title)
+                            .font(.headline)
+
+                        Text(suggestion.category.displayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    // Confidence badge
+                    Text("\(Int(suggestion.confidence * 100))%")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(confidenceColor.opacity(0.2))
+                        .foregroundColor(confidenceColor)
+                        .clipShape(.rect(cornerRadius: 4))
+                }
+
+                Text(suggestion.reason)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                HStack {
+                    Button {
+                        executeAction()
+                    } label: {
+                        HStack(spacing: 4) {
+                            if isExecuting {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(suggestion.action.buttonLabel)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .controlSize(.small)
+                    .disabled(isExecuting || isExecuted)
+
+                    Button("Dismiss") {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            client.dismissSuggestion(id: suggestion.id)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isExecuted)
+                }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .opacity(isExecuted ? 0.3 : 1)
+        }
+        .padding(.vertical, 4)
+        .modifier(ShakeEffect(shakes: shakeCount))
+        .animation(.default, value: isExecuted)
+    }
+
+    private func executeAction() {
+        isExecuting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await client.executeSuggestion(suggestion)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isExecuted = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                withAnimation(.default) {
+                    shakeCount += 1
+                }
+            }
+            isExecuting = false
+        }
+    }
+
+    private var confidenceColor: Color {
+        if suggestion.confidence >= 0.8 { return .green }
+        if suggestion.confidence >= 0.6 { return .orange }
+        return .secondary
     }
 }
 
@@ -423,9 +841,84 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Keyboard Help View
+
+struct KeyboardHelpView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Keyboard Shortcuts")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.escape)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 16) {
+                shortcutSection("Navigation", shortcuts: [
+                    ("j", "Move down"),
+                    ("k", "Move up"),
+                ])
+
+                shortcutSection("Escalations", shortcuts: [
+                    ("1-4", "Select option"),
+                ])
+
+                shortcutSection("Suggestions", shortcuts: [
+                    ("↩", "Accept suggestion"),
+                    ("⎋", "Dismiss suggestion"),
+                ])
+
+                shortcutSection("App", shortcuts: [
+                    ("⌘R", "Refresh"),
+                    ("⌘/", "Show this help"),
+                ])
+            }
+
+            Spacer()
+        }
+        .padding()
+        .frame(width: 350, height: 400)
+    }
+
+    private func shortcutSection(_ title: String, shortcuts: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            ForEach(shortcuts, id: \.0) { key, action in
+                HStack {
+                    Text(key)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.2))
+                        .cornerRadius(4)
+                        .frame(width: 60, alignment: .center)
+
+                    Text(action)
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
     ContentView()
         .environmentObject(ImpelClient())
+}
+
+#Preview("Keyboard Help") {
+    KeyboardHelpView()
 }

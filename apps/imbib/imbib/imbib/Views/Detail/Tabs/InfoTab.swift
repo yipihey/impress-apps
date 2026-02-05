@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressFTUI
 import CoreData
 import OSLog
 #if os(macOS)
@@ -83,6 +84,12 @@ struct InfoTab: View {
                         Divider()
                     }
 
+                    // MARK: - Flag & Tags
+                    if let pub = publication {
+                        flagAndTagsSection(pub)
+                        Divider()
+                    }
+
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
                         infoSection("Abstract") {
@@ -114,6 +121,12 @@ struct InfoTab: View {
 
                         attachView
                             .id(attachmentsRefreshID)
+                        Divider()
+                    }
+
+                    // MARK: - Comments Section (shared libraries)
+                    if let pub = publication, pub.libraries?.contains(where: { $0.isSharedLibrary }) == true {
+                        CommentSectionView(publication: pub)
                         Divider()
                     }
 
@@ -328,6 +341,44 @@ struct InfoTab: View {
             } else {
                 Text(value)
                     .font(.caption)
+            }
+        }
+    }
+
+    // MARK: - Flag & Tags Section
+
+    /// Displays flag stripe and tags using ImpressFTUI components.
+    @ViewBuilder
+    private func flagAndTagsSection(_ pub: CDPublication) -> some View {
+        let tags = pub.tags ?? []
+        let sortedTags = tags.sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
+        let hasFlag = pub.flag != nil
+        let hasTags = !sortedTags.isEmpty
+
+        if hasFlag || hasTags {
+            VStack(alignment: .leading, spacing: 8) {
+                if let flag = pub.flag {
+                    HStack(spacing: 6) {
+                        FlagStripe(flag: flag, rowHeight: 16)
+                        Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if hasTags {
+                    FlowLayout(spacing: 4) {
+                        ForEach(sortedTags, id: \.id) { tag in
+                            TagChip(tag: TagDisplayData(
+                                id: tag.id,
+                                path: tag.canonicalPath ?? tag.name,
+                                leaf: tag.leaf,
+                                colorLight: tag.colorLight ?? tag.effectiveLightColor(),
+                                colorDark: tag.colorDark ?? tag.effectiveDarkColor()
+                            ))
+                        }
+                    }
+                }
             }
         }
     }
@@ -853,12 +904,29 @@ struct InfoTab: View {
                     }
                 }
 
+                // Flag info (shown in detail; primary display is in flagAndTagsSection above)
+                GridRow {
+                    Text("Flag")
+                        .foregroundStyle(.secondary)
+                    if let flag = pub.flag {
+                        HStack(spacing: 6) {
+                            FlagStripe(flag: flag, rowHeight: 16)
+                            Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
+                        }
+                    } else {
+                        Text("None")
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
                 // Libraries this paper belongs to
                 if let libraries = pub.libraries, !libraries.isEmpty {
+                    // Use Set to deduplicate display names (handles duplicate inbox libraries)
+                    let uniqueNames = Set(libraries.map { $0.displayName }).sorted()
                     GridRow {
-                        Text(libraries.count == 1 ? "Library" : "Libraries")
+                        Text(uniqueNames.count == 1 ? "Library" : "Libraries")
                             .foregroundStyle(.secondary)
-                        Text(libraries.map { $0.displayName }.sorted().joined(separator: ", "))
+                        Text(uniqueNames.joined(separator: ", "))
                             .textSelection(.enabled)
                     }
                 }

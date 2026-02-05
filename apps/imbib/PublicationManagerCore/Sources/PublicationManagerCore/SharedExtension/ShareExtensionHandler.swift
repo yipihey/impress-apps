@@ -145,9 +145,9 @@ public final class ShareExtensionHandler {
         // This makes them appear in the Exploration section of the sidebar
         let targetLibrary = libraryManager.getOrCreateExplorationLibrary()
 
-        // Create a truncated name from the query
-        let truncatedQuery = String(query.prefix(40)) + (query.count > 40 ? "..." : "")
-        let name = item.name ?? "Search: \(truncatedQuery)"
+        // Create a truncated name from the query (no "Search:" prefix - icon indicates it's a search)
+        let truncatedQuery = String(query.prefix(50)) + (query.count > 50 ? "…" : "")
+        let name = item.name ?? truncatedQuery
 
         // Create the smart search
         let smartSearch = SmartSearchRepository.shared.create(

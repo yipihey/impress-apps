@@ -161,9 +161,9 @@ public final class NavigationHistoryStore: @unchecked Sendable {
         // Filter out invalid entries
         history = history.filter { state in
             switch state {
-            case .inbox, .search:
+            case .inbox, .search, .flagged:
                 return true
-            case .inboxFeed(let id), .library(let id), .smartSearch(let id), .collection(let id), .scixLibrary(let id):
+            case .inboxFeed(let id), .inboxCollection(let id), .library(let id), .smartSearch(let id), .collection(let id), .scixLibrary(let id):
                 return !invalidIDs.contains(id)
             case .searchForm:
                 return true

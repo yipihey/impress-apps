@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import ImpressFTUI
 
 // MARK: - Browser Destination
 
@@ -44,6 +45,24 @@ extension UTType {
 
     /// UTType for dragging collection UUIDs between views (for nesting)
     public static let collectionID = UTType(exportedAs: "com.imbib.collection-id")
+
+    /// UTType for dragging library UUIDs between views (for reordering)
+    public static let libraryID = UTType(exportedAs: "com.imbib.library-id")
+
+    /// UTType for dragging inbox feed UUIDs (for reordering)
+    public static let inboxFeedID = UTType(exportedAs: "com.imbib.inbox-feed-id")
+
+    /// UTType for dragging search form types (for reordering)
+    public static let searchFormID = UTType(exportedAs: "com.imbib.search-form-id")
+
+    /// UTType for dragging SciX library UUIDs (for reordering)
+    public static let scixLibraryID = UTType(exportedAs: "com.imbib.scix-library-id")
+
+    /// UTType for dragging sidebar section types (for reordering)
+    public static let sidebarSectionID = UTType(exportedAs: "com.imbib.sidebar-section-id")
+
+    /// UTType for dragging exploration search UUIDs (for reordering)
+    public static let explorationSearchID = UTType(exportedAs: "com.imbib.exploration-search-id")
 }
 
 extension UUID: Transferable {
@@ -130,6 +149,18 @@ public struct MailStylePublicationRow: View, Equatable {
 
     /// Action when toggling star is requested
     public var onToggleStar: (() -> Void)?
+
+    /// Action when a flag color is set
+    public var onSetFlag: ((FlagColor) -> Void)?
+
+    /// Action when flag is cleared
+    public var onClearFlag: (() -> Void)?
+
+    /// Action when adding a tag is requested
+    public var onAddTag: (() -> Void)?
+
+    /// Action when removing a tag is requested (by tag ID)
+    public var onRemoveTag: ((UUID) -> Void)?
 
     /// Whether this paper is in the Inbox (enables Inbox-specific actions)
     public var isInInbox: Bool = false
@@ -248,6 +279,10 @@ public struct MailStylePublicationRow: View, Equatable {
         onSave: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onToggleStar: (() -> Void)? = nil,
+        onSetFlag: ((FlagColor) -> Void)? = nil,
+        onClearFlag: (() -> Void)? = nil,
+        onAddTag: (() -> Void)? = nil,
+        onRemoveTag: ((UUID) -> Void)? = nil,
         isInInbox: Bool = false,
         // Context menu actions
         onOpenPDF: (() -> Void)? = nil,
@@ -284,6 +319,10 @@ public struct MailStylePublicationRow: View, Equatable {
         self.onSave = onSave
         self.onDismiss = onDismiss
         self.onToggleStar = onToggleStar
+        self.onSetFlag = onSetFlag
+        self.onClearFlag = onClearFlag
+        self.onAddTag = onAddTag
+        self.onRemoveTag = onRemoveTag
         self.isInInbox = isInInbox
         // Context menu
         self.onOpenPDF = onOpenPDF
@@ -320,6 +359,11 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
+            // Flag stripe (leading edge)
+            if settings.showFlagStripe {
+                FlagStripe(flag: data.flag, rowHeight: 44)
+            }
+
             // Indicators column: unread dot and star
             if settings.showUnreadIndicator {
                 VStack(spacing: 2) {
@@ -330,7 +374,6 @@ public struct MailStylePublicationRow: View, Equatable {
                             height: MailStyleTokens.unreadDotSize
                         )
 
-                    // Star indicator
                     if data.isStarred {
                         Image(systemName: "star.fill")
                             .font(.system(size: 10 * fontScale))
@@ -400,6 +443,11 @@ public struct MailStylePublicationRow: View, Equatable {
                         .font(MailStyleTokens.abstractFont(scale: fontScale))
                         .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
                         .lineLimit(1)
+                }
+
+                // Row 2.7: Tags (conditional)
+                if !data.tagDisplays.isEmpty {
+                    TagLine(tags: data.tagDisplays, style: settings.tagDisplayStyle, pathStyle: settings.tagPathStyle)
                 }
 
                 // Row 2.75: Category chips disabled for performance
@@ -588,6 +636,16 @@ public struct MailStylePublicationRow: View, Equatable {
                     systemImage: data.isStarred ? "star.slash" : "star"
                 )
             }
+        }
+
+        // Flag submenu
+        if onSetFlag != nil || onClearFlag != nil {
+            flagContextMenu
+        }
+
+        // Tag submenu
+        if onAddTag != nil || onRemoveTag != nil {
+            tagContextMenu
         }
 
         Divider()
@@ -855,6 +913,56 @@ public struct MailStylePublicationRow: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private var flagContextMenu: some View {
+        Menu {
+            ForEach(FlagColor.allCases, id: \.self) { color in
+                Button {
+                    onSetFlag?(color)
+                } label: {
+                    Label(color.displayName, systemImage: "flag.fill")
+                }
+            }
+
+            if data.flag != nil, let onClearFlag {
+                Divider()
+                Button {
+                    onClearFlag()
+                } label: {
+                    Label("Clear Flag", systemImage: "flag.slash")
+                }
+            }
+        } label: {
+            Label("Flag", systemImage: data.flag != nil ? "flag.fill" : "flag")
+        }
+    }
+
+    @ViewBuilder
+    private var tagContextMenu: some View {
+        Menu {
+            if let onAddTag {
+                Button {
+                    onAddTag()
+                } label: {
+                    Label("Add Tag...", systemImage: "plus")
+                }
+            }
+
+            if !data.tagDisplays.isEmpty, let onRemoveTag {
+                Divider()
+                ForEach(data.tagDisplays) { tag in
+                    Button(role: .destructive) {
+                        onRemoveTag(tag.id)
+                    } label: {
+                        Label("Remove: \(tag.leaf)", systemImage: "minus.circle")
+                    }
+                }
+            }
+        } label: {
+            Label("Tags", systemImage: data.tagDisplays.isEmpty ? "tag" : "tag.fill")
+        }
+    }
+
     // MARK: - Actions
 
     private func copyTitle() {
@@ -926,6 +1034,7 @@ extension PublicationRowData {
         abstract: String?,
         isRead: Bool,
         isStarred: Bool = false,
+        flag: PublicationFlag? = nil,
         hasDownloadedPDF: Bool = false,
         hasOtherAttachments: Bool = false,
         citationCount: Int,
@@ -939,6 +1048,7 @@ extension PublicationRowData {
         dateModified: Date = Date(),
         primaryCategory: String? = nil,
         categories: [String] = [],
+        tagDisplays: [TagDisplayData] = [],
         libraryName: String? = nil
     ) {
         self.id = id
@@ -949,6 +1059,7 @@ extension PublicationRowData {
         self.abstract = abstract
         self.isRead = isRead
         self.isStarred = isStarred
+        self.flag = flag
         self.hasDownloadedPDF = hasDownloadedPDF
         self.hasOtherAttachments = hasOtherAttachments
         self.citationCount = citationCount
@@ -962,6 +1073,7 @@ extension PublicationRowData {
         self.dateModified = dateModified
         self.primaryCategory = primaryCategory
         self.categories = categories
+        self.tagDisplays = tagDisplays
         self.libraryName = libraryName
     }
 }

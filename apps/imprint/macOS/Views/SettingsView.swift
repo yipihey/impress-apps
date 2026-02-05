@@ -23,6 +23,12 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.editor")
 
+            AIAssistantSettingsView()
+                .tabItem {
+                    Label("AI", systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("settings.tabs.ai")
+
             ImbibSettingsView()
                 .tabItem {
                     Label("Citations", systemImage: "books.vertical")
@@ -53,7 +59,7 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.automation")
         }
-        .frame(width: 500, height: 450)
+        .frame(width: 500, height: 500)
         .accessibilityIdentifier("settings.container")
     }
 }
@@ -504,6 +510,179 @@ struct AutomationSettingsView: View {
                 isServerRunning = await ImprintHTTPServer.shared.running
             }
         }
+    }
+}
+
+// MARK: - AI Assistant Settings
+
+/// Settings for AI writing assistance features
+struct AIAssistantSettingsView: View {
+    private let aiService = AIAssistantService.shared
+    private let inlineService = InlineCompletionService.shared
+
+    @State private var claudeKeyInput = ""
+    @State private var openaiKeyInput = ""
+    @State private var showingKeys = false
+
+    var body: some View {
+        Form {
+            Section("AI Provider") {
+                Picker("Provider", selection: Binding(
+                    get: { aiService.provider },
+                    set: { aiService.provider = $0 }
+                )) {
+                    ForEach(AIProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .accessibilityIdentifier("settings.ai.provider")
+
+                Text("Choose which AI service to use for writing assistance")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("API Keys") {
+                apiKeyField(
+                    label: "Anthropic (Claude)",
+                    provider: .claude,
+                    input: $claudeKeyInput,
+                    placeholder: "sk-ant-..."
+                )
+
+                apiKeyField(
+                    label: "OpenAI",
+                    provider: .openai,
+                    input: $openaiKeyInput,
+                    placeholder: "sk-..."
+                )
+
+                Toggle("Show API keys", isOn: $showingKeys)
+                    .font(.caption)
+            }
+
+            Section("Inline Completions") {
+                Toggle("Enable Tab completion", isOn: Binding(
+                    get: { inlineService.isEnabled },
+                    set: { inlineService.isEnabled = $0 }
+                ))
+                .accessibilityIdentifier("settings.ai.inlineEnabled")
+                .help("Show AI suggestions as you type. Press Tab to accept.")
+
+                if inlineService.isEnabled {
+                    Stepper(
+                        "Minimum characters: \(inlineService.minTriggerLength)",
+                        value: Binding(
+                            get: { inlineService.minTriggerLength },
+                            set: { inlineService.minTriggerLength = $0 }
+                        ),
+                        in: 5...50
+                    )
+                    .help("Number of characters before triggering suggestions")
+
+                    Stepper(
+                        "Debounce delay: \(inlineService.debounceDelay)ms",
+                        value: Binding(
+                            get: { inlineService.debounceDelay },
+                            set: { inlineService.debounceDelay = $0 }
+                        ),
+                        in: 200...2000,
+                        step: 100
+                    )
+                    .help("Wait time after typing before requesting completion")
+                }
+
+                HStack {
+                    Image(systemName: "keyboard")
+                        .foregroundStyle(.secondary)
+                    Text("Press Tab to accept, Escape to dismiss")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Context Menu Actions") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Select text in the editor and right-click for AI actions:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 16) {
+                        actionItem(icon: "pencil", label: "Rewrite")
+                        actionItem(icon: "text.quote", label: "Cite")
+                        actionItem(icon: "lightbulb", label: "Explain")
+                    }
+
+                    HStack(spacing: 16) {
+                        actionItem(icon: "list.bullet", label: "Structure")
+                        actionItem(icon: "checkmark.circle", label: "Review")
+                    }
+                }
+            }
+
+            Section("Citation Suggestions") {
+                Text("When writing, the AI will suggest relevant citations from your imbib library based on context.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Image(systemName: "books.vertical")
+                        .foregroundStyle(.orange)
+                    Text("Requires imbib to be running with HTTP API enabled")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .task {
+            claudeKeyInput = await aiService.maskedAPIKey(for: .claude)
+            openaiKeyInput = await aiService.maskedAPIKey(for: .openai)
+        }
+    }
+
+    @ViewBuilder
+    private func apiKeyField(
+        label: String,
+        provider: AIProvider,
+        input: Binding<String>,
+        placeholder: String
+    ) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+
+            if showingKeys {
+                SecureField(placeholder, text: input)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+            } else {
+                Text(input.wrappedValue.isEmpty ? "Not configured" : input.wrappedValue)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 200, alignment: .trailing)
+            }
+
+            Button("Save") {
+                Task {
+                    try? await aiService.setAPIKey(input.wrappedValue, for: provider)
+                }
+            }
+            .disabled(input.wrappedValue.isEmpty || !showingKeys)
+        }
+    }
+
+    @ViewBuilder
+    private func actionItem(icon: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption)
+            Text(label)
+                .font(.caption)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
     }
 }
 

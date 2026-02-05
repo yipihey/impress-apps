@@ -266,6 +266,12 @@ struct IOSContentView: View {
                 selectedPublication: $selectedPublication
             )
 
+        case .flagged(let color):
+            IOSUnifiedPublicationListWrapper(
+                source: .flagged(color),
+                selectedPublication: $selectedPublication
+            )
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -312,6 +318,8 @@ struct IOSContentView: View {
         case .scixLibrary(let library):
             // SciX libraries are remote - use the library's own ID for PDF paths
             return library.id
+        case .flagged:
+            return libraryManager.activeLibrary?.id
         default:
             return nil
         }
@@ -334,6 +342,12 @@ struct IOSContentView: View {
             return .collection(collection.id)
         case .scixLibrary(let library):
             return .scixLibrary(library.id)
+        case .flagged:
+            if case .flagged(let color) = selectedSection {
+                let source = IOSUnifiedPublicationListWrapper.Source.flagged(color)
+                return .flagged(source.id)
+            }
+            return nil
         default:
             return nil
         }
@@ -366,8 +380,8 @@ struct IOSContentView: View {
         case .inboxCollection(let collection):
             return .collection(collection.id, collection.name)
 
-        case .inbox, .inboxFeed, .search, .searchForm, .none:
-            // Inbox and search contexts default to global
+        case .inbox, .inboxFeed, .search, .searchForm, .flagged, .none:
+            // Inbox, search, and flagged contexts default to global
             return .global
         }
     }
@@ -462,6 +476,7 @@ enum SidebarSection: Hashable {
     case smartSearch(CDSmartSearch)
     case collection(CDCollection)
     case scixLibrary(CDSciXLibrary)
+    case flagged(String?)              // Flagged publications (nil = any flag, or specific color name)
 }
 
 // MARK: - iOS Search View

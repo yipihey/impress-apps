@@ -23,6 +23,14 @@ public struct PublisherRule: Sendable, Codable, Identifiable, Hashable {
     public let preferOpenAlex: Bool
     public let notes: String?
 
+    /// Parser ID for landing page HTML parsing (e.g., "iop", "aps", "nature").
+    /// Used by `PublisherHTMLParsers` to select the appropriate parsing strategy.
+    public let htmlParserID: String?
+
+    /// Whether this publisher supports landing page scraping for PDF extraction.
+    /// When true, the resolver will attempt to fetch and parse the landing page HTML.
+    public let supportsLandingPageScraping: Bool
+
     public init(
         id: String,
         name: String,
@@ -31,7 +39,9 @@ public struct PublisherRule: Sendable, Codable, Identifiable, Hashable {
         requiresProxy: Bool = false,
         captchaRisk: CaptchaRisk = .low,
         preferOpenAlex: Bool = false,
-        notes: String? = nil
+        notes: String? = nil,
+        htmlParserID: String? = nil,
+        supportsLandingPageScraping: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -41,6 +51,8 @@ public struct PublisherRule: Sendable, Codable, Identifiable, Hashable {
         self.captchaRisk = captchaRisk
         self.preferOpenAlex = preferOpenAlex
         self.notes = notes
+        self.htmlParserID = htmlParserID
+        self.supportsLandingPageScraping = supportsLandingPageScraping
     }
 
     /// Check if this rule matches a DOI.

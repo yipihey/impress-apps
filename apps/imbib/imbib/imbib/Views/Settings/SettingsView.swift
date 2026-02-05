@@ -26,6 +26,7 @@ struct SettingsView: View {
                 }
 
                 Section("Content") {
+                    SettingsSidebarRow(tab: .flagsAndTags)
                     SettingsSidebarRow(tab: .notes)
                     SettingsSidebarRow(tab: .pdf)
                     SettingsSidebarRow(tab: .sources)
@@ -84,6 +85,8 @@ struct SettingsView: View {
         case .viewing:
             ViewingSettingsTab()
                 .accessibilityIdentifier(AccessibilityID.Settings.Tabs.viewing)
+        case .flagsAndTags:
+            FlagsAndTagsSettingsTab()
         case .notes:
             NotesSettingsTab()
                 .accessibilityIdentifier(AccessibilityID.Settings.Tabs.notes)
@@ -138,6 +141,7 @@ enum SettingsTab: String, CaseIterable {
     case general
     case appearance
     case viewing
+    case flagsAndTags
     case notes
     case sources
     case pdf
@@ -155,6 +159,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: return "General"
         case .appearance: return "Appearance"
         case .viewing: return "Viewing"
+        case .flagsAndTags: return "Flags & Tags"
         case .notes: return "Notes"
         case .sources: return "Sources"
         case .pdf: return "PDF"
@@ -174,6 +179,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: return "gear"
         case .appearance: return "paintbrush"
         case .viewing: return "eye"
+        case .flagsAndTags: return "flag"
         case .notes: return "note.text"
         case .sources: return "globe"
         case .pdf: return "doc.richtext"
@@ -193,6 +199,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: return "App preferences"
         case .appearance: return "Theme and colors"
         case .viewing: return "List display options"
+        case .flagsAndTags: return "Flag colors and tag display settings"
         case .notes: return "Note editor settings"
         case .sources: return "API keys for online sources"
         case .pdf: return "PDF download settings"
@@ -739,6 +746,12 @@ struct InboxSettingsTab: View {
             loadDismissedPaperCount()
             loadSaveLibrarySetting()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Reload inbox settings when they change from elsewhere (e.g., sidebar dropdown)
+            Task {
+                await viewModel.loadInboxSettings()
+            }
+        }
     }
 
     // MARK: - Save Library
@@ -1200,6 +1213,10 @@ struct AdvancedSettingsTab: View {
         }
         .onDisappear {
             stopOptionKeyMonitoring()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Reload exploration retention when it changes from elsewhere (e.g., sidebar dropdown)
+            explorationRetention = SyncedSettingsStore.shared.explorationRetention
         }
         .confirmationDialog(
             "Reset to First Run?",

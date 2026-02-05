@@ -39,6 +39,13 @@ uniffi = { workspace = true, optional = true }
 # SQLite persistence (optional)
 rusqlite = { workspace = true, optional = true }
 
+# Persona system dependencies
+toml = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
 [[bin]]
 name = "uniffi-bindgen"
 path = "src/uniffi_bindgen.rs"

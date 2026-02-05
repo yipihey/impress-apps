@@ -135,9 +135,14 @@ struct AnnotationRow: View {
                         .foregroundStyle(.secondary)
 
                     if let author = annotation.author {
-                        Text("by \(author)")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color(AnnotationPersistence.shared.authorColor(for: author).platformColor))
+                                .frame(width: 8, height: 8)
+                            Text(author)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
             }

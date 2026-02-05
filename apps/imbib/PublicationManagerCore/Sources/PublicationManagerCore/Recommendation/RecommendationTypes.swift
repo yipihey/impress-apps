@@ -378,6 +378,21 @@ public struct RecommendationScore: Sendable {
     }
 }
 
+/// A "For You" personalized recommendation.
+public struct ForYouRecommendation: Sendable, Identifiable {
+    public let publicationID: UUID
+    public let score: Double
+    public let reason: String
+
+    public var id: UUID { publicationID }
+
+    public init(publicationID: UUID, score: Double, reason: String) {
+        self.publicationID = publicationID
+        self.score = score
+        self.reason = reason
+    }
+}
+
 /// A publication with its recommendation score for ranking display.
 public struct RankedPublication: Sendable, Identifiable {
     public let publicationID: UUID

@@ -13,6 +13,7 @@ import OSLog
 /// Enhanced PDF URL resolver with:
 /// - URL validation before download
 /// - OpenAlex OA location caching
+/// - Landing page scraping for PDF discovery
 /// - Publisher registry for URL construction
 /// - Parallel proxy testing
 /// - Rich access status reporting
@@ -21,9 +22,11 @@ import OSLog
 ///
 /// 1. arXiv (if preprint priority or arXiv-only paper)
 /// 2. OpenAlex OA locations (cached)
+/// 2b. Landing page scraping (when OpenAlex has only landing page URL)
 /// 3. Publisher rules + validation
 /// 4. arXiv fallback
-/// 5. Browser fallback with clear status
+/// 5. ADS scan fallback
+/// 6. Browser fallback with clear status
 ///
 /// ## Usage
 ///
@@ -46,16 +49,19 @@ public actor PDFURLResolverV2 {
 
     private let openAlexService: OpenAlexPDFService
     private let publisherRegistry: PublisherRegistry
+    private let landingPageResolver: LandingPagePDFResolver
     private let validator: URLValidatorService
 
     // MARK: - Initialization
 
     public init(
         openAlexService: OpenAlexPDFService? = nil,
-        publisherRegistry: PublisherRegistry? = nil
+        publisherRegistry: PublisherRegistry? = nil,
+        landingPageResolver: LandingPagePDFResolver? = nil
     ) {
         self.openAlexService = openAlexService ?? OpenAlexPDFService.shared
         self.publisherRegistry = publisherRegistry ?? PublisherRegistry.shared
+        self.landingPageResolver = landingPageResolver ?? LandingPagePDFResolver.shared
         self.validator = URLValidatorService()
     }
 
@@ -100,6 +106,18 @@ public actor PDFURLResolverV2 {
                     name: oaLocation.sourceName ?? "Open Access"
                 ))
             }
+
+            // 2b. Try landing page scraping when OpenAlex didn't have direct PDF
+            // Only try if publisher supports landing page scraping
+            let rule = await publisherRegistry.rule(forDOI: doi)
+            if rule?.supportsLandingPageScraping ?? true {
+                let landingPageStatus = await resolveLandingPagePDF(doi: doi, settings: settings)
+                if landingPageStatus.isAccessible {
+                    return landingPageStatus
+                }
+                // If landing page returned blocking status, save it for potential return
+                // but continue trying other methods first
+            }
         }
 
         // 3. Try publisher rules with validation
@@ -141,6 +159,104 @@ public actor PDFURLResolverV2 {
     public func resolve(for publication: CDPublication) async -> PDFAccessStatus {
         let settings = await PDFSettingsStore.shared.settings
         return await resolve(for: publication, settings: settings)
+    }
+
+    // MARK: - Landing Page Resolution
+
+    /// Resolve PDF URL by scraping publisher landing pages.
+    ///
+    /// This method fetches the landing page HTML, extracts PDF links using
+    /// publisher-specific parsers, and validates the discovered URLs.
+    private func resolveLandingPagePDF(doi: String, settings: PDFSettings) async -> PDFAccessStatus {
+        // Get landing page URL from OpenAlex
+        guard let landingPageURL = await openAlexService.fetchLandingPageURL(doi: doi) else {
+            return .unavailable(reason: .noPDFFound)
+        }
+
+        Logger.files.infoCapture(
+            "[PDFURLResolverV2] Trying landing page: \(landingPageURL.absoluteString)",
+            category: "pdf"
+        )
+
+        // Get publisher info
+        let rule = await publisherRegistry.rule(forDOI: doi)
+        let publisherName = rule?.name ?? "Publisher"
+
+        // Try without proxy first
+        let directResult = await landingPageResolver.resolve(
+            landingPageURL: landingPageURL,
+            useProxy: false
+        )
+
+        switch directResult.status {
+        case .found:
+            if let pdfURL = directResult.pdfURL {
+                // Validate the discovered PDF URL
+                let validationResult = await validator.validate(url: pdfURL)
+                if validationResult.isSuccess {
+                    Logger.files.infoCapture(
+                        "[PDFURLResolverV2] Landing page found PDF: \(pdfURL.absoluteString)",
+                        category: "pdf"
+                    )
+                    return .available(source: ResolvedPDFSource(
+                        type: .landingPage,
+                        url: pdfURL,
+                        name: publisherName
+                    ))
+                }
+            }
+
+        case .requiresAuthentication:
+            // Try with proxy if configured
+            if settings.proxyEnabled, !settings.libraryProxyURL.isEmpty {
+                let proxyResult = await landingPageResolver.resolve(
+                    landingPageURL: landingPageURL,
+                    useProxy: true,
+                    proxyPrefix: settings.libraryProxyURL
+                )
+
+                if proxyResult.status == .found, let pdfURL = proxyResult.pdfURL {
+                    // Apply proxy to the PDF URL as well
+                    let proxiedPDFURL = applyProxy(to: pdfURL, settings: settings)
+                    let validationResult = await validator.validate(url: proxiedPDFURL)
+                    if validationResult.isSuccess {
+                        Logger.files.infoCapture(
+                            "[PDFURLResolverV2] Landing page (proxied) found PDF: \(proxiedPDFURL.absoluteString)",
+                            category: "pdf"
+                        )
+                        return .requiresProxy(source: ResolvedPDFSource(
+                            type: .landingPage,
+                            url: proxiedPDFURL,
+                            name: publisherName
+                        ))
+                    }
+                }
+
+                // Proxy didn't help, return paywall status
+                let browserURL = applyProxy(to: landingPageURL, settings: settings)
+                return .paywalled(publisher: publisherName, browserURL: browserURL)
+            }
+
+            // No proxy configured
+            return .paywalled(publisher: publisherName, browserURL: landingPageURL)
+
+        case .captchaBlocked:
+            let browserURL = settings.proxyEnabled
+                ? applyProxy(to: landingPageURL, settings: settings)
+                : landingPageURL
+            return .captchaBlocked(publisher: publisherName, browserURL: browserURL)
+
+        case .rateLimited:
+            // Don't fail the whole resolution, just skip landing page method
+            Logger.files.info("[PDFURLResolverV2] Rate limited on landing page, skipping")
+            break
+
+        case .notFound, .fetchFailed:
+            // No PDF found on landing page, continue with other methods
+            break
+        }
+
+        return .unavailable(reason: .noPDFFound)
     }
 
     // MARK: - Publisher Resolution

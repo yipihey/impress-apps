@@ -35,6 +35,8 @@ packages:
     path: ../../packages/ImpressAI
   ImpressAutomation:
     path: ../../packages/ImpressAutomation
+  ImpressOperationQueue:
+    path: ../../packages/ImpressOperationQueue
 
 targets:
   imprint:
@@ -59,6 +61,7 @@ targets:
       - package: ImpressHelixCore
       - package: ImpressAI
       - package: ImpressAutomation
+      - package: ImpressOperationQueue
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -123,6 +126,7 @@ targets:
       - package: ImpressHelixCore
       - package: ImpressAI
       - package: ImpressAutomation
+      - package: ImpressOperationQueue
     entitlements:
       path: imprint-iOS/imprint-iOS.entitlements
       properties:

@@ -1,8 +1,11 @@
 import SwiftUI
 import AppKit
 import ImpressHelixCore
+import OSLog
 
-/// Typst source code editor with syntax highlighting
+private let logger = Logger(subsystem: "com.imprint.app", category: "sourceEditor")
+
+/// Typst source code editor with syntax highlighting and inline AI completions
 struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
@@ -12,6 +15,7 @@ struct SourceEditorView: View {
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
 
     @State private var helixState = HelixState()
+    private let inlineCompletionService = InlineCompletionService.shared
 
     init(source: Binding<String>, cursorPosition: Binding<Int>, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
         self._source = source
@@ -29,24 +33,43 @@ struct SourceEditorView: View {
                 cursorPosition: $cursorPosition,
                 helixState: helixState,
                 helixEnabled: helixModeEnabled,
+                inlineCompletionService: inlineCompletionService,
                 onSelectionChange: onSelectionChange
             )
 
+            // Helix mode indicator
             if helixModeEnabled && helixShowModeIndicator {
                 HelixModeIndicator(state: helixState, position: .bottomLeft)
                     .padding(12)
+            }
+
+            // Inline completion loading indicator
+            if inlineCompletionService.isLoading {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("AI")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding([.trailing, .bottom], 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
         .accessibilityIdentifier("sourceEditor.container")
     }
 }
 
-/// NSTextView wrapper for Typst editing
+/// NSTextView wrapper for Typst editing with inline AI completions
 struct TypstEditorRepresentable: NSViewRepresentable {
     @Binding var source: String
     @Binding var cursorPosition: Int
     let helixState: HelixState
     let helixEnabled: Bool
+    let inlineCompletionService: InlineCompletionService
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -90,6 +113,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textView.helixAdaptor = adaptor
         context.coordinator.helixAdaptor = adaptor
 
+        // Set up inline completion service
+        textView.inlineCompletionService = inlineCompletionService
+
+        // Add ghost text overlay
+        let ghostTextView = GhostTextNSView(frame: .zero)
+        ghostTextView.textFont = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        textView.addSubview(ghostTextView)
+        textView.ghostTextView = ghostTextView
+
         scrollView.documentView = textView
         context.coordinator.textView = textView
 
@@ -105,6 +137,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
         // Update Helix enabled state
         context.coordinator.helixAdaptor?.isEnabled = helixEnabled
+
+        // Update ghost text
+        textView.updateGhostText()
 
         // Update text if changed externally
         if textView.string != source {
@@ -179,6 +214,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         var parent: TypstEditorRepresentable
         weak var textView: NSTextView?
         var helixAdaptor: NSTextViewHelixAdaptor?
+        private var completionDebounceTask: Task<Void, Never>?
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
@@ -194,6 +230,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
             // Re-apply syntax highlighting
             parent.applySyntaxHighlighting(to: textView)
+
+            // Request inline completion
+            requestInlineCompletion(text: textView.string, position: selectedRange.location)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -210,8 +249,29 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 parent.onSelectionChange?("", selectedRange)
             }
 
+            // Clear completion on selection change
+            if selectedRange.length > 0 {
+                parent.inlineCompletionService.clearCompletion()
+            }
+
+            // Update ghost text position
+            if let typstTextView = textView as? TypstTextView {
+                typstTextView.updateGhostText()
+            }
+
             // Update collaboration cursor
             textView.updateCollaborationCursor()
+        }
+
+        private func requestInlineCompletion(text: String, position: Int) {
+            // Capture service reference for Task
+            let service = parent.inlineCompletionService
+            let capturedText = text
+            let capturedPosition = position
+
+            Task { @MainActor in
+                service.requestCompletion(text: capturedText, cursorPosition: capturedPosition)
+            }
         }
     }
 }
@@ -225,10 +285,70 @@ extension String {
     }
 }
 
-/// Custom NSTextView subclass for Typst editing with Helix support
+/// Custom NSTextView subclass for Typst editing with Helix support and inline completions
 class TypstTextView: HelixTextView {
-    // Line numbers could be added here
-    // Auto-completion could be added here
+
+    // MARK: - Inline Completion Properties
+
+    /// Service for inline AI completions
+    var inlineCompletionService: InlineCompletionService?
+
+    /// Ghost text overlay view
+    var ghostTextView: GhostTextNSView?
+
+    // MARK: - Key Handling
+
+    override func keyDown(with event: NSEvent) {
+        // Tab key accepts inline completion if available
+        if event.keyCode == 48 { // Tab key
+            if let service = inlineCompletionService,
+               let accepted = service.acceptCompletion() {
+                // Insert the accepted text at cursor
+                insertText(accepted, replacementRange: selectedRange())
+                logger.info("Accepted inline completion via Tab")
+                return
+            }
+        }
+
+        // Escape clears completion
+        if event.keyCode == 53 { // Escape key
+            inlineCompletionService?.clearCompletion()
+            updateGhostText()
+        }
+
+        // Let Helix handle it, or fall through to normal handling
+        super.keyDown(with: event)
+
+        // Update ghost text after any key press
+        updateGhostText()
+    }
+
+    // MARK: - Ghost Text Management
+
+    /// Update the ghost text display based on current completion.
+    func updateGhostText() {
+        guard let ghostView = ghostTextView,
+              let service = inlineCompletionService else {
+            return
+        }
+
+        let ghostText = service.ghostText
+
+        if ghostText.isEmpty {
+            ghostView.ghostText = ""
+            return
+        }
+
+        // Position ghost text at cursor
+        let cursorPoint = endOfCurrentLinePoint()
+        ghostView.cursorPosition = cursorPoint
+        ghostView.ghostText = ghostText
+
+        // Update line height from font
+        if let font = self.font {
+            ghostView.lineHeight = font.ascender - font.descender + font.leading
+        }
+    }
 }
 
 #Preview {

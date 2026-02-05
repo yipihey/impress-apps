@@ -132,15 +132,29 @@ public struct ExpandableAuthorList: View {
             Text("Unknown")
                 .textSelection(.enabled)
         } else if !canCollapse {
-            // Show all authors (less than threshold)
+            // Show all authors (less than threshold) - no expand/collapse needed
             Text(authors.joined(separator: separator))
                 .textSelection(.enabled)
-        } else if isCollapsed {
-            // Show collapsed view with expandable "..."
-            collapsedView
         } else {
-            // Show expanded view with collapsible middle section
-            expandedView
+            // Expandable/collapsible view - clicking anywhere toggles
+            Group {
+                if isCollapsed {
+                    collapsedView
+                } else {
+                    expandedView
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            }
+            #if os(macOS)
+            .help(isCollapsed
+                  ? "Click to show all \(authors.count) authors (\(hiddenCount) hidden)"
+                  : "Click to collapse author list")
+            #endif
         }
     }
 
@@ -173,16 +187,7 @@ public struct ExpandableAuthorList: View {
         }()
 
         combinedText
-            .textSelection(.enabled)
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded = true
-                }
-            }
             .accessibilityIdentifier(AccessibilityID.Detail.Info.authorsExpand)
-            #if os(macOS)
-            .help("Click to show all \(authors.count) authors (\(hiddenCount) hidden)")
-            #endif
     }
 
     // MARK: - Expanded View
@@ -217,16 +222,7 @@ public struct ExpandableAuthorList: View {
         }()
 
         combinedText
-            .textSelection(.enabled)
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded = false
-                }
-            }
             .accessibilityIdentifier(AccessibilityID.Detail.Info.authorsCollapse)
-            #if os(macOS)
-            .help("Click to collapse author list")
-            #endif
     }
 }
 

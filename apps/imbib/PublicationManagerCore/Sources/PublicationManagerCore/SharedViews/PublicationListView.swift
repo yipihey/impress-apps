@@ -7,6 +7,7 @@
 
 import SwiftUI
 import OSLog
+import ImpressFTUI
 
 // MARK: - Filter Scope
 
@@ -198,6 +199,18 @@ public struct PublicationListView: View {
     /// Called when toggle star is requested
     public var onToggleStar: ((Set<UUID>) async -> Void)?
 
+    /// Called when a flag is set on publications
+    public var onSetFlag: ((Set<UUID>, FlagColor) async -> Void)?
+
+    /// Called when flag is cleared from publications
+    public var onClearFlag: ((Set<UUID>) async -> Void)?
+
+    /// Called when adding a tag to publications is requested
+    public var onAddTag: ((Set<UUID>) -> Void)?
+
+    /// Called when removing a tag from a publication
+    public var onRemoveTag: ((UUID, UUID) -> Void)?
+
     /// Called when mute author is requested
     public var onMuteAuthor: ((String) -> Void)?
 
@@ -238,6 +251,10 @@ public struct PublicationListView: View {
 
     /// Whether a refresh is in progress (shows loading indicator)
     public var isRefreshing: Bool = false
+
+    /// Version counter bumped by parent when publication data changes without count change
+    /// (e.g., flag set/cleared, tag added/removed). Forces row data cache rebuild.
+    public var dataVersion: Int = 0
 
     /// External triage flash trigger (for keyboard shortcuts from parent view)
     /// When set by parent, triggers flash animation on the specified row
@@ -525,6 +542,10 @@ public struct PublicationListView: View {
         onSaveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
         onToggleStar: ((Set<UUID>) async -> Void)? = nil,
+        onSetFlag: ((Set<UUID>, FlagColor) async -> Void)? = nil,
+        onClearFlag: ((Set<UUID>) async -> Void)? = nil,
+        onAddTag: ((Set<UUID>) -> Void)? = nil,
+        onRemoveTag: ((UUID, UUID) -> Void)? = nil,
         onMuteAuthor: ((String) -> Void)? = nil,
         onMutePaper: ((CDPublication) -> Void)? = nil,
         // Category tap callback
@@ -532,6 +553,8 @@ public struct PublicationListView: View {
         // Refresh callback and state
         onRefresh: (() async -> Void)? = nil,
         isRefreshing: Bool = false,
+        // Data version counter (bumped by parent on in-place mutations like flag/tag changes)
+        dataVersion: Int = 0,
         // External flash trigger
         externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil),
         // Enhanced context menu callbacks
@@ -579,6 +602,10 @@ public struct PublicationListView: View {
         self.onSaveToLibrary = onSaveToLibrary
         self.onDismiss = onDismiss
         self.onToggleStar = onToggleStar
+        self.onSetFlag = onSetFlag
+        self.onClearFlag = onClearFlag
+        self.onAddTag = onAddTag
+        self.onRemoveTag = onRemoveTag
         self.onMuteAuthor = onMuteAuthor
         self.onMutePaper = onMutePaper
         // Category tap
@@ -586,6 +613,8 @@ public struct PublicationListView: View {
         // Refresh
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
+        // Data version
+        self.dataVersion = dataVersion
         // External flash
         self._externalTriageFlash = externalTriageFlash
         // Enhanced context menu
@@ -630,12 +659,24 @@ public struct PublicationListView: View {
             // Rebuild row data when publications change (add/delete)
             rebuildRowData()
         }
+        .onChange(of: dataVersion) { _, _ in
+            // Rebuild row data when parent signals content change (flag/tag mutations)
+            rebuildRowData()
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { notification in
             // Smart update: only rebuild the changed row (O(1) instead of O(n))
             if let changedID = notification.object as? UUID {
                 updateSingleRowData(for: changedID)
             } else {
                 // Fallback: unknown change, rebuild all
+                rebuildRowData()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
+            // Rebuild the changed row to pick up new flag state (O(1))
+            if let changedID = notification.object as? UUID {
+                updateSingleRowData(for: changedID)
+            } else {
                 rebuildRowData()
             }
         }
@@ -844,6 +885,16 @@ public struct PublicationListView: View {
 
         rowDataCache = newRowCache
         publicationsByID = newPubCache
+
+        // Log tag summary for debugging
+        let taggedCount = newRowCache.values.filter { !$0.tagDisplays.isEmpty }.count
+        let flaggedCount = newRowCache.values.filter { $0.flag != nil }.count
+        if taggedCount > 0 || flaggedCount > 0 {
+            Logger.library.infoCapture(
+                "rebuildRowData: \(newRowCache.count) rows, \(taggedCount) tagged, \(flaggedCount) flagged",
+                category: "tags"
+            )
+        }
 
         // Invalidate filtered data cache - it will be recomputed on next access
         filterCache.invalidate()
@@ -1634,16 +1685,16 @@ public struct PublicationListView: View {
             }
         }
 
-        // MARK: Save/Triage Actions
+        // MARK: Move/Triage Actions
 
-        // Save to Library (adds to target library AND removes from current library)
+        // Move to Library (adds to target library AND removes from current library)
         // Available for all views, not just Inbox
         if let onSaveToLibrary = onSaveToLibrary, !allLibraries.isEmpty {
-            // Filter out current library and Inbox from save targets
-            let saveLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
-            if !saveLibraries.isEmpty {
-                Menu("Save to Library") {
-                    ForEach(saveLibraries, id: \.id) { targetLibrary in
+            // Filter out current library only (same logic as Add to Library)
+            let moveLibraries = allLibraries.filter { $0.id != library?.id }
+            if !moveLibraries.isEmpty {
+                Menu("Move to Library") {
+                    ForEach(moveLibraries, id: \.id) { targetLibrary in
                         Button(targetLibrary.displayName) {
                             Task {
                                 await onSaveToLibrary(ids, targetLibrary)
@@ -1682,6 +1733,26 @@ public struct PublicationListView: View {
                    let publication = publicationsByID[first] {  // O(1) lookup
                     Button("Mute This Paper") {
                         onMutePaper(publication)
+                    }
+                }
+            }
+        }
+
+        // Suggest to... (shared libraries only)
+        if let first = ids.first,
+           let publication = publicationsByID[first],
+           let sharedLibrary = publication.libraries?.first(where: { $0.isSharedLibrary }) {
+            let participantNames = AssignmentService.shared.participantNames(in: sharedLibrary)
+            if !participantNames.isEmpty {
+                Menu("Suggest to...") {
+                    ForEach(participantNames, id: \.self) { name in
+                        Button(name) {
+                            try? AssignmentService.shared.suggest(
+                                publication: publication,
+                                to: name,
+                                in: sharedLibrary
+                            )
+                        }
                     }
                 }
             }
@@ -1738,6 +1809,11 @@ public struct PublicationListView: View {
             )
         #else
         rowContent(data: rowData, index: index)
+            .listRowBackground(
+                selection.contains(rowData.id)
+                    ? theme.selectedRowBackground
+                    : Color.clear
+            )
         #endif
     }
 
@@ -1818,6 +1894,24 @@ public struct PublicationListView: View {
             }
         } : nil
 
+        // Flag handlers
+        let setFlagHandler: ((FlagColor) -> Void)? = onSetFlag != nil ? { color in
+            Task { await onSetFlag?([rowData.id], color) }
+        } : nil
+
+        let clearFlagHandler: (() -> Void)? = onClearFlag != nil ? {
+            Task { await onClearFlag?([rowData.id]) }
+        } : nil
+
+        // Tag handlers
+        let addTagHandler: (() -> Void)? = onAddTag != nil ? {
+            onAddTag?([rowData.id])
+        } : nil
+
+        let removeTagHandler: ((UUID) -> Void)? = onRemoveTag != nil ? { tagID in
+            onRemoveTag?(rowData.id, tagID)
+        } : nil
+
         // New context menu handlers
         let openInBrowserHandler: ((BrowserDestination) -> Void)? = onOpenInBrowser != nil ? { destination in
             if let pub = publicationsByID[rowData.id] {
@@ -1896,6 +1990,10 @@ public struct PublicationListView: View {
             onDelete: deleteHandler,
             onSave: saveHandler,
             onDismiss: dismissHandler,
+            onSetFlag: setFlagHandler,
+            onClearFlag: clearFlagHandler,
+            onAddTag: addTagHandler,
+            onRemoveTag: removeTagHandler,
             isInInbox: isInInbox,
             onOpenPDF: openPDFHandler,
             onCopyCiteKey: { copyToClipboard(rowData.citeKey) },

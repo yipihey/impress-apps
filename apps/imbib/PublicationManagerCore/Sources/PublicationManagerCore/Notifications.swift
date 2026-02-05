@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@_exported import ImpressSidebar
 
 // MARK: - Command Dispatch Architecture
 //
@@ -104,6 +105,9 @@ public extension Notification.Name {
 
     /// Read status changed (for UI updates)
     static let readStatusDidChange = Notification.Name("readStatusDidChange")
+
+    /// Flag state changed on a publication (for row data cache invalidation)
+    static let flagDidChange = Notification.Name("flagDidChange")
 
     /// Library content changed (papers added/removed from library or collection)
     /// Used to refresh sidebar publication counts
@@ -598,4 +602,33 @@ public extension Notification.Name {
     /// 3. Scrolling to make the first imported publication visible
     /// 4. Showing the PDF viewer tab
     static let pdfImportCompleted = Notification.Name("pdfImportCompleted")
+
+    // MARK: - CloudKit Sharing
+
+    /// Posted when a CloudKit share invitation has been accepted.
+    /// The shared library will appear in the shared store after CloudKit syncs.
+    static let sharedLibraryAccepted = Notification.Name("sharedLibraryAccepted")
+
+    /// Posted when a shared library becomes unavailable (share revoked by owner).
+    static let sharedLibraryRevoked = Notification.Name("sharedLibraryRevoked")
+
+    // MARK: - Comments & Activity
+
+    /// Posted when a comment is added to a shared library publication.
+    /// object: CDComment
+    static let commentAdded = Notification.Name("commentAdded")
+
+    /// Posted when a comment is deleted.
+    /// object: UUID (comment ID)
+    static let commentDeleted = Notification.Name("commentDeleted")
+
+    /// Posted when the activity feed has new entries.
+    /// object: CDLibrary
+    static let activityFeedUpdated = Notification.Name("activityFeedUpdated")
+
+    // MARK: - Shared Feeds
+
+    /// Posted when a shared library smart search finds new papers.
+    /// userInfo: ["libraryName": String, "feedName": String, "count": Int]
+    static let sharedFeedNewResults = Notification.Name("sharedFeedNewResults")
 }

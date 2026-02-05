@@ -41,6 +41,14 @@ public final class InboxManager {
     /// All muted items
     public private(set) var mutedItems: [CDMutedItem] = []
 
+    /// Shared feed new result counts, keyed by feed name
+    public private(set) var sharedFeedCounts: [String: Int] = [:]
+
+    /// Total count of new papers from shared feeds
+    public var sharedFeedTotalCount: Int {
+        sharedFeedCounts.values.reduce(0, +)
+    }
+
     /// Number of dismissed papers (for Settings display)
     public var dismissedPaperCount: Int {
         let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
@@ -82,14 +90,26 @@ public final class InboxManager {
         // Clear invalid cached reference
         inboxLibrary = nil
 
-        // Try to find existing inbox
+        // Try to find existing inbox - prefer one with canonical ID
         let request = NSFetchRequest<CDLibrary>(entityName: "Library")
         request.predicate = NSPredicate(format: "isInbox == YES")
-        request.fetchLimit = 1
 
         do {
-            if let existing = try persistenceController.viewContext.fetch(request).first {
-                Logger.inbox.infoCapture("Found existing Inbox library", category: "manager")
+            let allInboxes = try persistenceController.viewContext.fetch(request)
+
+            if !allInboxes.isEmpty {
+                // Prefer inbox with canonical ID, or migrate the oldest to canonical
+                let canonical = allInboxes.first { $0.id == CDLibrary.canonicalInboxLibraryID }
+                let existing = canonical ?? allInboxes.sorted { $0.dateCreated < $1.dateCreated }.first!
+
+                // Migrate to canonical ID if needed
+                if existing.id != CDLibrary.canonicalInboxLibraryID {
+                    Logger.inbox.infoCapture("Migrating Inbox library to canonical ID", category: "manager")
+                    existing.id = CDLibrary.canonicalInboxLibraryID
+                    persistenceController.save()
+                }
+
+                Logger.inbox.infoCapture("Found existing Inbox library (canonical: \(existing.id == CDLibrary.canonicalInboxLibraryID))", category: "manager")
                 inboxLibrary = existing
                 updateUnreadCount()
                 return existing
@@ -98,12 +118,12 @@ public final class InboxManager {
             Logger.inbox.errorCapture("Failed to fetch Inbox: \(error.localizedDescription)", category: "manager")
         }
 
-        // Create new Inbox
-        Logger.inbox.infoCapture("Creating Inbox library", category: "manager")
+        // Create new Inbox with canonical ID
+        Logger.inbox.infoCapture("Creating Inbox library with canonical ID", category: "manager")
 
         let context = persistenceController.viewContext
         let inbox = CDLibrary(context: context)
-        inbox.id = UUID()
+        inbox.id = CDLibrary.canonicalInboxLibraryID  // Use canonical ID for CloudKit sync
         inbox.name = "Inbox"
         inbox.isInbox = true
         inbox.isDefault = false
@@ -113,7 +133,7 @@ public final class InboxManager {
         persistenceController.save()
         inboxLibrary = inbox
 
-        Logger.inbox.infoCapture("Created Inbox library with ID: \(inbox.id)", category: "manager")
+        Logger.inbox.infoCapture("Created Inbox library with canonical ID: \(inbox.id)", category: "manager")
         return inbox
     }
 
@@ -126,6 +146,17 @@ public final class InboxManager {
         inboxLibrary = nil
         mutedItems = []
         unreadCount = 0
+        sharedFeedCounts = [:]
+    }
+
+    /// Clear the new-results count for a specific shared feed.
+    public func clearSharedFeedCount(feedName: String) {
+        sharedFeedCounts.removeValue(forKey: feedName)
+    }
+
+    /// Clear all shared feed counts.
+    public func clearAllSharedFeedCounts() {
+        sharedFeedCounts = [:]
     }
 
     /// Load the Inbox library from Core Data
@@ -239,6 +270,22 @@ public final class InboxManager {
 
             Task { @MainActor in
                 self.handleSave(publication)
+            }
+        }
+
+        // Listen for shared feed new results
+        NotificationCenter.default.addObserver(
+            forName: .sharedFeedNewResults,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let userInfo = notification.userInfo,
+                  let feedName = userInfo["feedName"] as? String,
+                  let count = userInfo["count"] as? Int else { return }
+
+            Task { @MainActor in
+                self.sharedFeedCounts[feedName] = count
             }
         }
     }

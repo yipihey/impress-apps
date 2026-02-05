@@ -1,9 +1,5 @@
 import Foundation
 
-#if canImport(ImpressLLM)
-import ImpressLLM
-#endif
-
 /// AI provider that bridges to the Rust-based graniet/llm library.
 ///
 /// This provider supports additional backends not available in native Swift:
@@ -15,8 +11,8 @@ import ImpressLLM
 /// - xAI (Grok): Grok models with real-time knowledge
 /// - HuggingFace: Access to thousands of open-source models
 ///
-/// Note: All Rust calls are blocking. This provider wraps them in `Task.detached`
-/// to avoid blocking the main thread.
+/// Note: This provider requires the ImpressLLM framework to be built.
+/// When ImpressLLM is not available, the provider returns unavailable status.
 public actor RustLLMProvider: AIProvider {
     /// The backend identifier (e.g., "groq", "phind")
     private let backendId: String
@@ -43,122 +39,21 @@ public actor RustLLMProvider: AIProvider {
     }
 
     public func complete(_ request: AICompletionRequest) async throws -> AICompletionResponse {
-        #if canImport(ImpressLLM)
-        let apiKey = try await getAPIKey()
-        let modelId = request.modelId ?? _metadata.defaultModel?.id ?? ""
-
-        // Convert request to Rust types
-        let llmRequest = try await buildLLMRequest(request, apiKey: apiKey, modelId: modelId)
-
-        // Execute on background thread (Rust calls are blocking)
-        let response = try await Task.detached(priority: .userInitiated) {
-            try ImpressLLM.complete(request: llmRequest)
-        }.value
-
-        return convertResponse(response, modelId: modelId)
-        #else
-        throw AIError.providerNotConfigured("ImpressLLM framework not available. Build the Rust crate first.")
-        #endif
+        // ImpressLLM integration is currently disabled
+        // This provider will be enabled when the Rust LLM integration is complete
+        throw AIError.providerNotConfigured("ImpressLLM framework not fully integrated. Use native providers instead.")
     }
 
     public func validate() async throws -> AIProviderStatus {
-        #if canImport(ImpressLLM)
         // Check if API key is configured
         let hasKey = await credentialManager.hasCredential(for: backendId, field: "apiKey")
         if !hasKey {
             return .needsCredentials(["apiKey"])
         }
 
-        // Verify the provider is available in the Rust library
-        if ImpressLLM.getProvider(providerId: backendId) == nil {
-            return .error("Provider '\(backendId)' not available in ImpressLLM")
-        }
-
-        return .ready
-        #else
-        return .unavailable(reason: "ImpressLLM framework not built")
-        #endif
+        // ImpressLLM is not currently available
+        return .unavailable(reason: "ImpressLLM framework not fully integrated")
     }
-
-    // MARK: - Private Methods
-
-    private func getAPIKey() async throws -> String {
-        guard let apiKey = await credentialManager.retrieve(for: backendId, field: "apiKey"),
-              !apiKey.isEmpty else {
-            throw AIError.unauthorized(message: "API key not configured for \(backendId)")
-        }
-        return apiKey
-    }
-
-    #if canImport(ImpressLLM)
-    private func buildLLMRequest(_ request: AICompletionRequest, apiKey: String, modelId: String) async throws -> LlmRequest {
-        var messages: [LlmMessage] = []
-
-        // Add system prompt as first message if present
-        if let systemPrompt = request.systemPrompt, !systemPrompt.isEmpty {
-            messages.append(LlmMessage(role: .system, content: systemPrompt))
-        }
-
-        // Convert messages
-        for message in request.messages {
-            let role: LlmRole
-            switch message.role {
-            case .system:
-                role = .system
-            case .user:
-                role = .user
-            case .assistant:
-                role = .assistant
-            case .tool:
-                // Treat tool messages as user messages for now
-                role = .user
-            }
-
-            messages.append(LlmMessage(role: role, content: message.text))
-        }
-
-        return LlmRequest(
-            provider: backendId,
-            model: modelId,
-            messages: messages,
-            maxTokens: request.maxTokens.map { UInt32($0) },
-            temperature: request.temperature.map { Float($0) },
-            topP: request.topP.map { Float($0) },
-            apiKey: apiKey
-        )
-    }
-
-    private func convertResponse(_ response: LlmResponse, modelId: String) -> AICompletionResponse {
-        var usage: AIUsage?
-        if let tokens = response.tokensUsed {
-            // Rust doesn't split input/output, so we estimate
-            usage = AIUsage(inputTokens: 0, outputTokens: Int(tokens))
-        }
-
-        return AICompletionResponse(
-            id: UUID().uuidString,
-            content: [.text(response.content)],
-            model: modelId,
-            finishReason: convertFinishReason(response.finishReason),
-            usage: usage
-        )
-    }
-
-    private func convertFinishReason(_ reason: String) -> AIFinishReason {
-        switch reason.lowercased() {
-        case "stop", "end_turn":
-            return .stop
-        case "length", "max_tokens":
-            return .length
-        case "tool_use", "tool_calls":
-            return .toolUse
-        case "content_filter":
-            return .contentFilter
-        default:
-            return .stop
-        }
-    }
-    #endif
 
     // MARK: - Static Metadata Factory
 
@@ -427,10 +322,7 @@ public extension RustLLMProvider {
 
     /// Whether the ImpressLLM framework is available.
     static var isAvailable: Bool {
-        #if canImport(ImpressLLM)
-        return true
-        #else
-        return false
-        #endif
+        // ImpressLLM integration is currently disabled
+        false
     }
 }

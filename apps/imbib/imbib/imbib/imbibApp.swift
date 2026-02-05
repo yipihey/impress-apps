@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import CoreSpotlight
+import CloudKit
 import PublicationManagerCore
 import OSLog
 import UniformTypeIdentifiers
@@ -122,6 +123,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         defaults.removeObject(forKey: key)
                     }
                 }
+            }
+        }
+    }
+
+    func application(_ application: NSApplication,
+                     userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        debugLog("Accepting CloudKit share invitation")
+        let pc = PersistenceController.shared
+        guard let ckContainer = pc.container as? NSPersistentCloudKitContainer,
+              let sharedStore = pc.sharedStore else {
+            debugLog("Cannot accept share: CloudKit container or shared store not available")
+            return
+        }
+        ckContainer.acceptShareInvitations(from: [metadata], into: sharedStore) { _, error in
+            if let error {
+                appLogger.error("Share accept failed: \(error.localizedDescription)")
+            } else {
+                appLogger.info("CloudKit share accepted successfully")
+                NotificationCenter.default.post(name: .sharedLibraryAccepted, object: nil)
             }
         }
     }

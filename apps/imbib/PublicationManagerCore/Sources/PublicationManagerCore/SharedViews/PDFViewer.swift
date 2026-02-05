@@ -523,7 +523,6 @@ struct ControlledPDFKitView: NSViewRepresentable {
         @objc func handleHighlight(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
 
-            // Get color from notification or use default
             let color: HighlightColor
             if let colorName = notification.userInfo?["color"] as? String,
                let highlightColor = HighlightColor(rawValue: colorName) {
@@ -532,26 +531,36 @@ struct ControlledPDFKitView: NSViewRepresentable {
                 color = .yellow
             }
 
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addHighlight(to: pdfView, color: color)
+                _ = AnnotationService.shared.addHighlightWithPersistence(
+                    to: pdfView, color: color, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
 
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addUnderline(to: pdfView)
+                _ = AnnotationService.shared.addUnderlineWithPersistence(
+                    to: pdfView, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
 
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+                _ = AnnotationService.shared.addStrikethroughWithPersistence(
+                    to: pdfView, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
@@ -869,26 +878,36 @@ struct ControlledPDFKitView: UIViewRepresentable {
                 color = .yellow
             }
 
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addHighlight(to: pdfView, color: color)
+                _ = AnnotationService.shared.addHighlightWithPersistence(
+                    to: pdfView, color: color, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
 
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addUnderline(to: pdfView)
+                _ = AnnotationService.shared.addUnderlineWithPersistence(
+                    to: pdfView, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
+            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
 
             DispatchQueue.main.async {
-                _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+                _ = AnnotationService.shared.addStrikethroughWithPersistence(
+                    to: pdfView, linkedFile: linkedFile
+                )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
@@ -914,6 +933,9 @@ public struct PDFViewerWithControls: View {
     private let publicationID: UUID?
     private let linkedFile: CDLinkedFile?
 
+    /// Whether this viewer is in a detached/separate window (uses separate zoom storage)
+    private let isDetachedWindow: Bool
+
     /// Called when a corrupt PDF is detected (HTML content saved as .pdf)
     /// Parent can use this to delete and re-download
     public var onCorruptPDF: ((CDLinkedFile) -> Void)?
@@ -923,9 +945,27 @@ public struct PDFViewerWithControls: View {
     @State private var isLoading = true
     @State private var currentPage = 1
     @State private var totalPages = 0
-    /// Global zoom level - persists across paper switches via UserDefaults
-    @AppStorage("global_pdf_zoom_level") private var scaleFactor: Double = 1.0
+
+    /// Zoom level - uses @State to avoid cross-window interference from @AppStorage
+    @State private var scaleFactor: Double = 1.0
+
     @State private var saveTask: Task<Void, Never>?
+
+    /// UserDefaults key for zoom level based on window context
+    private var zoomStorageKey: String {
+        isDetachedWindow ? "detached_pdf_zoom_level" : "global_pdf_zoom_level"
+    }
+
+    /// Load zoom level from UserDefaults
+    private func loadZoomLevel() {
+        let stored = UserDefaults.standard.double(forKey: zoomStorageKey)
+        scaleFactor = stored > 0 ? stored : 1.0
+    }
+
+    /// Save zoom level to UserDefaults
+    private func saveZoomLevel() {
+        UserDefaults.standard.set(scaleFactor, forKey: zoomStorageKey)
+    }
 
     /// CGFloat binding for ControlledPDFKitView compatibility
     private var scaleFactorBinding: Binding<CGFloat> {
@@ -957,6 +997,16 @@ public struct PDFViewerWithControls: View {
     // PDF dark mode (from settings)
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
+    /// Whether the user can create annotations (false for read-only shared libraries)
+    private var canAnnotate: Bool {
+        guard let linkedFile = linkedFile,
+              let publication = linkedFile.publication,
+              let library = publication.libraries?.first(where: { $0.isSharedLibrary }) else {
+            return true
+        }
+        return library.canEditLibrary
+    }
+
     // Display rotation state (macOS only)
     #if os(macOS)
     @State private var displayRotationAvailable: Bool = false
@@ -976,23 +1026,25 @@ public struct PDFViewerWithControls: View {
     // MARK: - Initialization
 
     #if os(iOS)
-    public init(url: URL, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(url: URL, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
         self.linkedFile = nil
+        self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = onCorruptPDF
     }
 
-    public init(data: Data, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false)) {
+    public init(data: Data, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false) {
         self.source = .data(data)
         self.publicationID = publicationID
         self.linkedFile = nil
+        self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = nil
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
@@ -1028,25 +1080,28 @@ public struct PDFViewerWithControls: View {
         }
         self.publicationID = publicationID
         self.linkedFile = linkedFile
+        self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = onCorruptPDF
     }
     #else
-    public init(url: URL, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(url: URL, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
         self.linkedFile = nil
+        self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = onCorruptPDF
     }
 
-    public init(data: Data, publicationID: UUID? = nil) {
+    public init(data: Data, publicationID: UUID? = nil, isDetachedWindow: Bool = false) {
         self.source = .data(data)
         self.publicationID = publicationID
         self.linkedFile = nil
+        self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = nil
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
@@ -1082,6 +1137,7 @@ public struct PDFViewerWithControls: View {
         }
         self.publicationID = publicationID
         self.linkedFile = linkedFile
+        self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = onCorruptPDF
     }
     #endif
@@ -1135,12 +1191,14 @@ public struct PDFViewerWithControls: View {
             }
         }
         .task {
+            loadZoomLevel()
             await loadDocument()
         }
         .onChange(of: currentPage) { _, newPage in
             schedulePositionSave()
         }
         .onChange(of: scaleFactor) { _, newScale in
+            saveZoomLevel()
             schedulePositionSave()
         }
         .onDisappear {
@@ -1152,6 +1210,12 @@ public struct PDFViewerWithControls: View {
                 searchQuery = query
                 isSearchVisible = true
                 performSearch()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Refresh dark mode setting when it changes
+            Task {
+                pdfDarkModeEnabled = await PDFSettingsStore.shared.settings.darkModeEnabled
             }
         }
         #else
@@ -1177,8 +1241,8 @@ public struct PDFViewerWithControls: View {
                     }
                     #endif
 
-                // Floating annotation toolbar
-                if showAnnotationToolbar && pdfDocument != nil {
+                // Floating annotation toolbar (hidden for read-only shared libraries)
+                if showAnnotationToolbar && pdfDocument != nil && canAnnotate {
                     AnnotationToolbar(
                         selectedTool: $selectedAnnotationTool,
                         highlightColor: $highlightColor,
@@ -1202,6 +1266,7 @@ public struct PDFViewerWithControls: View {
         // iOS: modifiers are on the body's ZStack to apply to both fullscreen and normal views
         #if os(macOS)
         .task {
+            loadZoomLevel()
             await loadDocument()
             await checkDisplayRotationAvailability()
         }
@@ -1209,6 +1274,7 @@ public struct PDFViewerWithControls: View {
             schedulePositionSave()
         }
         .onChange(of: scaleFactor) { _, newScale in
+            saveZoomLevel()
             schedulePositionSave()
         }
         .onDisappear {
@@ -1240,6 +1306,12 @@ public struct PDFViewerWithControls: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { _ in
             // Future: show go-to-page dialog
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
+            // Refresh dark mode setting when it changes
+            Task {
+                pdfDarkModeEnabled = await PDFSettingsStore.shared.settings.darkModeEnabled
+            }
         }
         .alert(
             displayRotationIsSandboxed ? "Sandbox Restriction" : "displayplacer Required",
@@ -1331,7 +1403,7 @@ public struct PDFViewerWithControls: View {
                 )
 
             // Floating annotation toolbar (persists in fullscreen when annotation mode is active)
-            if showAnnotationToolbar && pdfDocument != nil {
+            if showAnnotationToolbar && pdfDocument != nil && canAnnotate {
                 AnnotationToolbar(
                     selectedTool: $selectedAnnotationTool,
                     highlightColor: $highlightColor,
@@ -1501,28 +1573,54 @@ public struct PDFViewerWithControls: View {
 
     private func highlightSelection() {
         guard let pdfView = pdfViewReference else { return }
-        _ = AnnotationService.shared.addHighlight(to: pdfView, color: highlightColor)
+        _ = AnnotationService.shared.addHighlightWithPersistence(
+            to: pdfView, color: highlightColor, linkedFile: linkedFile
+        )
         hasUnsavedAnnotations = true
+        NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
     }
 
     private func underlineSelection() {
         guard let pdfView = pdfViewReference else { return }
-        _ = AnnotationService.shared.addUnderline(to: pdfView)
+        _ = AnnotationService.shared.addUnderlineWithPersistence(
+            to: pdfView, linkedFile: linkedFile
+        )
         hasUnsavedAnnotations = true
+        NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
     }
 
     private func strikethroughSelection() {
         guard let pdfView = pdfViewReference else { return }
-        _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+        _ = AnnotationService.shared.addStrikethroughWithPersistence(
+            to: pdfView, linkedFile: linkedFile
+        )
         hasUnsavedAnnotations = true
+        NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
     }
 
     private func addNoteAtSelection() {
-        guard let pdfView = pdfViewReference else { return }
-        // For now, add a note with placeholder text
-        // In a full implementation, show a text input dialog
-        _ = AnnotationService.shared.addTextNoteAtSelection(in: pdfView, text: "Note")
+        guard let pdfView = pdfViewReference,
+              let page = pdfView.currentPage,
+              let document = pdfView.document else { return }
+        let point: CGPoint
+        if let selection = pdfView.currentSelection,
+           let firstPage = selection.pages.first {
+            let bounds = selection.bounds(for: firstPage)
+            point = CGPoint(x: bounds.midX, y: bounds.maxY + 10)
+        } else {
+            point = CGPoint(x: page.bounds(for: .mediaBox).midX, y: page.bounds(for: .mediaBox).midY)
+        }
+        _ = AnnotationService.shared.addTextNoteWithPersistence(
+            to: page, at: point, text: "Note", linkedFile: linkedFile, document: document
+        )
         hasUnsavedAnnotations = true
+        NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
+    }
+
+    /// Apply stored annotations from Core Data to the loaded PDF document
+    private func applyStoredAnnotations() {
+        guard let document = pdfDocument, let linkedFile = linkedFile else { return }
+        AnnotationPersistence.shared.applyAnnotations(from: linkedFile, to: document)
     }
 
     private func saveAnnotations() {
@@ -2010,9 +2108,10 @@ public struct PDFViewerWithControls: View {
                 Button {
                     openInExternalApp(url: url)
                 } label: {
-                    Label("Open in Preview", systemImage: "arrow.up.forward.app")
+                    Image(systemName: "arrow.up.forward.app")
                 }
                 .buttonStyle(.plain)
+                .help("Open in Preview")
             }
         }
         .padding(.horizontal)
@@ -2034,6 +2133,8 @@ public struct PDFViewerWithControls: View {
                 self.pdfDocument = document
                 self.totalPages = document.pageCount
                 self.isLoading = false
+                // Apply stored annotations from Core Data
+                applyStoredAnnotations()
             }
             // Load saved reading position after document is ready
             await loadSavedPosition()
