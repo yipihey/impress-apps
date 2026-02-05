@@ -12,14 +12,21 @@ final class AutomationSettingsTests: XCTestCase {
 
     // MARK: - Default Settings
 
-    func testDefaultSettings_disabledByDefault() {
+    func testDefaultSettings_enabledByDefault() {
+        // Automation and HTTP server are enabled by default for MCP integration
         let settings = AutomationSettings.default
-        XCTAssertFalse(settings.isEnabled)
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertTrue(settings.isHTTPServerEnabled)
     }
 
     func testDefaultSettings_loggingEnabledByDefault() {
         let settings = AutomationSettings.default
         XCTAssertTrue(settings.logRequests)
+    }
+
+    func testDefaultSettings_correctPort() {
+        let settings = AutomationSettings.default
+        XCTAssertEqual(settings.httpServerPort, 23120)
     }
 
     // MARK: - Initialization

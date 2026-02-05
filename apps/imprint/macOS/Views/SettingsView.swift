@@ -350,7 +350,7 @@ struct AccountSettingsView: View {
 
 /// Automation and API settings
 struct AutomationSettingsView: View {
-    @AppStorage("httpAutomationEnabled") private var httpAutomationEnabled = false
+    @AppStorage("httpAutomationEnabled") private var httpAutomationEnabled = true
     @AppStorage("httpAutomationPort") private var httpAutomationPort = 23121
     @State private var isServerRunning = false
     @State private var showCopiedFeedback = false

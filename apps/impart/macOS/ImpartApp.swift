@@ -16,6 +16,12 @@ struct ImpartApp: App {
     @Environment(\.openWindow) private var openWindow
 
     init() {
+        // Register default settings (HTTP automation enabled by default for MCP)
+        UserDefaults.standard.register(defaults: [
+            "httpAutomationEnabled": true,
+            "httpAutomationPort": 23122
+        ])
+
         // Start HTTP automation server for AI/MCP integration
         Task {
             await ImpartHTTPServer.shared.start()

@@ -47,6 +47,12 @@ struct ImprintApp: App {
     private static let useSampleDocument = CommandLine.arguments.contains("--sample-document")
 
     init() {
+        // Register default settings (HTTP automation enabled by default for MCP)
+        UserDefaults.standard.register(defaults: [
+            "httpAutomationEnabled": true,
+            "httpAutomationPort": 23121
+        ])
+
         // Configure app for testing if needed
         if Self.isUITesting {
             configureForUITesting()

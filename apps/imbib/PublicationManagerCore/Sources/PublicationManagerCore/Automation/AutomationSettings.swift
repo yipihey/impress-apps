@@ -28,18 +28,19 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
     /// Port number for the HTTP server (default: 23120)
     public var httpServerPort: UInt16
 
-    /// Default settings (automation disabled for security)
+    /// Default settings (automation enabled for MCP integration)
+    /// HTTP server only accepts localhost connections for security.
     public static let `default` = AutomationSettings(
-        isEnabled: false,
+        isEnabled: true,
         logRequests: true,
-        isHTTPServerEnabled: false,
+        isHTTPServerEnabled: true,
         httpServerPort: 23120
     )
 
     public init(
-        isEnabled: Bool = false,
+        isEnabled: Bool = true,
         logRequests: Bool = true,
-        isHTTPServerEnabled: Bool = false,
+        isHTTPServerEnabled: Bool = true,
         httpServerPort: UInt16 = 23120
     ) {
         self.isEnabled = isEnabled

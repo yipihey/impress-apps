@@ -25,6 +25,11 @@ struct ImploreApp: App {
         if Self.isUITesting {
             configureForUITesting()
         }
+
+        // Start HTTP automation server
+        Task {
+            await HTTPAutomationServer.shared.start()
+        }
     }
 
     /// Handle incoming URLs for imprint integration

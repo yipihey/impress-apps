@@ -901,7 +901,7 @@ struct KeyboardSettingsView: View {
 }
 
 struct AutomationSettingsView: View {
-    @AppStorage("httpAutomationEnabled") private var httpEnabled = false
+    @AppStorage("httpAutomationEnabled") private var httpEnabled = true
     @AppStorage("httpAutomationPort") private var httpPort = 23122
 
     var body: some View {

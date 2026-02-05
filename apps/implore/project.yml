@@ -27,6 +27,10 @@ packages:
     path: ../../packages/ImpressTestKit
   ImpressHelixCore:
     path: ../../packages/ImpressHelixCore
+  ImpressAutomation:
+    path: ../../packages/ImpressAutomation
+  ImpressLogging:
+    path: ../../packages/ImpressLogging
 
 targets:
   implore:
@@ -36,6 +40,8 @@ targets:
       - path: Implore/Sources
         excludes:
           - "**/.DS_Store"
+          - "**/AI/**"
+          - "**/Metal/**"
     settings:
       base:
         INFOPLIST_FILE: Implore/Info.plist
@@ -51,6 +57,8 @@ targets:
     dependencies:
       - package: ImploreCore
       - package: ImpressHelixCore
+      - package: ImpressAutomation
+      - package: ImpressLogging
     info:
       path: Implore/Info.plist
       properties:
@@ -64,6 +72,7 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.network.client: true
+        com.apple.security.network.server: true
         com.apple.security.application-groups:
           - group.com.impress.shared
 
