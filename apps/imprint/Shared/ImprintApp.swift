@@ -35,14 +35,20 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await ImprintHTTPServer.shared.start()
         }
+
+        // Ensure default workspace and refresh metadata cache
+        Task { @MainActor in
+            ImprintPersistenceController.shared.ensureDefaultWorkspace()
+            await DocumentMetadataCacheService.shared.refreshAll()
+        }
     }
 
-    /// Prevent automatic "Open" dialog on launch - allow app to open without a document
+    /// Prevent automatic "Open" dialog on launch - show project browser instead
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         return false
     }
 
-    /// Also prevent open panel from showing on reactivate if no windows
+    /// Show project browser when reactivated with no visible windows
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         return flag
     }
@@ -107,7 +113,14 @@ struct ImprintApp: App {
     }
 
     var body: some Scene {
-        // Document-based app for .imprint files
+        // Project browser window
+        WindowGroup("imprint", id: "project-browser") {
+            ProjectBrowserView()
+                .withAppearance()
+        }
+        .defaultSize(width: 800, height: 600)
+
+        // Document editing windows (existing)
         DocumentGroup(newDocument: Self.createInitialDocument()) { file in
             ContentView(document: file.$document)
                 .environment(appState)

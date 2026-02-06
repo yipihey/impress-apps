@@ -77,9 +77,12 @@ extension ADSSource: EnrichmentPlugin {
             source: .ads
         )
 
-        // Resolved identifiers include bibcode
+        // Resolved identifiers include bibcode and arXiv ID (if discovered)
         var resolvedIdentifiers = identifiers
         resolvedIdentifiers[.bibcode] = resolvedBibcode
+        if let arxivID = basicInfo.arxivID, resolvedIdentifiers[.arxiv] == nil {
+            resolvedIdentifiers[.arxiv] = arxivID
+        }
 
         Logger.sources.info("ADS: enrichment complete - citations: \(enrichmentData.citationCount ?? 0), references: \(references?.count ?? 0), citing: \(citations?.count ?? 0)")
 
@@ -103,6 +106,7 @@ extension ADSSource: EnrichmentPlugin {
         let referenceCount: Int?
         let abstract: String?
         let pdfLinks: [PDFLink]?
+        let arxivID: String?
     }
 
     /// Fetch basic enrichment info and resolve actual bibcode
@@ -200,7 +204,8 @@ extension ADSSource: EnrichmentPlugin {
             citationCount: citationCount,
             referenceCount: referenceCount,
             abstract: abstract,
-            pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks
+            pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
+            arxivID: arxivID
         ), resolvedBibcode)
     }
 
@@ -308,6 +313,9 @@ extension ADSSource: EnrichmentPlugin {
 
                         var resolvedIdentifiers: [IdentifierType: String] = [:]
                         resolvedIdentifiers[.bibcode] = bibcode
+                        if let arxivID = info.arxivID {
+                            resolvedIdentifiers[.arxiv] = arxivID
+                        }
 
                         allResults[pubID] = .success(EnrichmentResult(
                             data: enrichmentData,
@@ -420,7 +428,8 @@ extension ADSSource: EnrichmentPlugin {
                 citationCount: citationCount,
                 referenceCount: referenceCount,
                 abstract: abstract,
-                pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks
+                pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
+                arxivID: arxivID
             )
         }
 

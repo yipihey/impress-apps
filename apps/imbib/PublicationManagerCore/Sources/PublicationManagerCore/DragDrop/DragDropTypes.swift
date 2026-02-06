@@ -97,6 +97,9 @@ public enum DroppedFileCategory: Sendable, Hashable {
     /// Generic attachments for existing publications
     case attachment
 
+    /// Web URL import (from browser address bar)
+    case urlImport
+
     /// Unknown or mixed content
     case unknown
 
@@ -107,6 +110,7 @@ public enum DroppedFileCategory: Sendable, Hashable {
         case .ris: return "RIS"
         case .publicationTransfer: return "Publication"
         case .attachment: return "File"
+        case .urlImport: return "URL"
         case .unknown: return "Item"
         }
     }

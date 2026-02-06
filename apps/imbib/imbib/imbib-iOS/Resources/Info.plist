@@ -29,8 +29,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CKSharingSupported</key>
-	<true/>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>imbib uses speech recognition for voice search and dictation features.</string>
 	<key>UIBackgroundModes</key>

@@ -29,8 +29,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CKSharingSupported</key>
-	<true/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
@@ -46,90 +44,6 @@
 			<string>imbib Publication ID</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.imbib.publication-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Collection ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.collection-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Library ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.library-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Inbox Feed ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.inbox-feed-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Search Form ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.search-form-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib SciX Library ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.scix-library-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Sidebar Section ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.sidebar-section-id</string>
-			<key>UTTypeTagSpecification</key>
-			<dict/>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>imbib Exploration Search ID</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.imbib.exploration-search-id</string>
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>

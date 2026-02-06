@@ -158,10 +158,17 @@ struct ContentView: View {
     // MARK: - Keyboard Handling
 
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        // Check for custom shortcut match
+        let textFieldFocused = TextFieldFocusDetection.isTextFieldFocused()
+
+        // Check for custom shortcut match.
+        // When a text field has focus, only fire shortcuts that use Command or Control
+        // so that normal typing (including Shift for capitals) isn't intercepted.
         if let binding = keyboardStore.matchingBinding(for: press) {
-            NotificationCenter.default.post(name: Notification.Name(binding.notificationName), object: nil)
-            return .handled
+            let hasSystemModifier = binding.modifiers.contains(.command) || binding.modifiers.contains(.control)
+            if hasSystemModifier || (!textFieldFocused && !appState.isComposing) {
+                NotificationCenter.default.post(name: Notification.Name(binding.notificationName), object: nil)
+                return .handled
+            }
         }
 
         // Handle view mode shortcuts
@@ -189,7 +196,7 @@ struct ContentView: View {
 
         // Handle vim-style navigation (no modifiers)
         // Skip when composing or when a text field has focus
-        if press.modifiers.isEmpty && !appState.isComposing && !TextFieldFocusDetection.isTextFieldFocused() {
+        if press.modifiers.isEmpty && !appState.isComposing && !textFieldFocused {
             switch press.characters {
             case "j":
                 navigateToNextMessage()
@@ -221,7 +228,7 @@ struct ContentView: View {
         }
 
         // Shift+s for toggle star (skip when text field has focus)
-        if press.modifiers == .shift && press.characters.lowercased() == "s" && !appState.isComposing && !TextFieldFocusDetection.isTextFieldFocused() {
+        if press.modifiers == .shift && press.characters.lowercased() == "s" && !appState.isComposing && !textFieldFocused {
             toggleStarOnSelected()
             return .handled
         }

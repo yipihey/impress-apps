@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import ImprintCore
+import ImpressKeyboard
 import ImpressOperationQueue
 
 /// Main content view for an imprint document (macOS)
@@ -316,7 +317,7 @@ struct ContentView: View {
                         appState.selectedRange = selectedRange
                     }
                 )
-                .frame(minWidth: 300)
+                .frame(minWidth: 300, maxHeight: .infinity)
 
                 PDFPreviewView(
                     pdfData: pdfData,
@@ -324,7 +325,7 @@ struct ContentView: View {
                     sourceMapEntries: sourceMapEntries,
                     cursorPosition: cursorPosition
                 )
-                .frame(minWidth: 300)
+                .frame(minWidth: 300, maxHeight: .infinity)
             }
 
         case .textOnly:
@@ -341,23 +342,10 @@ struct ContentView: View {
 
     // MARK: - Vim Navigation
 
-    /// Check if an editable text field currently has keyboard focus
-    private func isTextFieldFocused() -> Bool {
-        guard let window = NSApp.keyWindow,
-              let firstResponder = window.firstResponder else {
-            return false
-        }
-        // NSTextView is used by TextEditor, TextField, and other text controls
-        if let textView = firstResponder as? NSTextView {
-            return textView.isEditable
-        }
-        return false
-    }
-
     /// Handle vim-style navigation keys (h/j/k/l)
     private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
         // Don't intercept when editing text
-        guard !isTextFieldFocused() else { return .ignored }
+        guard !TextFieldFocusDetection.isTextFieldFocused() else { return .ignored }
 
         switch press.characters.lowercased() {
         case "j":

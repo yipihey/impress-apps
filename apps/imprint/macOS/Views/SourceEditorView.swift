@@ -36,6 +36,7 @@ struct SourceEditorView: View {
                 inlineCompletionService: inlineCompletionService,
                 onSelectionChange: onSelectionChange
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Helix mode indicator
             if helixModeEnabled && helixShowModeIndicator {
@@ -100,12 +101,16 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Accessibility
         textView.setAccessibilityIdentifier("sourceEditor.textView")
 
-        // Set up text container
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        // Set up text container for scrollable editing
+        let contentSize = scrollView.contentSize
+        textView.frame = NSRect(origin: .zero, size: contentSize)
+        textView.textContainer?.containerSize = NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
         // Set up Helix adaptor
         let adaptor = NSTextViewHelixAdaptor(textView: textView, helixState: helixState)
@@ -134,6 +139,13 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? TypstTextView else { return }
+
+        // Ensure text view fills at least the visible area of the scroll view
+        let contentSize = scrollView.contentSize
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+        if textView.frame.height < contentSize.height {
+            textView.setFrameSize(NSSize(width: contentSize.width, height: contentSize.height))
+        }
 
         // Update Helix enabled state
         context.coordinator.helixAdaptor?.isEnabled = helixEnabled

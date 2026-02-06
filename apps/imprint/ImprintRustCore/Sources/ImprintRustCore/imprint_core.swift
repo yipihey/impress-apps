@@ -399,6 +399,22 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -885,6 +901,10 @@ public struct CompileResult {
      * Number of pages in the output
      */
     public var pageCount: UInt32
+    /**
+     * Source map entries for click-to-edit
+     */
+    public var sourceMapEntries: [FfiSourceMapEntry]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -900,11 +920,15 @@ public struct CompileResult {
          */warnings: [String], 
         /**
          * Number of pages in the output
-         */pageCount: UInt32) {
+         */pageCount: UInt32, 
+        /**
+         * Source map entries for click-to-edit
+         */sourceMapEntries: [FfiSourceMapEntry]) {
         self.pdfData = pdfData
         self.error = error
         self.warnings = warnings
         self.pageCount = pageCount
+        self.sourceMapEntries = sourceMapEntries
     }
 }
 
@@ -924,6 +948,9 @@ extension CompileResult: Equatable, Hashable {
         if lhs.pageCount != rhs.pageCount {
             return false
         }
+        if lhs.sourceMapEntries != rhs.sourceMapEntries {
+            return false
+        }
         return true
     }
 
@@ -932,6 +959,7 @@ extension CompileResult: Equatable, Hashable {
         hasher.combine(error)
         hasher.combine(warnings)
         hasher.combine(pageCount)
+        hasher.combine(sourceMapEntries)
     }
 }
 
@@ -946,7 +974,8 @@ public struct FfiConverterTypeCompileResult: FfiConverterRustBuffer {
                 pdfData: FfiConverterOptionData.read(from: &buf), 
                 error: FfiConverterOptionString.read(from: &buf), 
                 warnings: FfiConverterSequenceString.read(from: &buf), 
-                pageCount: FfiConverterUInt32.read(from: &buf)
+                pageCount: FfiConverterUInt32.read(from: &buf), 
+                sourceMapEntries: FfiConverterSequenceTypeFFISourceMapEntry.read(from: &buf)
         )
     }
 
@@ -955,6 +984,7 @@ public struct FfiConverterTypeCompileResult: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.error, into: &buf)
         FfiConverterSequenceString.write(value.warnings, into: &buf)
         FfiConverterUInt32.write(value.pageCount, into: &buf)
+        FfiConverterSequenceTypeFFISourceMapEntry.write(value.sourceMapEntries, into: &buf)
     }
 }
 
@@ -1080,6 +1110,1279 @@ public func FfiConverterTypeExportCommand_lift(_ buf: RustBuffer) throws -> Expo
 #endif
 public func FfiConverterTypeExportCommand_lower(_ value: ExportCommand) -> RustBuffer {
     return FfiConverterTypeExportCommand.lower(value)
+}
+
+
+/**
+ * A bounding box in PDF coordinates
+ */
+public struct FfiBoundingBox {
+    /**
+     * Left edge x coordinate
+     */
+    public var x: Double
+    /**
+     * Top edge y coordinate
+     */
+    public var y: Double
+    /**
+     * Width in points
+     */
+    public var width: Double
+    /**
+     * Height in points
+     */
+    public var height: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Left edge x coordinate
+         */x: Double, 
+        /**
+         * Top edge y coordinate
+         */y: Double, 
+        /**
+         * Width in points
+         */width: Double, 
+        /**
+         * Height in points
+         */height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+
+
+extension FfiBoundingBox: Equatable, Hashable {
+    public static func ==(lhs: FfiBoundingBox, rhs: FfiBoundingBox) -> Bool {
+        if lhs.x != rhs.x {
+            return false
+        }
+        if lhs.y != rhs.y {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(x)
+        hasher.combine(y)
+        hasher.combine(width)
+        hasher.combine(height)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIBoundingBox: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBoundingBox {
+        return
+            try FfiBoundingBox(
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf), 
+                width: FfiConverterDouble.read(from: &buf), 
+                height: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBoundingBox, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+        FfiConverterDouble.write(value.width, into: &buf)
+        FfiConverterDouble.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIBoundingBox_lift(_ buf: RustBuffer) throws -> FfiBoundingBox {
+    return try FfiConverterTypeFFIBoundingBox.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIBoundingBox_lower(_ value: FfiBoundingBox) -> RustBuffer {
+    return FfiConverterTypeFFIBoundingBox.lower(value)
+}
+
+
+/**
+ * CRDT validation result for FFI
+ */
+public struct FfiCrdtValidation {
+    public var isValid: Bool
+    public var hasContent: Bool
+    public var estimatedTextLength: UInt64
+    public var issues: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(isValid: Bool, hasContent: Bool, estimatedTextLength: UInt64, issues: [String]) {
+        self.isValid = isValid
+        self.hasContent = hasContent
+        self.estimatedTextLength = estimatedTextLength
+        self.issues = issues
+    }
+}
+
+
+
+extension FfiCrdtValidation: Equatable, Hashable {
+    public static func ==(lhs: FfiCrdtValidation, rhs: FfiCrdtValidation) -> Bool {
+        if lhs.isValid != rhs.isValid {
+            return false
+        }
+        if lhs.hasContent != rhs.hasContent {
+            return false
+        }
+        if lhs.estimatedTextLength != rhs.estimatedTextLength {
+            return false
+        }
+        if lhs.issues != rhs.issues {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(isValid)
+        hasher.combine(hasContent)
+        hasher.combine(estimatedTextLength)
+        hasher.combine(issues)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFICrdtValidation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCrdtValidation {
+        return
+            try FfiCrdtValidation(
+                isValid: FfiConverterBool.read(from: &buf), 
+                hasContent: FfiConverterBool.read(from: &buf), 
+                estimatedTextLength: FfiConverterUInt64.read(from: &buf), 
+                issues: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCrdtValidation, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isValid, into: &buf)
+        FfiConverterBool.write(value.hasContent, into: &buf)
+        FfiConverterUInt64.write(value.estimatedTextLength, into: &buf)
+        FfiConverterSequenceString.write(value.issues, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICrdtValidation_lift(_ buf: RustBuffer) throws -> FfiCrdtValidation {
+    return try FfiConverterTypeFFICrdtValidation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICrdtValidation_lower(_ value: FfiCrdtValidation) -> RustBuffer {
+    return FfiConverterTypeFFICrdtValidation.lower(value)
+}
+
+
+/**
+ * Result of looking up a click position in the source map
+ */
+public struct FfiCursorPosition {
+    /**
+     * Source offset for the cursor
+     */
+    public var sourceOffset: UInt64
+    /**
+     * Whether a match was found
+     */
+    public var found: Bool
+    /**
+     * Content type at this position
+     */
+    public var contentType: FfiContentType
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Source offset for the cursor
+         */sourceOffset: UInt64, 
+        /**
+         * Whether a match was found
+         */found: Bool, 
+        /**
+         * Content type at this position
+         */contentType: FfiContentType) {
+        self.sourceOffset = sourceOffset
+        self.found = found
+        self.contentType = contentType
+    }
+}
+
+
+
+extension FfiCursorPosition: Equatable, Hashable {
+    public static func ==(lhs: FfiCursorPosition, rhs: FfiCursorPosition) -> Bool {
+        if lhs.sourceOffset != rhs.sourceOffset {
+            return false
+        }
+        if lhs.found != rhs.found {
+            return false
+        }
+        if lhs.contentType != rhs.contentType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sourceOffset)
+        hasher.combine(found)
+        hasher.combine(contentType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFICursorPosition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCursorPosition {
+        return
+            try FfiCursorPosition(
+                sourceOffset: FfiConverterUInt64.read(from: &buf), 
+                found: FfiConverterBool.read(from: &buf), 
+                contentType: FfiConverterTypeFFIContentType.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCursorPosition, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.sourceOffset, into: &buf)
+        FfiConverterBool.write(value.found, into: &buf)
+        FfiConverterTypeFFIContentType.write(value.contentType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICursorPosition_lift(_ buf: RustBuffer) throws -> FfiCursorPosition {
+    return try FfiConverterTypeFFICursorPosition.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICursorPosition_lower(_ value: FfiCursorPosition) -> RustBuffer {
+    return FfiConverterTypeFFICursorPosition.lower(value)
+}
+
+
+/**
+ * Journal information for FFI
+ */
+public struct FfiJournalInfo {
+    /**
+     * Publisher name
+     */
+    public var publisher: String
+    /**
+     * Journal URL
+     */
+    public var url: String?
+    /**
+     * LaTeX document class
+     */
+    public var latexClass: String?
+    /**
+     * ISSN
+     */
+    public var issn: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Publisher name
+         */publisher: String, 
+        /**
+         * Journal URL
+         */url: String?, 
+        /**
+         * LaTeX document class
+         */latexClass: String?, 
+        /**
+         * ISSN
+         */issn: String?) {
+        self.publisher = publisher
+        self.url = url
+        self.latexClass = latexClass
+        self.issn = issn
+    }
+}
+
+
+
+extension FfiJournalInfo: Equatable, Hashable {
+    public static func ==(lhs: FfiJournalInfo, rhs: FfiJournalInfo) -> Bool {
+        if lhs.publisher != rhs.publisher {
+            return false
+        }
+        if lhs.url != rhs.url {
+            return false
+        }
+        if lhs.latexClass != rhs.latexClass {
+            return false
+        }
+        if lhs.issn != rhs.issn {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(publisher)
+        hasher.combine(url)
+        hasher.combine(latexClass)
+        hasher.combine(issn)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIJournalInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiJournalInfo {
+        return
+            try FfiJournalInfo(
+                publisher: FfiConverterString.read(from: &buf), 
+                url: FfiConverterOptionString.read(from: &buf), 
+                latexClass: FfiConverterOptionString.read(from: &buf), 
+                issn: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiJournalInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.publisher, into: &buf)
+        FfiConverterOptionString.write(value.url, into: &buf)
+        FfiConverterOptionString.write(value.latexClass, into: &buf)
+        FfiConverterOptionString.write(value.issn, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIJournalInfo_lift(_ buf: RustBuffer) throws -> FfiJournalInfo {
+    return try FfiConverterTypeFFIJournalInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIJournalInfo_lower(_ value: FfiJournalInfo) -> RustBuffer {
+    return FfiConverterTypeFFIJournalInfo.lower(value)
+}
+
+
+/**
+ * Page defaults for FFI
+ */
+public struct FfiPageDefaults {
+    /**
+     * Paper size (a4, letter, a5)
+     */
+    public var size: String
+    /**
+     * Top margin in mm
+     */
+    public var marginTop: Double
+    /**
+     * Right margin in mm
+     */
+    public var marginRight: Double
+    /**
+     * Bottom margin in mm
+     */
+    public var marginBottom: Double
+    /**
+     * Left margin in mm
+     */
+    public var marginLeft: Double
+    /**
+     * Number of columns
+     */
+    public var columns: UInt8
+    /**
+     * Font size in pt
+     */
+    public var fontSize: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Paper size (a4, letter, a5)
+         */size: String, 
+        /**
+         * Top margin in mm
+         */marginTop: Double, 
+        /**
+         * Right margin in mm
+         */marginRight: Double, 
+        /**
+         * Bottom margin in mm
+         */marginBottom: Double, 
+        /**
+         * Left margin in mm
+         */marginLeft: Double, 
+        /**
+         * Number of columns
+         */columns: UInt8, 
+        /**
+         * Font size in pt
+         */fontSize: Double) {
+        self.size = size
+        self.marginTop = marginTop
+        self.marginRight = marginRight
+        self.marginBottom = marginBottom
+        self.marginLeft = marginLeft
+        self.columns = columns
+        self.fontSize = fontSize
+    }
+}
+
+
+
+extension FfiPageDefaults: Equatable, Hashable {
+    public static func ==(lhs: FfiPageDefaults, rhs: FfiPageDefaults) -> Bool {
+        if lhs.size != rhs.size {
+            return false
+        }
+        if lhs.marginTop != rhs.marginTop {
+            return false
+        }
+        if lhs.marginRight != rhs.marginRight {
+            return false
+        }
+        if lhs.marginBottom != rhs.marginBottom {
+            return false
+        }
+        if lhs.marginLeft != rhs.marginLeft {
+            return false
+        }
+        if lhs.columns != rhs.columns {
+            return false
+        }
+        if lhs.fontSize != rhs.fontSize {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(size)
+        hasher.combine(marginTop)
+        hasher.combine(marginRight)
+        hasher.combine(marginBottom)
+        hasher.combine(marginLeft)
+        hasher.combine(columns)
+        hasher.combine(fontSize)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIPageDefaults: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPageDefaults {
+        return
+            try FfiPageDefaults(
+                size: FfiConverterString.read(from: &buf), 
+                marginTop: FfiConverterDouble.read(from: &buf), 
+                marginRight: FfiConverterDouble.read(from: &buf), 
+                marginBottom: FfiConverterDouble.read(from: &buf), 
+                marginLeft: FfiConverterDouble.read(from: &buf), 
+                columns: FfiConverterUInt8.read(from: &buf), 
+                fontSize: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPageDefaults, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.size, into: &buf)
+        FfiConverterDouble.write(value.marginTop, into: &buf)
+        FfiConverterDouble.write(value.marginRight, into: &buf)
+        FfiConverterDouble.write(value.marginBottom, into: &buf)
+        FfiConverterDouble.write(value.marginLeft, into: &buf)
+        FfiConverterUInt8.write(value.columns, into: &buf)
+        FfiConverterDouble.write(value.fontSize, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPageDefaults_lift(_ buf: RustBuffer) throws -> FfiPageDefaults {
+    return try FfiConverterTypeFFIPageDefaults.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPageDefaults_lower(_ value: FfiPageDefaults) -> RustBuffer {
+    return FfiConverterTypeFFIPageDefaults.lower(value)
+}
+
+
+/**
+ * A position in rendered PDF coordinates
+ */
+public struct FfiRenderPosition {
+    /**
+     * Page number (0-indexed)
+     */
+    public var page: UInt32
+    /**
+     * X coordinate in points from left edge
+     */
+    public var x: Double
+    /**
+     * Y coordinate in points from top edge
+     */
+    public var y: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Page number (0-indexed)
+         */page: UInt32, 
+        /**
+         * X coordinate in points from left edge
+         */x: Double, 
+        /**
+         * Y coordinate in points from top edge
+         */y: Double) {
+        self.page = page
+        self.x = x
+        self.y = y
+    }
+}
+
+
+
+extension FfiRenderPosition: Equatable, Hashable {
+    public static func ==(lhs: FfiRenderPosition, rhs: FfiRenderPosition) -> Bool {
+        if lhs.page != rhs.page {
+            return false
+        }
+        if lhs.x != rhs.x {
+            return false
+        }
+        if lhs.y != rhs.y {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(page)
+        hasher.combine(x)
+        hasher.combine(y)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIRenderPosition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRenderPosition {
+        return
+            try FfiRenderPosition(
+                page: FfiConverterUInt32.read(from: &buf), 
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRenderPosition, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.page, into: &buf)
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIRenderPosition_lift(_ buf: RustBuffer) throws -> FfiRenderPosition {
+    return try FfiConverterTypeFFIRenderPosition.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIRenderPosition_lower(_ value: FfiRenderPosition) -> RustBuffer {
+    return FfiConverterTypeFFIRenderPosition.lower(value)
+}
+
+
+/**
+ * Result of a source-to-render lookup
+ */
+public struct FfiRenderRegion {
+    /**
+     * Page number (0-indexed)
+     */
+    public var page: UInt32
+    /**
+     * Bounding box x coordinate
+     */
+    public var x: Double
+    /**
+     * Bounding box y coordinate
+     */
+    public var y: Double
+    /**
+     * Bounding box width
+     */
+    public var width: Double
+    /**
+     * Bounding box height
+     */
+    public var height: Double
+    /**
+     * Whether a match was found
+     */
+    public var found: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Page number (0-indexed)
+         */page: UInt32, 
+        /**
+         * Bounding box x coordinate
+         */x: Double, 
+        /**
+         * Bounding box y coordinate
+         */y: Double, 
+        /**
+         * Bounding box width
+         */width: Double, 
+        /**
+         * Bounding box height
+         */height: Double, 
+        /**
+         * Whether a match was found
+         */found: Bool) {
+        self.page = page
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.found = found
+    }
+}
+
+
+
+extension FfiRenderRegion: Equatable, Hashable {
+    public static func ==(lhs: FfiRenderRegion, rhs: FfiRenderRegion) -> Bool {
+        if lhs.page != rhs.page {
+            return false
+        }
+        if lhs.x != rhs.x {
+            return false
+        }
+        if lhs.y != rhs.y {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        if lhs.found != rhs.found {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(page)
+        hasher.combine(x)
+        hasher.combine(y)
+        hasher.combine(width)
+        hasher.combine(height)
+        hasher.combine(found)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIRenderRegion: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRenderRegion {
+        return
+            try FfiRenderRegion(
+                page: FfiConverterUInt32.read(from: &buf), 
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf), 
+                width: FfiConverterDouble.read(from: &buf), 
+                height: FfiConverterDouble.read(from: &buf), 
+                found: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRenderRegion, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.page, into: &buf)
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+        FfiConverterDouble.write(value.width, into: &buf)
+        FfiConverterDouble.write(value.height, into: &buf)
+        FfiConverterBool.write(value.found, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIRenderRegion_lift(_ buf: RustBuffer) throws -> FfiRenderRegion {
+    return try FfiConverterTypeFFIRenderRegion.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIRenderRegion_lower(_ value: FfiRenderRegion) -> RustBuffer {
+    return FfiConverterTypeFFIRenderRegion.lower(value)
+}
+
+
+/**
+ * A source map entry linking source to rendered position
+ */
+public struct FfiSourceMapEntry {
+    /**
+     * Source span in the document
+     */
+    public var source: FfiSourceSpan
+    /**
+     * Page number where this content appears
+     */
+    public var page: UInt32
+    /**
+     * Bounding box on the page
+     */
+    public var bbox: FfiBoundingBox
+    /**
+     * Type of content
+     */
+    public var contentType: FfiContentType
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Source span in the document
+         */source: FfiSourceSpan, 
+        /**
+         * Page number where this content appears
+         */page: UInt32, 
+        /**
+         * Bounding box on the page
+         */bbox: FfiBoundingBox, 
+        /**
+         * Type of content
+         */contentType: FfiContentType) {
+        self.source = source
+        self.page = page
+        self.bbox = bbox
+        self.contentType = contentType
+    }
+}
+
+
+
+extension FfiSourceMapEntry: Equatable, Hashable {
+    public static func ==(lhs: FfiSourceMapEntry, rhs: FfiSourceMapEntry) -> Bool {
+        if lhs.source != rhs.source {
+            return false
+        }
+        if lhs.page != rhs.page {
+            return false
+        }
+        if lhs.bbox != rhs.bbox {
+            return false
+        }
+        if lhs.contentType != rhs.contentType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(source)
+        hasher.combine(page)
+        hasher.combine(bbox)
+        hasher.combine(contentType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFISourceMapEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSourceMapEntry {
+        return
+            try FfiSourceMapEntry(
+                source: FfiConverterTypeFFISourceSpan.read(from: &buf), 
+                page: FfiConverterUInt32.read(from: &buf), 
+                bbox: FfiConverterTypeFFIBoundingBox.read(from: &buf), 
+                contentType: FfiConverterTypeFFIContentType.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSourceMapEntry, into buf: inout [UInt8]) {
+        FfiConverterTypeFFISourceSpan.write(value.source, into: &buf)
+        FfiConverterUInt32.write(value.page, into: &buf)
+        FfiConverterTypeFFIBoundingBox.write(value.bbox, into: &buf)
+        FfiConverterTypeFFIContentType.write(value.contentType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISourceMapEntry_lift(_ buf: RustBuffer) throws -> FfiSourceMapEntry {
+    return try FfiConverterTypeFFISourceMapEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISourceMapEntry_lower(_ value: FfiSourceMapEntry) -> RustBuffer {
+    return FfiConverterTypeFFISourceMapEntry.lower(value)
+}
+
+
+/**
+ * A source span (byte offsets in source code)
+ */
+public struct FfiSourceSpan {
+    /**
+     * Start byte offset (inclusive)
+     */
+    public var start: UInt64
+    /**
+     * End byte offset (exclusive)
+     */
+    public var end: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Start byte offset (inclusive)
+         */start: UInt64, 
+        /**
+         * End byte offset (exclusive)
+         */end: UInt64) {
+        self.start = start
+        self.end = end
+    }
+}
+
+
+
+extension FfiSourceSpan: Equatable, Hashable {
+    public static func ==(lhs: FfiSourceSpan, rhs: FfiSourceSpan) -> Bool {
+        if lhs.start != rhs.start {
+            return false
+        }
+        if lhs.end != rhs.end {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(start)
+        hasher.combine(end)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFISourceSpan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSourceSpan {
+        return
+            try FfiSourceSpan(
+                start: FfiConverterUInt64.read(from: &buf), 
+                end: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSourceSpan, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.start, into: &buf)
+        FfiConverterUInt64.write(value.end, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISourceSpan_lift(_ buf: RustBuffer) throws -> FfiSourceSpan {
+    return try FfiConverterTypeFFISourceSpan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISourceSpan_lower(_ value: FfiSourceSpan) -> RustBuffer {
+    return FfiConverterTypeFFISourceSpan.lower(value)
+}
+
+
+/**
+ * Full template data for FFI
+ */
+public struct FfiTemplate {
+    /**
+     * Template metadata
+     */
+    public var metadata: FfiTemplateMetadata
+    /**
+     * Typst template source
+     */
+    public var typstSource: String
+    /**
+     * Optional LaTeX preamble
+     */
+    public var latexPreamble: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Template metadata
+         */metadata: FfiTemplateMetadata, 
+        /**
+         * Typst template source
+         */typstSource: String, 
+        /**
+         * Optional LaTeX preamble
+         */latexPreamble: String?) {
+        self.metadata = metadata
+        self.typstSource = typstSource
+        self.latexPreamble = latexPreamble
+    }
+}
+
+
+
+extension FfiTemplate: Equatable, Hashable {
+    public static func ==(lhs: FfiTemplate, rhs: FfiTemplate) -> Bool {
+        if lhs.metadata != rhs.metadata {
+            return false
+        }
+        if lhs.typstSource != rhs.typstSource {
+            return false
+        }
+        if lhs.latexPreamble != rhs.latexPreamble {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(metadata)
+        hasher.combine(typstSource)
+        hasher.combine(latexPreamble)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFITemplate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTemplate {
+        return
+            try FfiTemplate(
+                metadata: FfiConverterTypeFFITemplateMetadata.read(from: &buf), 
+                typstSource: FfiConverterString.read(from: &buf), 
+                latexPreamble: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTemplate, into buf: inout [UInt8]) {
+        FfiConverterTypeFFITemplateMetadata.write(value.metadata, into: &buf)
+        FfiConverterString.write(value.typstSource, into: &buf)
+        FfiConverterOptionString.write(value.latexPreamble, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplate_lift(_ buf: RustBuffer) throws -> FfiTemplate {
+    return try FfiConverterTypeFFITemplate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplate_lower(_ value: FfiTemplate) -> RustBuffer {
+    return FfiConverterTypeFFITemplate.lower(value)
+}
+
+
+/**
+ * Template metadata for FFI
+ */
+public struct FfiTemplateMetadata {
+    /**
+     * Unique template ID
+     */
+    public var id: String
+    /**
+     * Human-readable name
+     */
+    public var name: String
+    /**
+     * Template version
+     */
+    public var version: String
+    /**
+     * Description
+     */
+    public var description: String
+    /**
+     * Author
+     */
+    public var author: String
+    /**
+     * License
+     */
+    public var license: String
+    /**
+     * Category
+     */
+    public var category: FfiTemplateCategory
+    /**
+     * Searchable tags
+     */
+    public var tags: [String]
+    /**
+     * Journal info (for journal templates)
+     */
+    public var journal: FfiJournalInfo?
+    /**
+     * Page layout defaults
+     */
+    public var pageDefaults: FfiPageDefaults
+    /**
+     * Whether this is a built-in template
+     */
+    public var isBuiltin: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Unique template ID
+         */id: String, 
+        /**
+         * Human-readable name
+         */name: String, 
+        /**
+         * Template version
+         */version: String, 
+        /**
+         * Description
+         */description: String, 
+        /**
+         * Author
+         */author: String, 
+        /**
+         * License
+         */license: String, 
+        /**
+         * Category
+         */category: FfiTemplateCategory, 
+        /**
+         * Searchable tags
+         */tags: [String], 
+        /**
+         * Journal info (for journal templates)
+         */journal: FfiJournalInfo?, 
+        /**
+         * Page layout defaults
+         */pageDefaults: FfiPageDefaults, 
+        /**
+         * Whether this is a built-in template
+         */isBuiltin: Bool) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.description = description
+        self.author = author
+        self.license = license
+        self.category = category
+        self.tags = tags
+        self.journal = journal
+        self.pageDefaults = pageDefaults
+        self.isBuiltin = isBuiltin
+    }
+}
+
+
+
+extension FfiTemplateMetadata: Equatable, Hashable {
+    public static func ==(lhs: FfiTemplateMetadata, rhs: FfiTemplateMetadata) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.version != rhs.version {
+            return false
+        }
+        if lhs.description != rhs.description {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.license != rhs.license {
+            return false
+        }
+        if lhs.category != rhs.category {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        if lhs.journal != rhs.journal {
+            return false
+        }
+        if lhs.pageDefaults != rhs.pageDefaults {
+            return false
+        }
+        if lhs.isBuiltin != rhs.isBuiltin {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(version)
+        hasher.combine(description)
+        hasher.combine(author)
+        hasher.combine(license)
+        hasher.combine(category)
+        hasher.combine(tags)
+        hasher.combine(journal)
+        hasher.combine(pageDefaults)
+        hasher.combine(isBuiltin)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFITemplateMetadata: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTemplateMetadata {
+        return
+            try FfiTemplateMetadata(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                version: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                license: FfiConverterString.read(from: &buf), 
+                category: FfiConverterTypeFFITemplateCategory.read(from: &buf), 
+                tags: FfiConverterSequenceString.read(from: &buf), 
+                journal: FfiConverterOptionTypeFFIJournalInfo.read(from: &buf), 
+                pageDefaults: FfiConverterTypeFFIPageDefaults.read(from: &buf), 
+                isBuiltin: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTemplateMetadata, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.version, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterString.write(value.license, into: &buf)
+        FfiConverterTypeFFITemplateCategory.write(value.category, into: &buf)
+        FfiConverterSequenceString.write(value.tags, into: &buf)
+        FfiConverterOptionTypeFFIJournalInfo.write(value.journal, into: &buf)
+        FfiConverterTypeFFIPageDefaults.write(value.pageDefaults, into: &buf)
+        FfiConverterBool.write(value.isBuiltin, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplateMetadata_lift(_ buf: RustBuffer) throws -> FfiTemplateMetadata {
+    return try FfiConverterTypeFFITemplateMetadata.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplateMetadata_lower(_ value: FfiTemplateMetadata) -> RustBuffer {
+    return FfiConverterTypeFFITemplateMetadata.lower(value)
 }
 
 
@@ -2010,6 +3313,122 @@ public func FfiConverterTypeSyncCommand_lower(_ value: SyncCommand) -> RustBuffe
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Content type for cursor placement hints
+ */
+
+public enum FfiContentType {
+    
+    case text
+    case heading
+    case math
+    case code
+    case figure
+    case table
+    case citation
+    case listItem
+    case other
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIContentType: FfiConverterRustBuffer {
+    typealias SwiftType = FfiContentType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiContentType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .text
+        
+        case 2: return .heading
+        
+        case 3: return .math
+        
+        case 4: return .code
+        
+        case 5: return .figure
+        
+        case 6: return .table
+        
+        case 7: return .citation
+        
+        case 8: return .listItem
+        
+        case 9: return .other
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiContentType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .text:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .heading:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .math:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .code:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .figure:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .table:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .citation:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .listItem:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .other:
+            writeInt(&buf, Int32(9))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIContentType_lift(_ buf: RustBuffer) throws -> FfiContentType {
+    return try FfiConverterTypeFFIContentType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIContentType_lower(_ value: FfiContentType) -> RustBuffer {
+    return FfiConverterTypeFFIContentType.lower(value)
+}
+
+
+
+extension FfiContentType: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Page size options for PDF output
  */
 
@@ -2087,6 +3506,283 @@ public func FfiConverterTypeFFIPageSize_lower(_ value: FfiPageSize) -> RustBuffe
 
 
 extension FfiPageSize: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Schema version for FFI
+ */
+
+public enum FfiSchemaVersion {
+    
+    case v10
+    case v11
+    case v12
+    case unknown
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFISchemaVersion: FfiConverterRustBuffer {
+    typealias SwiftType = FfiSchemaVersion
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSchemaVersion {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .v10
+        
+        case 2: return .v11
+        
+        case 3: return .v12
+        
+        case 4: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiSchemaVersion, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .v10:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .v11:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .v12:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISchemaVersion_lift(_ buf: RustBuffer) throws -> FfiSchemaVersion {
+    return try FfiConverterTypeFFISchemaVersion.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFISchemaVersion_lower(_ value: FfiSchemaVersion) -> RustBuffer {
+    return FfiConverterTypeFFISchemaVersion.lower(value)
+}
+
+
+
+extension FfiSchemaVersion: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Template category for FFI
+ */
+
+public enum FfiTemplateCategory {
+    
+    case journal
+    case conference
+    case thesis
+    case report
+    case custom
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFITemplateCategory: FfiConverterRustBuffer {
+    typealias SwiftType = FfiTemplateCategory
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTemplateCategory {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .journal
+        
+        case 2: return .conference
+        
+        case 3: return .thesis
+        
+        case 4: return .report
+        
+        case 5: return .custom
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiTemplateCategory, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .journal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .conference:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .thesis:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .report:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .custom:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplateCategory_lift(_ buf: RustBuffer) throws -> FfiTemplateCategory {
+    return try FfiConverterTypeFFITemplateCategory.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFITemplateCategory_lower(_ value: FfiTemplateCategory) -> RustBuffer {
+    return FfiConverterTypeFFITemplateCategory.lower(value)
+}
+
+
+
+extension FfiTemplateCategory: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Version check result for FFI
+ */
+
+public enum FfiVersionCheckResult {
+    
+    case current
+    case needsMigration(fromVersion: UInt32, toVersion: UInt32
+    )
+    case newerThanApp(version: UInt32
+    )
+    case tooOld(version: UInt32
+    )
+    case unknown(version: UInt32
+    )
+    case legacy
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIVersionCheckResult: FfiConverterRustBuffer {
+    typealias SwiftType = FfiVersionCheckResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiVersionCheckResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .current
+        
+        case 2: return .needsMigration(fromVersion: try FfiConverterUInt32.read(from: &buf), toVersion: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 3: return .newerThanApp(version: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 4: return .tooOld(version: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 5: return .unknown(version: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 6: return .legacy
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiVersionCheckResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .current:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .needsMigration(fromVersion,toVersion):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(fromVersion, into: &buf)
+            FfiConverterUInt32.write(toVersion, into: &buf)
+            
+        
+        case let .newerThanApp(version):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt32.write(version, into: &buf)
+            
+        
+        case let .tooOld(version):
+            writeInt(&buf, Int32(4))
+            FfiConverterUInt32.write(version, into: &buf)
+            
+        
+        case let .unknown(version):
+            writeInt(&buf, Int32(5))
+            FfiConverterUInt32.write(version, into: &buf)
+            
+        
+        case .legacy:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIVersionCheckResult_lift(_ buf: RustBuffer) throws -> FfiVersionCheckResult {
+    return try FfiConverterTypeFFIVersionCheckResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIVersionCheckResult_lower(_ value: FfiVersionCheckResult) -> RustBuffer {
+    return FfiConverterTypeFFIVersionCheckResult.lower(value)
+}
+
+
+
+extension FfiVersionCheckResult: Equatable, Hashable {}
 
 
 
@@ -2651,6 +4347,30 @@ extension ShareAction: Equatable, Hashable {}
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
     typealias SwiftType = UInt64?
 
@@ -2723,6 +4443,54 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFFIJournalInfo: FfiConverterRustBuffer {
+    typealias SwiftType = FfiJournalInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFFIJournalInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFFIJournalInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFFITemplate: FfiConverterRustBuffer {
+    typealias SwiftType = FfiTemplate?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFFITemplate.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFFITemplate.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeImprintCommand: FfiConverterRustBuffer {
     typealias SwiftType = ImprintCommand?
 
@@ -2764,6 +4532,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFFISourceMapEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSourceMapEntry]
+
+    public static func write(_ value: [FfiSourceMapEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFFISourceMapEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSourceMapEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSourceMapEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFFISourceMapEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFFITemplateMetadata: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiTemplateMetadata]
+
+    public static func write(_ value: [FfiTemplateMetadata], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFFITemplateMetadata.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiTemplateMetadata] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiTemplateMetadata]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFFITemplateMetadata.read(from: &buf))
         }
         return seq
     }
@@ -2830,6 +4648,16 @@ public func buildImprintShareUrl(documentId: String, action: ShareAction, email:
 })
 }
 /**
+ * Check document version compatibility
+ */
+public func checkDocumentVersion(rawVersion: UInt32?) -> FfiVersionCheckResult {
+    return try!  FfiConverterTypeFFIVersionCheckResult.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_check_document_version(
+        FfiConverterOptionUInt32.lower(rawVersion),$0
+    )
+})
+}
+/**
  * Compile Typst source code to PDF
  *
  * This is the main entry point for Swift to compile documents.
@@ -2862,6 +4690,57 @@ public func compileTypstToPdfDefault(source: String) -> CompileResult {
 })
 }
 /**
+ * Get source map entries for a compiled document
+ *
+ * This can be called separately if you already have PDF data and just need the source map.
+ */
+public func generateSourceMap(source: String, options: CompileOptions) -> [FfiSourceMapEntry] {
+    return try!  FfiConverterSequenceTypeFFISourceMapEntry.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_generate_source_map(
+        FfiConverterString.lower(source),
+        FfiConverterTypeCompileOptions.lower(options),$0
+    )
+})
+}
+/**
+ * Get current schema version
+ */
+public func getCurrentSchemaVersion() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_get_current_schema_version($0
+    )
+})
+}
+/**
+ * Get minimum readable schema version
+ */
+public func getMinimumSchemaVersion() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_get_minimum_schema_version($0
+    )
+})
+}
+/**
+ * Get a template by ID
+ */
+public func getTemplate(id: String) -> FfiTemplate? {
+    return try!  FfiConverterOptionTypeFFITemplate.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_get_template(
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+/**
+ * Get template source by ID
+ */
+public func getTemplateSource(id: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_get_template_source(
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+/**
  * Get the Typst version string
  */
 public func getTypstVersion() -> String {
@@ -2890,10 +4769,85 @@ public func isTypstAvailable() -> Bool {
     )
 })
 }
+/**
+ * List all available templates (metadata only)
+ */
+public func listTemplates() -> [FfiTemplateMetadata] {
+    return try!  FfiConverterSequenceTypeFFITemplateMetadata.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_list_templates($0
+    )
+})
+}
+/**
+ * List templates by category
+ */
+public func listTemplatesByCategory(category: FfiTemplateCategory) -> [FfiTemplateMetadata] {
+    return try!  FfiConverterSequenceTypeFFITemplateMetadata.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_list_templates_by_category(
+        FfiConverterTypeFFITemplateCategory.lower(category),$0
+    )
+})
+}
 public func parseImprintUrl(urlString: String) -> ParseResult {
     return try!  FfiConverterTypeParseResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_parse_imprint_url(
         FfiConverterString.lower(urlString),$0
+    )
+})
+}
+/**
+ * Search templates by query string
+ */
+public func searchTemplates(query: String) -> [FfiTemplateMetadata] {
+    return try!  FfiConverterSequenceTypeFFITemplateMetadata.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_search_templates(
+        FfiConverterString.lower(query),$0
+    )
+})
+}
+/**
+ * Look up a click position in the source map to find the corresponding source location
+ */
+public func sourceMapLookup(entries: [FfiSourceMapEntry], page: UInt32, x: Double, y: Double) -> FfiCursorPosition {
+    return try!  FfiConverterTypeFFICursorPosition.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_source_map_lookup(
+        FfiConverterSequenceTypeFFISourceMapEntry.lower(entries),
+        FfiConverterUInt32.lower(page),
+        FfiConverterDouble.lower(x),
+        FfiConverterDouble.lower(y),$0
+    )
+})
+}
+/**
+ * Look up a cursor position in the source to find the corresponding render location
+ *
+ * This is the reverse of `source_map_lookup` - given a source position, find where
+ * it appears in the rendered PDF. Used for cursor synchronization from source to PDF.
+ */
+public func sourceToRenderLookup(entries: [FfiSourceMapEntry], sourceOffset: UInt64) -> FfiRenderRegion {
+    return try!  FfiConverterTypeFFIRenderRegion.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_source_to_render_lookup(
+        FfiConverterSequenceTypeFFISourceMapEntry.lower(entries),
+        FfiConverterUInt64.lower(sourceOffset),$0
+    )
+})
+}
+/**
+ * Get the number of available templates
+ */
+public func templateCount() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_template_count($0
+    )
+})
+}
+/**
+ * Validate CRDT data
+ */
+public func validateCrdtData(data: Data) -> FfiCrdtValidation {
+    return try!  FfiConverterTypeFFICrdtValidation.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_validate_crdt_data(
+        FfiConverterData.lower(data),$0
     )
 })
 }
@@ -2934,10 +4888,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_build_imprint_share_url() != 25732) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_check_document_version() != 55361) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_compile_typst_to_pdf() != 7126) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_compile_typst_to_pdf_default() != 53711) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_get_current_schema_version() != 44451) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_get_minimum_schema_version() != 46146) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_get_template() != 13348) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_get_template_source() != 32300) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_get_typst_version() != 41867) {
@@ -2949,7 +4921,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_is_typst_available() != 16186) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_list_templates() != 15853) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_list_templates_by_category() != 61803) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_search_templates() != 22769) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_source_map_lookup() != 46460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_source_to_render_lookup() != 40270) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_template_count() != 14050) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_validate_crdt_data() != 34988) {
         return InitializationResult.apiChecksumMismatch
     }
 

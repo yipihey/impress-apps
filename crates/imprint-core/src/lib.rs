@@ -213,6 +213,36 @@ impl Default for CompileOptions {
 #[cfg(feature = "uniffi")]
 #[uniffi::export]
 pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileResult {
+    // Wrap the entire compilation in catch_unwind to prevent panics from crossing
+    // the FFI boundary. Any panic inside will be converted to an error result.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compile_typst_to_pdf_inner(source, options)
+    }));
+
+    match result {
+        Ok(compile_result) => compile_result,
+        Err(panic_info) => {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic during Typst compilation".to_string()
+            };
+            CompileResult {
+                pdf_data: None,
+                error: Some(format!("Internal error: {}", panic_msg)),
+                warnings: Vec::new(),
+                page_count: 0,
+                source_map_entries: Vec::new(),
+            }
+        }
+    }
+}
+
+/// Inner compilation function that may panic
+#[cfg(feature = "uniffi")]
+fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> CompileResult {
     use crate::render::{
         DefaultTypstRenderer, OutputFormat, PageSize, RenderOptions, TypstRenderer,
     };

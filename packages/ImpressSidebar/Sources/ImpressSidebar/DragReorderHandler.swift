@@ -91,4 +91,5 @@ public enum DragReorderHandler {
         let adjusted = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
         return max(0, min(adjusted, count - 1))
     }
+
 }

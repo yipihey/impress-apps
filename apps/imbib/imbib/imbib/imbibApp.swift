@@ -426,6 +426,7 @@ struct imbibApp: App {
 
             // Register built-in sources
             await deps.sourceManager.registerBuiltInSources()
+            DragDropCoordinator.shared.sourceManager = deps.sourceManager
             appLogger.info("Built-in sources registered")
 
             // Register browser URL providers for interactive PDF downloads

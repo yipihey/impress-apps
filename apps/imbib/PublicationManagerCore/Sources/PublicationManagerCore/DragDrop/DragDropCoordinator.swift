@@ -48,6 +48,9 @@ public final class DragDropCoordinator {
     private let pdfImportHandler: PDFImportHandler
     private let bibDropHandler: BibDropHandler
 
+    /// Source manager for URL-based paper imports
+    public var sourceManager: SourceManager?
+
     // MARK: - Initialization
 
     public init(
@@ -66,6 +69,7 @@ public final class DragDropCoordinator {
     public static let acceptedTypes: [UTType] = [
         .publicationID,     // Internal publication transfer
         .fileURL,           // File URLs
+        .url,               // Web URLs (from browser address bar)
         .pdf,               // PDFs explicitly
         .item,              // Generic items
         .data,              // Raw data
@@ -157,6 +161,15 @@ public final class DragDropCoordinator {
                 badgeIcon: "doc.text.fill"
             )
 
+        case (.urlImport, .library), (.urlImport, .collection), (.urlImport, .inbox):
+            return DropValidation(
+                isValid: true,
+                category: category,
+                fileCounts: counts,
+                badgeText: "Import Paper",
+                badgeIcon: "link.badge.plus"
+            )
+
         case (.attachment, .publication):
             // Generic files can be attached to publications
             let total = counts.values.reduce(0, +)
@@ -231,6 +244,9 @@ public final class DragDropCoordinator {
             case .bibtex, .ris:
                 return try await handleBibDrop(info: info, target: target)
 
+            case .urlImport:
+                return try await handleURLDrop(info: info, target: target)
+
             case .attachment:
                 return try await handleAttachmentDrop(info: info, target: target)
 
@@ -273,6 +289,13 @@ public final class DragDropCoordinator {
                 }
             }
 
+            // Check for web URL drops (from browser address bar)
+            // Must have .url but NOT .fileURL — file URLs are local files
+            if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
+               !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                return .urlImport
+            }
+
             // Check file URL type
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 // Will need to check actual file to determine type
@@ -306,6 +329,9 @@ public final class DragDropCoordinator {
                 } else {
                     counts[.attachment, default: 0] += 1
                 }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
+                      !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                counts[.urlImport, default: 0] += 1
             } else {
                 counts[.attachment, default: 0] += 1
             }
@@ -415,6 +441,145 @@ public final class DragDropCoordinator {
         }
 
         return try await attachFilesToPublication(urls, publicationID: publicationID, libraryID: libraryID)
+    }
+
+    // MARK: - URL Import
+
+    /// Handle a web URL drop (from browser address bar).
+    private func handleURLDrop(info: DragDropInfo, target: DropTarget) async throws -> DropResult {
+        guard let provider = info.providers.first else {
+            throw DragDropError.noFilesFound
+        }
+
+        guard let url = await extractWebURL(from: provider) else {
+            throw DragDropError.urlImportFailed("Could not extract URL from drop")
+        }
+
+        Logger.files.infoCapture("URL drop: \(url.absoluteString)", category: "files")
+
+        guard let parsed = parsePaperURL(url) else {
+            throw DragDropError.urlImportFailed("Unrecognized academic URL: \(url.host ?? url.absoluteString)")
+        }
+
+        guard let sourceManager else {
+            Logger.files.errorCapture("URL import: sourceManager not configured", category: "files")
+            throw DragDropError.urlImportFailed("Search sources not available")
+        }
+
+        // Search for the paper using the identified source
+        let options = SearchOptions(maxResults: 1, sourceIDs: parsed.sourceIDs)
+        let results = try await sourceManager.search(query: parsed.query, options: options)
+
+        guard let result = results.first else {
+            throw DragDropError.urlImportFailed("Paper not found for \(parsed.query)")
+        }
+
+        // Determine the target library
+        let context = PersistenceController.shared.viewContext
+        var library: CDLibrary?
+
+        switch target {
+        case .library(let libraryID):
+            library = await context.perform {
+                let request = NSFetchRequest<CDLibrary>(entityName: "Library")
+                request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
+                request.fetchLimit = 1
+                return try? context.fetch(request).first
+            }
+        case .collection(_, let libraryID):
+            library = await context.perform {
+                let request = NSFetchRequest<CDLibrary>(entityName: "Library")
+                request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
+                request.fetchLimit = 1
+                return try? context.fetch(request).first
+            }
+        case .inbox:
+            library = InboxManager.shared.inboxLibrary
+        default:
+            break
+        }
+
+        // Create publication from search result
+        let repository = PublicationRepository()
+        let publication = await repository.createFromSearchResult(result, in: library)
+
+        // If target is a collection, also add to that collection
+        if case .collection(let collectionID, _) = target {
+            await addPublicationsToCollection([publication.id], collectionID: collectionID)
+        }
+
+        Logger.files.infoCapture("URL import: created publication '\(result.title)' (id: \(publication.id))", category: "files")
+
+        // Post notification to trigger auto-selection in list
+        NotificationCenter.default.post(
+            name: .pdfImportCompleted,
+            object: [publication.id]
+        )
+
+        return .success(message: "Imported from URL")
+    }
+
+    /// Extract a web URL from an NSItemProvider.
+    private func extractWebURL(from provider: NSItemProvider) async -> URL? {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier) { item, _ in
+                if let url = item as? URL {
+                    continuation.resume(returning: url)
+                } else if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Parsed paper URL info.
+    private struct ParsedPaperURL {
+        let query: String
+        let sourceIDs: [String]
+    }
+
+    /// Parse an academic paper URL into a search query and source IDs.
+    private func parsePaperURL(_ url: URL) -> ParsedPaperURL? {
+        // arXiv
+        if let arxiv = ArXivURLParser.parse(url) {
+            switch arxiv {
+            case .paper(let arxivID), .pdf(let arxivID):
+                return ParsedPaperURL(query: arxivID, sourceIDs: ["arxiv"])
+            default:
+                break
+            }
+        }
+
+        // ADS
+        if let ads = ADSURLParser.parse(url) {
+            if case .paper(let bibcode) = ads {
+                return ParsedPaperURL(query: "bibcode:\(bibcode)", sourceIDs: ["ads"])
+            }
+        }
+
+        // SciX
+        if let scix = SciXURLParser.parse(url) {
+            if case .paper(let bibcode) = scix {
+                return ParsedPaperURL(query: "bibcode:\(bibcode)", sourceIDs: ["scix"])
+            }
+        }
+
+        // DOI URL (doi.org or dx.doi.org)
+        if let host = url.host?.lowercased(),
+           host == "doi.org" || host == "dx.doi.org" {
+            let doi = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !doi.isEmpty {
+                return ParsedPaperURL(query: doi, sourceIDs: ["crossref", "ads"])
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Confirmation Actions
@@ -757,6 +922,7 @@ public enum DragDropError: LocalizedError {
     case libraryNotFound
     case noInboxLibrary
     case importFailed
+    case urlImportFailed(String)
     case notImplemented(String)
 
     public var errorDescription: String? {
@@ -777,6 +943,8 @@ public enum DragDropError: LocalizedError {
             return "Inbox library not available"
         case .importFailed:
             return "Import failed"
+        case .urlImportFailed(let reason):
+            return "URL import failed: \(reason)"
         case .notImplemented(let feature):
             return "\(feature) is not yet implemented"
         }

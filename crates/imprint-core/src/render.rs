@@ -402,6 +402,67 @@ mod typst_impl {
             source: &str,
             options: &RenderOptions,
         ) -> Result<RenderOutput, RenderError> {
+            // Wrap the entire render operation in catch_unwind to handle panics gracefully.
+            // Typst can panic during font lookup, layout, or PDF generation on certain documents.
+            // This ensures we return a proper error instead of crashing the app.
+            let source_owned = source.to_string();
+            let options_clone = options.clone();
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Self::render_inner(&source_owned, &options_clone)
+            }));
+
+            match result {
+                Ok(inner_result) => inner_result,
+                Err(panic_info) => {
+                    let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "Unknown panic during Typst rendering".to_string()
+                    };
+                    Err(RenderError::CompilationError(format!(
+                        "Internal error during rendering: {}",
+                        panic_msg
+                    )))
+                }
+            }
+        }
+
+        fn render_incremental(
+            &self,
+            source: &str,
+            options: &RenderOptions,
+            cache: Option<RenderCache>,
+        ) -> Result<(RenderOutput, RenderCache), RenderError> {
+            let mut cache = cache.unwrap_or_default();
+
+            // For now, we don't do true incremental compilation
+            // The comemo crate provides memoization for Typst internals,
+            // but we'd need more sophisticated caching at this level
+            let output = self.render(source, options)?;
+
+            cache.update_hash(source);
+
+            Ok((output, cache))
+        }
+
+        fn is_available(&self) -> bool {
+            true
+        }
+
+        fn typst_version(&self) -> &'static str {
+            "0.14"
+        }
+    }
+
+    impl DefaultTypstRenderer {
+        /// Inner render function that may panic - wrapped by render()
+        fn render_inner(
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<RenderOutput, RenderError> {
             use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine};
 
             // Prepend the page setup preamble to the source
@@ -455,32 +516,6 @@ mod typst_impl {
                     ))
                 }
             }
-        }
-
-        fn render_incremental(
-            &self,
-            source: &str,
-            options: &RenderOptions,
-            cache: Option<RenderCache>,
-        ) -> Result<(RenderOutput, RenderCache), RenderError> {
-            let mut cache = cache.unwrap_or_default();
-
-            // For now, we don't do true incremental compilation
-            // The comemo crate provides memoization for Typst internals,
-            // but we'd need more sophisticated caching at this level
-            let output = self.render(source, options)?;
-
-            cache.update_hash(source);
-
-            Ok((output, cache))
-        }
-
-        fn is_available(&self) -> bool {
-            true
-        }
-
-        fn typst_version(&self) -> &'static str {
-            "0.14"
         }
     }
 }

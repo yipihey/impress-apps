@@ -340,13 +340,39 @@ fn extract_arxiv_id_from_identifiers(identifiers: &Option<Vec<String>>) -> Optio
     identifiers.as_ref()?.iter().find_map(|id| {
         if let Some(stripped) = id.strip_prefix("arXiv:") {
             Some(stripped.to_string())
-        } else if id.chars().next()?.is_ascii_digit() && id.contains('.') {
-            // New format: 2301.12345
+        } else if is_bare_new_arxiv_id(id) {
+            // Bare new-format arXiv ID (e.g., "2301.12345")
             Some(id.clone())
         } else {
             None
         }
     })
+}
+
+/// Check if a string is a bare new-format arXiv ID: YYMM.NNNNN(vN)
+/// Must NOT match DOIs (10.1086/300151) or bibcodes (1999AJ....117.2063K).
+fn is_bare_new_arxiv_id(s: &str) -> bool {
+    // Strip optional version suffix (e.g., "v2")
+    let base = if let Some(v_pos) = s.rfind('v') {
+        if s[v_pos + 1..].chars().all(|c| c.is_ascii_digit()) && v_pos > 0 {
+            &s[..v_pos]
+        } else {
+            s
+        }
+    } else {
+        s
+    };
+
+    // Must be exactly DDDD.DDDDD or DDDD.DDDD (4 digits, dot, 4-5 digits)
+    let parts: Vec<&str> = base.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let (prefix, suffix) = (parts[0], parts[1]);
+    prefix.len() == 4
+        && prefix.chars().all(|c| c.is_ascii_digit())
+        && (suffix.len() == 4 || suffix.len() == 5)
+        && suffix.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Build PDF links from ADS esources field
@@ -505,17 +531,61 @@ mod tests {
 
     #[test]
     fn test_extract_arxiv_id() {
+        // arXiv: prefixed new-format
         let ids = Some(vec!["arXiv:2301.12345".to_string()]);
         assert_eq!(
             extract_arxiv_id_from_identifiers(&ids),
             Some("2301.12345".to_string())
         );
 
+        // Bare new-format
         let ids2 = Some(vec!["2301.12345".to_string()]);
         assert_eq!(
             extract_arxiv_id_from_identifiers(&ids2),
             Some("2301.12345".to_string())
         );
+
+        // arXiv: prefixed old-format (astro-ph/NNNNNNN)
+        let ids3 = Some(vec!["arXiv:astro-ph/9901313".to_string()]);
+        assert_eq!(
+            extract_arxiv_id_from_identifiers(&ids3),
+            Some("astro-ph/9901313".to_string())
+        );
+
+        // arXiv: prefixed with version suffix
+        let ids4 = Some(vec!["arXiv:2301.12345v2".to_string()]);
+        assert_eq!(
+            extract_arxiv_id_from_identifiers(&ids4),
+            Some("2301.12345v2".to_string())
+        );
+
+        // DOIs must NOT match as arXiv IDs
+        let ids_doi = Some(vec!["10.1086/300151".to_string()]);
+        assert_eq!(extract_arxiv_id_from_identifiers(&ids_doi), None);
+
+        // Bibcodes must NOT match as arXiv IDs
+        let ids_bib = Some(vec!["1999AJ....117.2063K".to_string()]);
+        assert_eq!(extract_arxiv_id_from_identifiers(&ids_bib), None);
+
+        // arXiv DOI must NOT match (should only be found via arXiv: prefix)
+        let ids_arxiv_doi = Some(vec!["10.48550/arXiv.astro-ph/9901313".to_string()]);
+        assert_eq!(extract_arxiv_id_from_identifiers(&ids_arxiv_doi), None);
+
+        // Typical ADS identifier array: arXiv should be found despite DOI/bibcode presence
+        let ids_mixed = Some(vec![
+            "1999AJ....117.2063K".to_string(),
+            "10.1086/300151".to_string(),
+            "arXiv:astro-ph/9901313".to_string(),
+            "10.48550/arXiv.astro-ph/9901313".to_string(),
+        ]);
+        assert_eq!(
+            extract_arxiv_id_from_identifiers(&ids_mixed),
+            Some("astro-ph/9901313".to_string())
+        );
+
+        // Empty and None cases
+        assert_eq!(extract_arxiv_id_from_identifiers(&None), None);
+        assert_eq!(extract_arxiv_id_from_identifiers(&Some(vec![])), None);
     }
 
     #[test]

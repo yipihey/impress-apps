@@ -511,6 +511,13 @@ public actor PublicationRepository {
                 publication.fields = fields
                 Logger.persistence.info("Resolved bibcode: \(bibcode) for \(publication.citeKey)")
             }
+            // arXiv ID from ADS enrichment - backfill eprint if not already present
+            if let arxivID = result.resolvedIdentifiers[.arxiv], publication.arxivID == nil {
+                var fields = publication.fields
+                fields["eprint"] = arxivID
+                publication.fields = fields
+                Logger.persistence.info("Resolved arXiv ID: \(arxivID) for \(publication.citeKey)")
+            }
 
             // Update enrichment tracking fields
             publication.enrichmentSource = data.source.sourceID

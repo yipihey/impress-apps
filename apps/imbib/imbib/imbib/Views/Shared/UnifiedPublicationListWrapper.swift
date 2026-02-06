@@ -1423,10 +1423,14 @@ struct UnifiedPublicationListWrapper: View {
             if result == .handled { return .handled }
         }
 
-        // Toggle star (*): works anywhere
+        // Toggle star (*): works anywhere; in inbox also saves to library
         if store.matches(press, action: "inboxToggleStar") {
             if !selectedPublicationIDs.isEmpty {
-                toggleStarForSelected()
+                if isInboxView {
+                    saveAndStarSelected()
+                } else {
+                    toggleStarForSelected()
+                }
                 return .handled
             }
         }
