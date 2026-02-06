@@ -103,11 +103,19 @@ struct NotesTab: View {
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .horizontal
                     )
+                    if !isNotesPanelCollapsed {
+                        ResizeDivider(size: sizeBinding, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: true)
+                    }
                     pdfViewerContent
+                        .clipped()
                 }
             case .below:
                 VStack(spacing: 0) {
                     pdfViewerContent
+                        .clipped()
+                    if !isNotesPanelCollapsed {
+                        ResizeDivider(size: sizeBinding, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: false)
+                    }
                     NotesPanel(
                         publication: publication,
                         size: sizeBinding,
@@ -118,6 +126,10 @@ struct NotesTab: View {
             case .right:
                 HStack(spacing: 0) {
                     pdfViewerContent
+                        .clipped()
+                    if !isNotesPanelCollapsed {
+                        ResizeDivider(size: sizeBinding, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: true)
+                    }
                     NotesPanel(
                         publication: publication,
                         size: sizeBinding,
@@ -133,7 +145,11 @@ struct NotesTab: View {
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .verticalLeft
                     )
+                    if !isNotesPanelCollapsed {
+                        ResizeDivider(size: sizeBinding, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: false)
+                    }
                     pdfViewerContent
+                        .clipped()
                 }
             }
         }
@@ -343,7 +359,6 @@ struct NotesPanel: View {
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(\.themeColors) private var theme
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @State private var isResizing = false
     @State private var isEditingFreeformNotes = false  // Controls edit vs preview mode
     @FocusState private var isFreeformNotesFocused: Bool  // Controls TextEditor focus
 
@@ -358,6 +373,9 @@ struct NotesPanel: View {
     @State private var annotations: [String: String] = [:]
     @State private var freeformNotes: String = ""
     @State private var saveTask: Task<Void, Never>?
+
+    /// Which annotation fields are currently active/visible (by field ID)
+    @State private var activeAnnotations: Set<String> = []
 
     // Helix mode settings
     @AppStorage("helixModeEnabled") private var helixModeEnabled = false
@@ -421,8 +439,8 @@ struct NotesPanel: View {
 
     private var notesContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Compact quick annotations at top (doesn't scroll)
-            structuredFieldsSection
+            // Inline annotation fields at top
+            annotationFieldsSection
 
             // Freeform notes fills remaining space
             freeformNotesSection
@@ -472,12 +490,6 @@ struct NotesPanel: View {
             .buttonStyle(.plain)
             .help("Move notes panel to \(notesPosition.next.label)")
 
-            if !isCollapsed {
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(90))
-            }
         }
         .padding(.horizontal, 12)
         .frame(height: headerSize)
@@ -486,26 +498,6 @@ struct NotesPanel: View {
         #else
         .background(Color(.systemBackground))
         #endif
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    if !isCollapsed {
-                        let newSize = size - value.translation.height
-                        size = min(max(newSize, minSize), maxSize)
-                    }
-                }
-        )
-        .onHover { hovering in
-            if !isCollapsed {
-                #if os(macOS)
-                if hovering {
-                    NSCursor.resizeUpDown.push()
-                } else {
-                    NSCursor.pop()
-                }
-                #endif
-            }
-        }
     }
 
     // MARK: - Vertical Header Bar (for left/right position)
@@ -545,12 +537,6 @@ struct NotesPanel: View {
                 .fixedSize()
 
             Spacer()
-
-            if !isCollapsed {
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
         }
         .padding(.vertical, 12)
         .frame(width: headerSize)
@@ -559,70 +545,94 @@ struct NotesPanel: View {
         #else
         .background(Color(.systemBackground))
         #endif
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    if !isCollapsed {
-                        // For left panel, dragging right increases size; for right panel, dragging left increases size
-                        let delta = orientation == .verticalLeft ? value.translation.width : -value.translation.width
-                        let newSize = size + delta
-                        size = min(max(newSize, minSize), maxSize)
+    }
+
+    // MARK: - Annotation Fields (Inline Toggleable)
+
+    private var isHorizontalLayout: Bool {
+        orientation == .horizontal
+    }
+
+    @ViewBuilder
+    private var annotationFieldsSection: some View {
+        let allFields = annotationSettings.enabledFields  // ALL enabled fields, including author fields
+
+        if !allFields.isEmpty {
+            if isHorizontalLayout {
+                // Horizontal: fields flow side by side in a row
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(allFields) { field in
+                        annotationField(field)
+                            .frame(maxWidth: .infinity)
                     }
                 }
-        )
-        .onHover { hovering in
-            if !isCollapsed {
-                #if os(macOS)
-                if hovering {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
+                .padding(.bottom, 4)
+            } else {
+                // Vertical: fields stack top to bottom
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(allFields) { field in
+                        annotationField(field)
+                    }
                 }
-                #endif
+                .padding(.bottom, 4)
             }
         }
     }
 
-    // MARK: - Structured Fields (Compact Chips)
-
     @ViewBuilder
-    private var structuredFieldsSection: some View {
-        // Filter OUT author fields (those are shown in InfoTab now)
-        let noteFields = annotationSettings.enabledNoteFields
-        let populatedFields = noteFields.filter { annotations[$0.id]?.isEmpty == false }
+    private func annotationField(_ field: QuickAnnotationField) -> some View {
+        let isActive = activeAnnotations.contains(field.id)
 
-        if !noteFields.isEmpty && (!populatedFields.isEmpty || !noteFields.isEmpty) {
-            NotesFlowLayout(spacing: 6) {
-                // Show populated annotation chips
-                ForEach(populatedFields) { field in
-                    AnnotationChip(
-                        field: field,
-                        value: annotationBinding(for: field.id),
-                        theme: theme
-                    )
+        VStack(alignment: .leading, spacing: 2) {
+            // Header row: toggle + label
+            HStack(spacing: 6) {
+                Toggle(isOn: annotationToggleBinding(for: field.id)) {
+                    Text(field.label)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(isActive ? .secondary : .tertiary)
                 }
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
 
-                // "+" button when there are unpopulated fields
-                let unpopulatedFields = noteFields.filter { annotations[$0.id]?.isEmpty != false }
-                if !unpopulatedFields.isEmpty {
-                    Menu {
-                        ForEach(unpopulatedFields) { field in
-                            Button(field.label) {
-                                // Initialize the field with empty string to show it
-                                annotations[field.id] = ""
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            // Text field (only when active)
+            if isActive {
+                TextField(field.placeholder, text: annotationBinding(for: field.id))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .padding(6)
+                    .background(theme.contentBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+            }
+        }
+    }
+
+    /// Binding for toggling an annotation field on/off per-publication
+    private func annotationToggleBinding(for fieldID: String) -> Binding<Bool> {
+        Binding(
+            get: { activeAnnotations.contains(fieldID) },
+            set: { isOn in
+                if isOn {
+                    activeAnnotations.insert(fieldID)
+                    // Initialize empty if no content
+                    if annotations[fieldID] == nil {
+                        annotations[fieldID] = ""
                     }
-                    .menuStyle(.borderlessButton)
-                    .help("Add annotation")
+                } else {
+                    activeAnnotations.remove(fieldID)
+                    // Clear the value when toggled off
+                    annotations[fieldID] = ""
+                    scheduleSave()
                 }
             }
-            .padding(.bottom, 4)
-        }
+        )
     }
 
     /// Create a binding for an annotation field
@@ -808,6 +818,9 @@ struct NotesPanel: View {
         // Convert label-keyed annotations to ID-keyed
         annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
         freeformNotes = parsed.freeform
+
+        // Populate active set from fields that have content
+        activeAnnotations = Set(annotations.filter { !$0.value.isEmpty }.map(\.key))
     }
 
     private func scheduleSave() {
@@ -925,122 +938,51 @@ struct HelixNotesTextEditor: NSViewRepresentable {
 }
 #endif
 
-// MARK: - Annotation Chip
+// MARK: - Resize Divider
 
-/// A compact chip for displaying and editing annotation values.
-struct AnnotationChip: View {
-    let field: QuickAnnotationField
-    @Binding var value: String
-    var theme: ThemeColors? = nil
-    @State private var isEditing = false
-    @FocusState private var isFocused: Bool
+/// A thin draggable divider between two panes for resizing.
+struct ResizeDivider: View {
+    @Binding var size: CGFloat
+    let isVertical: Bool    // true = left/right (drag horizontal), false = top/below (drag vertical)
+    let minSize: CGFloat
+    let maxSize: CGFloat
+    let invertDrag: Bool    // true when drag direction is inverted relative to size increase
+
+    @State private var isHovering = false
+    @State private var dragStartSize: CGFloat = 0
+
+    private let thickness: CGFloat = 6
 
     var body: some View {
-        if isEditing {
-            // Edit mode: inline text field
-            HStack(spacing: 2) {
-                Text(field.label + ":")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                TextField("", text: $value)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .frame(minWidth: 60, maxWidth: 150)
-                    .focused($isFocused)
-                    .onSubmit {
-                        isEditing = false
+        Rectangle()
+            .fill(isHovering ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2))
+            .frame(width: isVertical ? 1 : nil, height: isVertical ? nil : 1)
+            .padding(isVertical ? .horizontal : .vertical, thickness / 2)
+            .contentShape(Rectangle())
+            .frame(width: isVertical ? thickness : nil, height: isVertical ? nil : thickness)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartSize == 0 { dragStartSize = size }
+                        let delta = isVertical ? value.translation.width : value.translation.height
+                        let adjusted = invertDrag ? -delta : delta
+                        let newSize = dragStartSize + adjusted
+                        size = min(max(newSize, minSize), maxSize)
                     }
-                // Remove button
-                Button {
-                    value = ""
-                    isEditing = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    .onEnded { _ in
+                        dragStartSize = 0
+                    }
+            )
+            .onHover { hovering in
+                isHovering = hovering
+                #if os(macOS)
+                if hovering {
+                    (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push()
+                } else {
+                    NSCursor.pop()
                 }
-                .buttonStyle(.plain)
+                #endif
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            #if os(macOS)
-            .background(theme?.contentBackground ?? Color(nsColor: .textBackgroundColor))
-            #else
-            .background(theme?.contentBackground ?? Color(.systemBackground))
-            #endif
-            .clipShape(Capsule())
-            .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1))
-            .onAppear {
-                isFocused = true
-            }
-            .onChange(of: isFocused) { _, focused in
-                if !focused {
-                    isEditing = false
-                }
-            }
-        } else {
-            // Display mode: clickable chip
-            Button {
-                isEditing = true
-            } label: {
-                HStack(spacing: 2) {
-                    Text(field.label + ":")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(value)
-                        .font(.caption)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
     }
 }
 
-// MARK: - Flow Layout (for chips)
-
-/// A layout that arranges views in a horizontal flow, wrapping to new lines as needed.
-struct NotesFlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
-
-        for (subview, offset) in zip(subviews, offsets) {
-            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
-        }
-    }
-
-    private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {
-        var offsets: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
-
-        for size in sizes {
-            if currentX + size.width > containerWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-
-            offsets.append(CGPoint(x: currentX, y: currentY))
-            currentX += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            maxWidth = max(maxWidth, currentX - spacing)
-        }
-
-        return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
-    }
-}

@@ -121,6 +121,9 @@ struct ContentView: View {
     /// Whether search index rebuild is in progress
     @State private var isRebuildingSearchIndex = false
 
+    /// Feature flag: use new TabView sidebar instead of classic NavigationSplitView
+    @AppStorage("useTabSidebar") private var useTabSidebar = false
+
     // MARK: - Derived Selection
 
     /// The primary selected publication ID (first of multi-selection).
@@ -232,6 +235,111 @@ struct ContentView: View {
 
     var body: some View {
         let _ = contentLogger.info("⏱ ContentView.body START")
+        if useTabSidebar {
+            tabSidebarContent
+        } else {
+            classicSidebarContent
+        }
+    }
+
+    /// New TabView-based sidebar (feature flagged)
+    private var tabSidebarContent: some View {
+        TabContentView()
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingSheet()
+            }
+            .sheet(item: $batchDownloadData) { data in
+                PDFBatchDownloadView(publications: data.publications, library: data.library)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showBatchDownload)) { notification in
+                guard let userInfo = notification.userInfo,
+                      let publications = userInfo["publications"] as? [CDPublication],
+                      let libraryID = userInfo["libraryID"] as? UUID,
+                      let library = libraryManager.libraries.first(where: { $0.id == libraryID })
+                          ?? libraryManager.sharedWithMeLibraries.first(where: { $0.id == libraryID })
+                else { return }
+                batchDownloadData = BatchDownloadData(publications: publications, library: library)
+            }
+            .modifier(ImportExportHandlersModifier(
+                importPreviewData: $importPreviewData,
+                unifiedExportData: $unifiedExportData,
+                unifiedImportData: $unifiedImportData,
+                libraryManager: libraryManager,
+                selectedPublications: selectedPublications,
+                onShowImportPanel: showImportPanel,
+                onShowExportPanel: showExportPanel
+            ))
+            #if os(macOS)
+            .modifier(WindowManagementHandlersModifier(
+                displayedPublicationID: $displayedPublicationID,
+                libraryViewModel: libraryViewModel,
+                libraryManager: libraryManager,
+                activeLibrary: libraryManager.activeLibrary
+            ))
+            #endif
+            .sheet(item: $importPreviewData) { data in
+                importPreviewSheet(for: data)
+                    .frame(minWidth: 600, minHeight: 500)
+            }
+            .sheet(item: $unifiedExportData) { data in
+                UnifiedExportView(
+                    scope: data.scope,
+                    isPresented: Binding(
+                        get: { unifiedExportData != nil },
+                        set: { if !$0 { unifiedExportData = nil } }
+                    )
+                )
+                .frame(minWidth: 550, minHeight: 450)
+            }
+            .sheet(item: $unifiedImportData) { data in
+                UnifiedImportView(
+                    fileURL: data.fileURL,
+                    targetLibrary: data.targetLibrary,
+                    isPresented: Binding(
+                        get: { unifiedImportData != nil },
+                        set: { if !$0 { unifiedImportData = nil } }
+                    )
+                )
+                .frame(minWidth: 550, minHeight: 450)
+            }
+            // Vim-style pane focus cycling (h/l keys)
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
+                cycleFocusLeft()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
+                cycleFocusRight()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
+                showCommandPalette = true
+            }
+            .overlay {
+                if showGlobalSearch {
+                    GlobalSearchPaletteView(
+                        isPresented: $showGlobalSearch,
+                        onSelect: { publicationID in
+                            navigateToPublication(publicationID)
+                        },
+                        onPDFSearch: handlePDFSearch
+                    )
+                    .environment(\.searchContext, currentSearchContext)
+                }
+            }
+            .overlay {
+                if showCommandPalette {
+                    CommandPaletteView(isPresented: $showCommandPalette)
+                }
+            }
+            .background {
+                Button("Global Search") {
+                    showGlobalSearch = true
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+            }
+    }
+
+    /// Classic NavigationSplitView sidebar (existing behavior)
+    private var classicSidebarContent: some View {
         mainContent
             .modifier(NavigationHandlersModifier(
                 selectedSection: $selectedSection,
@@ -275,6 +383,7 @@ struct ContentView: View {
             .modifier(WindowManagementHandlersModifier(
                 displayedPublicationID: $displayedPublicationID,
                 libraryViewModel: libraryViewModel,
+                libraryManager: libraryManager,
                 activeLibrary: libraryManager.activeLibrary
             ))
             #endif
@@ -427,8 +536,43 @@ struct ContentView: View {
             }
         }
 
+        // Auto-select first paper if nothing was restored (avoids empty detail pane)
+        if displayedPublicationID == nil {
+            try? await Task.sleep(for: .milliseconds(200))
+            if let firstPub = firstPublicationForCurrentSection() {
+                selectedPublicationIDs = [firstPub.id]
+                displayedPublicationID = firstPub.id
+            }
+        }
+
         hasRestoredState = true
         contentLogger.info("Restored app state: section=\(String(describing: selectedSection)), paper=\(selectedPublicationID?.uuidString ?? "none")")
+    }
+
+    /// Find the first publication for the currently selected sidebar section.
+    /// Used for auto-selecting a paper when no previous selection exists.
+    private func firstPublicationForCurrentSection() -> CDPublication? {
+        let pubs: Set<CDPublication>?
+        switch selectedSection {
+        case .library(let library):
+            pubs = library.publications
+        case .inbox:
+            pubs = InboxManager.shared.inboxLibrary?.publications
+        case .inboxFeed(let smartSearch):
+            pubs = smartSearch.library?.publications
+        case .collection(let collection):
+            pubs = collection.publications
+        case .scixLibrary(let scixLibrary):
+            pubs = scixLibrary.publications
+        case .smartSearch(let smartSearch):
+            pubs = smartSearch.library?.publications
+        default:
+            pubs = libraryManager.activeLibrary?.publications
+        }
+        return pubs?
+            .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+            .sorted { $0.dateAdded > $1.dateAdded }
+            .first
     }
 
     /// Save current app state to persistent storage
@@ -1067,7 +1211,7 @@ struct ContentView: View {
             preselectedLibrary: data.targetLibrary,
             preferCreateNewLibrary: data.preferCreateNewLibrary
         ) { entries, targetLibrary, newLibraryName, duplicateHandling in
-            try await importPreviewEntries(entries, to: targetLibrary, newLibraryName: newLibraryName, duplicateHandling: duplicateHandling)
+            try await importPreviewEntries(entries, to: targetLibrary, newLibraryName: newLibraryName, duplicateHandling: duplicateHandling, collection: data.targetCollection)
         }
     }
 
@@ -1075,7 +1219,8 @@ struct ContentView: View {
         _ entries: [ImportPreviewEntry],
         to targetLibrary: CDLibrary?,
         newLibraryName: String?,
-        duplicateHandling: DuplicateHandlingMode
+        duplicateHandling: DuplicateHandlingMode,
+        collection: CDCollection? = nil
     ) async throws -> Int {
         // Determine which library to import to
         let library: CDLibrary
@@ -1094,41 +1239,48 @@ struct ContentView: View {
             library = active
         }
 
-        var count = 0
+        var importedPublications: [CDPublication] = []
         let repository = PublicationRepository(persistenceController: .shared)
 
+        // Separate duplicate-replace entries from new entries for batching
+        var newBibTeXEntries: [BibTeXEntry] = []
         for entry in entries {
-            // Handle duplicates
             if entry.isDuplicate, let duplicateID = entry.duplicateOfID {
                 if duplicateHandling == .replaceWithImported {
-                    // Find and update the existing publication
                     if let existingPub = library.publications?.first(where: { $0.id == duplicateID }) {
-                        // Update the existing publication with imported data
                         updatePublication(existingPub, from: entry)
-                        count += 1
+                        importedPublications.append(existingPub)
                     }
                 }
-                // Skip duplicates when mode is .skipDuplicates (they shouldn't be in selected entries anyway)
                 continue
             }
 
-            // Create new publication
-            let publication: CDPublication
+            // Collect all new entries as BibTeX (RIS is converted internally)
             switch entry.source {
             case .bibtex(let bibtex):
-                publication = await repository.create(from: bibtex, in: library)
-
+                newBibTeXEntries.append(bibtex)
             case .ris(let ris):
-                publication = await repository.create(from: ris, in: library)
+                newBibTeXEntries.append(RISBibTeXConverter.toBibTeX(ris))
             }
-
-            // Add the publication to the target library
-            publication.addToLibrary(library)
-            count += 1
         }
 
-        // Save after adding all publications to the library
+        // Batch-create all new publications in a single Core Data transaction
+        if !newBibTeXEntries.isEmpty {
+            let created = await repository.importEntriesReturningPublications(newBibTeXEntries, in: library)
+            importedPublications.append(contentsOf: created)
+        }
+
+        // If a target collection was specified, add all imported publications to it
+        if let collection, !collection.isSmartCollection, !collection.isDeleted {
+            let pubSet = collection.mutableSetValue(forKey: "publications")
+            for pub in importedPublications {
+                pubSet.add(pub)
+            }
+        }
+
+        // Save collection assignments and duplicate updates
         PersistenceController.shared.save()
+        let count = importedPublications.count
 
         // Reload publications for the library
         await libraryViewModel.loadPublications()
@@ -1229,12 +1381,15 @@ struct ImportPreviewData: Identifiable {
     let fileURL: URL
     /// Optional target library (pre-selected when dropping on a library)
     let targetLibrary: CDLibrary?
+    /// Optional target collection (when dropping on a collection row)
+    let targetCollection: CDCollection?
     /// When true, defaults to "Create new library" (e.g., sidebar-wide drop)
     let preferCreateNewLibrary: Bool
 
-    init(fileURL: URL, targetLibrary: CDLibrary? = nil, preferCreateNewLibrary: Bool = false) {
+    init(fileURL: URL, targetLibrary: CDLibrary? = nil, targetCollection: CDCollection? = nil, preferCreateNewLibrary: Bool = false) {
         self.fileURL = fileURL
         self.targetLibrary = targetLibrary
+        self.targetCollection = targetCollection
         self.preferCreateNewLibrary = preferCreateNewLibrary
     }
 }
@@ -1348,8 +1503,9 @@ struct ImportExportHandlersModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .importBibTeXToLibrary)) { notification in
                 guard let fileURL = notification.userInfo?["fileURL"] as? URL else { return }
                 let library = notification.userInfo?["library"] as? CDLibrary
+                let collection = notification.userInfo?["collection"] as? CDCollection
                 let preferCreateNew = library == nil
-                importPreviewData = ImportPreviewData(fileURL: fileURL, targetLibrary: library, preferCreateNewLibrary: preferCreateNew)
+                importPreviewData = ImportPreviewData(fileURL: fileURL, targetLibrary: library, targetCollection: collection, preferCreateNewLibrary: preferCreateNew)
             }
             .onReceive(NotificationCenter.default.publisher(for: .exportBibTeX)) { _ in
                 onShowExportPanel()
@@ -1451,6 +1607,7 @@ struct StateChangeHandlersModifier: ViewModifier {
 struct WindowManagementHandlersModifier: ViewModifier {
     @Binding var displayedPublicationID: UUID?
     let libraryViewModel: LibraryViewModel
+    let libraryManager: LibraryManager
     let activeLibrary: CDLibrary?
 
     func body(content: Content) -> some View {
@@ -1479,7 +1636,10 @@ struct WindowManagementHandlersModifier: ViewModifier {
     private func openDetachedTab(_ tab: DetachedTab) {
         guard let pubID = displayedPublicationID,
               let publication = libraryViewModel.publication(for: pubID) else { return }
-        DetailWindowController.shared.openTab(tab, for: publication, library: activeLibrary)
+        DetailWindowController.shared.openTab(
+            tab, for: publication, library: activeLibrary,
+            libraryViewModel: libraryViewModel, libraryManager: libraryManager
+        )
     }
 }
 #endif
