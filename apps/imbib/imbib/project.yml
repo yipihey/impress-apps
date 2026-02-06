@@ -34,6 +34,23 @@ packages:
     path: ../../../packages/ImpressPresence
   ImbibRustCore:
     path: ../ImbibRustCore
+  # Transitive dependencies of PublicationManagerCore — declared here so
+  # Xcode GUI can resolve them (xcodebuild CLI resolves them automatically,
+  # but the GUI cannot follow transitive local package references).
+  ImpressAutomation:
+    path: ../../../packages/ImpressAutomation
+  ImpressAI:
+    path: ../../../packages/ImpressAI
+  ImpressKeyboard:
+    path: ../../../packages/ImpressKeyboard
+  ImpressSidebar:
+    path: ../../../packages/ImpressSidebar
+  ImpressFTUI:
+    path: ../../../packages/ImpressFTUI
+  ImpressLogging:
+    path: ../../../packages/ImpressLogging
+  ImpressOperationQueue:
+    path: ../../../packages/ImpressOperationQueue
 
 targets:
   # macOS App

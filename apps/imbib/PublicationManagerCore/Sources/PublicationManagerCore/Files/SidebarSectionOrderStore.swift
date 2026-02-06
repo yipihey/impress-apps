@@ -11,7 +11,7 @@ import ImpressSidebar
 // MARK: - Sidebar Section Type
 
 /// Represents the reorderable and collapsible sections in the sidebar
-public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equatable, Hashable {
+public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equatable, Hashable, Sendable, SidebarSection {
     case inbox
     case libraries
     case sharedWithMe

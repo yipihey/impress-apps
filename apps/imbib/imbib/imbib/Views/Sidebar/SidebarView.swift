@@ -468,10 +468,9 @@ struct SectionDragItem: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(contentType: .sidebarSectionID) { item in
-            item.type.rawValue.data(using: .utf8) ?? Data()
+            SectionDragReorder.encode(item.type)
         } importing: { data in
-            guard let string = String(data: data, encoding: .utf8),
-                  let type = SidebarSectionType(rawValue: string) else {
+            guard let type = SectionDragReorder.decode(data, as: SidebarSectionType.self) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             return SectionDragItem(type: type)
@@ -956,7 +955,7 @@ struct SidebarView: View {
             }
             .overlay(alignment: .top) {
                 if sectionDropTarget == sectionType {
-                    sectionDropIndicatorLine
+                    SectionDropIndicatorLine()
                 }
             }
         }
@@ -1069,7 +1068,7 @@ struct SidebarView: View {
             }
             .overlay(alignment: .top) {
                 if sectionDropTarget == sectionType {
-                    sectionDropIndicatorLine
+                    SectionDropIndicatorLine()
                 }
             }
         }
@@ -2139,55 +2138,24 @@ struct SidebarView: View {
     /// Returns true if the drop was handled.
     @discardableResult
     private func handleSectionHeaderDrop(providers: [NSItemProvider], targetSection: SidebarSectionType) -> Bool {
-        guard let provider = providers.first else { return false }
-
-        provider.loadDataRepresentation(forTypeIdentifier: UTType.sidebarSectionID.identifier) { data, _ in
-            guard let data = data,
-                  let rawValue = String(data: data, encoding: .utf8),
-                  let draggedType = SidebarSectionType(rawValue: rawValue) else { return }
-
-            Task { @MainActor in
-                guard draggedType != targetSection else { return }
-
-                var reordered = sectionOrder
-                guard let sourceIndex = reordered.firstIndex(of: draggedType),
-                      let targetIndex = reordered.firstIndex(of: targetSection) else { return }
-
-                reordered.remove(at: sourceIndex)
-                // Insert at the target's current position (before the target)
-                let insertIndex = reordered.firstIndex(of: targetSection) ?? reordered.endIndex
-                reordered.insert(draggedType, at: insertIndex)
-
-                withAnimation {
-                    sectionOrder = reordered
-                }
-                await SidebarSectionOrderStore.shared.save(reordered)
+        let result = SectionDragReorder.handleDrop(
+            providers: providers,
+            typeIdentifier: UTType.sidebarSectionID.identifier,
+            targetSection: targetSection,
+            currentOrder: sectionOrder
+        ) { [self] newOrder in
+            withAnimation {
+                sectionOrder = newOrder
             }
+            Task { await SidebarSectionOrderStore.shared.save(newOrder) }
         }
         sectionDropTarget = nil
-        return true
+        return result
     }
 
     /// Binding that tracks whether a specific section header is the current drop target.
     private func sectionDropTargetBinding(for sectionType: SidebarSectionType) -> Binding<Bool> {
-        Binding(
-            get: { sectionDropTarget == sectionType },
-            set: { isTargeted in
-                if isTargeted {
-                    sectionDropTarget = sectionType
-                } else if sectionDropTarget == sectionType {
-                    sectionDropTarget = nil
-                }
-            }
-        )
-    }
-
-    /// Blue insertion line shown above a section header during drag reordering.
-    private var sectionDropIndicatorLine: some View {
-        Rectangle()
-            .fill(Color.accentColor)
-            .frame(height: 2)
-            .padding(.horizontal, 4)
+        .optionalEquality(source: $sectionDropTarget, equals: sectionType)
     }
 
     // MARK: - Library Expandable Row
@@ -2886,6 +2854,9 @@ struct SidebarView: View {
             } else if hasFileDrops(providers) {
                 dragDropLog("  → Routing to file drop handler")
                 handleFileDrop(providers, libraryID: library.id)
+            } else if hasURLDrops(providers) {
+                dragDropLog("  → Routing to URL import handler")
+                handleFileDrop(providers, libraryID: library.id)
             } else {
                 dragDropLog("  → Routing to publication drop handler")
                 handleDrop(providers: providers) { uuids in
@@ -2938,6 +2909,9 @@ struct SidebarView: View {
                 if hasFileDrops(providers) {
                     dragDropLog("  → Routing to file drop handler")
                     handleFileDropOnCollection(providers, collectionID: collection.id, libraryID: libraryID)
+                } else if hasURLDrops(providers) {
+                    dragDropLog("  → Routing to URL import handler (collection)")
+                    handleFileDropOnCollection(providers, collectionID: collection.id, libraryID: libraryID)
                 } else {
                     dragDropLog("  → Routing to publication drop handler")
                     handleDrop(providers: providers) { uuids in
@@ -2970,12 +2944,7 @@ struct SidebarView: View {
     }
 
     private func makeCollectionTargetBinding(_ collectionID: UUID) -> Binding<Bool> {
-        Binding(
-            get: { state.dropTargetedCollection == collectionID },
-            set: { isTargeted in
-                state.dropTargetedCollection = isTargeted ? collectionID : nil
-            }
-        )
+        .optionalEquality(source: $state.dropTargetedCollection, equals: collectionID)
     }
 
     // MARK: - Drop Handler
@@ -3055,6 +3024,14 @@ struct SidebarView: View {
             provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) ||
             provider.hasItemConformingToTypeIdentifier(Self.bibtexUTI) ||
             provider.hasItemConformingToTypeIdentifier(Self.risUTI)
+        }
+    }
+
+    /// Check if providers contain web URL drops (from browser address bar)
+    private func hasURLDrops(_ providers: [NSItemProvider]) -> Bool {
+        providers.contains { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
+            !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         }
     }
 
@@ -4620,52 +4597,7 @@ struct CollectionRow: View {
     }
 }
 
-// MARK: - Sidebar Drop Target
-
-/// A view wrapper that provides visual feedback for drag and drop targets
-struct SidebarDropTarget<Content: View>: View {
-    let isTargeted: Bool
-    let showPlusBadge: Bool
-    @ViewBuilder let content: () -> Content
-
-    init(
-        isTargeted: Bool,
-        showPlusBadge: Bool = true,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.isTargeted = isTargeted
-        self.showPlusBadge = showPlusBadge
-        self.content = content
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            content()
-
-            Spacer()
-
-            // Green plus badge when targeted
-            if isTargeted && showPlusBadge {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.system(size: 14))
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isTargeted ? Color.accentColor.opacity(0.2) : .clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isTargeted ? Color.accentColor : .clear, lineWidth: 2)
-        )
-        .animation(.easeInOut(duration: 0.15), value: isTargeted)
-        .contentShape(Rectangle())
-    }
-}
+// SidebarDropTarget is now provided by ImpressSidebar package
 
 // MARK: - New Library Sheet
 
