@@ -70,7 +70,7 @@ struct ImpelApp: App {
                     }
                 }
         }
-        .handlesExternalEvents(preferring: ["impel"], allowing: ["impel"])
+        .handlesExternalEvents(matching: Set(["impel"]))
         .commands {
             CommandGroup(after: .sidebar) {
                 Button("Refresh") {
@@ -148,7 +148,7 @@ final class ImpelCounselIntentService: CounselIntentService, @unchecked Sendable
             subject: "Shortcut Query",
             body: question,
             from: "shortcut@localhost",
-            intent: .research
+            intent: .general
         )
         let handler = engine.makeTaskHandler(store: store)
         let result = await handler(request)
@@ -186,7 +186,7 @@ extension ImpelApp {
                         subject: "URL Query",
                         body: question,
                         from: "url-scheme@localhost",
-                        intent: .research
+                        intent: .general
                     )
                     let handler = engine.makeTaskHandler(store: store)
                     let _ = await handler(request)

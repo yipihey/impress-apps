@@ -2298,7 +2298,7 @@ private struct FlowLayout: Layout {
 // MARK: - Preview
 
 #Preview {
-    ContentView()
+    ContentView(navigateToTab: .constant(nil))
         .environmentObject(ImpelClient())
         .environmentObject(MailGatewayState())
 }

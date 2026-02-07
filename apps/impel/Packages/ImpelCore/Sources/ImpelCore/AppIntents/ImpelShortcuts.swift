@@ -87,7 +87,7 @@ public struct ImpelShortcuts: AppShortcutsProvider {
             intent: GetSuiteStatusIntent(),
             phrases: [
                 "Check \(.applicationName) suite status",
-                "Impress suite status"
+                "Get \(.applicationName) suite status"
             ],
             shortTitle: "Suite Status",
             systemImageName: "chart.bar"

@@ -31,7 +31,7 @@ public actor CounselToolRegistry {
                         "query": AnySendable(["type": AnySendable("string"), "description": AnySendable("Search query for papers")] as [String: AnySendable]),
                         "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results (default 20)")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["query"] as [AnySendable])
+                    "required": AnySendable([AnySendable("query")])
                 ]
             ),
             AITool(
@@ -44,7 +44,7 @@ public actor CounselToolRegistry {
                         "sources": AnySendable(["type": AnySendable("string"), "description": AnySendable("Comma-separated sources: arxiv,ads,crossref")] as [String: AnySendable]),
                         "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results per source")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["query"] as [AnySendable])
+                    "required": AnySendable([AnySendable("query")])
                 ]
             ),
             AITool(
@@ -56,7 +56,7 @@ public actor CounselToolRegistry {
                         "identifiers": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Array of DOIs, arXiv IDs, or BibTeX strings")] as [String: AnySendable]),
                         "library": AnySendable(["type": AnySendable("string"), "description": AnySendable("Target library name (optional)")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["identifiers"] as [AnySendable])
+                    "required": AnySendable([AnySendable("identifiers")])
                 ]
             ),
             AITool(
@@ -67,7 +67,7 @@ public actor CounselToolRegistry {
                     "properties": AnySendable([
                         "citeKey": AnySendable(["type": AnySendable("string"), "description": AnySendable("BibTeX cite key")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["citeKey"] as [AnySendable])
+                    "required": AnySendable([AnySendable("citeKey")])
                 ]
             ),
             AITool(
@@ -78,7 +78,7 @@ public actor CounselToolRegistry {
                     "properties": AnySendable([
                         "citeKeys": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Cite keys to export")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["citeKeys"] as [AnySendable])
+                    "required": AnySendable([AnySendable("citeKeys")])
                 ]
             ),
         ]
@@ -102,7 +102,7 @@ public actor CounselToolRegistry {
                     "properties": AnySendable([
                         "id": AnySendable(["type": AnySendable("string"), "description": AnySendable("Document UUID")] as [String: AnySendable])
                     ] as [String: AnySendable]),
-                    "required": AnySendable(["id"] as [AnySendable])
+                    "required": AnySendable([AnySendable("id")])
                 ]
             ),
         ]

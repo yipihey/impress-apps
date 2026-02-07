@@ -31,7 +31,7 @@ public actor NativeAgentLoop {
         var totalInputTokens = 0
         var totalOutputTokens = 0
         var toolExecutions: [ToolExecutionRecord] = []
-        let tools = toolRegistry.allTools()
+        let tools = await toolRegistry.allTools()
 
         for round in 0..<maxTurns {
             logger.info("Agent loop round \(round + 1)/\(maxTurns)")

@@ -35,7 +35,7 @@ public actor SiblingBridge {
     public func get<T: Decodable & Sendable>(
         _ path: String,
         from app: SiblingApp,
-        query: [String: String] = []
+        query: [String: String] = [:]
     ) async throws -> T {
         var components = URLComponents()
         components.scheme = "http"
@@ -57,7 +57,7 @@ public actor SiblingBridge {
     public func getRaw(
         _ path: String,
         from app: SiblingApp,
-        query: [String: String] = []
+        query: [String: String] = [:]
     ) async throws -> Data {
         var components = URLComponents()
         components.scheme = "http"

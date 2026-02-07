@@ -31,6 +31,18 @@ public struct CounselRequest: Sendable {
         self.date = message.date
         self.intent = CounselIntent.classify(subject: message.subject, body: message.body)
     }
+
+    /// Convenience initializer for programmatic request creation (App Intents, URL schemes).
+    public init(subject: String, body: String, from: String, intent: CounselIntent = .general) {
+        self.from = from
+        self.subject = subject
+        self.body = body
+        self.messageID = "<\(UUID().uuidString)@impress.local>"
+        self.inReplyTo = nil
+        self.references = []
+        self.date = Date()
+        self.intent = intent
+    }
 }
 
 /// Classified intent of a counsel request.
