@@ -47,7 +47,7 @@ impl SelectionExpr {
     }
 
     /// Create a NOT expression
-    pub fn not(expr: SelectionExpr) -> Self {
+    pub fn negate(expr: SelectionExpr) -> Self {
         SelectionExpr::Not(Box::new(expr))
     }
 

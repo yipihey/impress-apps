@@ -117,11 +117,11 @@ impl FastCdf2D {
 
         let mut values = vec![vec![0.0; y_bins]; x_bins];
 
-        for i in 0..x_bins {
+        for (i, row) in values.iter_mut().enumerate().take(x_bins) {
             let x = x_min + i as f64 * x_step;
-            for j in 0..y_bins {
+            for (j, cell) in row.iter_mut().enumerate().take(y_bins) {
                 let y = y_min + j as f64 * y_step;
-                values[i][j] = self.cdf(x, y);
+                *cell = self.cdf(x, y);
             }
         }
 

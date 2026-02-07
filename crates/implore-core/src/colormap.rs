@@ -176,6 +176,7 @@ impl Colormap {
 // MARK: - Built-in Colormaps
 
 /// Get the viridis colormap (perceptually uniform, colorblind-safe)
+#[allow(clippy::approx_constant)]
 pub fn viridis() -> Colormap {
     Colormap::from_colors(
         "viridis",

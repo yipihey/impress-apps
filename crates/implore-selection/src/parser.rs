@@ -75,9 +75,7 @@ fn and_expr(input: &str) -> IResult<&str, SelectionExpr> {
     let (input, first) = or_expr(input)?;
     let (input, rest) = many0(preceded(ws(tag("&&")), or_expr))(input)?;
 
-    let result = rest
-        .into_iter()
-        .fold(first, |acc, e| SelectionExpr::and(acc, e));
+    let result = rest.into_iter().fold(first, SelectionExpr::and);
     Ok((input, result))
 }
 
@@ -86,16 +84,14 @@ fn or_expr(input: &str) -> IResult<&str, SelectionExpr> {
     let (input, first) = not_expr(input)?;
     let (input, rest) = many0(preceded(ws(tag("||")), not_expr))(input)?;
 
-    let result = rest
-        .into_iter()
-        .fold(first, |acc, e| SelectionExpr::or(acc, e));
+    let result = rest.into_iter().fold(first, SelectionExpr::or);
     Ok((input, result))
 }
 
 /// Parse NOT expressions
 fn not_expr(input: &str) -> IResult<&str, SelectionExpr> {
     alt((
-        map(preceded(ws(char('!')), atom), |e| SelectionExpr::not(e)),
+        map(preceded(ws(char('!')), atom), SelectionExpr::negate),
         atom,
     ))(input)
 }

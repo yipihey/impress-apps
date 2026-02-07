@@ -247,9 +247,7 @@ fn parse_column(values: &[String], dtype: ColumnType) -> DataColumn {
                 .map(|s| matches!(s.to_lowercase().as_str(), "true" | "yes" | "1"))
                 .collect(),
         ),
-        ColumnType::String | ColumnType::Unknown => {
-            DataColumn::String(values.iter().cloned().collect())
-        }
+        ColumnType::String | ColumnType::Unknown => DataColumn::String(values.to_vec()),
     }
 }
 

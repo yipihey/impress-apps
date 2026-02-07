@@ -125,7 +125,7 @@ mod tests {
         let normalized = normalize_to_uniform(&data);
 
         // All values should be in [0, 1]
-        assert!(normalized.iter().all(|&x| x >= 0.0 && x <= 1.0));
+        assert!(normalized.iter().all(|&x| (0.0..=1.0).contains(&x)));
     }
 
     #[test]

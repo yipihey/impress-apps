@@ -178,7 +178,7 @@ impl DataGenerator for PowerSpectrumNoise {
         Ok(GeneratedData::new(columns)
             .with_bounds(BoundingBox::new([0.0, 0.0, -1.0], [1.0, 1.0, 1.0]))
             .with_metadata("generator", "power-spectrum")
-            .with_metadata("resolution", &resolution.to_string()))
+            .with_metadata("resolution", resolution.to_string()))
     }
 
     fn generate_frame(

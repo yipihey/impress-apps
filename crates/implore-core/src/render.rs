@@ -9,9 +9,10 @@ use crate::camera::Camera;
 use crate::colormap::ColormapConfig;
 
 /// Rendering mode for visualization
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderMode {
     /// 2D statistical plots with axes, colormaps, and ECDF marginals
+    #[default]
     Science2D,
     /// 3D point cloud viewer with perspective camera
     Box3D,
@@ -60,12 +61,6 @@ impl RenderMode {
             RenderMode::ArtShader => "Art",
             RenderMode::Histogram1D => "1D",
         }
-    }
-}
-
-impl Default for RenderMode {
-    fn default() -> Self {
-        RenderMode::Science2D
     }
 }
 
@@ -201,20 +196,15 @@ pub struct Histogram1DConfig {
 }
 
 /// Bin edge computation mode
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum BinEdgeMode {
     /// Evenly spaced bins
+    #[default]
     Linear,
     /// Log-spaced bins (for log-scale data)
     Logarithmic,
     /// Custom bin edges
     Custom(Vec<f64>),
-}
-
-impl Default for BinEdgeMode {
-    fn default() -> Self {
-        BinEdgeMode::Linear
-    }
 }
 
 impl Default for Histogram1DConfig {

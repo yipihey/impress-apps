@@ -143,7 +143,7 @@ impl Camera {
     /// Zoom by adjusting distance
     pub fn zoom(&mut self, factor: f32) {
         let distance = self.distance();
-        let new_distance = (distance * factor).max(0.1).min(10000.0);
+        let new_distance = (distance * factor).clamp(0.1, 10000.0);
         self.set_distance(new_distance);
     }
 

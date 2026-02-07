@@ -74,7 +74,7 @@ impl GeneratorRegistry {
         // Index by category
         self.by_category
             .entry(metadata.category)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(index);
 
         self.generators.push(generator);
@@ -151,7 +151,7 @@ mod tests {
 
         // Should have built-in generators
         assert!(!registry.is_empty());
-        assert!(registry.len() > 0);
+        assert!(!registry.is_empty());
     }
 
     #[test]

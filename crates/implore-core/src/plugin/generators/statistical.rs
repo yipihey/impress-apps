@@ -311,7 +311,7 @@ mod tests {
         // Check all x values are in range
         let x = data.get_column("x").unwrap();
         for &val in x {
-            assert!(val >= 0.0 && val <= 10.0);
+            assert!((0.0..=10.0).contains(&val));
         }
     }
 

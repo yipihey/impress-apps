@@ -65,7 +65,7 @@ impl DualFunction {
                     name: "x_range".to_string(),
                     label: "X Range".to_string(),
                     param_type: ParameterType::Vec2,
-                    default_value: ParameterValue::Vec(vec![-3.14159, 3.14159]),
+                    default_value: ParameterValue::Vec(vec![-std::f64::consts::PI, std::f64::consts::PI]),
                     constraints: None,
                     description: Some("Range of x values [min, max]".to_string()),
                 },
@@ -73,7 +73,7 @@ impl DualFunction {
                     name: "y_range".to_string(),
                     label: "Y Range".to_string(),
                     param_type: ParameterType::Vec2,
-                    default_value: ParameterValue::Vec(vec![-3.14159, 3.14159]),
+                    default_value: ParameterValue::Vec(vec![-std::f64::consts::PI, std::f64::consts::PI]),
                     constraints: None,
                     description: Some("Range of y values [min, max]".to_string()),
                 },
@@ -381,12 +381,12 @@ mod tests {
 
         // Check that x values are in [0, 10]
         for &x in xs {
-            assert!(x >= 0.0 && x <= 10.0);
+            assert!((0.0..=10.0).contains(&x));
         }
 
         // Check that y values are in [-5, 5]
         for &y in ys {
-            assert!(y >= -5.0 && y <= 5.0);
+            assert!((-5.0..=5.0).contains(&y));
         }
     }
 }

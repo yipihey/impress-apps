@@ -471,8 +471,8 @@ fn generate_permutation(seed: u64) -> [usize; 512] {
     let mut rng = SimpleRng::new(seed);
 
     // Initialize with identity
-    for i in 0..256 {
-        perm[i] = i;
+    for (i, p) in perm.iter_mut().enumerate().take(256) {
+        *p = i;
     }
 
     // Fisher-Yates shuffle
@@ -624,7 +624,7 @@ mod tests {
         // Values should be approximately in [-1, 1] range (with small tolerance for FBM)
         let values = data.get_column("value").unwrap();
         for &v in values {
-            assert!(v >= -1.5 && v <= 1.5, "Value {} out of range", v);
+            assert!((-1.5..=1.5).contains(&v), "Value {} out of range", v);
         }
     }
 
@@ -640,7 +640,7 @@ mod tests {
         // Values should be in [0, 1] range
         let values = data.get_column("value").unwrap();
         for &v in values {
-            assert!(v >= 0.0 && v <= 1.0, "Value {} out of range", v);
+            assert!((0.0..=1.0).contains(&v), "Value {} out of range", v);
         }
     }
 

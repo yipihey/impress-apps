@@ -271,7 +271,7 @@ impl FigureSyncService {
                 SyncResult::Success { synced_at, .. } => Some(synced_at.clone()),
                 _ => None,
             })
-            .last();
+            .next_back();
 
         SyncStats {
             total_synced: synced,

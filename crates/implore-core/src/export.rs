@@ -512,10 +512,12 @@ mod tests {
 
     #[test]
     fn test_export_config_effective_dimensions() {
-        let mut config = ExportConfig::default();
-        config.width = 1000;
-        config.height = 800;
-        config.scale = 2.0;
+        let config = ExportConfig {
+            width: 1000,
+            height: 800,
+            scale: 2.0,
+            ..Default::default()
+        };
 
         assert_eq!(config.effective_width(), 2000);
         assert_eq!(config.effective_height(), 1600);

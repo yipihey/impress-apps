@@ -195,7 +195,7 @@ fn calculate_linear_ticks(config: &AxisConfig) -> Vec<TickMark> {
     let mut value = start;
     while value <= config.max + nice_step * 0.001 {
         let normalized = (value - config.min) / range;
-        if normalized >= -0.001 && normalized <= 1.001 {
+        if (-0.001..=1.001).contains(&normalized) {
             ticks.push(TickMark {
                 value,
                 normalized: normalized.clamp(0.0, 1.0),

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Schema describing the structure of a dataset
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataSchema {
     /// Column descriptors
     pub columns: Vec<ColumnDescriptor>,
@@ -44,16 +44,6 @@ impl DataSchema {
     /// Number of columns
     pub fn num_columns(&self) -> usize {
         self.columns.len()
-    }
-}
-
-impl Default for DataSchema {
-    fn default() -> Self {
-        Self {
-            columns: Vec::new(),
-            num_records: 0,
-            metadata: HashMap::new(),
-        }
     }
 }
 

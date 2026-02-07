@@ -83,7 +83,7 @@ impl Ecdf {
     /// Returns the smallest value x such that ECDF(x) >= p
     /// Time complexity: O(log n)
     pub fn quantile(&self, p: f64) -> Option<f64> {
-        if self.values.is_empty() || p < 0.0 || p > 1.0 {
+        if self.values.is_empty() || !(0.0..=1.0).contains(&p) {
             return None;
         }
 

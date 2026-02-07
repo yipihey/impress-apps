@@ -473,6 +473,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_parameter_value_conversions() {
         assert_eq!(ParameterValue::Float(3.14).as_float(), Some(3.14));
         assert_eq!(ParameterValue::Int(42).as_int(), Some(42));

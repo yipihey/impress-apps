@@ -62,9 +62,9 @@ impl BoundingBox {
 
     /// Expand to include a point
     pub fn expand_to_include(&mut self, point: [f64; 3]) {
-        for i in 0..3 {
-            self.min[i] = self.min[i].min(point[i]);
-            self.max[i] = self.max[i].max(point[i]);
+        for (i, &p) in point.iter().enumerate() {
+            self.min[i] = self.min[i].min(p);
+            self.max[i] = self.max[i].max(p);
         }
     }
 
@@ -118,11 +118,11 @@ impl BoundingBox {
     /// Calculate squared distance from a point to the nearest point on the box
     pub fn distance_sq_to_point(&self, point: [f64; 3]) -> f64 {
         let mut dist_sq = 0.0;
-        for i in 0..3 {
-            if point[i] < self.min[i] {
-                dist_sq += (self.min[i] - point[i]).powi(2);
-            } else if point[i] > self.max[i] {
-                dist_sq += (point[i] - self.max[i]).powi(2);
+        for (i, &p) in point.iter().enumerate() {
+            if p < self.min[i] {
+                dist_sq += (self.min[i] - p).powi(2);
+            } else if p > self.max[i] {
+                dist_sq += (p - self.max[i]).powi(2);
             }
         }
         dist_sq
@@ -138,6 +138,7 @@ struct Entry {
 
 /// A node in the R*-tree
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Node {
     Leaf {
         bounds: BoundingBox,
@@ -145,7 +146,7 @@ enum Node {
     },
     Internal {
         bounds: BoundingBox,
-        children: Vec<Box<Node>>,
+        children: Vec<Node>,
     },
 }
 
@@ -157,6 +158,7 @@ impl Node {
         }
     }
 
+    #[allow(dead_code)]
     fn recalculate_bounds(&mut self) {
         match self {
             Node::Leaf { bounds, entries } => {
@@ -263,8 +265,8 @@ impl RTree {
                     .unwrap_or(0);
 
                 let child = children.remove(best_idx);
-                let new_child = self.insert_into_node(child, entry);
-                children.insert(best_idx, new_child);
+                let new_child = self.insert_into_node(Box::new(child), entry);
+                children.insert(best_idx, *new_child);
 
                 node
             }

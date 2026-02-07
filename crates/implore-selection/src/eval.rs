@@ -109,8 +109,8 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
         let n = self.context.num_points();
         let mut result = vec![false; n];
 
-        for i in 0..n {
-            result[i] = self.evaluate_at(expr, i)?;
+        for (i, val) in result.iter_mut().enumerate().take(n) {
+            *val = self.evaluate_at(expr, i)?;
         }
 
         Ok(result)
@@ -177,7 +177,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
     fn evaluate_function(&self, func: &FunctionCall, index: usize) -> EvalResult<f64> {
         match func.name.as_str() {
             "zscore" => {
-                let field = match func.args.get(0) {
+                let field = match func.args.first() {
                     Some(Value::Field(f)) => f,
                     _ => {
                         return Err(EvalError::InvalidArguments(
@@ -200,7 +200,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
             }
 
             "robust_zscore" => {
-                let field = match func.args.get(0) {
+                let field = match func.args.first() {
                     Some(Value::Field(f)) => f,
                     _ => {
                         return Err(EvalError::InvalidArguments(
@@ -223,7 +223,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
             }
 
             "percentile" => {
-                let (field, p) = match (&func.args.get(0), &func.args.get(1)) {
+                let (field, p) = match (&func.args.first(), &func.args.get(1)) {
                     (Some(Value::Field(f)), Some(Value::Number(p))) => (f, *p),
                     _ => {
                         return Err(EvalError::InvalidArguments(
@@ -248,7 +248,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
             }
 
             "abs" => {
-                let value = match func.args.get(0) {
+                let value = match func.args.first() {
                     Some(v) => self.evaluate_value(v, index)?,
                     None => {
                         return Err(EvalError::InvalidArguments(
@@ -260,7 +260,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
             }
 
             "sqrt" => {
-                let value = match func.args.get(0) {
+                let value = match func.args.first() {
                     Some(v) => self.evaluate_value(v, index)?,
                     None => {
                         return Err(EvalError::InvalidArguments(
@@ -272,7 +272,7 @@ impl<'a, C: EvalContext> Evaluator<'a, C> {
             }
 
             "log10" => {
-                let value = match func.args.get(0) {
+                let value = match func.args.first() {
                     Some(v) => self.evaluate_value(v, index)?,
                     None => {
                         return Err(EvalError::InvalidArguments(

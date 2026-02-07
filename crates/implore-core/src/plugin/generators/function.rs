@@ -41,13 +41,13 @@ impl FunctionPlotter2D {
                         "sin(x)*cos(y)",
                     )
                     .with_description("Predefined function to plot"),
-                    ParameterSpec::float("x_min", "X Min", -3.14159)
+                    ParameterSpec::float("x_min", "X Min", -std::f64::consts::PI)
                         .with_constraints(ParameterConstraints::range(-100.0, 100.0)),
-                    ParameterSpec::float("x_max", "X Max", 3.14159)
+                    ParameterSpec::float("x_max", "X Max", std::f64::consts::PI)
                         .with_constraints(ParameterConstraints::range(-100.0, 100.0)),
-                    ParameterSpec::float("y_min", "Y Min", -3.14159)
+                    ParameterSpec::float("y_min", "Y Min", -std::f64::consts::PI)
                         .with_constraints(ParameterConstraints::range(-100.0, 100.0)),
-                    ParameterSpec::float("y_max", "Y Max", 3.14159)
+                    ParameterSpec::float("y_max", "Y Max", std::f64::consts::PI)
                         .with_constraints(ParameterConstraints::range(-100.0, 100.0)),
                     ParameterSpec::int("resolution", "Resolution", 100)
                         .with_constraints(ParameterConstraints::range(10.0, 1000.0)),
@@ -206,9 +206,9 @@ impl SineCosine {
                     ParameterSpec::float("amplitude", "Amplitude", 1.0)
                         .with_constraints(ParameterConstraints::range(0.01, 10.0)),
                     ParameterSpec::float("phase", "Phase", 0.0)
-                        .with_constraints(ParameterConstraints::range(0.0, 6.283185)),
+                        .with_constraints(ParameterConstraints::range(0.0, std::f64::consts::TAU)),
                     ParameterSpec::float("x_min", "X Min", 0.0),
-                    ParameterSpec::float("x_max", "X Max", 6.283185)
+                    ParameterSpec::float("x_max", "X Max", std::f64::consts::TAU)
                         .with_description("Default is 2π"),
                     ParameterSpec::bool("add_noise", "Add Noise", false),
                     ParameterSpec::float("noise_level", "Noise Level", 0.1)
