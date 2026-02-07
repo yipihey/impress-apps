@@ -163,11 +163,7 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
         }
     });
 
-    let tag_query_raws: Vec<String> = filter
-        .tag_queries
-        .iter()
-        .map(|tq| format_tag_query(tq))
-        .collect();
+    let tag_query_raws: Vec<String> = filter.tag_queries.iter().map(format_tag_query).collect();
 
     let read_state = filter.read_state.map(|rs| match rs {
         ReadState::Read => "read".to_string(),

@@ -61,7 +61,7 @@ pub struct PublicationFeatureInput {
 }
 
 /// User preference profile data for feature extraction.
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct ProfileData {
     /// Author name -> affinity score mapping
     pub author_affinities: HashMap<String, f64>,
@@ -69,16 +69,6 @@ pub struct ProfileData {
     pub topic_affinities: HashMap<String, f64>,
     /// Venue name -> affinity score mapping
     pub venue_affinities: HashMap<String, f64>,
-}
-
-impl Default for ProfileData {
-    fn default() -> Self {
-        Self {
-            author_affinities: HashMap::new(),
-            topic_affinities: HashMap::new(),
-            venue_affinities: HashMap::new(),
-        }
-    }
 }
 
 /// Library context data for feature extraction.
@@ -103,7 +93,7 @@ impl Default for LibraryContext {
 }
 
 /// Muted items that should be penalized.
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct MutedItems {
     /// Muted author family names (lowercased)
     pub authors: Vec<String>,
@@ -111,16 +101,6 @@ pub struct MutedItems {
     pub categories: Vec<String>,
     /// Muted venues/journals (lowercased)
     pub venues: Vec<String>,
-}
-
-impl Default for MutedItems {
-    fn default() -> Self {
-        Self {
-            authors: Vec::new(),
-            categories: Vec::new(),
-            venues: Vec::new(),
-        }
-    }
 }
 
 /// Result of feature extraction - a vector of feature values.

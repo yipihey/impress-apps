@@ -329,21 +329,27 @@ fn extract_names_from_line(line: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
 
     // Clean the line of affiliation markers
-    let cleaned = line
-        .replace('*', "")
-        .replace('†', "")
-        .replace('‡', "")
-        .replace('§', "")
-        .replace('¹', "")
-        .replace('²', "")
-        .replace('³', "")
-        .replace('⁴', "")
-        .replace('⁵', "")
-        .replace('⁶', "")
-        .replace('⁷', "")
-        .replace('⁸', "")
-        .replace('⁹', "")
-        .replace('⁰', "");
+    let cleaned: String = line
+        .chars()
+        .filter(|c| {
+            !matches!(
+                c,
+                '*' | '†'
+                    | '‡'
+                    | '§'
+                    | '¹'
+                    | '²'
+                    | '³'
+                    | '⁴'
+                    | '⁵'
+                    | '⁶'
+                    | '⁷'
+                    | '⁸'
+                    | '⁹'
+                    | '⁰'
+            )
+        })
+        .collect();
 
     // Split by " and " first
     let and_parts: Vec<&str> = cleaned.split(" and ").collect();

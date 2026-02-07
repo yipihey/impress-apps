@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'crates/imbib-core/**'
+      - 'crates/impress-*/**'
       - '.github/workflows/imbib-rust.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/imbib-core/**'
+      - 'crates/impress-*/**'
       - '.github/workflows/imbib-rust.yml'
 
 env:
