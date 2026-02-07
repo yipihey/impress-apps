@@ -158,6 +158,27 @@ export interface SearchResponse {
   papers: Paper[];
 }
 
+export interface ExternalSearchResult {
+  title: string;
+  authors: string[];
+  year?: number;
+  venue: string;
+  abstract: string;
+  sourceID: string;
+  identifier: string;
+  doi?: string;
+  arxivID?: string;
+  bibcode?: string;
+}
+
+export interface ExternalSearchResponse {
+  status: string;
+  query: string;
+  source: string;
+  count: number;
+  results: ExternalSearchResult[];
+}
+
 export interface ExportResponse {
   status: string;
   format: string;
@@ -218,6 +239,26 @@ export class ImbibClient {
       throw new Error(`Search failed: ${response.statusText}`);
     }
     return (await response.json()) as SearchResponse;
+  }
+
+  /**
+   * Search external academic sources (ADS, arXiv, Crossref, etc.) for papers.
+   */
+  async searchExternal(
+    query: string,
+    options: { source?: string; limit?: number } = {}
+  ): Promise<ExternalSearchResponse> {
+    const params = new URLSearchParams({ q: query });
+    if (options.source) params.set("source", options.source);
+    if (options.limit) params.set("limit", String(options.limit));
+
+    const response = await fetch(
+      `${this.baseURL}/api/search/external?${params.toString()}`
+    );
+    if (!response.ok) {
+      throw new Error(`External search failed: ${response.statusText}`);
+    }
+    return (await response.json()) as ExternalSearchResponse;
   }
 
   /**
@@ -484,6 +525,29 @@ export class ImbibClient {
   }
 
   /**
+   * Add papers to a library.
+   */
+  async addToLibrary(
+    libraryID: string,
+    identifiers: string[]
+  ): Promise<{ assigned: string[]; notFound: string[] }> {
+    const response = await fetch(`${this.baseURL}/api/libraries/add-papers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ libraryID, identifiers }),
+    });
+    if (!response.ok) {
+      throw new Error(`Add to library failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      status: string;
+      assigned: string[];
+      notFound: string[];
+    };
+    return { assigned: data.assigned, notFound: data.notFound };
+  }
+
+  /**
    * Remove papers from a collection.
    */
   async removeFromCollection(
@@ -535,6 +599,25 @@ export class ImbibClient {
       libraries: Library[];
     };
     return data.libraries;
+  }
+
+  /**
+   * Create a new library.
+   */
+  async createLibrary(name: string): Promise<Library> {
+    const response = await fetch(`${this.baseURL}/api/libraries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      throw new Error(`Create library failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      status: string;
+      library: Library;
+    };
+    return data.library;
   }
 
   /**

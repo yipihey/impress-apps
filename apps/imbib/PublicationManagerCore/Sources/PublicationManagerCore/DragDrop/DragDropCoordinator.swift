@@ -289,6 +289,14 @@ public final class DragDropCoordinator {
                 }
             }
 
+            // UTI-based fallback for BibTeX/RIS (suggestedName may be absent)
+            if provider.hasItemConformingToTypeIdentifier("org.tug.tex.bibtex") {
+                return .bibtex
+            }
+            if provider.hasItemConformingToTypeIdentifier("com.clarivate.ris") {
+                return .ris
+            }
+
             // Check for web URL drops (from browser address bar)
             // Must have .url but NOT .fileURL — file URLs are local files
             if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
@@ -329,6 +337,10 @@ public final class DragDropCoordinator {
                 } else {
                     counts[.attachment, default: 0] += 1
                 }
+            } else if provider.hasItemConformingToTypeIdentifier("org.tug.tex.bibtex") {
+                counts[.bibtex, default: 0] += 1
+            } else if provider.hasItemConformingToTypeIdentifier("com.clarivate.ris") {
+                counts[.ris, default: 0] += 1
             } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
                       !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 counts[.urlImport, default: 0] += 1
@@ -510,11 +522,13 @@ public final class DragDropCoordinator {
 
         Logger.files.infoCapture("URL import: created publication '\(result.title)' (id: \(publication.id))", category: "files")
 
-        // Post notification to trigger auto-selection in list
-        NotificationCenter.default.post(
-            name: .pdfImportCompleted,
-            object: [publication.id]
-        )
+        // Post notification on main thread to trigger auto-selection in list
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .pdfImportCompleted,
+                object: [publication.id]
+            )
+        }
 
         return .success(message: "Imported from URL")
     }
@@ -753,54 +767,58 @@ public final class DragDropCoordinator {
 
     /// Extract a URL from a provider.
     private func extractURL(from provider: NSItemProvider) async -> URL? {
-        // Try file URL first
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            return await withCheckedContinuation { continuation in
-                provider.loadFileRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { url, error in
-                    guard let url else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
+        // Try BibTeX/RIS UTIs first — loadFileRepresentation with the specific UTI
+        // preserves the correct extension, unlike generic fileURL which may lose it
+        let bibtexUTI = "org.tug.tex.bibtex"
+        let risUTI = "com.clarivate.ris"
 
-                    // Copy to temp since the provided URL is temporary
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let tempURL = tempDir.appendingPathComponent(url.lastPathComponent)
-
-                    do {
-                        try? FileManager.default.removeItem(at: tempURL)
-                        try FileManager.default.copyItem(at: url, to: tempURL)
-                        continuation.resume(returning: tempURL)
-                    } catch {
-                        continuation.resume(returning: nil)
-                    }
+        for uti in [bibtexUTI, risUTI] {
+            if provider.hasItemConformingToTypeIdentifier(uti) {
+                if let url = await loadFileFromProvider(provider, typeIdentifier: uti) {
+                    return url
                 }
+            }
+        }
+
+        // Try file URL
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            if let url = await loadFileFromProvider(provider, typeIdentifier: UTType.fileURL.identifier) {
+                return url
             }
         }
 
         // Try PDF type
         if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
-            return await withCheckedContinuation { continuation in
-                provider.loadFileRepresentation(forTypeIdentifier: UTType.pdf.identifier) { url, error in
-                    guard let url else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let tempURL = tempDir.appendingPathComponent(UUID().uuidString + ".pdf")
-
-                    do {
-                        try? FileManager.default.removeItem(at: tempURL)
-                        try FileManager.default.copyItem(at: url, to: tempURL)
-                        continuation.resume(returning: tempURL)
-                    } catch {
-                        continuation.resume(returning: nil)
-                    }
-                }
+            if let url = await loadFileFromProvider(provider, typeIdentifier: UTType.pdf.identifier) {
+                return url
             }
         }
 
         return nil
+    }
+
+    /// Load a file representation from a provider for a given UTI, copying to a temp location.
+    private func loadFileFromProvider(_ provider: NSItemProvider, typeIdentifier: String) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, error in
+                guard let url else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                // Copy to temp since the provided URL is temporary
+                let tempDir = FileManager.default.temporaryDirectory
+                let tempURL = tempDir.appendingPathComponent(url.lastPathComponent)
+
+                do {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    try FileManager.default.copyItem(at: url, to: tempURL)
+                    continuation.resume(returning: tempURL)
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     /// Add publications to a library.

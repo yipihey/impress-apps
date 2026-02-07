@@ -11,33 +11,6 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "detail")
 
-/// Tab selection for iOS detail view.
-/// Order matches macOS: Info, PDF, Notes, BibTeX
-enum IOSDetailTab: String, CaseIterable {
-    case info
-    case pdf
-    case notes
-    case bibtex
-
-    var label: String {
-        switch self {
-        case .info: return "Info"
-        case .bibtex: return "BibTeX"
-        case .pdf: return "PDF"
-        case .notes: return "Notes"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .info: return "info.circle"
-        case .bibtex: return "doc.text"
-        case .pdf: return "doc.richtext"
-        case .notes: return "note.text"
-        }
-    }
-}
-
 /// iOS detail view showing publication information with tabbed interface.
 ///
 /// Matches macOS DetailView with 4 tabs: Info, PDF, Notes, BibTeX.
@@ -51,7 +24,7 @@ struct DetailView: View {
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedTab: IOSDetailTab = .info
+    @State private var selectedTab: DetailTab = .info
     @State private var isPDFFullscreen: Bool = false
 
     init?(publication: CDPublication, libraryID: UUID, selectedPublication: Binding<CDPublication?>, listID: ListViewID? = nil) {
@@ -70,28 +43,29 @@ struct DetailView: View {
                 // Fullscreen PDF - no tab bar, no navigation bar
                 IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
             } else {
-                // Normal tabbed view
+                // Normal tabbed view — Liquid Glass on iOS/iPadOS 26
                 TabView(selection: $selectedTab) {
-                    IOSInfoTab(publication: publication, libraryID: libraryID)
-                        .tabItem { Label(IOSDetailTab.info.label, systemImage: IOSDetailTab.info.icon) }
-                        .tag(IOSDetailTab.info)
-                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
+                    Tab(DetailTab.info.label, systemImage: DetailTab.info.icon, value: .info) {
+                        IOSInfoTab(publication: publication, libraryID: libraryID)
+                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
+                    }
 
-                    IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
-                        .tabItem { Label(IOSDetailTab.pdf.label, systemImage: IOSDetailTab.pdf.icon) }
-                        .tag(IOSDetailTab.pdf)
-                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
+                    Tab(DetailTab.pdf.label, systemImage: DetailTab.pdf.icon, value: .pdf) {
+                        IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
+                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
+                    }
 
-                    IOSNotesTab(publication: publication)
-                        .tabItem { Label(IOSDetailTab.notes.label, systemImage: IOSDetailTab.notes.icon) }
-                        .tag(IOSDetailTab.notes)
-                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
+                    Tab(DetailTab.notes.label, systemImage: DetailTab.notes.icon, value: .notes) {
+                        IOSNotesTab(publication: publication)
+                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
+                    }
 
-                    IOSBibTeXTab(publication: publication)
-                        .tabItem { Label(IOSDetailTab.bibtex.label, systemImage: IOSDetailTab.bibtex.icon) }
-                        .tag(IOSDetailTab.bibtex)
-                        .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+                    Tab(DetailTab.bibtex.label, systemImage: DetailTab.bibtex.icon, value: .bibtex) {
+                        IOSBibTeXTab(publication: publication)
+                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+                    }
                 }
+                .tabBarMinimizeBehavior(.onScrollDown)
             }
         }
         .navigationTitle(isPDFFullscreen ? "" : (publication.title ?? "Details"))

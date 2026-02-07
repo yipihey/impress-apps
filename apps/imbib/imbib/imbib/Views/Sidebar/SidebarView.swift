@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
 import OSLog
 import ImpressKeyboard
 import ImpressSidebar
+import ImpressFTUI
 
 // MARK: - Sidebar Drop Types
 
@@ -478,6 +479,25 @@ struct SectionDragItem: Transferable {
     }
 }
 
+// MARK: - Flag Color Drag Item
+
+/// Transferable wrapper for dragging flag colors (for reordering)
+struct FlagColorDragItem: Transferable {
+    let color: FlagColor
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(contentType: .flagColorID) { item in
+            item.color.rawValue.data(using: .utf8) ?? Data()
+        } importing: { data in
+            guard let string = String(data: data, encoding: .utf8),
+                  let color = FlagColor(rawValue: string) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return FlagColorDragItem(color: color)
+        }
+    }
+}
+
 // MARK: - Exploration Search Drag Item
 
 /// Transferable wrapper for dragging exploration searches (for reordering)
@@ -542,6 +562,9 @@ struct SidebarView: View {
     // Search form ordering and visibility (persisted)
     @State private var searchFormOrder: [SearchFormType] = SearchFormStore.loadOrderSync()
     @State private var hiddenSearchForms: Set<SearchFormType> = SearchFormStore.loadHiddenSync()
+
+    // Flag color ordering (persisted)
+    @State private var flagColorOrder: [FlagColor] = FlagColorOrderStore.loadOrderSync()
 
     // Focus state for inline collection rename
     @FocusState private var isRenamingCollectionFocused: Bool
@@ -673,8 +696,8 @@ struct SidebarView: View {
         }
         // CloudKit sharing sheet
         .sheet(item: $state.itemToShareViaICloud) { item in
-            #if canImport(CloudKit)
-            iCloudSharingSheetContent(for: item)
+            #if os(macOS)
+            ShareConfigurationSheet(item: item)
             #else
             Text("iCloud sharing is not available on this platform.")
             #endif
@@ -1737,7 +1760,7 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var flaggedSectionContent: some View {
-        // "Any Flag" item
+        // "Any Flag" item (always first, not draggable)
         HStack {
             Label("Any Flag", systemImage: "flag.fill")
             Spacer()
@@ -1747,18 +1770,27 @@ struct SidebarView: View {
         }
         .tag(SidebarSection.flagged(nil))
 
-        // Individual flag colors
-        ForEach(["red", "amber", "blue", "gray"], id: \.self) { colorName in
+        // Individual flag colors (reorderable)
+        ForEach(flagColorOrder) { color in
             HStack {
-                Label(colorName.capitalized, systemImage: "flag.fill")
-                    .foregroundStyle(flagDisplayColor(colorName))
+                Label(color.displayName, systemImage: "flag.fill")
+                    .foregroundStyle(flagDisplayColor(color.rawValue))
                 Spacer()
-                let count = state.flagCounts.byColor[colorName] ?? 0
+                let count = state.flagCounts.byColor[color.rawValue] ?? 0
                 if count > 0 {
                     CountBadge(count: count)
                 }
             }
-            .tag(SidebarSection.flagged(colorName))
+            .tag(SidebarSection.flagged(color.rawValue))
+            .draggable(FlagColorDragItem(color: color)) {
+                Label(color.displayName, systemImage: "flag.fill")
+                    .foregroundStyle(flagDisplayColor(color.rawValue))
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .onInsert(of: [.flagColorID]) { index, providers in
+            handleFlagColorInsert(at: index, providers: providers)
         }
     }
 
@@ -2226,15 +2258,13 @@ struct SidebarView: View {
         .contextMenu {
             #if os(macOS)
             // CloudKit sharing
-            if PersistenceController.shared.isCloudKitEnabled {
-                Button {
-                    state.itemToShareViaICloud = .library(library)
-                } label: {
-                    Label("Share via iCloud...", systemImage: "person.badge.plus")
-                }
-
-                Divider()
+            Button {
+                state.itemToShareViaICloud = .library(library)
+            } label: {
+                Label("Share via iCloud...", systemImage: "person.badge.plus")
             }
+
+            Divider()
 
             // Native sharing via AirDrop, Messages, etc.
             ShareLink(
@@ -2499,7 +2529,7 @@ struct SidebarView: View {
             }
 
             // CloudKit sharing for collections
-            if PersistenceController.shared.isCloudKitEnabled && !collection.isSmartCollection {
+            if !collection.isSmartCollection {
                 Divider()
 
                 Button {
@@ -2526,37 +2556,6 @@ struct SidebarView: View {
             }
         }
     }
-
-    // MARK: - CloudKit Sharing
-
-    #if canImport(CloudKit)
-    @ViewBuilder
-    private func iCloudSharingSheetContent(for item: ShareableItem) -> some View {
-        let containerID = PersistenceController.shared.configuration.cloudKitContainerIdentifier
-            ?? "iCloud.com.imbib.app"
-        let ckContainer = CKContainer(identifier: containerID)
-
-        switch item {
-        case .library(let library):
-            CloudKitSharingView(
-                share: CKShare(rootRecord: CKRecord(recordType: "CD_Library")),
-                container: ckContainer,
-                library: library
-            )
-        case .collection(let collection):
-            if let library = collection.effectiveLibrary {
-                CloudKitSharingView(
-                    share: CKShare(rootRecord: CKRecord(recordType: "CD_Library")),
-                    container: ckContainer,
-                    library: library
-                )
-            } else {
-                Text("Cannot share: collection has no library.")
-                    .padding()
-            }
-        }
-    }
-    #endif
 
     // MARK: - Export BibTeX
 
@@ -3268,6 +3267,23 @@ struct SidebarView: View {
             ForEach(visibleCollections, id: \.id) { collection in
                 inboxCollectionRow(collection: collection, allCollections: flatCollections, inboxLibrary: inboxLibrary)
             }
+            .onInsert(of: [.collectionID]) { index, providers in
+                handleCollectionInsert(at: index, providers: providers, visibleCollections: visibleCollections, library: inboxLibrary)
+            }
+
+            // Drop zone at inbox level to move collections back to root
+            if flatCollections.contains(where: { $0.parentCollection != nil }) {
+                Text("Drop here to move to root")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.collectionID], isTargeted: nil) { providers in
+                        handleCollectionDropToRoot(providers: providers, library: inboxLibrary)
+                    }
+            }
         }
     }
 
@@ -3474,6 +3490,11 @@ struct SidebarView: View {
                 }
             }
             return handled
+        }
+        .draggable(CollectionDragItem(id: collection.id)) {
+            Label(collection.name, systemImage: "folder")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
 
         // Show nested feeds when expanded
@@ -4274,6 +4295,28 @@ struct SidebarView: View {
             }
         }
         return false
+    }
+
+    /// Handle flag color reordering via drag-and-drop (.onInsert)
+    private func handleFlagColorInsert(at targetIndex: Int, providers: [NSItemProvider]) {
+        guard let provider = providers.first else { return }
+
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.flagColorID.identifier) { data, _ in
+            guard let data = data,
+                  let rawValue = String(data: data, encoding: .utf8),
+                  let draggedColor = FlagColor(rawValue: rawValue) else { return }
+
+            Task { @MainActor in
+                var reordered = flagColorOrder
+                guard let sourceIndex = reordered.firstIndex(of: draggedColor) else { return }
+                let destinationIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+                let clamped = max(0, min(destinationIndex, reordered.count - 1))
+                let color = reordered.remove(at: sourceIndex)
+                reordered.insert(color, at: clamped)
+                flagColorOrder = reordered
+                Task { await FlagColorOrderStore.shared.save(reordered) }
+            }
+        }
     }
 
     /// Handle dropping a collection onto a different library header (cross-library move)

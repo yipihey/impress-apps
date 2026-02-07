@@ -41,17 +41,6 @@ public struct HTTPServerConfiguration: Sendable {
 ///
 /// Runs on `127.0.0.1` (localhost only for security).
 /// Uses a generic `Router` to handle app-specific endpoints.
-///
-/// Usage:
-/// ```swift
-/// let server = HTTPServer(router: MyRouter())
-/// await server.start(configuration: .init(
-///     port: 23120,
-///     loggerSubsystem: "com.myapp"
-/// ))
-/// // Later...
-/// await server.stop()
-/// ```
 public actor HTTPServer<Router: HTTPRouter> {
 
     // MARK: - State
@@ -95,15 +84,13 @@ public actor HTTPServer<Router: HTTPRouter> {
             listener = try NWListener(using: parameters)
 
             listener?.stateUpdateHandler = { [weak self] state in
-                Task { [weak self] in
-                    await self?.handleListenerState(state)
-                }
+                guard let self else { return }
+                Task { await self.handleListenerState(state) }
             }
 
             listener?.newConnectionHandler = { [weak self] connection in
-                Task { [weak self] in
-                    await self?.handleNewConnection(connection)
-                }
+                guard let self else { return }
+                Task { await self.handleNewConnection(connection) }
             }
 
             listener?.start(queue: .global(qos: .userInitiated))
@@ -166,9 +153,8 @@ public actor HTTPServer<Router: HTTPRouter> {
         connections.append(connection)
 
         connection.stateUpdateHandler = { [weak self] state in
-            Task { [weak self] in
-                await self?.handleConnectionState(connection, state: state)
-            }
+            guard let self else { return }
+            Task { await self.handleConnectionState(connection, state: state) }
         }
 
         connection.start(queue: .global(qos: .userInitiated))
@@ -196,9 +182,10 @@ public actor HTTPServer<Router: HTTPRouter> {
 
     private func receiveRequest(on connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            Task { [weak self] in
+            guard let self else { return }
+            Task {
                 if let error = error {
-                    await self?.logger?.debug("Receive error: \(error.localizedDescription)")
+                    await self.logger?.debug("Receive error: \(error.localizedDescription)")
                     connection.cancel()
                     return
                 }
@@ -210,7 +197,7 @@ public actor HTTPServer<Router: HTTPRouter> {
                     return
                 }
 
-                await self?.processRequest(data, on: connection)
+                await self.processRequest(data, on: connection)
             }
         }
     }
@@ -245,9 +232,7 @@ public actor HTTPServer<Router: HTTPRouter> {
 
         connection.send(content: responseData, completion: .contentProcessed { [weak self] error in
             if let error = error {
-                Task { [weak self] in
-                    await self?.logger?.debug("Send error: \(error.localizedDescription)")
-                }
+                Task { await self?.logger?.debug("Send error: \(error.localizedDescription)") }
             }
             connection.cancel()
         })

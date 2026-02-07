@@ -25,7 +25,7 @@ import Foundation
 ///     defaultOrder: MySidebarSection.allCases
 /// )
 /// ```
-public actor SidebarSectionOrderStore<Section: RawRepresentable & CaseIterable & Hashable & Codable>
+public actor SidebarSectionOrderStore<Section: RawRepresentable & CaseIterable & Hashable & Codable & Sendable>
     where Section.RawValue == String
 {
     private nonisolated let key: String
@@ -105,7 +105,7 @@ public actor SidebarSectionOrderStore<Section: RawRepresentable & CaseIterable &
 ///     key: "myAppCollapsedSections"
 /// )
 /// ```
-public actor SidebarCollapsedStateStore<Section: RawRepresentable & Hashable & Codable>
+public actor SidebarCollapsedStateStore<Section: RawRepresentable & Hashable & Codable & Sendable>
     where Section.RawValue == String
 {
     private nonisolated let key: String

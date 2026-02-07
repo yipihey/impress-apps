@@ -11,29 +11,47 @@ public actor AnthropicProvider: AIProvider {
         name: "Claude (Anthropic)",
         description: "Claude AI models from Anthropic",
         models: [
+            // Current models
             AIModel(
-                id: "claude-sonnet-4-20250514",
-                name: "Claude Sonnet 4",
-                description: "Best combination of speed and intelligence",
+                id: "claude-opus-4-6",
+                name: "Claude Opus 4.6",
+                description: "Most intelligent model for agents and coding",
                 contextWindow: 200_000,
-                maxOutputTokens: 64_000,
+                maxOutputTokens: 128_000,
                 isDefault: true,
-                capabilities: .full
-            ),
-            AIModel(
-                id: "claude-opus-4-20250514",
-                name: "Claude Opus 4",
-                description: "Most capable model for complex tasks",
-                contextWindow: 200_000,
-                maxOutputTokens: 32_000,
                 capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
             ),
             AIModel(
-                id: "claude-3-5-haiku-20241022",
-                name: "Claude 3.5 Haiku",
-                description: "Fastest model for simple tasks",
+                id: "claude-sonnet-4-5-20250929",
+                name: "Claude Sonnet 4.5",
+                description: "Best combination of speed and intelligence",
                 contextWindow: 200_000,
-                maxOutputTokens: 8_192,
+                maxOutputTokens: 64_000,
+                capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
+            ),
+            AIModel(
+                id: "claude-haiku-4-5-20251001",
+                name: "Claude Haiku 4.5",
+                description: "Fastest model with near-frontier intelligence",
+                contextWindow: 200_000,
+                maxOutputTokens: 64_000,
+                capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
+            ),
+            // Legacy models
+            AIModel(
+                id: "claude-opus-4-5-20251101",
+                name: "Claude Opus 4.5",
+                description: "Previous-gen flagship model",
+                contextWindow: 200_000,
+                maxOutputTokens: 64_000,
+                capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
+            ),
+            AIModel(
+                id: "claude-sonnet-4-20250514",
+                name: "Claude Sonnet 4",
+                description: "Previous-gen balanced model",
+                contextWindow: 200_000,
+                maxOutputTokens: 64_000,
                 capabilities: .full
             ),
         ],
@@ -123,7 +141,7 @@ public actor AnthropicProvider: AIProvider {
         httpRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         var body: [String: Any] = [
-            "model": request.modelId ?? metadata.defaultModel?.id ?? "claude-sonnet-4-20250514",
+            "model": request.modelId ?? metadata.defaultModel?.id ?? "claude-opus-4-6",
             "max_tokens": request.maxTokens ?? 4096,
             "stream": stream
         ]
@@ -153,6 +171,17 @@ public actor AnthropicProvider: AIProvider {
         }
         if let stopSequences = request.stopSequences, !stopSequences.isEmpty {
             body["stop_sequences"] = stopSequences
+        }
+
+        // Tools
+        if let tools = request.tools, !tools.isEmpty {
+            body["tools"] = tools.map { tool -> [String: Any] in
+                [
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.inputSchema.mapValues { $0.toJSONValue() }
+                ]
+            }
         }
 
         httpRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -193,7 +222,7 @@ public actor AnthropicProvider: AIProvider {
                     "type": "tool_use",
                     "id": toolUse.id,
                     "name": toolUse.name,
-                    "input": toolUse.input
+                    "input": toolUse.input.mapValues { $0.toJSONValue() }
                 ]
             case .toolResult(let toolResult):
                 return [
@@ -247,7 +276,7 @@ public actor AnthropicProvider: AIProvider {
                         if let toolId = item["id"] as? String,
                            let name = item["name"] as? String,
                            let input = item["input"] as? [String: Any] {
-                            let sendableInput = input.mapValues { AnySendable($0 as! String) }
+                            let sendableInput = input.mapValues { AnySendable.fromJSON($0) }
                             content.append(.toolUse(AIToolUse(id: toolId, name: name, input: sendableInput)))
                         }
                     default:

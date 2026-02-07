@@ -1,12 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "ImpressHelixCore",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -19,7 +19,8 @@ let package = Package(
         .target(
             name: "ImpressHelixCore",
             dependencies: ["impress_helixFFI"],
-            path: "Sources/ImpressHelixCore"
+            path: "Sources/ImpressHelixCore",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Binary target for the Rust static library
         .binaryTarget(

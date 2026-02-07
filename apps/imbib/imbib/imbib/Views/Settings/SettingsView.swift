@@ -1131,6 +1131,7 @@ struct AdvancedSettingsTab: View {
 
     @Environment(LibraryManager.self) private var libraryManager
 
+    @AppStorage("useTabSidebar") private var useTabSidebar = false
     @State private var isOptionKeyPressed = false
     @State private var showingResetConfirmation = false
     @State private var showingResetInProgress = false
@@ -1158,6 +1159,13 @@ struct AdvancedSettingsTab: View {
                     libraryManager.clearExplorationLibrary()
                 }
                 .help("Delete all exploration collections immediately")
+            }
+
+            Section("Experimental") {
+                Toggle("Tab Sidebar", isOn: $useTabSidebar)
+                Text("Use new TabView sidebar instead of classic NavigationSplitView. Requires restart.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // Developer section - visible when Option key is held

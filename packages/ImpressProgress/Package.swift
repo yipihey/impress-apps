@@ -1,12 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "ImpressProgress",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -16,12 +16,14 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "ImpressProgress"
+            name: "ImpressProgress",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
             name: "ImpressProgressTests",
             dependencies: ["ImpressProgress"],
-            path: "Tests/ImpressProgressTests"
+            path: "Tests/ImpressProgressTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

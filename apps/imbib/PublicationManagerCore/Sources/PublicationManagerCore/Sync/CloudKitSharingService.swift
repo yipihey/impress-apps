@@ -35,11 +35,11 @@ public actor CloudKitSharingService {
     /// - Parameter library: The private library to share
     /// - Returns: Tuple of the shared CDLibrary and the CKShare for presenting sharing UI
     /// - Throws: If copying or share creation fails
-    public func shareLibrary(_ library: CDLibrary) async throws -> (CDLibrary, CKShare) {
+    public func shareLibrary(_ library: CDLibrary, options: ShareOptions = .default) async throws -> (CDLibrary, CKShare) {
         let context = PersistenceController.shared.viewContext
 
         // Step 1: Copy library content to shared store
-        let sharedLibrary = try await copyService.copyLibraryToSharedStore(library, context: context)
+        let sharedLibrary = try await copyService.copyLibraryToSharedStore(library, context: context, options: options)
 
         // Step 2: Create CKShare
         let share = try await createShare(for: sharedLibrary, title: library.name)
@@ -53,11 +53,11 @@ public actor CloudKitSharingService {
     /// - Parameter collection: The private collection to share
     /// - Returns: Tuple of the shared CDLibrary wrapper and the CKShare
     /// - Throws: If copying or share creation fails
-    public func shareCollection(_ collection: CDCollection) async throws -> (CDLibrary, CKShare) {
+    public func shareCollection(_ collection: CDCollection, options: ShareOptions = .default) async throws -> (CDLibrary, CKShare) {
         let context = PersistenceController.shared.viewContext
 
         // Step 1: Copy collection to shared store (wrapped in a CDLibrary)
-        let sharedLibrary = try await copyService.copyCollectionToSharedStore(collection, context: context)
+        let sharedLibrary = try await copyService.copyCollectionToSharedStore(collection, context: context, options: options)
 
         // Step 2: Create CKShare
         let share = try await createShare(for: sharedLibrary, title: collection.name)

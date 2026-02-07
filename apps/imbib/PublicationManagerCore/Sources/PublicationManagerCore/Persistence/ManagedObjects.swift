@@ -377,16 +377,14 @@ public extension CDPublication {
 
     /// Add this publication to a library
     func addToLibrary(_ library: CDLibrary) {
-        var currentLibraries = libraries ?? []
-        currentLibraries.insert(library)
-        libraries = currentLibraries
+        let librarySet = mutableSetValue(forKey: "libraries")
+        librarySet.add(library)
     }
 
     /// Remove this publication from a library
     func removeFromLibrary(_ library: CDLibrary) {
-        var currentLibraries = libraries ?? []
-        currentLibraries.remove(library)
-        libraries = currentLibraries
+        let librarySet = mutableSetValue(forKey: "libraries")
+        librarySet.remove(library)
     }
 
     /// Check if publication belongs to a specific library

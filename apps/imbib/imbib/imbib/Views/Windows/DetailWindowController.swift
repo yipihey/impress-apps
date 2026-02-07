@@ -42,7 +42,7 @@ public enum DetachedTab: String, Codable, Hashable {
     var defaultSize: NSSize {
         switch self {
         case .pdf: return NSSize(width: 900, height: 1000)
-        case .notes: return NSSize(width: 600, height: 700)
+        case .notes: return NSSize(width: 900, height: 900)
         case .bibtex: return NSSize(width: 700, height: 600)
         case .info: return NSSize(width: 500, height: 600)
         }
@@ -52,7 +52,7 @@ public enum DetachedTab: String, Codable, Hashable {
     var minSize: NSSize {
         switch self {
         case .pdf: return NSSize(width: 500, height: 400)
-        case .notes: return NSSize(width: 400, height: 300)
+        case .notes: return NSSize(width: 600, height: 500)
         case .bibtex: return NSSize(width: 500, height: 400)
         case .info: return NSSize(width: 400, height: 400)
         }
@@ -94,6 +94,10 @@ public final class DetailWindowController {
     private var delegates: [DetachedWindowKey: WindowDelegate] = [:]
 
     private let logger = Logger(subsystem: "com.imbib", category: "DetailWindow")
+
+    /// Stored environment objects for NotesTab (injected via openTab)
+    private var libraryViewModel: LibraryViewModel?
+    private var libraryManager: LibraryManager?
 
     // MARK: - Initialization
 
@@ -141,8 +145,13 @@ public final class DetailWindowController {
         _ tab: DetachedTab,
         for publication: CDPublication,
         on screen: NSScreen? = nil,
-        library: CDLibrary? = nil
+        library: CDLibrary? = nil,
+        libraryViewModel: LibraryViewModel? = nil,
+        libraryManager: LibraryManager? = nil
     ) {
+        // Store environment objects for NotesTab
+        if let vm = libraryViewModel { self.libraryViewModel = vm }
+        if let lm = libraryManager { self.libraryManager = lm }
         let key = DetachedWindowKey(publicationID: publication.id, tab: tab)
 
         // Check for existing window
@@ -446,12 +455,12 @@ public final class DetailWindowController {
         let screenObserver = ScreenConfigurationObserver.shared
 
         switch tab {
-        case .pdf:
-            // PDF windows maximize on target screen
+        case .pdf, .notes:
+            // PDF and notes (PDF+notes panel) windows maximize on target screen
             let frame = screenObserver.maximizedFrame(on: screen)
             screenObserver.safelySetFrame(window, to: frame, on: screen, animate: false)
 
-        case .notes, .bibtex, .info:
+        case .bibtex, .info:
             // Other windows use default size, centered on target screen
             let frame = screenObserver.centeredFrame(size: tab.defaultSize, on: screen)
             screenObserver.safelySetFrame(window, to: frame, on: screen, animate: false)
@@ -470,7 +479,9 @@ public final class DetailWindowController {
                 .frame(minWidth: tab.minSize.width, minHeight: tab.minSize.height)
 
         case .notes:
-            DetachedNotesView(publication: publication)
+            NotesTab(publication: publication)
+                .environment(self.libraryViewModel ?? LibraryViewModel())
+                .environment(self.libraryManager ?? LibraryManager())
                 .frame(minWidth: tab.minSize.width, minHeight: tab.minSize.height)
 
         case .bibtex:

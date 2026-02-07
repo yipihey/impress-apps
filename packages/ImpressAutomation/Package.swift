@@ -1,9 +1,9 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "ImpressAutomation",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "ImpressAutomation", targets: ["ImpressAutomation"])
     ],
@@ -11,7 +11,7 @@ let package = Package(
         .package(path: "../ImpressLogging")
     ],
     targets: [
-        .target(name: "ImpressAutomation", dependencies: ["ImpressLogging"]),
-        .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"])
+        .target(name: "ImpressAutomation", dependencies: ["ImpressLogging"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

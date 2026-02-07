@@ -74,8 +74,9 @@ struct NotesTab: View {
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(\.themeColors) private var theme
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
+    @AppStorage("notesPanelSize") private var savedPanelSize: Double = 400  // ~60 chars at 13pt monospace
     @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
+    @State private var panelSize: CGFloat = 400
 
     // PDF auto-load state
     @State private var linkedFile: CDLinkedFile?
@@ -88,74 +89,78 @@ struct NotesTab: View {
     }
 
     var body: some View {
-        let sizeBinding = Binding<CGFloat>(
-            get: { CGFloat(notesPanelSize) },
-            set: { notesPanelSize = Double($0) }
-        )
-
         Group {
             switch notesPosition {
             case .top:
                 VStack(spacing: 0) {
                     NotesPanel(
                         publication: publication,
-                        size: sizeBinding,
+                        size: $panelSize,
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .horizontal
                     )
+                    .clipped()
                     if !isNotesPanelCollapsed {
-                        ResizeDivider(size: sizeBinding, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: true)
+                        ResizeDivider(size: $panelSize, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: false, onDragEnd: persistPanelSize)
                     }
                     pdfViewerContent
                         .clipped()
+                        .contentShape(Rectangle())
                 }
             case .below:
                 VStack(spacing: 0) {
                     pdfViewerContent
                         .clipped()
+                        .contentShape(Rectangle())
                     if !isNotesPanelCollapsed {
-                        ResizeDivider(size: sizeBinding, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: false)
+                        ResizeDivider(size: $panelSize, isVertical: false, minSize: 80, maxSize: 2000, invertDrag: true, onDragEnd: persistPanelSize)
                     }
                     NotesPanel(
                         publication: publication,
-                        size: sizeBinding,
+                        size: $panelSize,
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .horizontal
                     )
+                    .clipped()
                 }
             case .right:
                 HStack(spacing: 0) {
                     pdfViewerContent
                         .clipped()
+                        .contentShape(Rectangle())
                     if !isNotesPanelCollapsed {
-                        ResizeDivider(size: sizeBinding, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: true)
+                        ResizeDivider(size: $panelSize, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: true, onDragEnd: persistPanelSize)
                     }
                     NotesPanel(
                         publication: publication,
-                        size: sizeBinding,
+                        size: $panelSize,
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .verticalRight
                     )
+                    .clipped()
                 }
             case .left:
                 HStack(spacing: 0) {
                     NotesPanel(
                         publication: publication,
-                        size: sizeBinding,
+                        size: $panelSize,
                         isCollapsed: $isNotesPanelCollapsed,
                         orientation: .verticalLeft
                     )
+                    .clipped()
                     if !isNotesPanelCollapsed {
-                        ResizeDivider(size: sizeBinding, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: false)
+                        ResizeDivider(size: $panelSize, isVertical: true, minSize: 80, maxSize: 2000, invertDrag: false, onDragEnd: persistPanelSize)
                     }
                     pdfViewerContent
                         .clipped()
+                        .contentShape(Rectangle())
                 }
             }
         }
         .background(theme.detailBackground)
         .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
         .onAppear {
+            panelSize = CGFloat(savedPanelSize)
             checkAndLoadPDF()
         }
         .onChange(of: publication.id) { _, _ in
@@ -179,6 +184,10 @@ struct NotesTab: View {
             }
             return .ignored
         }
+    }
+
+    private func persistPanelSize() {
+        savedPanelSize = Double(panelSize)
     }
 
     @ViewBuilder
@@ -397,7 +406,6 @@ struct NotesPanel: View {
                     headerBar
                     if !isCollapsed {
                         notesContent
-                            .frame(height: size - headerSize)
                     }
                 }
                 .frame(height: isCollapsed ? headerSize : size)
@@ -408,7 +416,6 @@ struct NotesPanel: View {
                     verticalHeaderBar(chevronExpand: "chevron.left", chevronCollapse: "chevron.right")
                     if !isCollapsed {
                         notesContent
-                            .frame(width: size - headerSize)
                     }
                 }
                 .frame(width: isCollapsed ? headerSize : size)
@@ -418,7 +425,6 @@ struct NotesPanel: View {
                 HStack(spacing: 0) {
                     if !isCollapsed {
                         notesContent
-                            .frame(width: size - headerSize)
                     }
                     verticalHeaderBar(chevronExpand: "chevron.right", chevronCollapse: "chevron.left")
                 }
@@ -448,10 +454,6 @@ struct NotesPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            enterEditMode()
-        }
     }
 
     // MARK: - Horizontal Header Bar (for below/top position)
@@ -464,10 +466,12 @@ struct NotesPanel: View {
                 }
             } label: {
                 Image(systemName: isCollapsed ? "chevron.up" : "chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(isCollapsed ? "Expand notes" : "Collapse notes")
 
             Text("Notes")
@@ -484,10 +488,12 @@ struct NotesPanel: View {
                 }
             } label: {
                 Image(systemName: notesPosition.nextIcon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help("Move notes panel to \(notesPosition.next.label)")
 
         }
@@ -510,10 +516,12 @@ struct NotesPanel: View {
                 }
             } label: {
                 Image(systemName: isCollapsed ? chevronExpand : chevronCollapse)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(isCollapsed ? "Expand notes" : "Collapse notes")
 
             // Position button
@@ -523,10 +531,12 @@ struct NotesPanel: View {
                 }
             } label: {
                 Image(systemName: notesPosition.nextIcon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help("Move notes panel to \(notesPosition.next.label)")
 
             Text("Notes")
@@ -686,7 +696,7 @@ struct NotesPanel: View {
                                 font: .monospacedSystemFont(ofSize: 13, weight: .regular),
                                 onChange: { scheduleSave() }
                             )
-                            .frame(minHeight: 80)
+                            .frame(minHeight: 80, maxHeight: .infinity)
                             .helixModeIndicator(
                                 state: helixState,
                                 position: .bottomRight,
@@ -696,7 +706,7 @@ struct NotesPanel: View {
                         } else {
                             TextEditor(text: $freeformNotes)
                                 .font(.system(size: 13, design: .monospaced))
-                                .frame(minHeight: 80)
+                                .frame(minHeight: 80, maxHeight: .infinity)
                                 .scrollContentBackground(.hidden)
                                 .padding(6)
                                 .background(theme.contentBackground)
@@ -708,7 +718,7 @@ struct NotesPanel: View {
                         #else
                         TextEditor(text: $freeformNotes)
                             .font(.system(size: 13, design: .monospaced))
-                            .frame(minHeight: 80)
+                            .frame(minHeight: 80, maxHeight: .infinity)
                             .scrollContentBackground(.hidden)
                             .padding(6)
                             .background(theme.contentBackground)
@@ -947,23 +957,49 @@ struct ResizeDivider: View {
     let minSize: CGFloat
     let maxSize: CGFloat
     let invertDrag: Bool    // true when drag direction is inverted relative to size increase
+    var onDragEnd: (() -> Void)? = nil
 
     @State private var isHovering = false
+    @State private var isDragging = false
     @State private var dragStartSize: CGFloat = 0
 
-    private let thickness: CGFloat = 6
+    private let hitAreaThickness: CGFloat = 12
+    private let lineWidth: CGFloat = 1
 
     var body: some View {
-        Rectangle()
-            .fill(isHovering ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2))
-            .frame(width: isVertical ? 1 : nil, height: isVertical ? nil : 1)
-            .padding(isVertical ? .horizontal : .vertical, thickness / 2)
+        Color.clear
+            .frame(width: isVertical ? hitAreaThickness : nil,
+                   height: isVertical ? nil : hitAreaThickness)
+            .overlay {
+                Rectangle()
+                    .fill(isDragging ? Color.accentColor : (isHovering ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.3)))
+                    .frame(width: isVertical ? (isDragging || isHovering ? 3 : lineWidth) : nil,
+                           height: isVertical ? nil : (isDragging || isHovering ? 3 : lineWidth))
+            }
             .contentShape(Rectangle())
-            .frame(width: isVertical ? thickness : nil, height: isVertical ? nil : thickness)
+            #if os(macOS)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    if !isHovering {
+                        isHovering = true
+                        (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push()
+                    }
+                case .ended:
+                    if isHovering {
+                        isHovering = false
+                        NSCursor.pop()
+                    }
+                }
+            }
+            #endif
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1)
                     .onChanged { value in
-                        if dragStartSize == 0 { dragStartSize = size }
+                        if !isDragging {
+                            dragStartSize = size
+                            isDragging = true
+                        }
                         let delta = isVertical ? value.translation.width : value.translation.height
                         let adjusted = invertDrag ? -delta : delta
                         let newSize = dragStartSize + adjusted
@@ -971,18 +1007,10 @@ struct ResizeDivider: View {
                     }
                     .onEnded { _ in
                         dragStartSize = 0
+                        isDragging = false
+                        onDragEnd?()
                     }
             )
-            .onHover { hovering in
-                isHovering = hovering
-                #if os(macOS)
-                if hovering {
-                    (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push()
-                } else {
-                    NSCursor.pop()
-                }
-                #endif
-            }
     }
 }
 

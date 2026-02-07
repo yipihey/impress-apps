@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 import Foundation
@@ -28,8 +28,8 @@ if impressLLMAvailable {
 let package = Package(
     name: "ImpressAI",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -43,13 +43,17 @@ let package = Package(
             name: "ImpressAI",
             dependencies: targetDependencies,
             swiftSettings: impressLLMAvailable ? [
-                .define("IMPRESS_LLM_AVAILABLE")
-            ] : []
+                .define("IMPRESS_LLM_AVAILABLE"),
+                .swiftLanguageMode(.v5)
+            ] : [
+                .swiftLanguageMode(.v5)
+            ]
         ),
         .testTarget(
             name: "ImpressAITests",
             dependencies: ["ImpressAI"],
-            path: "Tests/ImpressAITests"
+            path: "Tests/ImpressAITests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

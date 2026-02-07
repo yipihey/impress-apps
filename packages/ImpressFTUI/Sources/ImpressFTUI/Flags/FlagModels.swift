@@ -11,7 +11,9 @@ import SwiftUI
 ///
 /// Flags represent workflow state (read/review/revisit) — they sync via CloudKit
 /// but are NOT exported to BibTeX. Use tags for knowledge categorization.
-public enum FlagColor: String, Codable, CaseIterable, Sendable, Hashable {
+public enum FlagColor: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
+    public var id: String { rawValue }
+
     case red
     case amber
     case blue

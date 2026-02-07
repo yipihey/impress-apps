@@ -481,7 +481,7 @@ public extension Notification.Name {
     /// Posted when the detail view tab changes (iOS)
     ///
     /// userInfo:
-    /// - `tab`: The new IOSDetailTab rawValue (String)
+    /// - `tab`: The new DetailTab rawValue (String)
     static let detailTabDidChange = Notification.Name("detailTabDidChange")
 
     /// Posted when a PDF search is requested from the global search palette

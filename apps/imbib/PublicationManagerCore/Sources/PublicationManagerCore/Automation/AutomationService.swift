@@ -46,7 +46,7 @@ public actor AutomationService: AutomationOperations {
 
     private let repository: PublicationRepository
     private let collectionRepository: CollectionRepository
-    private let sourceManager: SourceManager
+    private var sourceManager: SourceManager
     private let settingsStore: AutomationSettingsStore
 
     // MARK: - Initialization
@@ -63,12 +63,49 @@ public actor AutomationService: AutomationOperations {
         self.settingsStore = settingsStore
     }
 
+    /// Configure with the app's shared SourceManager (which has plugins registered).
+    public func configure(sourceManager: SourceManager) {
+        self.sourceManager = sourceManager
+    }
+
     // MARK: - Authorization Check
 
     private func checkAuthorization() async throws {
         let isEnabled = await settingsStore.isEnabled
         guard isEnabled else {
             throw AutomationOperationError.unauthorized
+        }
+    }
+
+    // MARK: - External Source Search
+
+    /// Search external sources (ADS, arXiv, Crossref, etc.) by topic or keywords.
+    /// Returns search results with identifiers that can be passed to `addPapers()`.
+    public func searchExternal(query: String, source: String?, maxResults: Int) async throws -> [ExternalSearchResult] {
+        try await checkAuthorization()
+        logger.info("Searching external sources for: \(query) (source: \(source ?? "all"))")
+
+        let results: [SearchResult]
+        if let sourceID = source {
+            results = try await sourceManager.search(query: query, sourceID: sourceID, maxResults: maxResults)
+        } else {
+            // Search all available sources in parallel
+            let options = SearchOptions(maxResults: maxResults)
+            results = try await sourceManager.search(query: query, options: options)
+        }
+
+        return results.map { result in
+            ExternalSearchResult(
+                title: result.title,
+                authors: result.authors,
+                year: result.year,
+                venue: result.venue ?? "",
+                abstract: result.abstract ?? "",
+                sourceID: result.sourceID,
+                doi: result.doi,
+                arxivID: result.arxivID,
+                bibcode: result.bibcode
+            )
         }
     }
 
@@ -280,10 +317,14 @@ public actor AutomationService: AutomationOperations {
         var duplicates: [String] = []
         var failed: [String: String] = [:]
 
+        // Collect existing publications that need library/collection assignment
+        var existingToAssign: [CDPublication] = []
+
         for identifier in identifiers {
             // Check if already exists
             if let existing = await findPublication(by: identifier) {
                 duplicates.append(identifier.value)
+                existingToAssign.append(existing)
                 logger.debug("Duplicate found for: \(identifier.value)")
                 continue
             }
@@ -295,12 +336,14 @@ public actor AutomationService: AutomationOperations {
                 // Create publication from search result
                 let publication = await repository.createFromSearchResult(searchResult)
 
+                // Add to library if specified
+                if let libraryID = library {
+                    await assignToLibrary([publication], libraryID: libraryID)
+                }
+
                 // Add to collection if specified
                 if let collectionID = collection {
-                    let collections = await collectionRepository.fetchAll()
-                    if let targetCollection = collections.first(where: { $0.id == collectionID }) {
-                        await repository.addToCollection(publication, collection: targetCollection)
-                    }
+                    await assignToCollection([publication], collectionID: collectionID)
                 }
 
                 // Download PDF if requested
@@ -325,41 +368,142 @@ public actor AutomationService: AutomationOperations {
             }
         }
 
+        // Assign existing (duplicate) papers to target library/collection
+        if !existingToAssign.isEmpty {
+            if let libraryID = library {
+                await assignToLibrary(existingToAssign, libraryID: libraryID)
+            }
+            if let collectionID = collection {
+                await assignToCollection(existingToAssign, collectionID: collectionID)
+            }
+        }
+
         return AddPapersResult(added: added, duplicates: duplicates, failed: failed)
     }
 
+    // MARK: - Add to Library / Collection
+
+    /// Add existing papers to a library by identifier.
+    public func addPapersToLibrary(
+        identifiers: [PaperIdentifier],
+        libraryID: UUID
+    ) async throws -> AddToContainerResult {
+        try await checkAuthorization()
+        var assigned: [String] = []
+        var notFound: [String] = []
+
+        for identifier in identifiers {
+            if let pub = await findPublication(by: identifier) {
+                await assignToLibrary([pub], libraryID: libraryID)
+                assigned.append(identifier.value)
+            } else {
+                notFound.append(identifier.value)
+            }
+        }
+        return AddToContainerResult(assigned: assigned, notFound: notFound)
+    }
+
+    /// Add existing papers to a collection by identifier.
+    public func addPapersToCollection(
+        identifiers: [PaperIdentifier],
+        collectionID: UUID
+    ) async throws -> AddToContainerResult {
+        try await checkAuthorization()
+        var assigned: [String] = []
+        var notFound: [String] = []
+
+        for identifier in identifiers {
+            if let pub = await findPublication(by: identifier) {
+                await assignToCollection([pub], collectionID: collectionID)
+                assigned.append(identifier.value)
+            } else {
+                notFound.append(identifier.value)
+            }
+        }
+        return AddToContainerResult(assigned: assigned, notFound: notFound)
+    }
+
+    /// Assign publications to a library by UUID.
+    /// Uses the repository's addToLibrary which handles mutableSetValue
+    /// and posts .publicationSavedToLibrary for UI refresh.
+    private func assignToLibrary(_ publications: [CDPublication], libraryID: UUID) async {
+        let context = PersistenceController.shared.viewContext
+        let library: CDLibrary? = await context.perform {
+            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
+            request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
+            request.fetchLimit = 1
+            return try? context.fetch(request).first
+        }
+        guard let library else { return }
+        await repository.addToLibrary(publications, library: library)
+    }
+
+    /// Assign publications to a collection by UUID.
+    /// Uses the repository's addPublications(to:) which handles
+    /// mutableSetValue and proper Core Data change tracking.
+    private func assignToCollection(_ publications: [CDPublication], collectionID: UUID) async {
+        let context = PersistenceController.shared.viewContext
+        let collection: CDCollection? = await context.perform {
+            let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+            request.predicate = NSPredicate(format: "id == %@", collectionID as CVarArg)
+            request.fetchLimit = 1
+            return try? context.fetch(request).first
+        }
+        guard let collection else { return }
+        await repository.addPublications(publications, to: collection)
+    }
+
     private func fetchFromExternal(identifier: PaperIdentifier) async throws -> SearchResult {
-        // Search external sources based on identifier type
-        let query: String
-        let sources: [String]?
+        // Build source-specific queries using each source's native identifier syntax.
+        // ADS uses field-qualified queries (bibcode:X, doi:"X", identifier:X).
+        // arXiv uses id: prefix. Crossref handles DOIs natively.
+        struct SourceQuery {
+            let sourceID: String
+            let query: String
+        }
+
+        let queries: [SourceQuery]
 
         switch identifier {
         case .doi(let doi):
-            query = doi
-            sources = ["crossref", "ads"]
+            queries = [
+                SourceQuery(sourceID: "crossref", query: doi),
+                SourceQuery(sourceID: "ads", query: "doi:\"\(doi)\""),
+            ]
         case .arxiv(let id):
-            query = id
-            sources = ["arxiv"]
+            queries = [
+                SourceQuery(sourceID: "arxiv", query: "id:\(id)"),
+                SourceQuery(sourceID: "ads", query: "identifier:\(id)"),
+            ]
         case .bibcode(let code):
-            query = code
-            sources = ["ads"]
+            queries = [
+                SourceQuery(sourceID: "ads", query: "bibcode:\(code)"),
+            ]
         case .pmid(let id):
-            query = id
-            sources = ["pubmed"]
+            queries = [
+                SourceQuery(sourceID: "pubmed", query: id),
+            ]
         default:
             throw AutomationOperationError.invalidIdentifier("Cannot fetch \(identifier.typeName) from external sources")
         }
 
-        let results = try await sourceManager.search(
-            query: query,
-            options: SearchOptions(maxResults: 5, sourceIDs: sources)
-        )
-
-        guard let result = results.first else {
-            throw AutomationOperationError.paperNotFound(identifier.value)
+        // Try each source in order until one returns a result
+        for sq in queries {
+            do {
+                let results = try await sourceManager.search(
+                    query: sq.query,
+                    sourceID: sq.sourceID,
+                    maxResults: 5
+                )
+                if let result = results.first {
+                    return result
+                }
+            } catch {
+                logger.debug("Source \(sq.sourceID) failed for \(identifier.value): \(error.localizedDescription)")
+            }
         }
 
-        return result
+        throw AutomationOperationError.paperNotFound(identifier.value)
     }
 
     public func deletePapers(identifiers: [PaperIdentifier]) async throws -> Int {
@@ -525,6 +669,30 @@ public actor AutomationService: AutomationOperations {
     }
 
     // MARK: - Library Operations
+
+    public func createLibrary(name: String) async throws -> LibraryResult {
+        try await checkAuthorization()
+        logger.info("Creating library: \(name)")
+
+        let context = PersistenceController.shared.viewContext
+        let library: CDLibrary = await context.perform {
+            let lib = CDLibrary(context: context)
+            lib.id = UUID()
+            lib.name = name
+            lib.dateCreated = Date()
+            lib.isDefault = false
+            return lib
+        }
+
+        // Create Papers directory
+        let papersURL = library.papersContainerURL
+        try? FileManager.default.createDirectory(at: papersURL, withIntermediateDirectories: true)
+
+        PersistenceController.shared.save()
+        logger.info("Created library '\(name)' with ID: \(library.id)")
+
+        return toLibraryResult(library)
+    }
 
     public func listLibraries() async throws -> [LibraryResult] {
         try await checkAuthorization()
@@ -1309,69 +1477,68 @@ public actor AutomationService: AutomationOperations {
 
     private func toPaperResult(_ publication: CDPublication) -> PaperResult? {
         // Guard against deleted objects
-        guard publication.managedObjectContext != nil, !publication.isDeleted else {
+        guard let context = publication.managedObjectContext, !publication.isDeleted else {
             return nil
         }
 
-        let fields = publication.fields
+        // Access all Core Data properties on the context's queue to avoid threading crashes.
+        // This actor may be called from the HTTP server thread (not main).
+        var result: PaperResult?
+        context.performAndWait {
+            guard !publication.isDeleted else { return }
 
-        // Extract tag paths
-        let tagPaths: [String] = (publication.tags ?? [])
-            .compactMap { $0.canonicalPath }
-            .sorted()
+            let fields = publication.fields
 
-        // Extract flag
-        let flagResult: FlagResult? = publication.flag.map {
-            FlagResult(
-                color: $0.color.rawValue,
-                style: $0.style.rawValue,
-                length: $0.length.rawValue
+            let tagPaths: [String] = (publication.tags ?? [])
+                .compactMap { $0.canonicalPath }
+                .sorted()
+
+            let flagResult: FlagResult? = publication.flag.map {
+                FlagResult(
+                    color: $0.color.rawValue,
+                    style: $0.style.rawValue,
+                    length: $0.length.rawValue
+                )
+            }
+
+            let collIDs: [UUID] = (publication.collections ?? []).map { $0.id }
+            let libIDs: [UUID] = (publication.libraries ?? []).map { $0.id }
+            let notes = fields["note"]
+            let annotationCount = (publication.linkedFiles ?? [])
+                .reduce(0) { $0 + ($1.annotations?.count ?? 0) }
+
+            result = PaperResult(
+                id: publication.id,
+                citeKey: publication.citeKey,
+                title: publication.title ?? "",
+                authors: parseAuthors(from: fields["author"]),
+                year: publication.year > 0 ? Int(publication.year) : nil,
+                venue: fields["journal"] ?? fields["booktitle"],
+                abstract: publication.abstract,
+                doi: publication.doi,
+                arxivID: publication.arxivID,
+                bibcode: publication.bibcode,
+                pmid: publication.pmid,
+                semanticScholarID: publication.semanticScholarID,
+                openAlexID: publication.openAlexID,
+                isRead: publication.isRead,
+                isStarred: publication.isStarred,
+                hasPDF: publication.hasPDFDownloaded || !(publication.linkedFiles?.isEmpty ?? true),
+                citationCount: publication.citationCount >= 0 ? Int(publication.citationCount) : nil,
+                dateAdded: publication.dateAdded,
+                dateModified: publication.dateModified,
+                bibtex: publication.rawBibTeX ?? "",
+                webURL: publication.webURL,
+                pdfURLs: publication.pdfLinks.map { $0.url.absoluteString },
+                tags: tagPaths,
+                flag: flagResult,
+                collectionIDs: collIDs,
+                libraryIDs: libIDs,
+                notes: notes,
+                annotationCount: annotationCount
             )
         }
-
-        // Extract collection IDs
-        let collIDs: [UUID] = (publication.collections ?? []).map { $0.id }
-
-        // Extract library IDs
-        let libIDs: [UUID] = (publication.libraries ?? []).map { $0.id }
-
-        // Extract notes from BibTeX fields
-        let notes = fields["note"]
-
-        // Count annotations from linked files
-        let annotationCount = (publication.linkedFiles ?? [])
-            .reduce(0) { $0 + ($1.annotations?.count ?? 0) }
-
-        return PaperResult(
-            id: publication.id,
-            citeKey: publication.citeKey,
-            title: publication.title ?? "",
-            authors: parseAuthors(from: fields["author"]),
-            year: publication.year > 0 ? Int(publication.year) : nil,
-            venue: fields["journal"] ?? fields["booktitle"],
-            abstract: publication.abstract,
-            doi: publication.doi,
-            arxivID: publication.arxivID,
-            bibcode: publication.bibcode,
-            pmid: publication.pmid,
-            semanticScholarID: publication.semanticScholarID,
-            openAlexID: publication.openAlexID,
-            isRead: publication.isRead,
-            isStarred: publication.isStarred,
-            hasPDF: publication.hasPDFDownloaded || !(publication.linkedFiles?.isEmpty ?? true),
-            citationCount: publication.citationCount >= 0 ? Int(publication.citationCount) : nil,
-            dateAdded: publication.dateAdded,
-            dateModified: publication.dateModified,
-            bibtex: publication.rawBibTeX ?? "",
-            webURL: publication.webURL,
-            pdfURLs: publication.pdfLinks.map { $0.url.absoluteString },
-            tags: tagPaths,
-            flag: flagResult,
-            collectionIDs: collIDs,
-            libraryIDs: libIDs,
-            notes: notes,
-            annotationCount: annotationCount
-        )
+        return result
     }
 
     private func parseAuthors(from authorField: String?) -> [String] {
@@ -1382,40 +1549,65 @@ public actor AutomationService: AutomationOperations {
     }
 
     private func toCollectionResult(_ collection: CDCollection) -> CollectionResult {
-        CollectionResult(
-            id: collection.id,
-            name: collection.name,
-            paperCount: collection.publications?.count ?? 0,
-            isSmartCollection: collection.isSmartCollection,
-            libraryID: collection.library?.id,
-            libraryName: collection.library?.name
-        )
+        guard let context = collection.managedObjectContext else {
+            return CollectionResult(id: collection.id, name: collection.name, paperCount: 0,
+                                    isSmartCollection: false, libraryID: nil, libraryName: nil)
+        }
+        var result: CollectionResult!
+        context.performAndWait {
+            result = CollectionResult(
+                id: collection.id,
+                name: collection.name,
+                paperCount: collection.publications?.count ?? 0,
+                isSmartCollection: collection.isSmartCollection,
+                libraryID: collection.library?.id,
+                libraryName: collection.library?.name
+            )
+        }
+        return result
     }
 
     private func toLibraryResult(_ library: CDLibrary) -> LibraryResult {
-        LibraryResult(
-            id: library.id,
-            name: library.displayName,
-            paperCount: library.publications?.count ?? 0,
-            collectionCount: library.collections?.count ?? 0,
-            isDefault: library.isDefault,
-            isInbox: library.isInbox,
-            isShared: library.isSharedLibrary,
-            isShareOwner: library.isShareOwner,
-            participantCount: library.shareParticipantCount,
-            canEdit: library.canEdit
-        )
+        guard let context = library.managedObjectContext else {
+            return LibraryResult(id: library.id, name: library.displayName, paperCount: 0,
+                                 collectionCount: 0, isDefault: false, isInbox: false,
+                                 isShared: false, isShareOwner: false, participantCount: 0, canEdit: false)
+        }
+        var result: LibraryResult!
+        context.performAndWait {
+            result = LibraryResult(
+                id: library.id,
+                name: library.displayName,
+                paperCount: library.publications?.count ?? 0,
+                collectionCount: library.collections?.count ?? 0,
+                isDefault: library.isDefault,
+                isInbox: library.isInbox,
+                isShared: library.isSharedLibrary,
+                isShareOwner: library.isShareOwner,
+                participantCount: library.shareParticipantCount,
+                canEdit: library.canEdit
+            )
+        }
+        return result
     }
 
     private func toTagResult(_ tag: CDTag) -> TagResult {
-        TagResult(
-            id: tag.id,
-            name: tag.leaf,
-            canonicalPath: tag.canonicalPath ?? tag.name,
-            parentPath: tag.parentTag?.canonicalPath,
-            useCount: Int(tag.useCount),
-            publicationCount: tag.publicationCount
-        )
+        guard let context = tag.managedObjectContext else {
+            return TagResult(id: tag.id, name: tag.leaf, canonicalPath: tag.name,
+                             parentPath: nil, useCount: 0, publicationCount: 0)
+        }
+        var result: TagResult!
+        context.performAndWait {
+            result = TagResult(
+                id: tag.id,
+                name: tag.leaf,
+                canonicalPath: tag.canonicalPath ?? tag.name,
+                parentPath: tag.parentTag?.canonicalPath,
+                useCount: Int(tag.useCount),
+                publicationCount: tag.publicationCount
+            )
+        }
+        return result
     }
 
     private func toActivityResult(_ record: CDActivityRecord) -> ActivityResult {
@@ -1431,37 +1623,59 @@ public actor AutomationService: AutomationOperations {
     }
 
     private func toCommentResult(_ comment: CDComment, allComments: Set<CDComment>) -> CommentResult {
-        // Find replies to this comment
-        let replies = allComments
-            .filter { $0.parentCommentID == comment.id }
-            .sorted { $0.dateCreated < $1.dateCreated }
-            .map { toCommentResult($0, allComments: allComments) }
+        guard let context = comment.managedObjectContext else {
+            return CommentResult(id: comment.id, text: comment.text,
+                                 authorDisplayName: comment.authorDisplayName,
+                                 authorIdentifier: comment.authorIdentifier,
+                                 dateCreated: comment.dateCreated, dateModified: comment.dateModified,
+                                 parentCommentID: comment.parentCommentID, replies: [])
+        }
+        var result: CommentResult!
+        context.performAndWait {
+            let replies = allComments
+                .filter { $0.parentCommentID == comment.id }
+                .sorted { $0.dateCreated < $1.dateCreated }
+                .map { toCommentResult($0, allComments: allComments) }
 
-        return CommentResult(
-            id: comment.id,
-            text: comment.text,
-            authorDisplayName: comment.authorDisplayName,
-            authorIdentifier: comment.authorIdentifier,
-            dateCreated: comment.dateCreated,
-            dateModified: comment.dateModified,
-            parentCommentID: comment.parentCommentID,
-            replies: replies
-        )
+            result = CommentResult(
+                id: comment.id,
+                text: comment.text,
+                authorDisplayName: comment.authorDisplayName,
+                authorIdentifier: comment.authorIdentifier,
+                dateCreated: comment.dateCreated,
+                dateModified: comment.dateModified,
+                parentCommentID: comment.parentCommentID,
+                replies: replies
+            )
+        }
+        return result
     }
 
     private func toAssignmentResult(_ assignment: CDAssignment) -> AssignmentResult {
-        AssignmentResult(
-            id: assignment.id,
-            publicationID: assignment.publication?.id ?? UUID(),
-            publicationTitle: assignment.publication?.title,
-            publicationCiteKey: assignment.publication?.citeKey,
-            assigneeName: assignment.assigneeName,
-            assignedByName: assignment.assignedByName,
-            note: assignment.note,
-            dateCreated: assignment.dateCreated,
-            dueDate: assignment.dueDate,
-            libraryID: assignment.library?.id
-        )
+        guard let context = assignment.managedObjectContext else {
+            return AssignmentResult(id: assignment.id, publicationID: UUID(),
+                                    publicationTitle: nil, publicationCiteKey: nil,
+                                    assigneeName: assignment.assigneeName,
+                                    assignedByName: assignment.assignedByName,
+                                    note: assignment.note, dateCreated: assignment.dateCreated,
+                                    dueDate: assignment.dueDate, libraryID: nil)
+        }
+        var result: AssignmentResult!
+        context.performAndWait {
+            result = AssignmentResult(
+                id: assignment.id,
+                publicationID: assignment.publication?.id ?? UUID(),
+                publicationTitle: assignment.publication?.title,
+                publicationCiteKey: assignment.publication?.citeKey,
+                assigneeName: assignment.assigneeName,
+                assignedByName: assignment.assignedByName,
+                note: assignment.note,
+                dateCreated: assignment.dateCreated,
+                dueDate: assignment.dueDate,
+                libraryID: assignment.library?.id
+            )
+        }
+        return result
     }
 
     private func toAnnotationResult(_ annotation: CDAnnotation) -> AnnotationResult {

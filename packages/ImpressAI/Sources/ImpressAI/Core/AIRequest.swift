@@ -284,7 +284,7 @@ public struct AIStreamChunk: Sendable {
 }
 
 /// Type-erased Sendable wrapper for dynamic values.
-public struct AnySendable: Sendable, Equatable {
+public struct AnySendable: @unchecked Sendable, Equatable {
     private let value: Any
     private let equalsFunction: @Sendable (Any) -> Bool
 
@@ -302,5 +302,38 @@ public struct AnySendable: Sendable, Equatable {
 
     public func get<T>() -> T? {
         value as? T
+    }
+
+    /// Convert the wrapped value to a JSON-compatible type for JSONSerialization.
+    public func toJSONValue() -> Any {
+        if let dict = value as? [String: AnySendable] {
+            return dict.mapValues { $0.toJSONValue() }
+        }
+        if let array = value as? [AnySendable] {
+            return array.map { $0.toJSONValue() }
+        }
+        return value
+    }
+
+    /// Create an AnySendable from an arbitrary JSON-deserialized value.
+    public static func fromJSON(_ value: Any) -> AnySendable {
+        switch value {
+        case let s as String:
+            return AnySendable(s)
+        case let n as Int:
+            return AnySendable(n)
+        case let n as Double:
+            return AnySendable(n)
+        case let b as Bool:
+            return AnySendable(b)
+        case let dict as [String: Any]:
+            return AnySendable(dict.mapValues { fromJSON($0) })
+        case let arr as [Any]:
+            return AnySendable(arr.map { fromJSON($0) })
+        case is NSNull:
+            return AnySendable("")
+        default:
+            return AnySendable(String(describing: value))
+        }
     }
 }

@@ -299,8 +299,8 @@ extension ADSSource: EnrichmentPlugin {
 
                 // Map results back to publication IDs
                 for (bibcode, info) in batchResults {
-                    // Find the publication ID for this bibcode
-                    if let pubID = findPublicationID(bibcode: bibcode, queryToPubID: queryToPubID, requests: requests) {
+                    // Find the publication ID for this bibcode (also matching arXiv/DOI from the response)
+                    if let pubID = findPublicationID(bibcode: bibcode, arxivID: info.arxivID, queryToPubID: queryToPubID, requests: requests) {
                         let enrichmentData = EnrichmentData(
                             citationCount: info.citationCount,
                             referenceCount: info.referenceCount,
@@ -436,21 +436,45 @@ extension ADSSource: EnrichmentPlugin {
         return results
     }
 
-    /// Find publication ID for a bibcode, checking both direct match and identifier matches
+    /// Find publication ID for a bibcode, checking direct match, arXiv ID, and identifier matches
     private func findPublicationID(
         bibcode: String,
+        arxivID: String? = nil,
         queryToPubID: [String: UUID],
         requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
     ) -> UUID? {
-        // Direct match
+        // Direct match on bibcode
         if let pubID = queryToPubID[bibcode] {
             return pubID
+        }
+
+        // Match via arXiv ID from the ADS response against the original query terms
+        // (e.g., queryToPubID has "arXiv:2601.09843" but ADS returned bibcode "2025arXiv...")
+        if let arxivID {
+            let arxivQuery = "arXiv:\(arxivID)"
+            if let pubID = queryToPubID[arxivQuery] {
+                return pubID
+            }
+            // Also check version-stripped form
+            let stripped = stripArxivVersion(arxivID)
+            if stripped != arxivID {
+                let strippedQuery = "arXiv:\(stripped)"
+                if let pubID = queryToPubID[strippedQuery] {
+                    return pubID
+                }
+            }
         }
 
         // Check if any request has a matching identifier
         for request in requests {
             if request.identifiers[.bibcode] == bibcode {
                 return request.publicationID
+            }
+            // Match via arXiv ID
+            if let arxivID, let reqArxiv = request.identifiers[.arxiv] {
+                if stripArxivVersion(reqArxiv) == stripArxivVersion(arxivID) {
+                    return request.publicationID
+                }
             }
         }
 

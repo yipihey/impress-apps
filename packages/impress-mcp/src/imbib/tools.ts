@@ -39,6 +39,40 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_search_sources",
+    description:
+      "Search external academic sources (ADS, arXiv, Crossref, PubMed, etc.) for papers by topic, keywords, or author. Returns papers NOT yet in the library, with identifiers that can be passed to imbib_add_papers. Use this to discover new papers on a topic.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Search query (topic, keywords, author name). For ADS, supports field qualifiers like 'author:Einstein year:2024'.",
+        },
+        source: {
+          type: "string",
+          description:
+            "Optional: specific source to search (ads, arxiv, crossref, pubmed, semanticscholar, openalex, dblp). If omitted, searches all available sources.",
+          enum: [
+            "ads",
+            "arxiv",
+            "crossref",
+            "pubmed",
+            "semanticscholar",
+            "openalex",
+            "dblp",
+          ],
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of results to return (default: 20)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "imbib_get_paper",
     description:
       "Get detailed information about a specific paper by its cite key. Returns full metadata and BibTeX entry.",
@@ -127,7 +161,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_add_papers",
     description:
-      "Add papers to the imbib library by identifier. Supports DOI, arXiv ID, bibcode, or other identifiers. Automatically fetches metadata from external sources.",
+      "Add papers to the imbib library by identifier. Supports DOI, arXiv ID, bibcode, or other identifiers. Automatically fetches metadata from external sources. If papers already exist, they are still added to the target library/collection.",
     inputSchema: {
       type: "object",
       properties: {
@@ -136,6 +170,10 @@ export const IMBIB_TOOLS: Tool[] = [
           items: { type: "string" },
           description:
             "List of paper identifiers (DOI, arXiv ID, bibcode, cite key)",
+        },
+        library: {
+          type: "string",
+          description: "Library UUID to add papers to (optional)",
         },
         collection: {
           type: "string",
@@ -147,6 +185,27 @@ export const IMBIB_TOOLS: Tool[] = [
         },
       },
       required: ["identifiers"],
+    },
+  },
+  {
+    name: "imbib_add_to_library",
+    description:
+      "Add existing papers to a specific library. Use this to organize papers that are already in imbib into a different library.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        identifiers: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "List of paper identifiers (DOI, arXiv ID, bibcode, cite key, UUID)",
+        },
+        libraryID: {
+          type: "string",
+          description: "UUID of the target library",
+        },
+      },
+      required: ["identifiers", "libraryID"],
     },
   },
   {
@@ -371,6 +430,21 @@ export const IMBIB_TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "imbib_create_library",
+    description:
+      "Create a new library in imbib. Libraries are top-level containers for papers, separate from collections. Use this when asked to create a new library for a topic or project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name for the new library",
+        },
+      },
+      required: ["name"],
     },
   },
   {
@@ -748,6 +822,8 @@ export class ImbibTools {
       // Read operations
       case "imbib_search_library":
         return this.searchLibrary(args);
+      case "imbib_search_sources":
+        return this.searchSources(args);
       case "imbib_get_paper":
         return this.getPaper(args);
       case "imbib_export_bibtex":
@@ -760,6 +836,8 @@ export class ImbibTools {
         return this.getLogs(args);
       case "imbib_list_libraries":
         return this.listLibraries();
+      case "imbib_create_library":
+        return this.createLibrary(args);
       case "imbib_list_tags":
         return this.listTags(args);
       case "imbib_collection_papers":
@@ -786,6 +864,8 @@ export class ImbibTools {
         return this.deleteCollection(args);
       case "imbib_add_to_collection":
         return this.addToCollection(args);
+      case "imbib_add_to_library":
+        return this.addToLibrary(args);
       case "imbib_remove_from_collection":
         return this.removeFromCollection(args);
       case "imbib_download_pdfs":
@@ -878,6 +958,61 @@ export class ImbibTools {
         {
           type: "text",
           text: `Found ${result.count} papers matching "${query}":\n\n${paperList}`,
+        },
+      ],
+    };
+  }
+
+  private async searchSources(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const query = String(args?.query || "");
+    if (!query) {
+      return {
+        content: [{ type: "text", text: "Error: query is required" }],
+      };
+    }
+    const source = args?.source as string | undefined;
+    const limit = args?.limit as number | undefined;
+
+    const result = await this.client.searchExternal(query, {
+      source,
+      limit: limit ?? 20,
+    });
+
+    if (result.results.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No external results found for "${query}" (source: ${result.source})`,
+          },
+        ],
+      };
+    }
+
+    const resultList = result.results
+      .map((r) => {
+        const authors =
+          r.authors.length > 3
+            ? `${r.authors.slice(0, 3).join(", ")} et al.`
+            : r.authors.join(", ");
+        const year = r.year ? ` (${r.year})` : "";
+        const venue = r.venue ? ` - ${r.venue}` : "";
+        const ids: string[] = [];
+        if (r.doi) ids.push(`DOI: ${r.doi}`);
+        if (r.arxivID) ids.push(`arXiv: ${r.arxivID}`);
+        if (r.bibcode) ids.push(`bibcode: ${r.bibcode}`);
+        const idStr = ids.length > 0 ? `\n  ${ids.join(", ")}` : "";
+        return `- ${r.title}${year}\n  ${authors}${venue}${idStr}\n  → Add with identifier: \`${r.identifier}\``;
+      })
+      .join("\n\n");
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Found ${result.count} results from ${result.source} for "${query}":\n\n${resultList}\n\nTo add papers to the library, use imbib_add_papers with the identifiers listed above.`,
         },
       ],
     };
@@ -1056,6 +1191,28 @@ export class ImbibTools {
   // Additional Read Operations
   // --------------------------------------------------------------------------
 
+  private async createLibrary(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const name = String(args?.name || "");
+    if (!name) {
+      return {
+        content: [{ type: "text", text: "Error: name is required" }],
+      };
+    }
+
+    const result = await this.client.createLibrary(name);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Created library **${result.name}** (ID: ${result.id}). You can now add papers to this library using imbib_add_papers with the library parameter set to "${result.id}".`,
+        },
+      ],
+    };
+  }
+
   private async listLibraries(): Promise<{
     content: Array<{ type: string; text: string }>;
   }> {
@@ -1159,6 +1316,7 @@ export class ImbibTools {
     }
 
     const result = await this.client.addPapers(identifiers, {
+      library: args?.library as string | undefined,
       collection: args?.collection as string | undefined,
       downloadPDFs: args?.downloadPDFs as boolean | undefined,
     });
@@ -1173,7 +1331,8 @@ export class ImbibTools {
     }
 
     if (result.duplicates.length > 0) {
-      lines.push("", `## Duplicates (${result.duplicates.length})`);
+      const hasTarget = args?.library || args?.collection;
+      lines.push("", `## Already Existed (${result.duplicates.length})${hasTarget ? " — assigned to target library/collection" : ""}`);
       for (const dup of result.duplicates) {
         lines.push(`- ${dup}`);
       }
@@ -1388,6 +1547,31 @@ export class ImbibTools {
     return {
       content: [
         { type: "text", text: `Added ${result.updated} paper(s) to collection` },
+      ],
+    };
+  }
+
+  private async addToLibrary(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const libraryID = args?.libraryID as string | undefined;
+    const identifiers = args?.identifiers as string[] | undefined;
+
+    if (!libraryID) {
+      return {
+        content: [{ type: "text", text: "Error: libraryID is required" }],
+      };
+    }
+    if (!identifiers || identifiers.length === 0) {
+      return {
+        content: [{ type: "text", text: "Error: identifiers array is required" }],
+      };
+    }
+
+    const result = await this.client.addToLibrary(libraryID, identifiers);
+    return {
+      content: [
+        { type: "text", text: `Assigned ${result.assigned.length} paper(s) to library. Not found: ${result.notFound.length}` },
       ],
     };
   }

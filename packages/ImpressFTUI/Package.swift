@@ -1,14 +1,14 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "ImpressFTUI",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "ImpressFTUI", targets: ["ImpressFTUI"])
     ],
     targets: [
-        .target(name: "ImpressFTUI"),
-        .testTarget(name: "ImpressFTUITests", dependencies: ["ImpressFTUI"])
+        .target(name: "ImpressFTUI", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "ImpressFTUITests", dependencies: ["ImpressFTUI"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

@@ -42,7 +42,7 @@ struct IOSContentView: View {
     @State private var showGlobalSearch = false
 
     // Active detail tab (for search context)
-    @State private var activeDetailTab: IOSDetailTab = .info
+    @State private var activeDetailTab: DetailTab = .info
 
     // PDF search query (passed to PDF tab when searching in PDF context)
     @State private var pendingPDFSearchQuery: String?
@@ -119,7 +119,7 @@ struct IOSContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .detailTabDidChange)) { notification in
                 if let tabRawValue = notification.userInfo?["tab"] as? String,
-                   let tab = IOSDetailTab(rawValue: tabRawValue) {
+                   let tab = DetailTab(rawValue: tabRawValue) {
                     activeDetailTab = tab
                 }
             }

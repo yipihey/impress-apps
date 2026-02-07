@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>EmailAccountDescription</key>
+            <string>impress (local)</string>
+            <key>EmailAccountName</key>
+            <string>PI</string>
+            <key>EmailAccountType</key>
+            <string>EmailTypeIMAP</string>
+            <key>EmailAddress</key>
+            <string>PI@impress.local</string>
+            <key>IncomingMailServerAuthentication</key>
+            <string>EmailAuthPassword</string>
+            <key>IncomingMailServerHostName</key>
+            <string>localhost</string>
+            <key>IncomingMailServerPortNumber</key>
+            <integer>1143</integer>
+            <key>IncomingMailServerUseSSL</key>
+            <true/>
+            <key>IncomingMailServerUsername</key>
+            <string>PI</string>
+            <key>IncomingPassword</key>
+            <string>impress</string>
+            <key>OutgoingMailServerAuthentication</key>
+            <string>EmailAuthPassword</string>
+            <key>OutgoingMailServerHostName</key>
+            <string>localhost</string>
+            <key>OutgoingMailServerPortNumber</key>
+            <integer>2525</integer>
+            <key>OutgoingMailServerUseSSL</key>
+            <true/>
+            <key>OutgoingMailServerUsername</key>
+            <string>PI</string>
+            <key>OutgoingPasswordSameAsIncomingPassword</key>
+            <true/>
+            <key>PayloadDescription</key>
+            <string>PI@impress.local — your local research identity for emailing counsel@impress.local</string>
+            <key>PayloadDisplayName</key>
+            <string>impress Local Mail</string>
+            <key>PayloadIdentifier</key>
+            <string>com.impress.impel.mail.account</string>
+            <key>PayloadType</key>
+            <string>com.apple.mail.managed</string>
+            <key>PayloadUUID</key>
+            <string>A1B2C3D4-E5F6-7890-ABCD-EF1234567890</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>Sets up PI@impress.local so you can email counsel@impress.local — the impel agent assistant running on your machine.</string>
+    <key>PayloadDisplayName</key>
+    <string>impress Local Mail</string>
+    <key>PayloadIdentifier</key>
+    <string>com.impress.impel.mail</string>
+    <key>PayloadOrganization</key>
+    <string>impress</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>F1E2D3C4-B5A6-9870-FEDC-BA0987654321</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>

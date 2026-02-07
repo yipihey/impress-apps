@@ -348,8 +348,9 @@ public actor EnrichmentService {
 
                 case .failure(let error):
                     failureCount += 1
-                    Logger.enrichment.debug(
-                        "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)"
+                    Logger.enrichment.warningCapture(
+                        "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)",
+                        category: "enrichment"
                     )
                 }
             }

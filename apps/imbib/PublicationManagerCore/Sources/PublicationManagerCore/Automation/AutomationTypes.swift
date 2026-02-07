@@ -207,6 +207,30 @@ public struct SearchFilters: Codable, Sendable {
     }
 }
 
+// MARK: - External Search Result
+
+/// Result from searching external sources (ADS, arXiv, Crossref, etc.).
+/// Contains identifiers that can be passed to `addPapers()`.
+public struct ExternalSearchResult: Codable, Sendable {
+    public let title: String
+    public let authors: [String]
+    public let year: Int?
+    public let venue: String
+    public let abstract: String
+    public let sourceID: String
+    public let doi: String?
+    public let arxivID: String?
+    public let bibcode: String?
+
+    /// The best identifier to use with `addPapers()`.
+    public var bestIdentifier: String {
+        if let doi = doi, !doi.isEmpty { return doi }
+        if let arxiv = arxivID, !arxiv.isEmpty { return arxiv }
+        if let bib = bibcode, !bib.isEmpty { return bib }
+        return title
+    }
+}
+
 // MARK: - Paper Result
 
 /// Complete serializable representation of a paper.
@@ -382,6 +406,11 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
 // MARK: - Operation Results
 
 /// Result of adding papers to the library.
+public struct AddToContainerResult: Codable, Sendable {
+    public let assigned: [String]  // Identifiers that were assigned
+    public let notFound: [String]  // Identifiers not found in library
+}
+
 public struct AddPapersResult: Codable, Sendable {
     public let added: [PaperResult]
     public let duplicates: [String]  // Identifiers that matched existing papers

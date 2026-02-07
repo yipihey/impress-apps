@@ -21,15 +21,6 @@ extension Notification.Name {
     static let pdfImportedFromBrowser = Notification.Name("pdfImportedFromBrowser")
 }
 
-// MARK: - Unified Detail Tab
-
-enum DetailTab: String, CaseIterable {
-    case info
-    case pdf
-    case notes
-    case bibtex
-}
-
 // MARK: - Unified Detail View
 
 /// A unified detail view that works with any PaperRepresentable.
@@ -130,11 +121,13 @@ struct DetailView: View {
         // This prevents SwiftUI from doing expensive diffing when switching papers.
         let pubID = publication?.id
 
-        // Tab content with toolbar in proper position (Apple Mail style)
-        // Use VStack for reliable layout - toolbar at top, content below
+        // Inline toolbar + tab content in VStack.
+        // Note: window .toolbar {} cannot be used here because DetailView lives inside
+        // HSplitView with .id() modifiers — toolbar items duplicate on view recreation.
         return VStack(spacing: 0) {
+            #if os(macOS)
             detailToolbar
-            Divider()
+            #endif
 
             Group {
                 switch selectedTab {
@@ -225,8 +218,6 @@ struct DetailView: View {
                 dropRefreshID = UUID()
             }
         ))
-        // Update PDF tab when files are dropped
-        .id(dropRefreshID)
     }
 
     // MARK: - Auto-Mark as Read
@@ -293,150 +284,29 @@ struct DetailView: View {
         return subtitle
     }
 
-    // MARK: - macOS Toolbar Content
+    // MARK: - Inline Toolbar (Liquid Glass)
 
     #if os(macOS)
-    /// Tab picker and action buttons for the macOS window toolbar
-    @ViewBuilder
-    private var tabPickerToolbarContent: some View {
-        // Tab Picker (no background - buttons appear directly on toolbar)
-        HStack(spacing: 2) {
-            tabButton(tab: .info, label: "Info", icon: "info.circle")
-            tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
-            if canEdit {
-                tabButton(tab: .notes, label: "Notes", icon: "note.text")
-            }
-            tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
-        }
-
-        Spacer()
-
-        // Action buttons (compact, smaller icons)
-        HStack(spacing: 6) {
-            // Copy BibTeX
-            Button {
-                copyBibTeX()
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .help("Copy BibTeX to clipboard")
-
-            // Open in Browser
-            if let webURL = publication?.webURLObject {
-                Link(destination: webURL) {
-                    Image(systemName: "link")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help("Open paper's web page")
-            }
-
-            // Share menu
-            if let pub = publication {
-                Menu {
-                    // Native ShareLink for AirDrop, Messages, etc.
-                    ShareLink(
-                        item: ShareablePublication(from: pub),
-                        preview: SharePreview(
-                            pub.title ?? "Paper",
-                            image: Image(systemName: "doc.text")
-                        )
-                    ) {
-                        Label("Share Paper...", systemImage: "square.and.arrow.up")
-                    }
-
-                    ShareLink(
-                        item: shareText(for: pub),
-                        subject: Text(pub.title ?? "Paper"),
-                        message: Text(shareText(for: pub))
-                    ) {
-                        Label("Share Citation...", systemImage: "text.bubble")
-                    }
-
-                    Divider()
-
-                    Button {
-                        copyBibTeX()
-                    } label: {
-                        Label("Copy BibTeX", systemImage: "doc.on.doc")
-                    }
-
-                    Button {
-                        copyLink(for: pub)
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
-
-                    Divider()
-
-                    Button {
-                        shareViaEmail(pub)
-                    } label: {
-                        Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .menuStyle(.borderlessButton)
-                .controlSize(.small)
-                .help("Share options")
-            }
-
-            // Pop-out button - opens current tab in separate window
-            if let pub = publication {
-                Divider()
-                    .frame(height: 16)
-
-                Button {
-                    openInSeparateWindow(pub)
-                } label: {
-                    Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
-                          ? "rectangle.portrait.on.rectangle.portrait.angled"
-                          : "uiwindow.split.2x1")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
-                      ? "Open \(selectedTab.rawValue) on secondary display"
-                      : "Open \(selectedTab.rawValue) in new window")
-            }
-        }
-    }
-
-    /// Open the current tab in a separate window
-    private func openInSeparateWindow(_ publication: CDPublication) {
-        let detachedTab: DetachedTab
-        switch selectedTab {
-        case .info: detachedTab = .info
-        case .bibtex: detachedTab = .bibtex
-        case .pdf: detachedTab = .pdf
-        case .notes: detachedTab = .notes
-        }
-
-        DetailWindowController.shared.openTab(detachedTab, for: publication, library: libraryManager.activeLibrary)
-    }
-    #endif
-
-    // MARK: - Inline Toolbar
-
-    /// Compact toolbar at the top of the detail view (both platforms)
+    /// Inline toolbar with Liquid Glass segmented picker and action buttons.
+    /// Uses an inline view rather than window .toolbar {} because DetailView
+    /// lives inside HSplitView with .id() modifiers — window toolbar items
+    /// duplicate on each view recreation.
     private var detailToolbar: some View {
         HStack(spacing: 8) {
-            // Tab Picker (no background - buttons appear directly)
-            HStack(spacing: 2) {
-                tabButton(tab: .info, label: "Info", icon: "info.circle")
-                tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
-                if canEdit {
-                    tabButton(tab: .notes, label: "Notes", icon: "note.text")
+            // Segmented tab picker with Liquid Glass
+            Picker("Tab", selection: $selectedTab) {
+                ForEach(availableTabs, id: \.self) { tab in
+                    Label(tab.label, systemImage: tab.icon).tag(tab)
                 }
-                tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
             }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .focusable(false)
+            .focusEffectDisabled()
 
             Spacer()
 
-            // Action buttons (compact, smaller icons)
+            // Action buttons
             HStack(spacing: 6) {
                 // Copy BibTeX
                 Button {
@@ -460,59 +330,10 @@ struct DetailView: View {
 
                 // Share menu
                 if let pub = publication {
-                    Menu {
-                        // Native ShareLink for AirDrop, Messages, etc.
-                        ShareLink(
-                            item: ShareablePublication(from: pub),
-                            preview: SharePreview(
-                                pub.title ?? "Paper",
-                                image: Image(systemName: "doc.text")
-                            )
-                        ) {
-                            Label("Share Paper...", systemImage: "square.and.arrow.up")
-                        }
-
-                        ShareLink(
-                            item: shareText(for: pub),
-                            subject: Text(pub.title ?? "Paper"),
-                            message: Text(shareText(for: pub))
-                        ) {
-                            Label("Share Citation...", systemImage: "text.bubble")
-                        }
-
-                        Divider()
-
-                        Button {
-                            copyBibTeX()
-                        } label: {
-                            Label("Copy BibTeX", systemImage: "doc.on.doc")
-                        }
-
-                        Button {
-                            copyLink(for: pub)
-                        } label: {
-                            Label("Copy Link", systemImage: "link")
-                        }
-
-                        #if os(macOS)
-                        Divider()
-
-                        Button {
-                            shareViaEmail(pub)
-                        } label: {
-                            Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
-                        }
-                        #endif
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .controlSize(.small)
-                    .help("Share options")
+                    shareMenu(for: pub)
                 }
 
-                #if os(macOS)
-                // Pop-out button - opens current tab in separate window
+                // Pop-out button
                 if let pub = publication {
                     Divider()
                         .frame(height: 16)
@@ -530,45 +351,81 @@ struct DetailView: View {
                           ? "Open \(selectedTab.rawValue) on secondary display"
                           : "Open \(selectedTab.rawValue) in new window")
                 }
-                #endif
             }
         }
+        .focusable(false)
+        .focusEffectDisabled()
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        // No explicit background - matches list view toolbar styling
+        .padding(.vertical, 6)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
     }
 
-    /// Individual tab button for the compact tab picker
-    private func tabButton(tab: DetailTab, label: String, icon: String) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            Label(label, systemImage: icon)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
-                .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
+    /// Available tabs based on editing capability
+    private var availableTabs: [DetailTab] {
+        canEdit ? DetailTab.allCases : [.info, .pdf, .bibtex]
     }
 
-    // MARK: - Window Toolbar (for multi-selection mode only)
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Only show window toolbar items in multi-selection mode
-        if isMultiSelection, let onDownloadPDFs = onDownloadPDFs {
-            ToolbarItemGroup {
-                Button {
-                    onDownloadPDFs()
-                } label: {
-                    Label("Download PDFs (\(selectedPublicationIDs.count))", systemImage: "arrow.down.doc")
-                }
-                .help("Download PDFs for all selected papers")
+    /// Share menu for a publication
+    private func shareMenu(for pub: CDPublication) -> some View {
+        Menu {
+            ShareLink(
+                item: ShareablePublication(from: pub),
+                preview: SharePreview(
+                    pub.title ?? "Paper",
+                    image: Image(systemName: "doc.text")
+                )
+            ) {
+                Label("Share Paper...", systemImage: "square.and.arrow.up")
             }
+
+            ShareLink(
+                item: shareText(for: pub),
+                subject: Text(pub.title ?? "Paper"),
+                message: Text(shareText(for: pub))
+            ) {
+                Label("Share Citation...", systemImage: "text.bubble")
+            }
+
+            Divider()
+
+            Button {
+                copyBibTeX()
+            } label: {
+                Label("Copy BibTeX", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                copyLink(for: pub)
+            } label: {
+                Label("Copy Link", systemImage: "link")
+            }
+
+            Divider()
+
+            Button {
+                shareViaEmail(pub)
+            } label: {
+                Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
         }
+        .help("Share options")
     }
+
+    /// Open the current tab in a separate window
+    private func openInSeparateWindow(_ publication: CDPublication) {
+        let detachedTab: DetachedTab
+        switch selectedTab {
+        case .info: detachedTab = .info
+        case .bibtex: detachedTab = .bibtex
+        case .pdf: detachedTab = .pdf
+        case .notes: detachedTab = .notes
+        }
+
+        DetailWindowController.shared.openTab(detachedTab, for: publication, library: libraryManager.activeLibrary)
+    }
+    #endif
 
     // MARK: - Actions
 

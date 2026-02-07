@@ -1,12 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "ImpressLLM",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -20,6 +20,7 @@ let package = Package(
             name: "ImpressLLM",
             dependencies: ["impress_llmFFI"],
             path: "Sources/ImpressLLM",
+            swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 // Required by Rust's system-configuration crate (used by reqwest for proxy config)
                 .linkedFramework("SystemConfiguration"),

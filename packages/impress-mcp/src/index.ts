@@ -40,6 +40,9 @@ import {
   ArtifactResolverBridge,
 } from "./bridges/index.js";
 
+// On-demand app launcher
+import { appForTool, ensureAppRunning, isConnectionError } from "./app-launcher.js";
+
 // Configuration
 const IMBIB_PORT = Number(process.env.IMBIB_PORT) || 23120;
 const IMPRINT_PORT = Number(process.env.IMPRINT_PORT) || 23121;
@@ -263,60 +266,77 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
+// Dispatch a tool call to the appropriate handler.
+async function dispatchTool(
+  name: string,
+  args: Record<string, unknown> | undefined
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  // imbib tools
+  if (name.startsWith("imbib_")) {
+    return await imbibTools.handleTool(name, args);
+  }
+
+  // impart tools
+  if (name.startsWith("impart_")) {
+    return await impartTools.handleTool(name, args);
+  }
+
+  // imprint tools
+  if (name.startsWith("imprint_")) {
+    return await imprintTools.handleTool(name, args);
+  }
+
+  // impel tools
+  if (name.startsWith("impel_")) {
+    return await impelTools.handleTool(name, args);
+  }
+
+  // Cross-app bridge tools
+  if (name.startsWith("impress_cite")) {
+    return await citationBridge.handleTool(name, args);
+  }
+  if (name.startsWith("impress_conversation") || name === "impress_export_conversation_citations") {
+    return await conversationManuscriptBridge.handleTool(name, args);
+  }
+  if (name.startsWith("impress_resolve") || name === "impress_list_artifacts") {
+    return await artifactResolverBridge.handleTool(name, args);
+  }
+
+  return {
+    content: [{ type: "text", text: `Unknown tool: ${name}` }],
+    isError: true,
+  };
+}
+
+// Handle tool calls — with on-demand app launching on connection failure.
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    // imbib tools
-    if (name.startsWith("imbib_")) {
-      return await imbibTools.handleTool(name, args);
-    }
-
-    // impart tools
-    if (name.startsWith("impart_")) {
-      return await impartTools.handleTool(name, args);
-    }
-
-    // imprint tools
-    if (name.startsWith("imprint_")) {
-      return await imprintTools.handleTool(name, args);
-    }
-
-    // impel tools
-    if (name.startsWith("impel_")) {
-      return await impelTools.handleTool(name, args);
-    }
-
-    // Cross-app bridge tools
-    if (name.startsWith("impress_cite")) {
-      return await citationBridge.handleTool(name, args);
-    }
-    if (name.startsWith("impress_conversation") || name === "impress_export_conversation_citations") {
-      return await conversationManuscriptBridge.handleTool(name, args);
-    }
-    if (name.startsWith("impress_resolve") || name === "impress_list_artifacts") {
-      return await artifactResolverBridge.handleTool(name, args);
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Unknown tool: ${name}`,
-        },
-      ],
-      isError: true,
-    };
+    return await dispatchTool(name, args);
   } catch (error) {
+    // If the app isn't running, try to launch it and retry once
+    if (isConnectionError(error)) {
+      const app = appForTool(name);
+      if (app) {
+        const launched = await ensureAppRunning(app);
+        if (launched) {
+          try {
+            return await dispatchTool(name, args);
+          } catch (retryError) {
+            const msg = retryError instanceof Error ? retryError.message : String(retryError);
+            return {
+              content: [{ type: "text", text: `Error executing ${name} (after launching ${app}): ${msg}` }],
+              isError: true,
+            };
+          }
+        }
+      }
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     return {
-      content: [
-        {
-          type: "text",
-          text: `Error executing ${name}: ${message}`,
-        },
-      ],
+      content: [{ type: "text", text: `Error executing ${name}: ${message}` }],
       isError: true,
     };
   }

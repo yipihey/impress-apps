@@ -113,6 +113,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSearch(request)
         }
 
+        if path == "/api/search/external" {
+            return await handleSearchExternal(request)
+        }
+
         // GET /api/papers/{citeKey}/comments
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/comments") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/comments".count))
@@ -221,8 +225,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleAddPapers(request)
         }
 
+        if path == "/api/libraries" {
+            return await handleCreateLibrary(request)
+        }
+
         if path == "/api/collections" {
             return await handleCreateCollection(request)
+        }
+
+        if path == "/api/libraries/add-papers" {
+            return await handleAddToLibrary(request)
+        }
+
+        if path == "/api/collections/add-papers" {
+            return await handleAddToCollection(request)
         }
 
         if path == "/api/papers/download-pdfs" {
@@ -442,6 +458,51 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
+    /// GET /api/search/external?q=...&source=...&limit=...
+    /// Search external sources (ADS, arXiv, Crossref, etc.) for papers.
+    private func handleSearchExternal(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let query = request.queryParams["q"], !query.isEmpty else {
+            return .badRequest("Missing required 'q' parameter")
+        }
+        let source = request.queryParams["source"]
+        let limit = request.queryParams["limit"].flatMap { Int($0) } ?? 20
+
+        do {
+            let results = try await automationService.searchExternal(query: query, source: source, maxResults: limit)
+
+            let resultDicts: [[String: Any]] = results.map { r in
+                var dict: [String: Any] = [
+                    "title": r.title,
+                    "authors": r.authors,
+                    "venue": r.venue,
+                    "abstract": r.abstract,
+                    "sourceID": r.sourceID,
+                    "identifier": r.bestIdentifier,
+                ]
+                if let year = r.year { dict["year"] = year }
+                if let doi = r.doi { dict["doi"] = doi }
+                if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
+                if let bib = r.bibcode { dict["bibcode"] = bib }
+                return dict
+            }
+
+            let response: [String: Any] = [
+                "status": "ok",
+                "query": query,
+                "source": source ?? "all",
+                "count": results.count,
+                "results": resultDicts
+            ]
+
+            return .json(response)
+
+        } catch AutomationOperationError.unauthorized {
+            return .forbidden("Automation API is disabled")
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
     /// GET /api/papers/{citeKey}
     /// Get a single paper by cite key.
     private func handleGetPaper(citeKey: String) async -> HTTPResponse {
@@ -612,6 +673,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 // GET endpoints
                 "GET /api/status": "Server health and library statistics",
                 "GET /api/search?q=...": "Search library (params: q, limit, offset, tag, flag, read, collection, library, addedAfter, addedBefore)",
+                "GET /api/search/external?q=...": "Search external sources like ADS, arXiv, Crossref (params: q, source, limit)",
                 "GET /api/papers/{citeKey}": "Get paper by cite key",
                 "GET /api/export?keys=...": "Export BibTeX (params: keys, format)",
                 "GET /api/collections": "List all collections",
@@ -631,6 +693,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/papers/{citeKey}/notes": "Get notes for a paper",
                 // POST endpoints
                 "POST /api/papers/add": "Add papers by identifier (body: identifiers, collection?, library?, downloadPDFs?)",
+                "POST /api/libraries/add-papers": "Add existing papers to a library (body: libraryID, identifiers)",
+                "POST /api/collections/add-papers": "Add existing papers to a collection (body: collectionID, identifiers)",
                 "POST /api/collections": "Create a collection (body: name, libraryID?, isSmartCollection?, predicate?)",
                 "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers)",
                 "POST /api/papers/{citeKey}/comments": "Add comment to paper (body: text, parentCommentID?)",
@@ -694,6 +758,33 @@ public actor HTTPAutomationRouter: HTTPRouter {
     }
 
     /// POST /api/collections
+    /// POST /api/libraries
+    private func handleCreateLibrary(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let name = json["name"] as? String, !name.isEmpty else {
+            return .badRequest("Missing 'name' field")
+        }
+
+        do {
+            let library = try await automationService.createLibrary(name: name)
+            let response: [String: Any] = [
+                "status": "ok",
+                "library": [
+                    "id": library.id.uuidString,
+                    "name": library.name,
+                    "paperCount": library.paperCount,
+                    "collectionCount": library.collectionCount,
+                    "isDefault": library.isDefault
+                ]
+            ]
+            return .json(response, status: 201)
+        } catch {
+            return mapError(error)
+        }
+    }
+
     private func handleCreateCollection(_ request: HTTPRequest) async -> HTTPResponse {
         guard let json = parseJSONBody(request) else {
             return .badRequest("Invalid JSON body")
@@ -726,6 +817,62 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 ]
             ]
             return .json(response, status: 201)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/libraries/add-papers
+    private func handleAddToLibrary(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let libraryIDStr = json["libraryID"] as? String,
+              let libraryID = UUID(uuidString: libraryIDStr) else {
+            return .badRequest("Missing or invalid 'libraryID' field")
+        }
+        guard let identifiers = parseIdentifiers(json) else {
+            return .badRequest("Missing or invalid 'identifiers' array")
+        }
+
+        do {
+            let result = try await automationService.addPapersToLibrary(
+                identifiers: identifiers,
+                libraryID: libraryID
+            )
+            return .json([
+                "status": "ok",
+                "assigned": result.assigned,
+                "notFound": result.notFound
+            ])
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/collections/add-papers
+    private func handleAddToCollection(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let collectionIDStr = json["collectionID"] as? String,
+              let collectionID = UUID(uuidString: collectionIDStr) else {
+            return .badRequest("Missing or invalid 'collectionID' field")
+        }
+        guard let identifiers = parseIdentifiers(json) else {
+            return .badRequest("Missing or invalid 'identifiers' array")
+        }
+
+        do {
+            let result = try await automationService.addPapersToCollection(
+                identifiers: identifiers,
+                collectionID: collectionID
+            )
+            return .json([
+                "status": "ok",
+                "assigned": result.assigned,
+                "notFound": result.notFound
+            ])
         } catch {
             return mapError(error)
         }

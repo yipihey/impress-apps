@@ -9,6 +9,30 @@ import Foundation
 import CoreData
 import OSLog
 
+/// Options controlling what content is included when sharing a library or collection.
+public struct ShareOptions: Equatable, Sendable, Codable {
+    public var includeNotes: Bool
+    public var includePDFs: Bool
+    public var includeFlags: Bool
+    public var includeTags: Bool
+
+    public init(
+        includeNotes: Bool = true,
+        includePDFs: Bool = false,
+        includeFlags: Bool = true,
+        includeTags: Bool = true
+    ) {
+        self.includeNotes = includeNotes
+        self.includePDFs = includePDFs
+        self.includeFlags = includeFlags
+        self.includeTags = includeTags
+    }
+
+    public static let `default` = ShareOptions()
+    public static let all = ShareOptions(includeNotes: true, includePDFs: true, includeFlags: true, includeTags: true)
+    public static let minimal = ShareOptions(includeNotes: false, includePDFs: false, includeFlags: false, includeTags: false)
+}
+
 /// Deep-copies library or collection content into a new CDLibrary in the shared store.
 ///
 /// CloudKit's `NSPersistentCloudKitContainer.share(_:to:)` moves objects to the shared zone,
@@ -34,7 +58,8 @@ public actor SharedLibraryCopyService {
     /// - Returns: The new CDLibrary in the shared store
     public func copyLibraryToSharedStore(
         _ library: CDLibrary,
-        context: NSManagedObjectContext
+        context: NSManagedObjectContext,
+        options: ShareOptions = .default
     ) throws -> CDLibrary {
         guard let sharedStore = PersistenceController.shared.sharedStore else {
             throw SharedLibraryCopyError.sharedStoreUnavailable
@@ -65,7 +90,8 @@ public actor SharedLibraryCopyService {
                     parent: nil,
                     context: context,
                     sharedStore: sharedStore,
-                    publicationMap: &publicationMap
+                    publicationMap: &publicationMap,
+                    options: options
                 )
             }
 
@@ -73,7 +99,7 @@ public actor SharedLibraryCopyService {
             let collectionPubIDs = Set(publicationMap.keys)
             for publication in library.publications ?? [] {
                 if !collectionPubIDs.contains(publication.id) {
-                    let copied = copyPublication(publication, context: context, sharedStore: sharedStore)
+                    let copied = copyPublication(publication, context: context, sharedStore: sharedStore, options: options)
                     copied.addToLibrary(targetLibrary)
                     publicationMap[publication.id] = copied
                 }
@@ -91,10 +117,12 @@ public actor SharedLibraryCopyService {
     /// - Parameters:
     ///   - collection: The source collection to copy
     ///   - context: The managed object context to use
+    ///   - options: What content to include in the shared copy
     /// - Returns: The new CDLibrary wrapper in the shared store
     public func copyCollectionToSharedStore(
         _ collection: CDCollection,
-        context: NSManagedObjectContext
+        context: NSManagedObjectContext,
+        options: ShareOptions = .default
     ) throws -> CDLibrary {
         guard let sharedStore = PersistenceController.shared.sharedStore else {
             throw SharedLibraryCopyError.sharedStoreUnavailable
@@ -122,7 +150,8 @@ public actor SharedLibraryCopyService {
                 parent: nil,
                 context: context,
                 sharedStore: sharedStore,
-                publicationMap: &publicationMap
+                publicationMap: &publicationMap,
+                options: options
             )
 
             try context.save()
@@ -137,10 +166,12 @@ public actor SharedLibraryCopyService {
     /// - Parameters:
     ///   - sharedLibrary: The shared library to privatize
     ///   - context: The managed object context to use
+    ///   - options: What content to include (defaults to all for privatization)
     /// - Returns: The new CDLibrary in the private store
     public func copyToPrivateStore(
         _ sharedLibrary: CDLibrary,
-        context: NSManagedObjectContext
+        context: NSManagedObjectContext,
+        options: ShareOptions = .all
     ) throws -> CDLibrary {
         guard let privateStore = PersistenceController.shared.privateStore else {
             throw SharedLibraryCopyError.privateStoreUnavailable
@@ -169,14 +200,15 @@ public actor SharedLibraryCopyService {
                     parent: nil,
                     context: context,
                     sharedStore: privateStore,
-                    publicationMap: &publicationMap
+                    publicationMap: &publicationMap,
+                    options: options
                 )
             }
 
             let collectionPubIDs = Set(publicationMap.keys)
             for publication in sharedLibrary.publications ?? [] {
                 if !collectionPubIDs.contains(publication.id) {
-                    let copied = copyPublication(publication, context: context, sharedStore: privateStore)
+                    let copied = copyPublication(publication, context: context, sharedStore: privateStore, options: options)
                     copied.addToLibrary(targetLibrary)
                     publicationMap[publication.id] = copied
                 }
@@ -196,7 +228,8 @@ public actor SharedLibraryCopyService {
         parent: CDCollection?,
         context: NSManagedObjectContext,
         sharedStore: NSPersistentStore,
-        publicationMap: inout [UUID: CDPublication]
+        publicationMap: inout [UUID: CDPublication],
+        options: ShareOptions
     ) {
         let newCollection = CDCollection(context: context)
         context.assign(newCollection, to: sharedStore)
@@ -218,7 +251,7 @@ public actor SharedLibraryCopyService {
                 // Already copied this publication (shared across collections)
                 copied = existing
             } else {
-                copied = copyPublication(publication, context: context, sharedStore: sharedStore)
+                copied = copyPublication(publication, context: context, sharedStore: sharedStore, options: options)
                 copied.addToLibrary(targetLibrary)
                 publicationMap[publication.id] = copied
             }
@@ -237,7 +270,8 @@ public actor SharedLibraryCopyService {
                 parent: newCollection,
                 context: context,
                 sharedStore: sharedStore,
-                publicationMap: &publicationMap
+                publicationMap: &publicationMap,
+                options: options
             )
         }
     }
@@ -245,7 +279,8 @@ public actor SharedLibraryCopyService {
     private func copyPublication(
         _ source: CDPublication,
         context: NSManagedObjectContext,
-        sharedStore: NSPersistentStore
+        sharedStore: NSPersistentStore,
+        options: ShareOptions
     ) -> CDPublication {
         let pub = CDPublication(context: context)
         context.assign(pub, to: sharedStore)
@@ -259,11 +294,19 @@ public actor SharedLibraryCopyService {
         pub.abstract = source.abstract
         pub.doi = source.doi
         pub.url = source.url
-        pub.rawBibTeX = source.rawBibTeX
-        pub.rawFields = source.rawFields
-        pub.fieldTimestamps = source.fieldTimestamps
         pub.dateAdded = source.dateAdded
         pub.dateModified = source.dateModified
+
+        // Copy rawBibTeX and rawFields, stripping notes if needed
+        if options.includeNotes {
+            pub.rawBibTeX = source.rawBibTeX
+            pub.rawFields = source.rawFields
+        } else {
+            pub.rawBibTeX = stripNotesFromBibTeX(source.rawBibTeX)
+            pub.rawFields = stripNotesFromRawFields(source.rawFields)
+        }
+
+        pub.fieldTimestamps = source.fieldTimestamps
 
         // Enrichment
         pub.citationCount = source.citationCount
@@ -286,13 +329,21 @@ public actor SharedLibraryCopyService {
         pub.arxivIDNormalized = source.arxivIDNormalized
         pub.bibcodeNormalized = source.bibcodeNormalized
 
-        // Read/star status (fresh for recipient)
+        // Read status (fresh for recipient)
         pub.isRead = false
-        pub.isStarred = false
+
+        // Flags
+        if options.includeFlags {
+            pub.isStarred = source.isStarred
+            pub.flagColor = source.flagColor
+            pub.flagStyle = source.flagStyle
+            pub.flagLength = source.flagLength
+        } else {
+            pub.isStarred = false
+        }
 
         // Copy authors
         for pubAuthor in source.sortedAuthors {
-            // Create new CDAuthor in shared store
             let newAuthor = CDAuthor(context: context)
             context.assign(newAuthor, to: sharedStore)
             newAuthor.id = UUID()
@@ -300,7 +351,6 @@ public actor SharedLibraryCopyService {
             newAuthor.givenName = pubAuthor.givenName
             newAuthor.nameSuffix = pubAuthor.nameSuffix
 
-            // Create join record
             let join = CDPublicationAuthor(context: context)
             context.assign(join, to: sharedStore)
             if let originalJoin = (source.publicationAuthors ?? []).first(where: { $0.author?.id == pubAuthor.id }) {
@@ -311,19 +361,20 @@ public actor SharedLibraryCopyService {
         }
 
         // Copy tags
-        for tag in source.tags ?? [] {
-            let newTag = CDTag(context: context)
-            context.assign(newTag, to: sharedStore)
-            newTag.id = UUID()
-            newTag.name = tag.name
-            newTag.color = tag.color
+        if options.includeTags {
+            for tag in source.tags ?? [] {
+                let newTag = CDTag(context: context)
+                context.assign(newTag, to: sharedStore)
+                newTag.id = UUID()
+                newTag.name = tag.name
+                newTag.color = tag.color
 
-            var pubTags = pub.tags ?? []
-            pubTags.insert(newTag)
-            pub.tags = pubTags
+                let tagSet = pub.mutableSetValue(forKey: "tags")
+                tagSet.add(newTag)
+            }
         }
 
-        // Copy linked file metadata (NOT binary data)
+        // Copy linked file metadata
         for file in source.linkedFiles ?? [] {
             let newFile = CDLinkedFile(context: context)
             context.assign(newFile, to: sharedStore)
@@ -336,9 +387,17 @@ public actor SharedLibraryCopyService {
             newFile.displayName = file.displayName
             newFile.fileSize = file.fileSize
             newFile.mimeType = file.mimeType
-            // Intentionally NOT copying fileData (binary PDF data)
-            newFile.pdfCloudAvailable = false
-            newFile.isLocallyMaterialized = false
+
+            // Copy binary PDF data only if requested
+            if options.includePDFs {
+                newFile.fileData = file.fileData
+                newFile.pdfCloudAvailable = file.pdfCloudAvailable
+                newFile.isLocallyMaterialized = file.isLocallyMaterialized
+            } else {
+                newFile.pdfCloudAvailable = false
+                newFile.isLocallyMaterialized = false
+            }
+
             newFile.publication = pub
 
             // Copy annotations to shared store
@@ -361,6 +420,75 @@ public actor SharedLibraryCopyService {
         }
 
         return pub
+    }
+
+    // MARK: - Notes Stripping
+
+    /// Remove `note` and `annote` fields from a rawFields JSON string.
+    private func stripNotesFromRawFields(_ rawFields: String?) -> String? {
+        guard let rawFields, !rawFields.isEmpty,
+              let data = rawFields.data(using: .utf8),
+              var dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return rawFields
+        }
+        dict.removeValue(forKey: "note")
+        dict.removeValue(forKey: "annote")
+        guard let result = try? JSONSerialization.data(withJSONObject: dict),
+              let str = String(data: result, encoding: .utf8) else {
+            return rawFields
+        }
+        return str
+    }
+
+    /// Remove `note` and `annote` fields from raw BibTeX using line-based brace-depth stripping.
+    private func stripNotesFromBibTeX(_ rawBibTeX: String?) -> String? {
+        guard let rawBibTeX, !rawBibTeX.isEmpty else { return rawBibTeX }
+
+        let noteFields: Set<String> = ["note", "annote"]
+        var result: [String] = []
+        var skipping = false
+        var braceDepth = 0
+
+        for line in rawBibTeX.components(separatedBy: .newlines) {
+            if skipping {
+                // Count braces to find where the field value ends
+                for char in line {
+                    if char == "{" { braceDepth += 1 }
+                    if char == "}" { braceDepth -= 1 }
+                }
+                if braceDepth <= 0 {
+                    skipping = false
+                    braceDepth = 0
+                }
+                continue
+            }
+
+            // Check if this line starts a note/annote field
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let isNoteField = noteFields.contains(where: { field in
+                trimmed.lowercased().hasPrefix("\(field)")
+                    && trimmed.dropFirst(field.count).first.map({ $0 == " " || $0 == "=" }) == true
+            })
+
+            if isNoteField {
+                // Start skipping; count braces on this line
+                skipping = true
+                braceDepth = 0
+                for char in line {
+                    if char == "{" { braceDepth += 1 }
+                    if char == "}" { braceDepth -= 1 }
+                }
+                if braceDepth <= 0 {
+                    skipping = false
+                    braceDepth = 0
+                }
+                continue
+            }
+
+            result.append(line)
+        }
+
+        return result.joined(separator: "\n")
     }
 }
 
