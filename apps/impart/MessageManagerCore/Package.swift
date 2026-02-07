@@ -1,12 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 
 import PackageDescription
 
 let package = Package(
     name: "MessageManagerCore",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v15),
+        .iOS(.v18)
     ],
     products: [
         .library(
@@ -42,12 +42,14 @@ let package = Package(
                 "ImpressOperationQueue"
             ],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v5)
             ]
         ),
         .testTarget(
             name: "MessageManagerCoreTests",
-            dependencies: ["MessageManagerCore"]
+            dependencies: ["MessageManagerCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )

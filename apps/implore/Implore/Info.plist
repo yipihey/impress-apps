@@ -29,5 +29,12 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>imbib</string>
+		<string>imprint</string>
+		<string>impel</string>
+		<string>impart</string>
+	</array>
 </dict>
 </plist>

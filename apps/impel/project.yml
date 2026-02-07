@@ -2,7 +2,7 @@ name: impel
 options:
   bundleIdPrefix: com.impress
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   developmentLanguage: en
@@ -23,14 +23,22 @@ settings:
 packages:
   ImpelCore:
     path: Packages/ImpelCore
+  ImpelMail:
+    path: Packages/ImpelMail
+  CounselEngine:
+    path: Packages/CounselEngine
+  ImpressAI:
+    path: ../../packages/ImpressAI
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
+  ImpressKit:
+    path: ../../packages/ImpressKit
 
 targets:
   impel:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Shared
         excludes:
@@ -38,7 +46,6 @@ targets:
       - path: macOS
         excludes:
           - "**/*.xcassets"
-    resources:
       - path: Shared/Assets.xcassets
       - path: macOS/Assets.xcassets
     settings:
@@ -52,11 +59,29 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
     dependencies:
       - package: ImpelCore
+      - package: ImpelMail
+      - package: CounselEngine
+      - package: ImpressAI
+      - package: ImpressKit
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.impress.impel
+            CFBundleURLSchemes:
+              - impel
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - implore
+          - impart
     entitlements:
       path: macOS/impel.entitlements
       properties:
-        com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.application-groups:
+          - group.com.impress.suite
 
   impelTests:
     type: bundle.unit-test

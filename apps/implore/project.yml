@@ -31,6 +31,8 @@ packages:
     path: ../../packages/ImpressAutomation
   ImpressLogging:
     path: ../../packages/ImpressLogging
+  ImpressKit:
+    path: ../../packages/ImpressKit
 
 targets:
   implore:
@@ -59,6 +61,7 @@ targets:
       - package: ImpressHelixCore
       - package: ImpressAutomation
       - package: ImpressLogging
+      - package: ImpressKit
     info:
       path: Implore/Info.plist
       properties:
@@ -66,6 +69,11 @@ targets:
           - CFBundleURLName: implore
             CFBundleURLSchemes:
               - implore
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - impel
+          - impart
     entitlements:
       path: Implore/implore.entitlements
       properties:
@@ -75,6 +83,7 @@ targets:
         com.apple.security.network.server: true
         com.apple.security.application-groups:
           - group.com.impress.shared
+          - group.com.impress.suite
 
   imploreUITests:
     type: bundle.ui-testing

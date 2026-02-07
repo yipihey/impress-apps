@@ -17,6 +17,7 @@
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.imbib.app</string>
+		<string>group.com.impress.suite</string>
 	</array>
 </dict>
 </plist>

@@ -2,8 +2,8 @@ name: imbib
 options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
-    macOS: "14.0"
-    iOS: "18.0"
+    macOS: "26.0"
+    iOS: "26.0"
   xcodeVersion: "15.0"
   generateEmptyDirectories: true
   groupSortPosition: top
@@ -51,6 +51,8 @@ packages:
     path: ../../../packages/ImpressLogging
   ImpressOperationQueue:
     path: ../../../packages/ImpressOperationQueue
+  ImpressKit:
+    path: ../../../packages/ImpressKit
 
 targets:
   # macOS App
@@ -78,6 +80,7 @@ targets:
       - package: PublicationManagerCore
       - package: ImpressHelixCore
       - package: ImpressPresence
+      - package: ImpressKit
       - target: imbib-ShareExtension
         embed: true
       - target: imbib-SafariExtension
@@ -95,6 +98,11 @@ targets:
           - CFBundleURLName: com.imbib.app.ios
             CFBundleURLSchemes:
               - imbib
+        LSApplicationQueriesSchemes:
+          - imprint
+          - implore
+          - impel
+          - impart
         UTExportedTypeDeclarations:
           - UTTypeConformsTo:
               - public.data
@@ -103,7 +111,7 @@ targets:
             UTTypeTagSpecification: {}
     settings:
       base:
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -121,8 +129,10 @@ targets:
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
         com.apple.security.network.client: true
+        com.apple.security.network.server: true
         com.apple.security.application-groups:
           - group.com.imbib.app
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.app
         com.apple.developer.icloud-services:
@@ -155,6 +165,7 @@ targets:
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressHelixCore
+      - package: ImpressKit
       - target: imbib-iOS-ShareExtension
         embed: true
       - target: imbib-iOS-SafariExtension
@@ -183,6 +194,11 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        LSApplicationQueriesSchemes:
+          - imprint
+          - implore
+          - impel
+          - impart
         UIBackgroundModes:
           - remote-notification
         UTExportedTypeDeclarations:
@@ -193,7 +209,7 @@ targets:
             UTTypeTagSpecification: {}
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -207,6 +223,7 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.app
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.app
         com.apple.developer.icloud-services:
@@ -230,7 +247,7 @@ targets:
         embed: false
     settings:
       base:
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
         PRODUCT_NAME: imbib-ShareExtension
         INFOPLIST_FILE: ShareExtension/Info.plist
@@ -262,7 +279,7 @@ targets:
         embed: false
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
         PRODUCT_NAME: imbib-iOS-ShareExtension
         INFOPLIST_FILE: imbib-iOS/ShareExtension/Info.plist
@@ -302,7 +319,7 @@ targets:
     dependencies: []
     settings:
       base:
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
@@ -344,7 +361,7 @@ targets:
     dependencies: []
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
@@ -374,7 +391,7 @@ targets:
         embed: false
     settings:
       base:
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
         PRODUCT_NAME: imbib-FileProvider
         INFOPLIST_FILE: FileProvider/Info.plist
@@ -405,7 +422,7 @@ targets:
         embed: false
     settings:
       base:
-        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
         PRODUCT_NAME: imbib-iOS-FileProvider
         INFOPLIST_FILE: imbib-iOS/FileProvider/Info.plist

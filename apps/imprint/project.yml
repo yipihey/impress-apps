@@ -43,6 +43,8 @@ packages:
     path: ../../packages/ImpressSidebar
   ImpressLogging:
     path: ../../packages/ImpressLogging
+  ImpressKit:
+    path: ../../packages/ImpressKit
 
 targets:
   imprint:
@@ -71,6 +73,19 @@ targets:
       - package: ImpressOperationQueue
       - package: ImpressSidebar
       - package: ImpressLogging
+      - package: ImpressKit
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.imprint
+            CFBundleURLSchemes:
+              - imprint
+        LSApplicationQueriesSchemes:
+          - imbib
+          - implore
+          - impel
+          - impart
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -81,6 +96,7 @@ targets:
         com.apple.security.network.server: true
         com.apple.security.application-groups:
           - group.com.imbib.shared
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.shared
         com.apple.developer.ubiquity-container-identifiers:
@@ -140,11 +156,25 @@ targets:
       - package: ImpressOperationQueue
       - package: ImpressSidebar
       - package: ImpressLogging
+      - package: ImpressKit
+    info:
+      path: imprint-iOS/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.imprint
+            CFBundleURLSchemes:
+              - imprint
+        LSApplicationQueriesSchemes:
+          - imbib
+          - implore
+          - impel
+          - impart
     entitlements:
       path: imprint-iOS/imprint-iOS.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.shared
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.shared
         com.apple.developer.ubiquity-container-identifiers:

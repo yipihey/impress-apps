@@ -31,6 +31,8 @@ packages:
     path: ../../packages/ImpressAI
   ImpressAutomation:
     path: ../../packages/ImpressAutomation
+  ImpressKit:
+    path: ../../packages/ImpressKit
 
 targets:
   impart:
@@ -54,6 +56,19 @@ targets:
       - package: ImpartRustCore
       - package: ImpressAI
       - package: ImpressAutomation
+      - package: ImpressKit
+    info:
+      path: macOS/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.impart
+            CFBundleURLSchemes:
+              - impart
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - implore
+          - impel
     entitlements:
       path: macOS/Resources/impart.entitlements
       properties:
@@ -64,6 +79,7 @@ targets:
         com.apple.security.network.server: true
         com.apple.security.application-groups:
           - group.com.imbib.shared
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.shared
         com.apple.developer.ubiquity-container-identifiers:
@@ -104,11 +120,25 @@ targets:
       - package: ImpartRustCore
       - package: ImpressAI
       - package: ImpressAutomation
+      - package: ImpressKit
+    info:
+      path: impart-iOS/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.impart
+            CFBundleURLSchemes:
+              - impart
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - implore
+          - impel
     entitlements:
       path: impart-iOS/Resources/impart-iOS.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.shared
+          - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.imbib.shared
         com.apple.developer.ubiquity-container-identifiers:

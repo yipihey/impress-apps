@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "ImploreCore",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         .library(
@@ -23,13 +23,15 @@ let package = Package(
             dependencies: ["ImploreRustCore"],
             path: "Sources/ImploreCore",
             swiftSettings: [
-                .enableUpcomingFeature("StrictConcurrency")
+                .enableUpcomingFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v5)
             ]
         ),
         .testTarget(
             name: "ImploreCoreTests",
             dependencies: ["ImploreCore"],
-            path: "Tests/ImploreCoreTests"
+            path: "Tests/ImploreCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

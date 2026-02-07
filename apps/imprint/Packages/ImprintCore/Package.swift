@@ -1,11 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "ImprintCore",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v15),
+        .iOS(.v18)
     ],
     products: [
         .library(
@@ -22,12 +22,14 @@ let package = Package(
             dependencies: [
                 .product(name: "ImprintRustCore", package: "ImprintRustCore")
             ],
-            path: "Sources/ImprintCore"
+            path: "Sources/ImprintCore",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
             name: "ImprintCoreTests",
             dependencies: ["ImprintCore"],
-            path: "Tests/ImprintCoreTests"
+            path: "Tests/ImprintCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )
