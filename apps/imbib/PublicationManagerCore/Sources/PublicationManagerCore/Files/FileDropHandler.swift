@@ -220,6 +220,7 @@ public final class FileDropHandler {
         isImporting = false
         importProgress = nil
         Logger.files.infoCapture("Drop import completed", category: "files")
+        NotificationCenter.default.post(name: .attachmentDidChange, object: publication.objectID)
     }
 
     // MARK: - Duplicate Resolution
@@ -265,6 +266,7 @@ public final class FileDropHandler {
                 isImporting = false
                 importProgress = nil
                 Logger.files.infoCapture("Drop import completed", category: "files")
+                NotificationCenter.default.post(name: .attachmentDidChange, object: pending.publication.objectID)
             }
         }
     }

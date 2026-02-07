@@ -157,8 +157,9 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
         use impress_flags::FlagQuery;
         match fq {
             FlagQuery::HasColor(c) => format!("flag:{}", c.display_name().to_lowercase()),
-            FlagQuery::HasAny => "flag:*".to_string(),
-            FlagQuery::HasNone => "-flag:*".to_string(),
+            FlagQuery::NotColor(c) => format!("-flag:{}", c.display_name().to_lowercase()),
+            FlagQuery::AnyFlag => "flag:*".to_string(),
+            FlagQuery::NoFlag => "-flag:*".to_string(),
         }
     });
 

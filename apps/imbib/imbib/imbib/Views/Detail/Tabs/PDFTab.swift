@@ -115,6 +115,12 @@ struct PDFTab: View {
                 resetAndCheckPDF()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
+            if let objectID = notification.object as? NSManagedObjectID,
+               objectID == publication?.objectID {
+                resetAndCheckPDF()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { notification in
             // Refresh dark mode setting when it changes
             Task {

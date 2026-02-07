@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -166,11 +167,23 @@ struct NotesTab: View {
         .onChange(of: publication.id) { _, _ in
             checkAndLoadPDF()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
+            if let objectID = notification.object as? NSManagedObjectID,
+               objectID == publication.objectID {
+                checkAndLoadPDF()
+            }
+        }
         // Half-page scrolling support (macOS) - scrolls the notes panel
         .halfPageScrollable()
         // Keyboard navigation: h/l for pane cycling (j/k handled centrally by ContentView)
         .focusable()
         .onKeyPress { press in
+            #if os(macOS)
+            // Don't intercept keys when a text view has focus (user is editing notes)
+            if NSApp.keyWindow?.firstResponder is NSTextView {
+                return .ignored
+            }
+            #endif
             let store = KeyboardShortcutsStore.shared
             // Cycle pane focus left (default: h)
             if store.matches(press, action: "cycleFocusLeft") {
