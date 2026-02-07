@@ -33,6 +33,10 @@ packages:
     path: ../../packages/ImpressTestKit
   ImpressKit:
     path: ../../packages/ImpressKit
+  ImpressAutomation:
+    path: ../../packages/ImpressAutomation
+  ImpressLogging:
+    path: ../../packages/ImpressLogging
 
 targets:
   impel:
@@ -63,6 +67,8 @@ targets:
       - package: CounselEngine
       - package: ImpressAI
       - package: ImpressKit
+      - package: ImpressAutomation
+      - package: ImpressLogging
       - target: impel-Widgets
         embed: true
     info:

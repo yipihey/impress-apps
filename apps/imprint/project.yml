@@ -81,6 +81,9 @@ targets:
           - CFBundleURLName: com.imbib.imprint
             CFBundleURLSchemes:
               - imprint
+        NSUserActivityTypes:
+          - com.imprint.editing-document
+          - com.imprint.viewing-document
         LSApplicationQueriesSchemes:
           - imbib
           - implore
@@ -183,6 +186,9 @@ targets:
           - CFBundleURLName: com.imbib.imprint
             CFBundleURLSchemes:
               - imprint
+        NSUserActivityTypes:
+          - com.imprint.editing-document
+          - com.imprint.viewing-document
         LSApplicationQueriesSchemes:
           - imbib
           - implore

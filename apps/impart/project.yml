@@ -66,6 +66,9 @@ targets:
           - CFBundleURLName: com.imbib.impart
             CFBundleURLSchemes:
               - impart
+        NSUserActivityTypes:
+          - com.impart.viewing-conversation
+          - com.impart.composing-message
         LSApplicationQueriesSchemes:
           - imbib
           - imprint
@@ -163,6 +166,9 @@ targets:
           - CFBundleURLName: com.imbib.impart
             CFBundleURLSchemes:
               - impart
+        NSUserActivityTypes:
+          - com.impart.viewing-conversation
+          - com.impart.composing-message
         LSApplicationQueriesSchemes:
           - imbib
           - imprint

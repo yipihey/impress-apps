@@ -18,6 +18,14 @@ struct ImpelApp: App {
     @StateObject private var mailGatewayState = MailGatewayState()
     @State private var navigateToTab: DashboardTab?
 
+    init() {
+        // Register default settings (HTTP automation enabled by default for MCP)
+        UserDefaults.standard.register(defaults: [
+            "httpAutomationEnabled": true,
+            "httpAutomationPort": 23124
+        ])
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(navigateToTab: $navigateToTab)
@@ -27,6 +35,12 @@ struct ImpelApp: App {
                     handleURL(url)
                 }
                 .task {
+                    // Wire client reference for HTTP router
+                    ImpelHTTPRouterState.shared.client = client
+
+                    // Start HTTP automation server
+                    await ImpelHTTPServer.shared.start()
+
                     // Load mock data for development
                     await client.loadMockData()
 

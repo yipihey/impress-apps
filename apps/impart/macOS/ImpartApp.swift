@@ -144,44 +144,30 @@ struct ImpartApp: App {
     }
 
     private func handleURL(_ url: URL) {
-        guard url.scheme == "impart" else { return }
+        guard let parsed = ImpressURL.parse(url), parsed.app == .impart else { return }
 
-        switch url.host {
+        switch parsed.action {
         case "compose":
-            handleComposeURL(url)
+            // impart://compose?to=email&subject=...&body=...
+            NotificationCenter.default.post(
+                name: .composeMessage,
+                object: nil,
+                userInfo: parsed.parameters as [String: Any]
+            )
+
         case "message":
-            handleMessageURL(url)
+            // impart://message?id=...
+            if let messageId = parsed.parameters["id"] {
+                NotificationCenter.default.post(
+                    name: .showMessage,
+                    object: nil,
+                    userInfo: ["messageId": messageId]
+                )
+            }
+
         default:
             break
         }
-    }
-
-    /// Handle impart://compose?to=email&subject=...
-    private func handleComposeURL(_ url: URL) {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = components.queryItems else { return }
-
-        var userInfo: [String: Any] = [:]
-        for item in queryItems {
-            if let value = item.value {
-                userInfo[item.name] = value
-            }
-        }
-
-        NotificationCenter.default.post(name: .composeMessage, object: nil, userInfo: userInfo)
-    }
-
-    /// Handle impart://message?id=...
-    private func handleMessageURL(_ url: URL) {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = components.queryItems,
-              let messageId = queryItems.first(where: { $0.name == "id" })?.value else { return }
-
-        NotificationCenter.default.post(
-            name: .showMessage,
-            object: nil,
-            userInfo: ["messageId": messageId]
-        )
     }
 }
 

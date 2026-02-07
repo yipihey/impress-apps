@@ -100,6 +100,9 @@ targets:
           - CFBundleURLName: com.imbib.app.ios
             CFBundleURLSchemes:
               - imbib
+        NSUserActivityTypes:
+          - com.imbib.viewing-publication
+          - com.imbib.reading-pdf
         LSApplicationQueriesSchemes:
           - imprint
           - implore
@@ -215,6 +218,9 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        NSUserActivityTypes:
+          - com.imbib.viewing-publication
+          - com.imbib.reading-pdf
         LSApplicationQueriesSchemes:
           - imprint
           - implore
