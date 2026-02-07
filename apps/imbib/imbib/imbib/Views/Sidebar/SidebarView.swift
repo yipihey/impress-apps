@@ -730,8 +730,11 @@ struct SidebarView: View {
             state.refreshFlagCounts(libraries: libraryManager.libraries)
             state.observeFlagChanges { [libraryManager] in libraryManager.libraries }
 
-            // Check for ADS API key (SciX uses ADS API) and load libraries if available
-            if let _ = await CredentialManager.shared.apiKey(for: "ads") {
+            // Check for ADS/SciX API key and load libraries if available
+            // SciX libraries use the ADS API, but the token may be stored under either "ads" or "scix"
+            let adsKey = await CredentialManager.shared.apiKey(for: "ads")
+            let scixKey = await CredentialManager.shared.apiKey(for: "scix")
+            if adsKey != nil || scixKey != nil {
                 state.hasSciXAPIKey = true
                 // Load cached libraries from Core Data
                 scixRepository.loadLibraries()

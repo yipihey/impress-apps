@@ -39,13 +39,15 @@ public actor SciXLibraryService {
     // MARK: - API Key
 
     /// Get the API key from CredentialManager
-    /// Uses the same "ads" key as ADSSource since SciX uses the ADS API
+    /// Checks "ads" first, falls back to "scix" — both use the same ADS API
     private func getAPIKey() async throws -> String {
-        let key = await CredentialManager.shared.apiKey(for: "ads")
-        guard let apiKey = key, !apiKey.isEmpty else {
-            throw SciXLibraryError.noAPIKey
+        if let key = await CredentialManager.shared.apiKey(for: "ads"), !key.isEmpty {
+            return key
         }
-        return apiKey
+        if let key = await CredentialManager.shared.apiKey(for: "scix"), !key.isEmpty {
+            return key
+        }
+        throw SciXLibraryError.noAPIKey
     }
 
     // MARK: - Rate Limiting

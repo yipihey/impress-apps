@@ -8,18 +8,18 @@
 import Foundation
 import OSLog
 
-// MARK: - SciX Source (NASA ADS)
+// MARK: - NASA ADS Source
 
-/// Source plugin for SciX (Science Explorer) - formerly NASA ADS.
-/// Requires API key from https://scixplorer.org or https://ui.adsabs.harvard.edu/user/settings/token
+/// Source plugin for NASA ADS (Astrophysics Data System).
+/// Requires API key from https://ui.adsabs.harvard.edu/user/settings/token
 public actor ADSSource: SourcePlugin {
 
     // MARK: - Properties
 
     public nonisolated let metadata = SourceMetadata(
         id: "ads",
-        name: "SciX",
-        description: "Science Explorer - Astronomy, Earth, planetary, and space sciences",
+        name: "NASA ADS",
+        description: "Astrophysics Data System - astronomy, physics, and space sciences",
         rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1),  // 5/sec burst (5000/day total)
         credentialRequirement: .apiKey,
         registrationURL: URL(string: "https://ui.adsabs.harvard.edu/user/settings/token"),
