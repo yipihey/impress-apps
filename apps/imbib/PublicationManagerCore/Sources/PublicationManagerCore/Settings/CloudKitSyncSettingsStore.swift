@@ -31,6 +31,8 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         static let lastSyncDate = "cloudKit.sync.lastSyncDate"
         static let pendingReset = "cloudKit.sync.pendingReset"
         static let featureFlags = "cloudKit.sync.featureFlags"
+        static let syncLifecycleState = "cloudKit.sync.lifecycleState"
+        static let lastResetDate = "cloudKit.sync.lastResetDate"
     }
 
     // MARK: - Properties
@@ -127,6 +129,51 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         }
     }
 
+    // MARK: - Sync Lifecycle State Machine
+
+    /// Current sync lifecycle state.
+    ///
+    /// Guards sync startup so it only happens from `ready` or `disabled` states.
+    /// During a reset, the state progresses: `disabled → resetting → purging → ready → enabled`.
+    public var syncLifecycleState: SyncLifecycleState {
+        get {
+            guard let raw = defaults.string(forKey: Keys.syncLifecycleState),
+                  let state = SyncLifecycleState(rawValue: raw) else {
+                return .enabled  // Default: normal operation
+            }
+            return state
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.syncLifecycleState)
+            Logger.settings.info("Sync lifecycle: \(newValue.rawValue)")
+        }
+    }
+
+    /// Date of the last reset (for crash recovery).
+    ///
+    /// If `syncLifecycleState` is `resetting` or `purging` on launch and this date is recent,
+    /// the reset was interrupted by a crash and should be resumed.
+    public var lastResetDate: Date? {
+        get { defaults.object(forKey: Keys.lastResetDate) as? Date }
+        set {
+            if let date = newValue {
+                defaults.set(date, forKey: Keys.lastResetDate)
+            } else {
+                defaults.removeObject(forKey: Keys.lastResetDate)
+            }
+        }
+    }
+
+    /// Whether sync can be safely started in the current lifecycle state.
+    public var canStartSync: Bool {
+        switch syncLifecycleState {
+        case .enabled, .ready, .disabled:
+            return true
+        case .resetting, .purging:
+            return false
+        }
+    }
+
     // MARK: - Reset
 
     /// Resets all CloudKit sync settings to defaults.
@@ -136,6 +183,8 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         defaults.removeObject(forKey: Keys.lastSyncDate)
         defaults.removeObject(forKey: Keys.pendingReset)
         defaults.removeObject(forKey: Keys.featureFlags)
+        defaults.removeObject(forKey: Keys.syncLifecycleState)
+        defaults.removeObject(forKey: Keys.lastResetDate)
         Logger.settings.info("CloudKit sync settings reset")
     }
 
@@ -178,6 +227,27 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         // Notify the app
         NotificationCenter.default.post(name: .syncRolledBack, object: nil)
     }
+}
+
+// MARK: - Sync Lifecycle States
+
+/// Lifecycle states for the CloudKit sync subsystem.
+///
+/// During normal operation, the state is `.enabled`. During a reset-to-first-run,
+/// the state progresses through `.resetting` → `.purging` → `.ready` → `.enabled`.
+/// If the app crashes mid-reset, the state will be `.resetting` or `.purging` on next
+/// launch, signaling that recovery is needed.
+public enum SyncLifecycleState: String, Sendable {
+    /// Sync is disabled (user choice or pre-first-run).
+    case disabled
+    /// Local store is being deleted.
+    case resetting
+    /// CloudKit zone is being purged.
+    case purging
+    /// Reset complete, ready to start sync.
+    case ready
+    /// Sync is active and running normally.
+    case enabled
 }
 
 // MARK: - Feature Flags

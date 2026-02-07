@@ -77,7 +77,7 @@ struct PDFPreviewView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            Text("Press Cmd+B to compile")
+            Text("Start typing to auto-compile, or press Cmd+B")
                 .font(.subheadline)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         }

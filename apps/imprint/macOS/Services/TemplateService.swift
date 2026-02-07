@@ -219,24 +219,332 @@ public final class TemplateService {
     }
 
     private func mockTypstSource(for id: String) -> String {
-        """
-        // Template: \(id)
-
-        #let article(
-          title: none,
-          authors: (),
-          abstract: none,
-          body
-        ) = {
-          set page(paper: "a4", margin: 2.5cm)
-          set text(font: "New Computer Modern", size: 11pt)
-
-          if title != none {
-            align(center, text(size: 18pt, weight: "bold", title))
-          }
-
-          body
+        switch id {
+        case "generic":
+            return genericArticleTemplate
+        case "mnras":
+            return mnrasTemplate
+        case "nature":
+            return natureTemplate
+        case "neurips":
+            return neuripsTemplate
+        default:
+            return genericArticleTemplate
         }
+    }
+
+    // MARK: - Real Typst Templates
+
+    private var genericArticleTemplate: String {
+        """
+        // Generic Academic Article
+        #set page(paper: "a4", margin: 2.5cm)
+        #set text(font: "New Computer Modern", size: 11pt)
+        #set par(justify: true, leading: 0.65em)
+        #set heading(numbering: "1.")
+
+        // Title
+        #align(center)[
+          #text(size: 18pt, weight: "bold")[Your Title Here]
+
+          #v(0.5em)
+          #text(size: 12pt)[Author Name #super[1], Co-Author Name #super[2]]
+
+          #v(0.3em)
+          #text(size: 10pt, style: "italic")[
+            #super[1] Department, University \\
+            #super[2] Department, University
+          ]
+
+          #v(0.5em)
+          #text(size: 10pt)[#datetime.today().display("[month repr:long] [day], [year]")]
+        ]
+
+        #v(1em)
+
+        // Abstract
+        #block(width: 85%, inset: (left: 1em, right: 1em))[
+          *Abstract.* #lorem(80)
+        ]
+
+        #v(1em)
+
+        = Introduction
+
+        #lorem(120)
+
+        = Methods
+
+        #lorem(100)
+
+        == Data Collection
+
+        #lorem(60)
+
+        == Analysis
+
+        #lorem(60)
+
+        = Results
+
+        #lorem(100)
+
+        The key equation is:
+
+        $ E = m c^2 $
+
+        = Discussion
+
+        #lorem(100)
+
+        = Conclusion
+
+        #lorem(60)
+        """
+    }
+
+    private var mnrasTemplate: String {
+        """
+        // MNRAS — Monthly Notices of the Royal Astronomical Society
+        #set page(paper: "a4", margin: (top: 2cm, bottom: 2cm, left: 1.5cm, right: 1.5cm), columns: 2)
+        #set text(font: "New Computer Modern", size: 9pt)
+        #set par(justify: true, leading: 0.55em)
+        #set heading(numbering: "1")
+
+        // MNRAS header
+        #place(top + left, dy: -1.5cm)[
+          #text(size: 7pt, fill: gray)[Mon. Not. R. Astron. Soc. *000*, 000–000 (2026)]
+        ]
+
+        // Title block (spans both columns)
+        #place(top + center, scope: "parent", float: true)[
+          #block(width: 100%)[
+            #align(center)[
+              #text(size: 14pt, weight: "bold")[Title of Your MNRAS Paper]
+
+              #v(0.5em)
+              #text(size: 10pt)[A. Author#super[1]#sym.star, B. Coauthor#super[1,2]]
+
+              #v(0.3em)
+              #text(size: 8pt, style: "italic")[
+                #super[1] Institute of Astronomy, University of Cambridge, Cambridge CB3 0HA, UK \\
+                #super[2] Department of Physics, University of Oxford, Oxford OX1 3RH, UK
+              ]
+
+              #v(0.3em)
+              #text(size: 8pt)[Accepted XXX. Received XXX; in original form XXX]
+            ]
+
+            #v(0.5em)
+            #block(width: 90%, inset: (left: 1em, right: 1em))[
+              #text(size: 8pt)[
+                *ABSTRACT* \\
+                #lorem(100)
+              ]
+            ]
+            #v(0.3em)
+            #text(size: 8pt)[*Key words:* galaxies: evolution — galaxies: formation — methods: numerical]
+            #v(0.5em)
+          ]
+        ]
+
+        = INTRODUCTION
+
+        #lorem(120)
+
+        = OBSERVATIONS AND DATA REDUCTION
+
+        #lorem(100)
+
+        == Spectroscopic data
+
+        #lorem(80)
+
+        = ANALYSIS
+
+        #lorem(100)
+
+        The luminosity function is given by:
+
+        $ phi(L) = (phi^*) / (L^*) (L / L^*)^alpha exp(-L / L^*) $
+
+        = RESULTS
+
+        #lorem(100)
+
+        = DISCUSSION
+
+        #lorem(80)
+
+        = CONCLUSIONS
+
+        #lorem(60)
+
+        = ACKNOWLEDGEMENTS
+
+        We thank the anonymous referee for constructive comments.
+
+        // DATA AVAILABILITY
+
+        The data underlying this article will be shared on reasonable request.
+        """
+    }
+
+    private var natureTemplate: String {
+        """
+        // Nature — Article Template
+        #set page(paper: "a4", margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm))
+        #set text(font: "New Computer Modern", size: 11pt)
+        #set par(justify: true, leading: 0.65em)
+        // Nature uses unnumbered headings
+        #set heading(numbering: none)
+
+        // Title
+        #align(center)[
+          #text(size: 20pt, weight: "bold")[Your Nature Article Title]
+
+          #v(0.8em)
+          #text(size: 12pt)[
+            First Author#super[1,2]#sym.star,
+            Second Author#super[2],
+            Third Author#super[3]
+          ]
+
+          #v(0.5em)
+          #text(size: 9pt)[
+            #super[1] Department, University, City, Country \\
+            #super[2] Institute, City, Country \\
+            #super[3] Laboratory, City, Country \\
+            #sym.star Corresponding author. e-mail: author\\@university.edu
+          ]
+        ]
+
+        #v(1em)
+
+        // Abstract (Nature: one paragraph, no heading, bold)
+        #block(width: 100%)[
+          #text(weight: "bold")[
+            #lorem(80)
+          ]
+        ]
+
+        #v(1em)
+
+        // Main text (Nature uses minimal section headings)
+        #lorem(150)
+
+        = Methods
+
+        #lorem(100)
+
+        = Results
+
+        #lorem(120)
+
+        = Discussion
+
+        #lorem(100)
+
+        #v(1em)
+        *References* will appear here.
+        """
+    }
+
+    private var neuripsTemplate: String {
+        """
+        // NeurIPS — Conference Paper Template
+        #set page(paper: "us-letter", margin: (top: 1in, bottom: 1in, left: 1.5in, right: 1.5in))
+        #set text(font: "New Computer Modern", size: 10pt)
+        #set par(justify: true, leading: 0.58em)
+        #set heading(numbering: "1")
+
+        // NeurIPS header
+        #align(center)[
+          #text(size: 8pt)[
+            Advances in Neural Information Processing Systems 39 (NeurIPS 2026)
+          ]
+
+          #v(1.5em)
+          #text(size: 17pt, weight: "bold")[Your NeurIPS Paper Title]
+
+          #v(1em)
+          #text(size: 12pt)[
+            Author Name #super[1] #h(2em)
+            Author Name #super[2] #h(2em)
+            Author Name #super[1,3]
+          ]
+
+          #v(0.5em)
+          #text(size: 10pt)[
+            #super[1] University Department, City \\
+            #super[2] Research Lab, City \\
+            #super[3] Industry Research, City
+          ]
+
+          #v(0.3em)
+          #text(size: 10pt, style: "italic")[
+            \\{author1, author2, author3\\}\\@institution.edu
+          ]
+        ]
+
+        #v(1.5em)
+
+        // Abstract
+        #align(center)[
+          #block(width: 85%)[
+            #align(left)[
+              *Abstract*
+
+              #lorem(80)
+            ]
+          ]
+        ]
+
+        #v(1em)
+
+        = Introduction
+
+        #lorem(120)
+
+        = Related Work
+
+        #lorem(100)
+
+        = Method
+
+        #lorem(100)
+
+        == Problem Formulation
+
+        #lorem(60)
+
+        We minimize the following objective:
+
+        $ cal(L)(theta) = bb(E)_(x tilde p_"data") [-log p_theta (x)] + lambda norm(theta)_2^2 $
+
+        == Architecture
+
+        #lorem(80)
+
+        = Experiments
+
+        #lorem(100)
+
+        == Setup
+
+        #lorem(60)
+
+        == Results
+
+        #lorem(80)
+
+        = Conclusion
+
+        #lorem(60)
+
+        = Broader Impact
+
+        #lorem(40)
         """
     }
 }

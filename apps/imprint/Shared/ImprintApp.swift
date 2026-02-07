@@ -253,12 +253,24 @@ struct ImprintApp: App {
                 }
             }
 
+            // File menu: Print compiled PDF
+            CommandGroup(replacing: .printItem) {
+                Button("Print Compiled PDF...") {
+                    NotificationCenter.default.post(name: .printPDF, object: nil)
+                }
+                .keyboardShortcut("P", modifiers: [.command])
+            }
+
             // Document menu
             CommandMenu("Document") {
+                Button("Export PDF...") {
+                    NotificationCenter.default.post(name: .exportPDF, object: nil)
+                }
+                .keyboardShortcut("E", modifiers: [.command, .shift])
+
                 Button("Export to LaTeX...") {
                     NotificationCenter.default.post(name: .exportLatex, object: nil)
                 }
-                .keyboardShortcut("E", modifiers: [.command, .shift])
 
                 Button("Export Bibliography...") {
                     NotificationCenter.default.post(name: .exportBibliography, object: nil)
@@ -375,6 +387,8 @@ extension Notification.Name {
     static let formatBold = Notification.Name("formatBold")
     static let formatItalic = Notification.Name("formatItalic")
     static let insertHeading = Notification.Name("insertHeading")
+    static let printPDF = Notification.Name("printPDF")
+    static let exportPDF = Notification.Name("exportPDF")
     static let exportLatex = Notification.Name("exportLatex")
     static let exportBibliography = Notification.Name("exportBibliography")
     static let showVersionHistory = Notification.Name("showVersionHistory")

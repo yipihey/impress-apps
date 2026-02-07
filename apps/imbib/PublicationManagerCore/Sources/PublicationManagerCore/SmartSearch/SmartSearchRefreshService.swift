@@ -67,8 +67,11 @@ public actor SmartSearchRefreshService {
     /// Maximum number of concurrent refreshes (1 to avoid overwhelming the network)
     private let maxConcurrentRefreshes = 1
 
-    /// Delay between starting each refresh (seconds)
-    private let delayBetweenRefreshes: TimeInterval = 1.0
+    /// Delay between starting each refresh (seconds) — arXiv rate limit is 1 req/3s
+    private let delayBetweenRefreshes: TimeInterval = 3.0
+
+    /// Grace period after startup before processing queue (seconds)
+    private let startupGracePeriod: TimeInterval = 5.0
 
     /// Maximum queue size (drop oldest low-priority items if exceeded)
     private let maxQueueSize = 20
@@ -88,6 +91,9 @@ public actor SmartSearchRefreshService {
 
     /// Whether the processing loop is running
     private var isProcessing = false
+
+    /// Whether the startup grace period has elapsed
+    private var startupGraceElapsed = false
 
     /// Completion handlers waiting for a specific refresh to complete
     private var completionHandlers: [UUID: [(Error?) -> Void]] = [:]
@@ -152,8 +158,12 @@ public actor SmartSearchRefreshService {
 
         Logger.smartSearch.debugCapture("Queued smart search '\(name)' with priority \(priority) (queue size: \(refreshQueue.count))", category: "refresh")
 
-        // Start processing if not already running
+        // Start processing if not already running.
+        // High-priority requests skip the startup grace period.
         if !isProcessing {
+            if priority == .high {
+                startupGraceElapsed = true
+            }
             startProcessing()
         }
     }
@@ -237,6 +247,14 @@ public actor SmartSearchRefreshService {
 
     /// Main processing loop.
     private func processQueue() async {
+        // Wait for startup grace period before processing low-priority batch refreshes.
+        // This prevents hammering arXiv immediately on launch.
+        if !startupGraceElapsed {
+            Logger.smartSearch.infoCapture("Waiting \(Int(startupGracePeriod))s startup grace period before processing refresh queue", category: "refresh")
+            try? await Task.sleep(for: .seconds(startupGracePeriod))
+            await setStartupGraceElapsed()
+        }
+
         while await hasWork() {
             // Wait if at concurrency limit
             while await activeRefreshes.count >= maxConcurrentRefreshes {
@@ -256,6 +274,11 @@ public actor SmartSearchRefreshService {
         }
 
         await markProcessingComplete()
+    }
+
+    /// Mark startup grace period as elapsed.
+    private func setStartupGraceElapsed() {
+        startupGraceElapsed = true
     }
 
     /// Check if there's work to do.

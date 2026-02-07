@@ -125,6 +125,7 @@
 		CAA347526EEB7DC767D80DD3 /* PDFPreviewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188495CB2354F4B2E36C81EB /* PDFPreviewPage.swift */; };
 		CB41F1A6D68B43C0455A061E /* Comment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33912709F95399D3A1A565B8 /* Comment.swift */; };
 		CCA6B0EDBBADBD808AF0367C /* ai-prompts.yaml in Resources */ = {isa = PBXBuildFile; fileRef = C05846299E3149698C8BB0F7 /* ai-prompts.yaml */; };
+		CFBD42D41053BF57D010F615 /* CompilationErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D908F781474FC474F91A9F /* CompilationErrorView.swift */; };
 		D29687730D196932BAC954D2 /* ImbibSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCADD127913DDE6A63AA4AB /* ImbibSettingsView.swift */; };
 		D447ED1A65EC9D92301B1EAA /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDF284236A0E8F7BE5071DB /* ShareViewController.swift */; };
 		D4DA6D72B673A728F197EFE1 /* ai-prompts.yaml in Resources */ = {isa = PBXBuildFile; fileRef = C05846299E3149698C8BB0F7 /* ai-prompts.yaml */; };
@@ -304,6 +305,7 @@
 		DBA0188A43B19C3BD8429D82 /* PresenceCursorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceCursorView.swift; sourceTree = "<group>"; };
 		DF26A32857F722AE6C47B453 /* ImprintCloudKitSharingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintCloudKitSharingService.swift; sourceTree = "<group>"; };
 		E06933CA97FE87657645C985 /* SharedWorkspaceCopyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedWorkspaceCopyService.swift; sourceTree = "<group>"; };
+		E3D908F781474FC474F91A9F /* CompilationErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompilationErrorView.swift; sourceTree = "<group>"; };
 		E4B7B248CA97D73767CF4E16 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		E5F2E62B0712CC210A21B369 /* RewriteSuggestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteSuggestionView.swift; sourceTree = "<group>"; };
 		E661FA9B3646D094B8277571 /* ContentPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentPage.swift; sourceTree = "<group>"; };
@@ -671,6 +673,7 @@
 				F880885989065F54463C8A62 /* CollaboratorAvatarsView.swift */,
 				43D2CB1A0DD560ED01A37CAD /* CommentBubbleView.swift */,
 				75B9B47EF789C1C8653214C0 /* CommentsSidebarView.swift */,
+				E3D908F781474FC474F91A9F /* CompilationErrorView.swift */,
 				A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */,
 				CEAAC6E8DB572798AF29D88F /* DocumentOutlineView.swift */,
 				6D0529920CDD3DAE47B66AF6 /* FocusModeView.swift */,
@@ -1087,6 +1090,7 @@
 				B0D41679CCA971388F37EB37 /* CommentBubbleView.swift in Sources */,
 				6F722EED7B19CC8B0D79C8F5 /* CommentService.swift in Sources */,
 				0EBC5681A147FB9CE44BD764 /* CommentsSidebarView.swift in Sources */,
+				CFBD42D41053BF57D010F615 /* CompilationErrorView.swift in Sources */,
 				AA73C3B4B8F8B46381B61579 /* ContentView.swift in Sources */,
 				1946CF4DBE13E58B0D8E1923 /* DirectPDFView.swift in Sources */,
 				8F45F61FD4EF7A2858A8F82A /* DocumentBackupService.swift in Sources */,
@@ -1186,7 +1190,7 @@
 				CODE_SIGN_ENTITLEMENTS = "imprint-iOS/imprint-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = "imprint-iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1208,7 +1212,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = macOS/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.imbib.imprint;
 				SDKROOT = macosx;
 			};
@@ -1276,7 +1280,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = macOS/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.imbib.imprint;
 				SDKROOT = macosx;
 			};
@@ -1349,8 +1353,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -1368,7 +1372,7 @@
 				CODE_SIGN_ENTITLEMENTS = "imprint-iOS/imprint-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = "imprint-iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1435,8 +1439,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

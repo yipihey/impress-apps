@@ -557,7 +557,8 @@ public final class AttachmentManager {
     ///
     /// With iCloud-only storage, files are resolved relative to the library's
     /// container URL (`~/Library/Application Support/imbib/Libraries/{UUID}/`).
-    /// Falls back to legacy path (`imbib/Papers/`) for pre-v1.3.0 downloads.
+    /// Falls back to legacy path (`imbib/Papers/`) for pre-v1.3.0 downloads,
+    /// and also checks the alternate sandbox path (sandboxed ↔ non-sandboxed).
     public func resolveURL(for linkedFile: CDLinkedFile, in library: CDLibrary?) -> URL? {
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
         guard let appSupport = applicationSupportURL else { return nil }
@@ -567,9 +568,14 @@ public final class AttachmentManager {
             let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
             // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
             let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            // Sandbox fallback: check alternate sandbox/non-sandbox Application Support path
+            let altSandboxURL = alternateSandboxURL(for: containerURL)
 
             if fileManager.fileExists(atPath: containerURL.path) {
                 return containerURL
+            } else if let altURL = altSandboxURL, fileManager.fileExists(atPath: altURL.path) {
+                Logger.files.infoCapture("PDF found via alternate sandbox path: \(altURL.path)", category: "files")
+                return altURL
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 return legacyURL
             }
@@ -579,13 +585,43 @@ public final class AttachmentManager {
         // No library - check default library path and legacy path
         let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
         let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+        let altDefaultURL = alternateSandboxURL(for: defaultURL)
 
         if fileManager.fileExists(atPath: defaultURL.path) {
             return defaultURL
+        } else if let altURL = altDefaultURL, fileManager.fileExists(atPath: altURL.path) {
+            Logger.files.infoCapture("PDF found via alternate sandbox path: \(altURL.path)", category: "files")
+            return altURL
         } else if fileManager.fileExists(atPath: legacyURL.path) {
             return legacyURL
         }
         return defaultURL
+    }
+
+    /// Compute the alternate sandbox/non-sandbox path for a URL.
+    ///
+    /// If the current path is sandboxed (contains `/Containers/com.imbib.app/Data/`),
+    /// returns the non-sandboxed equivalent, and vice versa.
+    private func alternateSandboxURL(for url: URL) -> URL? {
+        let path = url.path
+        let sandboxPrefix = "/Library/Containers/com.imbib.app/Data/Library/Application Support/"
+        let nonSandboxPrefix = "/Library/Application Support/"
+
+        let home = fileManager.homeDirectoryForCurrentUser.path
+
+        if path.contains(sandboxPrefix) {
+            // Currently sandboxed → try non-sandboxed path
+            let relative = path.replacingOccurrences(of: home + sandboxPrefix, with: "")
+            let nonSandboxPath = home + nonSandboxPrefix + relative
+            return URL(fileURLWithPath: nonSandboxPath)
+        } else if path.contains(nonSandboxPrefix) {
+            // Currently non-sandboxed → try sandboxed path
+            let relative = path.replacingOccurrences(of: home + nonSandboxPrefix, with: "")
+            let sandboxPath = home + sandboxPrefix + relative
+            return URL(fileURLWithPath: sandboxPath)
+        }
+
+        return nil
     }
 
     /// Delete a linked file from disk and Core Data.

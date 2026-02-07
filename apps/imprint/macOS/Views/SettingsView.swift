@@ -174,6 +174,7 @@ struct GeneralSettingsView: View {
     @AppStorage("defaultEditMode") private var defaultEditMode = "split_view"
     @AppStorage("autoSaveInterval") private var autoSaveInterval = 60
     @AppStorage("createBackups") private var createBackups = true
+    @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
 
     var body: some View {
         Form {
@@ -185,6 +186,11 @@ struct GeneralSettingsView: View {
                 }
 
                 Stepper("Auto-save every \(autoSaveInterval) seconds", value: $autoSaveInterval, in: 10...300, step: 10)
+            }
+
+            Section("Compilation") {
+                Toggle("Auto-compile on typing pause", isOn: $autoCompileEnabled)
+                    .help("Automatically recompile after 1.5 seconds of inactivity")
             }
 
             Section("Backup") {

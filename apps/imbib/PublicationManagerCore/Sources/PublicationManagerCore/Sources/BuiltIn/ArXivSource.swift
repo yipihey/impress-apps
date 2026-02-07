@@ -130,8 +130,15 @@ public actor ArXivSource: SourcePlugin {
         // Handle rate limiting with retry (max 2 retries)
         if httpResponse.statusCode == 429 {
             if retryCount < 2 {
-                let waitSeconds = 30 * (retryCount + 1)  // 30s, then 60s
-                Logger.sources.warningCapture("arXiv rate limited (429), waiting \(waitSeconds) seconds before retry \(retryCount + 1)/2...", category: "sources")
+                // Respect Retry-After header if present, otherwise use conservative backoff
+                let waitSeconds: Int
+                if let retryAfterHeader = httpResponse.value(forHTTPHeaderField: "Retry-After"),
+                   let retryAfterValue = Int(retryAfterHeader), retryAfterValue > 0, retryAfterValue <= 600 {
+                    waitSeconds = retryAfterValue
+                } else {
+                    waitSeconds = 10 * (retryCount + 1)  // 10s, then 20s
+                }
+                Logger.sources.warningCapture("arXiv rate limited (429), waiting \(waitSeconds)s before retry \(retryCount + 1)/2", category: "sources")
                 try await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
                 return try await searchWithRetry(query: query, maxResults: maxResults, daysBack: daysBack, retryCount: retryCount + 1)
             } else {

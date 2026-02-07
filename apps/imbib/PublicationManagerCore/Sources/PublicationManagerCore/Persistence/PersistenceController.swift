@@ -100,21 +100,46 @@ public final class PersistenceController: @unchecked Sendable {
     /// pre-flight checks, use `createShared()` instead.
     public static let shared: PersistenceController = {
         // Use print() for very early init logging (before Logger may be ready)
-        let hasPendingReset = CloudKitSyncSettingsStore.shared.pendingReset
-        print("[imbib] PersistenceController.shared init - pendingReset=\(hasPendingReset)")
-        Logger.persistence.warning("PersistenceController.shared init - pendingReset flag: \(hasPendingReset)")
+        let syncSettings = CloudKitSyncSettingsStore.shared
+        let hasPendingReset = syncSettings.pendingReset
+        let lifecycleState = syncSettings.syncLifecycleState
+        print("[imbib] PersistenceController.shared init - pendingReset=\(hasPendingReset), lifecycle=\(lifecycleState.rawValue)")
+        Logger.persistence.warning("PersistenceController.shared init - pendingReset: \(hasPendingReset), lifecycle: \(lifecycleState.rawValue)")
 
-        // Check for pending reset FIRST - delete store files before loading anything
-        if hasPendingReset {
-            print("[imbib] PENDING RESET DETECTED - deleting store files!")
-            Logger.persistence.warning("PENDING RESET DETECTED - deleting local store files")
+        // Check for pending reset or interrupted reset (crash recovery)
+        let needsReset = hasPendingReset
+            || lifecycleState == .resetting
+            || lifecycleState == .purging
+        if needsReset {
+            // Phase 1: Delete local store files
+            Logger.persistence.warning("RESET: Phase 1 — deleting local store files")
+            syncSettings.syncLifecycleState = .resetting
+            syncSettings.lastResetDate = Date()
             deleteLocalStoreFiles()
-            CloudKitSyncSettingsStore.shared.pendingReset = false
-            // Re-enable CloudKit sync after reset - it was disabled during resetToFirstRun()
-            // to stop ongoing sync operations. Now that we have a fresh store, sync can resume.
-            CloudKitSyncSettingsStore.shared.isDisabledByUser = false
-            print("[imbib] Pending reset complete - flags cleared, CloudKit re-enabled")
-            Logger.persistence.warning("Pending reset complete - flags cleared, CloudKit re-enabled")
+            syncSettings.pendingReset = false
+
+            // Phase 2: Schedule async CloudKit zone purge
+            // Sync stays disabled until purge completes
+            Logger.persistence.warning("RESET: Phase 2 — scheduling CloudKit zone purge")
+            syncSettings.syncLifecycleState = .purging
+            syncSettings.isDisabledByUser = true
+
+            Task {
+                do {
+                    try await CloudKitResetService.shared.purgeCloudKitZone()
+                    // Phase 3: Mark ready and re-enable sync
+                    syncSettings.syncLifecycleState = .ready
+                    syncSettings.isDisabledByUser = false
+                    syncSettings.syncLifecycleState = .enabled
+                    Logger.persistence.info("RESET: Complete — zone purged, sync re-enabled")
+                    print("[imbib] RESET complete — CloudKit zone purged, sync re-enabled")
+                } catch {
+                    // Purge failed — leave sync disabled, lifecycle stays .purging
+                    // Next launch will retry via the crash recovery check above
+                    Logger.persistence.error("RESET: Zone purge failed: \(error.localizedDescription) — will retry on next launch")
+                    print("[imbib] RESET: Zone purge failed: \(error.localizedDescription)")
+                }
+            }
         }
 
         // UI Testing mode - use isolated storage
@@ -125,6 +150,12 @@ public final class PersistenceController: @unchecked Sendable {
             return PersistenceController(
                 configuration: .uiTesting(storeURL: UITestingEnvironment.testStoreURL)
             )
+        }
+
+        // Guard: don't start sync if lifecycle is mid-reset
+        if !syncSettings.canStartSync {
+            Logger.persistence.warning("Sync startup blocked — lifecycle state: \(syncSettings.syncLifecycleState.rawValue)")
+            return PersistenceController(configuration: .default)
         }
 
         // Check if user explicitly disabled sync

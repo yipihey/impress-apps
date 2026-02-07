@@ -1,5 +1,7 @@
 #if os(macOS)
 import SwiftUI
+import PDFKit
+import UniformTypeIdentifiers
 import ImprintCore
 import ImpressKeyboard
 import ImpressOperationQueue
@@ -17,6 +19,10 @@ struct ContentView: View {
     @State private var compilationWarnings: [String] = []
     @State private var debugStatus: String = "idle"
     @State private var debugHistory: String = ""
+
+    // Auto-compile
+    @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
+    @State private var autoCompileTask: Task<Void, Never>?
 
     // AI Context Menu state
     @State private var showingAIContextMenu = false
@@ -162,27 +168,14 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingVersionHistory) {
             VersionHistoryView(document: $document)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .insertCitation)) { _ in
-            appState.showingCitationPicker = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .compileDocument)) { _ in
-            Task { await compile() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showVersionHistory)) { _ in
-            appState.showingVersionHistory = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleFocusMode)) { _ in
-            appState.isFocusMode.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleAIAssistant)) { _ in
-            withAnimation {
-                appState.showingAIAssistant.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleCommentsSidebar)) { _ in
-            withAnimation {
-                appState.showingComments.toggle()
-            }
+        .modifier(NotificationHandlersModifier(
+            appState: appState,
+            onCompile: { Task { await compile() } },
+            onExportPDF: { exportPDF() },
+            onPrintPDF: { printPDF() }
+        ))
+        .onChange(of: document.source) { _, _ in
+            scheduleAutoCompile()
         }
         // HTTP API automation handlers (applied before platform-specific handlers)
         .modifier(AutomationHandlersModifier(document: $document))
@@ -319,12 +312,23 @@ struct ContentView: View {
                 )
                 .frame(minWidth: 300, maxHeight: .infinity)
 
-                PDFPreviewView(
-                    pdfData: pdfData,
-                    isCompiling: isCompiling,
-                    sourceMapEntries: sourceMapEntries,
-                    cursorPosition: cursorPosition
-                )
+                VStack(spacing: 0) {
+                    PDFPreviewView(
+                        pdfData: pdfData,
+                        isCompiling: isCompiling,
+                        sourceMapEntries: sourceMapEntries,
+                        cursorPosition: cursorPosition
+                    )
+                    .frame(maxHeight: .infinity)
+
+                    CompilationErrorView(
+                        errors: compilationError,
+                        warnings: compilationWarnings,
+                        onNavigateToLine: { line in
+                            navigateToLine(line)
+                        }
+                    )
+                }
                 .frame(minWidth: 300, maxHeight: .infinity)
             }
 
@@ -389,6 +393,93 @@ struct ContentView: View {
         // Clear selection
         appState.selectedText = ""
         appState.selectedRange = NSRange(location: cursorPosition, length: 0)
+    }
+
+    // MARK: - Auto-Compile
+
+    /// Schedule a debounced auto-compile after a typing pause.
+    private func scheduleAutoCompile() {
+        guard autoCompileEnabled else { return }
+        autoCompileTask?.cancel()
+        autoCompileTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            await compile()
+        }
+    }
+
+    // MARK: - Navigation
+
+    /// Navigate cursor to a specific line number in source.
+    private func navigateToLine(_ lineNumber: Int) {
+        let lines = document.source.components(separatedBy: "\n")
+        var offset = 0
+        for i in 0..<min(lineNumber - 1, lines.count) {
+            offset += lines[i].count + 1 // +1 for newline
+        }
+        cursorPosition = offset
+    }
+
+    // MARK: - Export
+
+    /// Print compiled PDF via system print dialog.
+    private func printPDF() {
+        guard let data = pdfData, !data.isEmpty else {
+            // No PDF yet — compile first, then print.
+            // Capture pdfData after compile returns (still on MainActor).
+            Task { @MainActor in
+                await compile()
+                // Re-read @State after compile has set it
+                guard let data = self.pdfData, !data.isEmpty else { return }
+                showPrintDialog(data)
+            }
+            return
+        }
+        showPrintDialog(data)
+    }
+
+    private func showPrintDialog(_ data: Data) {
+        guard let pdfDocument = PDFKit.PDFDocument(data: data) else { return }
+        let printInfo = NSPrintInfo.shared
+        printInfo.isHorizontallyCentered = true
+        printInfo.isVerticallyCentered = false
+
+        let printOperation = pdfDocument.printOperation(for: printInfo, scalingMode: .pageScaleToFit, autoRotate: true)
+        printOperation?.showsPrintPanel = true
+        printOperation?.showsProgressPanel = true
+        printOperation?.run()
+    }
+
+    /// Export compiled PDF via NSSavePanel.
+    private func exportPDF() {
+        guard let data = pdfData, !data.isEmpty else {
+            // No PDF yet — compile first, then export.
+            Task { @MainActor in
+                await compile()
+                guard let data = self.pdfData, !data.isEmpty else { return }
+                savePDFData(data)
+            }
+            return
+        }
+        savePDFData(data)
+    }
+
+    private func savePDFData(_ data: Data) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(document.title.isEmpty ? "Untitled" : document.title).pdf"
+        panel.canCreateDirectories = true
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    try data.write(to: url)
+                    log("Exported PDF to \(url.path)")
+                } catch {
+                    log("Export failed: \(error)")
+                }
+            }
+        }
     }
 
     // MARK: - Compilation
@@ -517,6 +608,44 @@ struct EditModeSegmentButton: View {
     }
 }
 
+
+// MARK: - Notification Handlers
+
+/// ViewModifier to handle menu/notification-driven actions, extracted to reduce type-check complexity.
+private struct NotificationHandlersModifier: ViewModifier {
+    let appState: AppState
+    let onCompile: () -> Void
+    let onExportPDF: () -> Void
+    let onPrintPDF: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .insertCitation)) { _ in
+                appState.showingCitationPicker = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .compileDocument)) { _ in
+                onCompile()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showVersionHistory)) { _ in
+                appState.showingVersionHistory = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleFocusMode)) { _ in
+                appState.isFocusMode.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleAIAssistant)) { _ in
+                withAnimation { appState.showingAIAssistant.toggle() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleCommentsSidebar)) { _ in
+                withAnimation { appState.showingComments.toggle() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportPDF)) { _ in
+                onExportPDF()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .printPDF)) { _ in
+                onPrintPDF()
+            }
+    }
+}
 
 // MARK: - Automation Handlers
 

@@ -195,6 +195,17 @@ logInfo("message", category: "tags")                        // global convenienc
 // Performance timing
 measureTime("rebuild row data", count: rows.count) { ... }
 ```
+### Rule: use qmd MCP tools before reading files
+Before reading files or exploring directories, use the qmd MCP tools to search for information in local project documentation.
+Available MCP tools (via the `qmd` server):
+- **search** — fast keyword search (BM25). Use for quick lookups with specific terms.
+- **query** — hybrid search with query expansion + LLM reranking. Use for complex or conceptual questions.
+- **vsearch** — semantic vector search. Use when keywords aren't enough and you need conceptual similarity.
+- **get** — retrieve a specific document by path or docid from search results.
+- **multi_get** — retrieve multiple documents by glob pattern.
+- **status** — check index health and collection info.
+Use `search` for quick lookups and `query` for complex questions.
+Fall back to Read/Glob only if qmd doesn't return enough results.
 
 ### Live Log Access
 

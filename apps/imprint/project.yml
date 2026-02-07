@@ -2,8 +2,8 @@ name: imprint
 options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
-    macOS: "14.0"
-    iOS: "17.0"
+    macOS: "26.0"
+    iOS: "26.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   developmentLanguage: en
@@ -50,7 +50,7 @@ targets:
   imprint:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Shared
       - path: macOS
@@ -153,7 +153,7 @@ targets:
   imprint-iOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Shared
       - path: imprint-iOS
