@@ -669,13 +669,9 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         // First paper should have smart search = 0
-        assert!(
-            (results[0].features[&FeatureType::SmartSearchMatch] - 0.0).abs() < 0.01
-        );
+        assert!((results[0].features[&FeatureType::SmartSearchMatch] - 0.0).abs() < 0.01);
 
         // Second paper should have smart search = 1
-        assert!(
-            (results[1].features[&FeatureType::SmartSearchMatch] - 1.0).abs() < 0.01
-        );
+        assert!((results[1].features[&FeatureType::SmartSearchMatch] - 1.0).abs() < 0.01);
     }
 }

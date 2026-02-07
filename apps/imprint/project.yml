@@ -223,7 +223,7 @@ targets:
           - iCloud.com.imbib.shared
 
   imprint-ShareExtension:
-    type: appex
+    type: app-extension
     platform: iOS
     sources:
       - path: imprint-ShareExtension
@@ -237,7 +237,10 @@ targets:
     dependencies:
       - sdk: UIKit.framework
       - sdk: UniformTypeIdentifiers.framework
+    info:
+      path: imprint-ShareExtension/Info.plist
     entitlements:
+      path: imprint-ShareExtension/imprint-ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.impress.suite

@@ -38,6 +38,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Rust xcframework
+        working-directory: crates/imbib-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./build-xcframework.sh
+
       - name: Build and Test PublicationManagerCore
         working-directory: apps/imbib/PublicationManagerCore
         run: |

@@ -482,13 +482,14 @@ targets:
 
   # macOS Widgets Extension
   imbib-Widgets:
-    type: appex
+    type: app-extension
     platform: macOS
     sources:
       - path: imbib-Widgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        PRODUCT_MODULE_NAME: imbibWidgets
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -498,19 +499,21 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:
+      path: imbib-Widgets/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
   # iOS Widgets Extension
   imbib-iOS-Widgets:
-    type: appex
+    type: app-extension
     platform: iOS
     sources:
       - path: imbib-iOS-Widgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        PRODUCT_MODULE_NAME: imbibIOSWidgets
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -521,6 +524,7 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:
+      path: imbib-iOS-Widgets/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

@@ -36,5 +36,40 @@
 		<string>implore</string>
 		<string>impel</string>
 	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.impart.viewing-conversation</string>
+		<string>com.impart.composing-message</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Conversation Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.conversation-ref</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Paper Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.paper-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -103,13 +103,14 @@ targets:
           - iCloud.com.imbib.shared
 
   impart-Widgets:
-    type: appex
+    type: app-extension
     platform: macOS
     sources:
       - path: impart-Widgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.widgets
+        PRODUCT_MODULE_NAME: impartWidgets
         GENERATE_INFOPLIST_FILE: YES
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -117,6 +118,7 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:
+      path: impart-Widgets/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -198,7 +200,7 @@ targets:
           - iCloud.com.imbib.shared
 
   impart-ShareExtension:
-    type: appex
+    type: app-extension
     platform: iOS
     sources:
       - path: impart-ShareExtension
@@ -212,7 +214,10 @@ targets:
     dependencies:
       - sdk: UIKit.framework
       - sdk: UniformTypeIdentifiers.framework
+    info:
+      path: impart-ShareExtension/Info.plist
     entitlements:
+      path: impart-ShareExtension/impart-ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.impress.suite

@@ -15,8 +15,8 @@
 //! - `unread`, `read` — read state
 //! - Everything else — text search terms
 
-use impress_flags::{FlagQuery, parse_flag_query};
-use impress_tags::{TagQuery, parse_tag_query};
+use impress_flags::{parse_flag_query, FlagQuery};
+use impress_tags::{parse_tag_query, TagQuery};
 
 /// A combined filter for publications.
 #[derive(Debug, Clone, Default)]
@@ -163,9 +163,11 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
         }
     });
 
-    let tag_query_raws: Vec<String> = filter.tag_queries.iter().map(|tq| {
-        format_tag_query(tq)
-    }).collect();
+    let tag_query_raws: Vec<String> = filter
+        .tag_queries
+        .iter()
+        .map(|tq| format_tag_query(tq))
+        .collect();
 
     let read_state = filter.read_state.map(|rs| match rs {
         ReadState::Read => "read".to_string(),
@@ -258,7 +260,10 @@ mod tests {
     fn parse_combined() {
         let filter = ReferenceFilter::parse("hydro flag:amber unread tags:methods");
         assert_eq!(filter.text_terms, vec!["hydro"]);
-        assert_eq!(filter.flag_query, Some(FlagQuery::HasColor(FlagColor::Amber)));
+        assert_eq!(
+            filter.flag_query,
+            Some(FlagQuery::HasColor(FlagColor::Amber))
+        );
         assert_eq!(filter.read_state, Some(ReadState::Unread));
         assert_eq!(filter.tag_queries.len(), 1);
     }

@@ -31,13 +31,13 @@ pub mod sources;
 pub mod text;
 
 // Flagging and tagging (Phase 3)
-pub mod input_mode;
 pub mod filter;
+pub mod input_mode;
 
-pub use input_mode::InputMode;
-pub use filter::ReadState;
 #[cfg(feature = "native")]
 pub use filter::ParsedFilter;
+pub use filter::ReadState;
+pub use input_mode::InputMode;
 
 // Phase 3: Full-text search, PDF extraction, and annotations
 pub mod annotations;
@@ -85,8 +85,8 @@ pub use annotations::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use pdf::{
     extract_pdf_text, generate_thumbnail, get_page_count, get_page_dimensions, search_in_pdf,
-    HeuristicConfidence, HeuristicExtractedFields, PageDimensions, PageText, PdfError,
-    PdfMetadata, PdfTextResult, TextMatch, ThumbnailConfig,
+    HeuristicConfidence, HeuristicExtractedFields, PageDimensions, PageText, PdfError, PdfMetadata,
+    PdfTextResult, TextMatch, ThumbnailConfig,
 };
 pub use search::snippets::{extract_snippet, highlight_terms};
 

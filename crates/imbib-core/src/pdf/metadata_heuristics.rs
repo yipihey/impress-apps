@@ -374,7 +374,10 @@ fn is_valid_name(name: &str) -> bool {
     }
 
     // Should have at least 2 words
-    let words: Vec<&str> = trimmed.split_whitespace().filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = trimmed
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .collect();
     if words.len() < 2 {
         return false;
     }
@@ -390,10 +393,7 @@ fn is_valid_name(name: &str) -> bool {
 
     // Shouldn't contain obvious non-name patterns
     let lowercased = trimmed.to_lowercase();
-    if NON_NAME_PATTERNS
-        .iter()
-        .any(|p| lowercased.contains(p))
-    {
+    if NON_NAME_PATTERNS.iter().any(|p| lowercased.contains(p)) {
         return false;
     }
 
@@ -519,9 +519,13 @@ mod tests {
     fn test_looks_like_author_line() {
         assert!(looks_like_author_line("John Smith and Jane Doe"));
         // Comma-separated list with initials - this passes via comma check
-        assert!(looks_like_author_line("Smith, John, Doe, Jane, Brown, Kate"));
+        assert!(looks_like_author_line(
+            "Smith, John, Doe, Jane, Brown, Kate"
+        ));
         assert!(looks_like_author_line("John Smith*, Jane Doe†"));
-        assert!(!looks_like_author_line("This is a title about machine learning"));
+        assert!(!looks_like_author_line(
+            "This is a title about machine learning"
+        ));
     }
 
     #[test]
@@ -566,8 +570,10 @@ This paper presents...
         assert!(result.title.is_some());
         assert!(!result.authors.is_empty());
         assert_eq!(result.year, Some(2024));
-        assert!(result.confidence == HeuristicConfidence::High
-            || result.confidence == HeuristicConfidence::Medium);
+        assert!(
+            result.confidence == HeuristicConfidence::High
+                || result.confidence == HeuristicConfidence::Medium
+        );
     }
 
     #[test]

@@ -40,6 +40,11 @@
 	</array>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>imbib uses speech recognition for voice search and dictation features.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.imbib.viewing-publication</string>
+		<string>com.imbib.reading-pdf</string>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
