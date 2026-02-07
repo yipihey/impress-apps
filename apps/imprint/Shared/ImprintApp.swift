@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import ImpressKit
 
 // MARK: - Appearance Modifier
 
@@ -125,6 +126,21 @@ struct ImprintApp: App {
             ContentView(document: file.$document)
                 .environment(appState)
                 .withAppearance()
+                .task {
+                    // Start heartbeat for SiblingDiscovery
+                    Task.detached {
+                        while !Task.isCancelled {
+                            ImpressNotification.postHeartbeat(from: .imprint)
+                            try? await Task.sleep(for: .seconds(25))
+                        }
+                    }
+                    // Observe library changes from imbib to invalidate citation cache
+                    let _ = ImpressNotification.observe(ImpressNotification.libraryChanged, from: .imbib) {
+                        Task { @MainActor in
+                            NotificationCenter.default.post(name: .insertCitation, object: "refresh")
+                        }
+                    }
+                }
                 .onAppear {
                     // In UI testing mode, auto-create an untitled document if none open
                     if Self.isUITesting {

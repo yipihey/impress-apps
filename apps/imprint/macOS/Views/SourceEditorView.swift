@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 import ImpressHelixCore
+import ImpressKit
+import UniformTypeIdentifiers
 import OSLog
 
 private let logger = Logger(subsystem: "com.imprint.app", category: "sourceEditor")
@@ -61,6 +63,46 @@ struct SourceEditorView: View {
             }
         }
         .accessibilityIdentifier("sourceEditor.container")
+        .onDrop(of: [.impressPaperReference, .impressFigureReference], isTargeted: nil) { providers in
+            handleCrossAppDrop(providers)
+        }
+    }
+
+    /// Handle drops of ImpressPaperRef (from imbib) and ImpressFigureRef (from implore).
+    private func handleCrossAppDrop(_ providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.impressPaperReference.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.impressPaperReference.identifier) { data, _ in
+                    guard let data, let ref = try? JSONDecoder().decode(ImpressPaperRef.self, from: data) else { return }
+                    Task { @MainActor in
+                        let citation = "@\(ref.citeKey)"
+                        insertAtCursor(citation)
+                        logger.info("Inserted citation \(citation) from imbib drop")
+                    }
+                }
+                handled = true
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.impressFigureReference.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.impressFigureReference.identifier) { data, _ in
+                    guard let data, let ref = try? JSONDecoder().decode(ImpressFigureRef.self, from: data) else { return }
+                    Task { @MainActor in
+                        let title = ref.title ?? "figure"
+                        let snippet = "#figure(image(\"figures/\(ref.id.uuidString).\(ref.format ?? "png")\"), caption: [\(title)])"
+                        insertAtCursor(snippet)
+                        logger.info("Inserted figure reference from implore drop")
+                    }
+                }
+                handled = true
+            }
+        }
+        return handled
+    }
+
+    private func insertAtCursor(_ text: String) {
+        let pos = cursorPosition
+        let index = source.index(source.startIndex, offsetBy: min(pos, source.count))
+        source.insert(contentsOf: text, at: index)
+        cursorPosition = pos + text.count
     }
 }
 

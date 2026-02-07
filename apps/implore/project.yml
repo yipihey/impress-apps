@@ -74,6 +74,12 @@ targets:
           - imprint
           - impel
           - impart
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure Reference
+            UTTypeIdentifier: com.impress.figure-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: Implore/implore.entitlements
       properties:

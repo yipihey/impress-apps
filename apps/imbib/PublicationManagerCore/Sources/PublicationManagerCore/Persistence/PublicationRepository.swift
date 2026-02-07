@@ -9,6 +9,7 @@ import Foundation
 import CoreData
 import OSLog
 import ImpressFTUI
+import ImpressKit
 
 // MARK: - Publication Repository
 
@@ -304,7 +305,18 @@ public actor PublicationRepository {
     ///   - entries: BibTeX entries to import
     ///   - library: Optional library for resolving file paths (for Bdsk-File-* fields)
     public func importEntries(_ entries: [BibTeXEntry], in library: CDLibrary? = nil) async -> Int {
-        guard !entries.isEmpty else { return 0 }
+        let publications = await importEntriesReturningPublications(entries, in: library)
+        return publications.count
+    }
+
+    /// Batch-import BibTeX entries in a single Core Data transaction, returning the created publications.
+    ///
+    /// Much faster than calling `create(from:)` per entry because:
+    /// - Single deduplication query instead of N
+    /// - Single `context.perform` + `save()` instead of N
+    /// - Batched search indexing
+    public func importEntriesReturningPublications(_ entries: [BibTeXEntry], in library: CDLibrary? = nil) async -> [CDPublication] {
+        guard !entries.isEmpty else { return [] }
         Logger.persistence.info("Importing \(entries.count) entries (batched)")
 
         let context = persistenceController.viewContext
@@ -334,7 +346,7 @@ public actor PublicationRepository {
 
         guard !newEntries.isEmpty else {
             Logger.persistence.info("No new entries to import (all duplicates)")
-            return 0
+            return []
         }
 
         // Step 3: Apply import settings to all entries
@@ -360,6 +372,11 @@ public actor PublicationRepository {
             // Single save for all publications
             self.persistenceController.save()
             Logger.persistence.debug("Batch saved \(created.count) publications")
+
+            // Notify sibling apps
+            let citeKeys = created.compactMap { $0.citeKey }
+            ImpressNotification.post(ImpressNotification.libraryChanged, from: .imbib, resourceIDs: citeKeys)
+
             return created
         }
 
@@ -395,7 +412,7 @@ public actor PublicationRepository {
         await SpotlightIndexingService.shared.indexPublications(publications)
 
         Logger.persistence.info("Imported \(publications.count) new entries (batched)")
-        return publications.count
+        return publications
     }
 
     // MARK: - Update Operations
@@ -549,14 +566,18 @@ public actor PublicationRepository {
     public func delete(_ publication: CDPublication) async {
         Logger.persistence.info("Deleting publication: \(publication.citeKey)")
 
-        // Capture ID before deletion
+        // Capture ID and citeKey before deletion
         let publicationId = publication.id
+        let citeKey = publication.citeKey
 
         let context = persistenceController.viewContext
         await context.perform {
             context.delete(publication)
             self.persistenceController.save()
         }
+
+        // Notify sibling apps
+        ImpressNotification.post(ImpressNotification.libraryChanged, from: .imbib, resourceIDs: [citeKey])
 
         // Remove from search index
         await FullTextSearchService.shared.removePublication(id: publicationId)
@@ -570,8 +591,9 @@ public actor PublicationRepository {
         guard !publications.isEmpty else { return }
         Logger.persistence.info("Deleting \(publications.count) publications")
 
-        // Capture IDs before deletion
+        // Capture IDs and citeKeys before deletion
         let publicationIds = publications.map { $0.id }
+        let citeKeys = publications.map { $0.citeKey }
 
         let context = persistenceController.viewContext
         await context.perform {
@@ -580,6 +602,9 @@ public actor PublicationRepository {
             }
             self.persistenceController.save()
         }
+
+        // Notify sibling apps
+        ImpressNotification.post(ImpressNotification.libraryChanged, from: .imbib, resourceIDs: citeKeys)
 
         // Remove from search index and Spotlight
         for id in publicationIds {
@@ -1122,6 +1147,11 @@ public actor PublicationRepository {
                 publication.pdfLinks = result.pdfLinks
             }
 
+            // Add to library if provided
+            if let library {
+                publication.addToLibrary(library)
+            }
+
             // Generate and store BibTeX
             let entry = publication.toBibTeXEntry()
             publication.rawBibTeX = BibTeXExporter().export([entry])
@@ -1569,11 +1599,10 @@ public actor PublicationRepository {
         let context = persistenceController.viewContext
 
         await context.perform {
-            var current = collection.publications ?? []
+            let pubSet = collection.mutableSetValue(forKey: "publications")
             for pub in publications {
-                current.insert(pub)
+                pubSet.add(pub)
             }
-            collection.publications = current
 
             // Also add to owning library if collection has one
             // This ensures smart collections can find these papers
@@ -1890,11 +1919,10 @@ public actor CollectionRepository {
         let context = persistenceController.viewContext
 
         await context.perform {
-            var current = collection.publications ?? []
+            let pubSet = collection.mutableSetValue(forKey: "publications")
             for pub in publications {
-                current.insert(pub)
+                pubSet.add(pub)
             }
-            collection.publications = current
 
             // Also add to owning library if collection has one
             // This ensures smart collections can find these papers

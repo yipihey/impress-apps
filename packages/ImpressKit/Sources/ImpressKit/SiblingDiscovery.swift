@@ -37,16 +37,19 @@ public struct SiblingDiscovery: Sendable {
     }
 
     /// Determines the best IPC channel for communicating with a sibling app.
+    ///
+    /// Prefers HTTP when the app is running (supports request/response).
+    /// Falls back to URL scheme (can launch the app but no response).
     public func bestChannel(for app: SiblingApp) -> IPCChannel {
-        // Check if app is running (has recent heartbeat)
+        // HTTP is best when app is running — supports request/response
         if isRunning(app) {
-            return .urlScheme
+            return .http(port: app.httpPort)
         }
-        // Fallback: URL scheme can launch the app
+        // URL scheme can launch the app (but no response)
         if isInstalled(app) {
             return .urlScheme
         }
-        // Last resort: HTTP (development only)
+        // Try HTTP anyway (development/debug)
         return .http(port: app.httpPort)
     }
 

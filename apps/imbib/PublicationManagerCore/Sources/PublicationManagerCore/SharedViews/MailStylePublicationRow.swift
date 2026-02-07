@@ -8,6 +8,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import ImpressFTUI
+import ImpressKit
 
 // MARK: - Browser Destination
 
@@ -63,6 +64,9 @@ extension UTType {
 
     /// UTType for dragging exploration search UUIDs (for reordering)
     public static let explorationSearchID = UTType(exportedAs: "com.imbib.exploration-search-id")
+
+    /// UTType for dragging flag color items (for reordering)
+    public static let flagColorID = UTType(exportedAs: "com.imbib.flag-color-id")
 }
 
 extension UUID: Transferable {
@@ -506,6 +510,21 @@ public struct MailStylePublicationRow: View, Equatable {
                 // Encode as JSON array of UUID strings
                 let uuidStrings = idsToDrag.map { $0.uuidString }
                 let jsonData = try? JSONEncoder().encode(uuidStrings)
+                completion(jsonData, nil)
+                return nil
+            }
+            // Register cross-app ImpressPaperRef representation
+            provider.registerDataRepresentation(
+                forTypeIdentifier: UTType.impressPaperReference.identifier,
+                visibility: .all
+            ) { completion in
+                let ref = ImpressPaperRef(
+                    id: data.id,
+                    citeKey: data.citeKey ?? data.id.uuidString,
+                    title: data.title,
+                    doi: data.doi
+                )
+                let jsonData = try? JSONEncoder().encode(ref)
                 completion(jsonData, nil)
                 return nil
             }

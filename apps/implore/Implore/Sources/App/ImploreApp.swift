@@ -1,4 +1,5 @@
 import SwiftUI
+import ImpressKit
 
 /// implore - Scientific Data Visualization
 ///
@@ -66,6 +67,15 @@ struct ImploreApp: App {
         WindowGroup {
             ContentView()
                 .environment(appState)
+                .task {
+                    // Start heartbeat for SiblingDiscovery
+                    Task.detached {
+                        while !Task.isCancelled {
+                            ImpressNotification.postHeartbeat(from: .implore)
+                            try? await Task.sleep(for: .seconds(25))
+                        }
+                    }
+                }
                 .onOpenURL { url in
                     handleURL(url)
                 }

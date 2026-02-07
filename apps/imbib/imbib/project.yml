@@ -109,6 +109,23 @@ targets:
             UTTypeDescription: imbib Publication ID
             UTTypeIdentifier: com.imbib.publication-id
             UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: BibTeX Entry
+            UTTypeIdentifier: com.impress.bibtex-entry
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bib
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: Citation Key
+            UTTypeIdentifier: com.impress.citation-key
+            UTTypeTagSpecification: {}
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
@@ -206,6 +223,23 @@ targets:
               - public.data
             UTTypeDescription: imbib Publication ID
             UTTypeIdentifier: com.imbib.publication-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: BibTeX Entry
+            UTTypeIdentifier: com.impress.bibtex-entry
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bib
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: Citation Key
+            UTTypeIdentifier: com.impress.citation-key
             UTTypeTagSpecification: {}
     settings:
       base:

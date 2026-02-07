@@ -75,6 +75,22 @@ targets:
           - imprint
           - implore
           - impart
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Document Reference
+            UTTypeIdentifier: com.impress.document-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure Reference
+            UTTypeIdentifier: com.impress.figure-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: macOS/impel.entitlements
       properties:

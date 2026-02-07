@@ -86,6 +86,23 @@ targets:
           - implore
           - impel
           - impart
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Document Reference
+            UTTypeIdentifier: com.impress.document-reference
+            UTTypeTagSpecification: {}
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure Reference
+            UTTypeIdentifier: com.impress.figure-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -169,6 +186,23 @@ targets:
           - implore
           - impel
           - impart
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Document Reference
+            UTTypeIdentifier: com.impress.document-reference
+            UTTypeTagSpecification: {}
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure Reference
+            UTTypeIdentifier: com.impress.figure-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: imprint-iOS/imprint-iOS.entitlements
       properties:

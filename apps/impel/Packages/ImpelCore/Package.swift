@@ -12,11 +12,15 @@ let package = Package(
             targets: ["ImpelCore"]
         ),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(path: "../../../../packages/ImpressKit"),
+    ],
     targets: [
         .target(
             name: "ImpelCore",
-            dependencies: [],
+            dependencies: [
+                "ImpressKit",
+            ],
             path: "Sources/ImpelCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

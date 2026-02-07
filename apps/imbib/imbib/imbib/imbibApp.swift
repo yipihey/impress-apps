@@ -10,6 +10,7 @@ import CoreData
 import CoreSpotlight
 import CloudKit
 import PublicationManagerCore
+import ImpressKit
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
@@ -427,6 +428,7 @@ struct imbibApp: App {
             // Register built-in sources
             await deps.sourceManager.registerBuiltInSources()
             DragDropCoordinator.shared.sourceManager = deps.sourceManager
+            await AutomationService.shared.configure(sourceManager: deps.sourceManager)
             appLogger.info("Built-in sources registered")
 
             // Register browser URL providers for interactive PDF downloads
@@ -495,6 +497,15 @@ struct imbibApp: App {
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
                 .environment(settingsViewModel)
+                .task {
+                    // Start heartbeat for SiblingDiscovery
+                    Task.detached {
+                        while !Task.isCancelled {
+                            ImpressNotification.postHeartbeat(from: .imbib)
+                            try? await Task.sleep(for: .seconds(25))
+                        }
+                    }
+                }
                 .onAppear {
                     ensureMainWindowVisible()
                     // Initialize share extension handler

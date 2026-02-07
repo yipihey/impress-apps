@@ -69,6 +69,18 @@ targets:
           - imprint
           - implore
           - impel
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Conversation Reference
+            UTTypeIdentifier: com.impress.conversation-ref
+            UTTypeTagSpecification: {}
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: macOS/Resources/impart.entitlements
       properties:
@@ -133,6 +145,18 @@ targets:
           - imprint
           - implore
           - impel
+        UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Conversation Reference
+            UTTypeIdentifier: com.impress.conversation-ref
+            UTTypeTagSpecification: {}
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: impart-iOS/Resources/impart-iOS.entitlements
       properties:

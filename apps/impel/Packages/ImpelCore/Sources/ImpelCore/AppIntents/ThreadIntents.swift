@@ -1,5 +1,21 @@
 import AppIntents
 import Foundation
+import ImpressKit
+
+// MARK: - Counsel Service Protocol
+
+/// Protocol for providing counsel responses to App Intents.
+/// The main app target registers a concrete implementation.
+@available(macOS 14.0, *)
+public protocol CounselIntentService: Sendable {
+    func ask(question: String) async throws -> String
+}
+
+/// Global service locator for counsel — set by the app at launch.
+@available(macOS 14.0, *)
+public enum CounselIntentServiceLocator {
+    @MainActor public static var service: (any CounselIntentService)?
+}
 
 // MARK: - List Threads
 
@@ -27,7 +43,7 @@ public struct ListThreadsIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[ThreadEntity]> {
-        // TODO: Connect to thread persistence
+        // TODO: Connect to thread persistence when available
         return .result(value: [])
     }
 }
@@ -55,7 +71,7 @@ public struct CreateThreadIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<ThreadEntity> {
-        // TODO: Connect to thread creation service
+        // TODO: Connect to thread creation service when available
         let thread = ThreadEntity(id: UUID(), title: title, persona: persona)
         return .result(value: thread)
     }
@@ -81,8 +97,11 @@ public struct AskCounselIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // TODO: Connect to CounselEngine.makeTaskHandler
-        return .result(value: "Counsel is not yet connected. Please configure the agent.")
+        guard let service = await CounselIntentServiceLocator.service else {
+            throw ImpelIntentError.counselUnavailable
+        }
+        let response = try await service.ask(question: question)
+        return .result(value: response)
     }
 }
 
@@ -99,7 +118,7 @@ public struct ListEscalationsIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[EscalationEntity]> {
-        // TODO: Connect to escalation tracking
+        // TODO: Connect to escalation tracking when available
         return .result(value: [])
     }
 }
@@ -117,7 +136,14 @@ public struct GetSuiteStatusIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // TODO: Connect to SiblingDiscovery from ImpressKit
-        return .result(value: "Suite status check not yet connected.")
+        let discovery = SiblingDiscovery.shared
+        var lines: [String] = ["Impress Suite Status:"]
+        for app in SiblingApp.allCases {
+            let installed = discovery.isInstalled(app)
+            let running = discovery.isRunning(app)
+            let status = running ? "running" : (installed ? "installed" : "not found")
+            lines.append("  \(app.rawValue): \(status)")
+        }
+        return .result(value: lines.joined(separator: "\n"))
     }
 }

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MessageManagerCore
+import ImpressKit
 
 // MARK: - App Entry Point
 
@@ -34,6 +35,15 @@ struct ImpartApp: App {
             ContentView()
                 .environment(appState)
                 .withAppearance()
+                .task {
+                    // Start heartbeat for SiblingDiscovery
+                    Task.detached {
+                        while !Task.isCancelled {
+                            ImpressNotification.postHeartbeat(from: .impart)
+                            try? await Task.sleep(for: .seconds(25))
+                        }
+                    }
+                }
                 .onOpenURL { url in
                     handleURL(url)
                 }

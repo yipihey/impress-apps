@@ -1,12 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "PublicationManagerCore",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -26,7 +26,8 @@ let package = Package(
         .package(path: "../../../packages/ImpressSidebar"),
         .package(path: "../../../packages/ImpressFTUI"),
         .package(path: "../../../packages/ImpressLogging"),
-        .package(path: "../../../packages/ImpressOperationQueue")
+        .package(path: "../../../packages/ImpressOperationQueue"),
+        .package(path: "../../../packages/ImpressKit")
     ],
     targets: [
         .target(
@@ -43,14 +44,16 @@ let package = Package(
                 "ImpressSidebar",
                 "ImpressFTUI",
                 "ImpressLogging",
-                "ImpressOperationQueue"
+                "ImpressOperationQueue",
+                "ImpressKit"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),
                 .copy("Publishers/Resources/publisher-rules.json")
             ],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v5)
             ]
         ),
         .testTarget(
@@ -58,7 +61,8 @@ let package = Package(
             dependencies: ["PublicationManagerCore"],
             resources: [
                 .copy("Fixtures")
-            ]
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )
