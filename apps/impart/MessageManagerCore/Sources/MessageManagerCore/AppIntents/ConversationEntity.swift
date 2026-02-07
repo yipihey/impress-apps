@@ -56,13 +56,13 @@ public struct ConversationEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [ConversationEntity] {
-        // TODO: Connect to DevelopmentConversationService
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.conversationsForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [ConversationEntity] {
-        // TODO: Return recent active conversations
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.listConversations(limit: 10, includeArchived: false)
     }
 }
 
@@ -71,15 +71,17 @@ public struct ConversationEntityStringQuery: EntityStringQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [ConversationEntity] {
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.conversationsForIds(identifiers)
     }
 
     public func entities(matching string: String) async throws -> [ConversationEntity] {
-        // TODO: Search conversations by title
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.searchConversationsByTitle(string)
     }
 
     public func suggestedEntities() async throws -> [ConversationEntity] {
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.listConversations(limit: 10, includeArchived: false)
     }
 }

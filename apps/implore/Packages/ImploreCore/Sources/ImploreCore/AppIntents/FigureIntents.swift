@@ -1,6 +1,26 @@
 import AppIntents
 import Foundation
 
+// MARK: - Service Locator
+
+/// Protocol for providing figure services to App Intents.
+/// The main app target registers a concrete implementation at launch.
+@available(macOS 14.0, *)
+public protocol ImploreIntentService: Sendable {
+    func listFigures(dataset: String?) async throws -> [FigureEntity]
+    func exportFigure(id: UUID, format: String, width: Int, height: Int) async throws
+    func createFigure(title: String, dataset: String) async throws -> FigureEntity
+    func openFigure(id: UUID) async throws
+    func figuresForIds(_ ids: [UUID]) async throws -> [FigureEntity]
+    func searchFiguresByTitle(_ query: String) async throws -> [FigureEntity]
+}
+
+/// Global service locator — set by the app at launch.
+@available(macOS 14.0, *)
+public enum ImploreIntentServiceLocator {
+    @MainActor public static var service: (any ImploreIntentService)?
+}
+
 // MARK: - List Figures
 
 @available(macOS 14.0, *)
@@ -23,8 +43,11 @@ public struct ListFiguresIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[FigureEntity]> {
-        // TODO: Connect to LibraryManager
-        return .result(value: [])
+        guard let service = await ImploreIntentServiceLocator.service else {
+            throw ImploreIntentError.automationDisabled
+        }
+        let figures = try await service.listFigures(dataset: dataset)
+        return .result(value: figures)
     }
 }
 
@@ -60,7 +83,10 @@ public struct ExportFigureIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Connect to figure export pipeline
+        guard let service = await ImploreIntentServiceLocator.service else {
+            throw ImploreIntentError.automationDisabled
+        }
+        try await service.exportFigure(id: figure.id, format: format.rawValue, width: width, height: height)
         return .result()
     }
 }
@@ -88,8 +114,10 @@ public struct CreateFigureIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<FigureEntity> {
-        // TODO: Connect to LibraryManager to create figure
-        let figure = FigureEntity(id: UUID(), title: title, datasetName: dataset)
+        guard let service = await ImploreIntentServiceLocator.service else {
+            throw ImploreIntentError.automationDisabled
+        }
+        let figure = try await service.createFigure(title: title, dataset: dataset)
         return .result(value: figure)
     }
 }
@@ -114,7 +142,10 @@ public struct OpenFigureIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Post notification to navigate to figure
+        guard let service = await ImploreIntentServiceLocator.service else {
+            throw ImploreIntentError.automationDisabled
+        }
+        try await service.openFigure(id: figure.id)
         return .result()
     }
 }

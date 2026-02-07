@@ -1,6 +1,28 @@
 import AppIntents
 import Foundation
 
+// MARK: - Service Locator
+
+/// Protocol for providing message services to App Intents.
+/// The main app target registers a concrete implementation at launch.
+@available(macOS 14.0, iOS 17.0, *)
+public protocol ImpartIntentService: Sendable {
+    func listConversations(limit: Int, includeArchived: Bool) async throws -> [ConversationEntity]
+    func getConversation(id: UUID) async throws -> ConversationEntity?
+    func composeMessage(to: String, subject: String, body: String) async throws
+    func searchMessages(query: String, maxResults: Int) async throws -> [MessageEntity]
+    func conversationsForIds(_ ids: [UUID]) async throws -> [ConversationEntity]
+    func searchConversationsByTitle(_ query: String) async throws -> [ConversationEntity]
+    func messagesForIds(_ ids: [UUID]) async throws -> [MessageEntity]
+    func searchMessagesBySubject(_ query: String) async throws -> [MessageEntity]
+}
+
+/// Global service locator — set by the app at launch.
+@available(macOS 14.0, iOS 17.0, *)
+public enum ImpartIntentServiceLocator {
+    @MainActor public static var service: (any ImpartIntentService)?
+}
+
 // MARK: - List Conversations
 
 @available(macOS 14.0, iOS 17.0, *)
@@ -26,8 +48,11 @@ public struct ListConversationsIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[ConversationEntity]> {
-        // TODO: Connect to DevelopmentConversationService
-        return .result(value: [])
+        guard let service = await ImpartIntentServiceLocator.service else {
+            throw ImpartIntentError.automationDisabled
+        }
+        let conversations = try await service.listConversations(limit: limit, includeArchived: includeArchived)
+        return .result(value: conversations)
     }
 }
 
@@ -51,7 +76,11 @@ public struct GetConversationIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<ConversationEntity> {
-        return .result(value: conversation)
+        guard let service = await ImpartIntentServiceLocator.service else {
+            return .result(value: conversation)
+        }
+        let result = try await service.getConversation(id: conversation.id)
+        return .result(value: result ?? conversation)
     }
 }
 
@@ -83,7 +112,10 @@ public struct ComposeMessageIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Connect to SMTP send pipeline via MessageRegistry
+        guard let service = await ImpartIntentServiceLocator.service else {
+            throw ImpartIntentError.automationDisabled
+        }
+        try await service.composeMessage(to: to, subject: subject, body: body)
         return .result()
     }
 }
@@ -113,8 +145,11 @@ public struct SearchMessagesIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[MessageEntity]> {
-        // TODO: Connect to message search service
-        return .result(value: [])
+        guard let service = await ImpartIntentServiceLocator.service else {
+            throw ImpartIntentError.automationDisabled
+        }
+        let messages = try await service.searchMessages(query: query, maxResults: maxResults)
+        return .result(value: messages)
     }
 }
 
@@ -138,7 +173,13 @@ public struct NavigateImpartIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Post navigation notification
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: Notification.Name("impartNavigateFromIntent"),
+                object: nil,
+                userInfo: ["destination": destination.rawValue]
+            )
+        }
         return .result()
     }
 }

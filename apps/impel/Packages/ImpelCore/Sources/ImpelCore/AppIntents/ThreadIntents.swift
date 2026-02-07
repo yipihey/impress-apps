@@ -17,6 +17,26 @@ public enum CounselIntentServiceLocator {
     @MainActor public static var service: (any CounselIntentService)?
 }
 
+// MARK: - ImpelClient Service Locator
+
+/// Protocol for providing thread/escalation data to App Intents.
+/// The main app target registers a concrete implementation at launch.
+@available(macOS 14.0, *)
+public protocol ImpelClientIntentService: Sendable {
+    func listThreads(status: String?, limit: Int) async throws -> [ThreadEntity]
+    func createThread(title: String, persona: String) async throws -> ThreadEntity
+    func listEscalations() async throws -> [EscalationEntity]
+    func threadsForIds(_ ids: [UUID]) async throws -> [ThreadEntity]
+    func searchThreadsByTitle(_ query: String) async throws -> [ThreadEntity]
+    func escalationsForIds(_ ids: [UUID]) async throws -> [EscalationEntity]
+}
+
+/// Global service locator for ImpelClient — set by the app at launch.
+@available(macOS 14.0, *)
+public enum ImpelClientLocator {
+    @MainActor public static var service: (any ImpelClientIntentService)?
+}
+
 // MARK: - List Threads
 
 @available(macOS 14.0, *)
@@ -43,8 +63,11 @@ public struct ListThreadsIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[ThreadEntity]> {
-        // TODO: Connect to thread persistence when available
-        return .result(value: [])
+        guard let service = await ImpelClientLocator.service else {
+            throw ImpelIntentError.automationDisabled
+        }
+        let threads = try await service.listThreads(status: status?.rawValue, limit: limit)
+        return .result(value: threads)
     }
 }
 
@@ -71,8 +94,10 @@ public struct CreateThreadIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<ThreadEntity> {
-        // TODO: Connect to thread creation service when available
-        let thread = ThreadEntity(id: UUID(), title: title, persona: persona)
+        guard let service = await ImpelClientLocator.service else {
+            throw ImpelIntentError.automationDisabled
+        }
+        let thread = try await service.createThread(title: title, persona: persona)
         return .result(value: thread)
     }
 }
@@ -118,8 +143,11 @@ public struct ListEscalationsIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[EscalationEntity]> {
-        // TODO: Connect to escalation tracking when available
-        return .result(value: [])
+        guard let service = await ImpelClientLocator.service else {
+            throw ImpelIntentError.automationDisabled
+        }
+        let escalations = try await service.listEscalations()
+        return .result(value: escalations)
     }
 }
 

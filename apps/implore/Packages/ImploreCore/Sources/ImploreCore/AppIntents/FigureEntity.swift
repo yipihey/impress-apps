@@ -46,13 +46,13 @@ public struct FigureEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [FigureEntity] {
-        // TODO: Connect to LibraryManager
-        return []
+        guard let service = await ImploreIntentServiceLocator.service else { return [] }
+        return try await service.figuresForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [FigureEntity] {
-        // TODO: Return recent figures
-        return []
+        guard let service = await ImploreIntentServiceLocator.service else { return [] }
+        return try await service.listFigures(dataset: nil)
     }
 }
 
@@ -61,15 +61,17 @@ public struct FigureEntityStringQuery: EntityStringQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [FigureEntity] {
-        return []
+        guard let service = await ImploreIntentServiceLocator.service else { return [] }
+        return try await service.figuresForIds(identifiers)
     }
 
     public func entities(matching string: String) async throws -> [FigureEntity] {
-        // TODO: Search figures by title
-        return []
+        guard let service = await ImploreIntentServiceLocator.service else { return [] }
+        return try await service.searchFiguresByTitle(string)
     }
 
     public func suggestedEntities() async throws -> [FigureEntity] {
-        return []
+        guard let service = await ImploreIntentServiceLocator.service else { return [] }
+        return try await service.listFigures(dataset: nil)
     }
 }

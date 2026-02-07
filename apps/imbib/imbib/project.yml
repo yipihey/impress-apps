@@ -87,6 +87,8 @@ targets:
         embed: true
       - target: imbib-FileProvider
         embed: true
+      - target: imbib-Widgets
+        embed: true
     info:
       path: imbib/Resources/Info.plist
       properties:
@@ -188,6 +190,8 @@ targets:
       - target: imbib-iOS-SafariExtension
         embed: true
       - target: imbib-iOS-FileProvider
+        embed: true
+      - target: imbib-iOS-Widgets
         embed: true
     info:
       path: imbib-iOS/Resources/Info.plist
@@ -469,6 +473,51 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.app
+
+  # macOS Widgets Extension
+  imbib-Widgets:
+    type: appex
+    platform: macOS
+    sources:
+      - path: imbib-Widgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        SWIFT_EMIT_LOC_STRINGS: YES
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # iOS Widgets Extension
+  imbib-iOS-Widgets:
+    type: appex
+    platform: iOS
+    sources:
+      - path: imbib-iOS-Widgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        SWIFT_EMIT_LOC_STRINGS: YES
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
   # macOS Tests
   imbibTests:

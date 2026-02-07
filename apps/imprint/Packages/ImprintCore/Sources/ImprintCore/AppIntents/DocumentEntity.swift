@@ -44,13 +44,13 @@ public struct DocumentEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [DocumentEntity] {
-        // TODO: Connect to DocumentRegistry / persistence layer
-        return []
+        guard let service = await ImprintIntentServiceLocator.service else { return [] }
+        return try await service.documentsForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [DocumentEntity] {
-        // TODO: Return recently modified documents
-        return []
+        guard let service = await ImprintIntentServiceLocator.service else { return [] }
+        return try await service.listDocuments(limit: 10)
     }
 }
 
@@ -59,16 +59,17 @@ public struct DocumentEntityStringQuery: EntityStringQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [DocumentEntity] {
-        // TODO: Connect to DocumentRegistry / persistence layer
-        return []
+        guard let service = await ImprintIntentServiceLocator.service else { return [] }
+        return try await service.documentsForIds(identifiers)
     }
 
     public func entities(matching string: String) async throws -> [DocumentEntity] {
-        // TODO: Search documents by title
-        return []
+        guard let service = await ImprintIntentServiceLocator.service else { return [] }
+        return try await service.searchDocumentsByTitle(string)
     }
 
     public func suggestedEntities() async throws -> [DocumentEntity] {
-        return []
+        guard let service = await ImprintIntentServiceLocator.service else { return [] }
+        return try await service.listDocuments(limit: 10)
     }
 }

@@ -55,13 +55,13 @@ public struct ThreadEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [ThreadEntity] {
-        // TODO: Connect to thread persistence
-        return []
+        guard let service = await ImpelClientLocator.service else { return [] }
+        return try await service.threadsForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [ThreadEntity] {
-        // TODO: Return active threads
-        return []
+        guard let service = await ImpelClientLocator.service else { return [] }
+        return try await service.listThreads(status: nil, limit: 10)
     }
 }
 
@@ -106,10 +106,12 @@ public struct EscalationEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [EscalationEntity] {
-        return []
+        guard let service = await ImpelClientLocator.service else { return [] }
+        return try await service.escalationsForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [EscalationEntity] {
-        return []
+        guard let service = await ImpelClientLocator.service else { return [] }
+        return try await service.listEscalations()
     }
 }

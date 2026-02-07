@@ -1,6 +1,29 @@
 import AppIntents
 import Foundation
 
+// MARK: - Service Locator
+
+/// Protocol for providing document services to App Intents.
+/// The main app target registers a concrete implementation at launch.
+@available(macOS 14.0, iOS 17.0, *)
+public protocol ImprintIntentService: Sendable {
+    func listDocuments(limit: Int) async throws -> [DocumentEntity]
+    func getDocumentContent(id: UUID) async throws -> String
+    func createDocument(title: String, template: String?) async throws -> DocumentEntity
+    func compileDocument(id: UUID) async throws
+    func searchDocument(id: UUID, query: String) async throws -> [String]
+    func exportDocument(id: UUID, format: String) async throws -> String
+    func getBibliography(id: UUID) async throws -> String
+    func documentsForIds(_ ids: [UUID]) async throws -> [DocumentEntity]
+    func searchDocumentsByTitle(_ query: String) async throws -> [DocumentEntity]
+}
+
+/// Global service locator — set by the app at launch.
+@available(macOS 14.0, iOS 17.0, *)
+public enum ImprintIntentServiceLocator {
+    @MainActor public static var service: (any ImprintIntentService)?
+}
+
 // MARK: - List Documents
 
 @available(macOS 14.0, iOS 17.0, *)
@@ -21,8 +44,11 @@ public struct ListDocumentsIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[DocumentEntity]> {
-        // TODO: Connect to DocumentRegistry to list documents
-        return .result(value: [])
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let documents = try await service.listDocuments(limit: limit)
+        return .result(value: documents)
     }
 }
 
@@ -46,8 +72,11 @@ public struct GetDocumentContentIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // TODO: Read document source from file system
-        return .result(value: "")
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let content = try await service.getDocumentContent(id: document.id)
+        return .result(value: content)
     }
 }
 
@@ -76,8 +105,10 @@ public struct CreateDocumentIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<DocumentEntity> {
-        // TODO: Create document via DocumentRegistry
-        let doc = DocumentEntity(id: UUID(), title: title)
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let doc = try await service.createDocument(title: title, template: template)
         return .result(value: doc)
     }
 }
@@ -102,7 +133,10 @@ public struct CompileDocumentIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Trigger compilation via TypstRenderer
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        try await service.compileDocument(id: document.id)
         return .result()
     }
 }
@@ -130,7 +164,14 @@ public struct InsertCitationIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        // TODO: Insert citation via document editing service
+        // Citation insertion requires active editor focus — post notification for the app to handle
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: Notification.Name("insertCitationFromIntent"),
+                object: nil,
+                userInfo: ["documentId": document.id.uuidString, "citeKey": citeKey]
+            )
+        }
         return .result()
     }
 }
@@ -158,8 +199,11 @@ public struct SearchDocumentIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<[String]> {
-        // TODO: Search document content and return matching lines
-        return .result(value: [])
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let matches = try await service.searchDocument(id: document.id, query: query)
+        return .result(value: matches)
     }
 }
 
@@ -186,8 +230,11 @@ public struct ExportDocumentIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // TODO: Export document via LatexConverter or direct source access
-        return .result(value: "")
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let content = try await service.exportDocument(id: document.id, format: format.rawValue)
+        return .result(value: content)
     }
 }
 
@@ -211,7 +258,10 @@ public struct GetBibliographyIntent: AppIntent {
     }
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // TODO: Extract bibliography from document's .bib data
-        return .result(value: "")
+        guard let service = await ImprintIntentServiceLocator.service else {
+            throw ImprintIntentError.automationDisabled
+        }
+        let bibliography = try await service.getBibliography(id: document.id)
+        return .result(value: bibliography)
     }
 }

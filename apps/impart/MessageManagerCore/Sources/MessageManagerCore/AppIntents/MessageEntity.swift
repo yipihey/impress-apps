@@ -59,13 +59,13 @@ public struct MessageEntityQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [MessageEntity] {
-        // TODO: Connect to message persistence layer
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.messagesForIds(identifiers)
     }
 
     public func suggestedEntities() async throws -> [MessageEntity] {
-        // TODO: Return recent unread messages
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.searchMessages(query: "", maxResults: 10)
     }
 }
 
@@ -74,15 +74,17 @@ public struct MessageEntityStringQuery: EntityStringQuery {
     public init() {}
 
     public func entities(for identifiers: [UUID]) async throws -> [MessageEntity] {
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.messagesForIds(identifiers)
     }
 
     public func entities(matching string: String) async throws -> [MessageEntity] {
-        // TODO: Search messages by subject/sender
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.searchMessagesBySubject(string)
     }
 
     public func suggestedEntities() async throws -> [MessageEntity] {
-        return []
+        guard let service = await ImpartIntentServiceLocator.service else { return [] }
+        return try await service.searchMessages(query: "", maxResults: 10)
     }
 }
