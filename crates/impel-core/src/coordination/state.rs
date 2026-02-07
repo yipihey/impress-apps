@@ -177,10 +177,7 @@ impl CoordinationState {
     /// This loads threads, agents, and escalations from the given repository
     /// and populates the coordination state.
     #[cfg(feature = "sqlite")]
-    pub fn load_from_repository(
-        &mut self,
-        repo: &crate::persistence::Repository,
-    ) -> Result<()> {
+    pub fn load_from_repository(&mut self, repo: &crate::persistence::Repository) -> Result<()> {
         // Load threads
         let threads = repo.get_all_threads()?;
         for thread in threads {
@@ -211,10 +208,7 @@ impl CoordinationState {
     ///
     /// This persists threads, agents, and escalations to the given repository.
     #[cfg(feature = "sqlite")]
-    pub fn save_to_repository(
-        &self,
-        repo: &crate::persistence::Repository,
-    ) -> Result<()> {
+    pub fn save_to_repository(&self, repo: &crate::persistence::Repository) -> Result<()> {
         // Save threads
         for thread in self.threads() {
             repo.save_thread(thread)?;

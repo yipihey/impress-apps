@@ -21,8 +21,8 @@ mod toml_loader;
 
 pub use builtin::builtin_personas;
 pub use persona::{
-    Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig, ToolAccess,
-    ToolPolicy, ToolPolicySet, WorkingStyle,
+    Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig, ToolAccess, ToolPolicy,
+    ToolPolicySet, WorkingStyle,
 };
 pub use registry::PersonaRegistry;
 pub use toml_loader::{load_persona_from_toml, PersonaLoadError};

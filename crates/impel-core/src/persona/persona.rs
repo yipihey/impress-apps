@@ -15,8 +15,10 @@ use crate::agent::AgentType;
 
 /// Unique identifier for a persona
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct PersonaId(pub String);
+
+#[cfg(feature = "uniffi")]
+uniffi::custom_newtype!(PersonaId, String);
 
 impl PersonaId {
     pub fn new(id: impl Into<String>) -> Self {

@@ -13,7 +13,14 @@ use super::{
 
 /// Returns the default builtin personas
 pub fn builtin_personas() -> Vec<Persona> {
-    vec![scout(), archivist(), steward(), geometre(), artificer(), counsel()]
+    vec![
+        scout(),
+        archivist(),
+        steward(),
+        geometre(),
+        artificer(),
+        counsel(),
+    ]
 }
 
 /// Scout - Eager explorer of new research directions
@@ -74,10 +81,7 @@ When exploring a topic:
         ],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.7),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.7))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::ReadWrite))
@@ -146,10 +150,7 @@ When managing references:
         ],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.3),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.3))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::Full))
@@ -212,10 +213,7 @@ When coordinating:
         ],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.4),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.4))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::Read))
@@ -279,10 +277,7 @@ When analyzing structure:
         ],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.4),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.4))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::Read))
@@ -347,10 +342,7 @@ When implementing:
         ],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.5),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.5))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::Read))
@@ -409,16 +401,10 @@ When critiquing:
     })
     .with_domain(PersonaDomain {
         primary_domains: vec!["critical analysis".to_string()],
-        methodologies: vec![
-            "argumentation".to_string(),
-            "scope analysis".to_string(),
-        ],
+        methodologies: vec!["argumentation".to_string(), "scope analysis".to_string()],
         ..Default::default()
     })
-    .with_model(
-        PersonaModelConfig::anthropic("claude-sonnet-4-20250514")
-            .with_temperature(0.5),
-    )
+    .with_model(PersonaModelConfig::anthropic("claude-sonnet-4-20250514").with_temperature(0.5))
     .with_tools(
         ToolPolicySet::new()
             .with_policy(ToolPolicy::new("imbib", ToolAccess::Read))

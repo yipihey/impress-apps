@@ -51,8 +51,8 @@ use serde::Deserialize;
 use crate::agent::AgentType;
 
 use super::{
-    Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig, ToolAccess,
-    ToolPolicy, ToolPolicySet, WorkingStyle,
+    Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig, ToolAccess, ToolPolicy,
+    ToolPolicySet, WorkingStyle,
 };
 
 /// Errors that can occur when loading a persona from TOML

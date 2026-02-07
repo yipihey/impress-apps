@@ -441,7 +441,11 @@ pub async fn list_threads(
         .collect();
 
     // Sort by temperature (hottest first)
-    threads.sort_by(|a, b| b.temperature.partial_cmp(&a.temperature).unwrap_or(std::cmp::Ordering::Equal));
+    threads.sort_by(|a, b| {
+        b.temperature
+            .partial_cmp(&a.temperature)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let count = threads.len();
     Json(ThreadsResponse { threads, count })
@@ -522,9 +526,12 @@ pub async fn create_thread(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let thread_id = &events[0].entity_id;
-    let thread = coord
-        .get_thread(thread_id)
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Thread not found after creation".to_string()))?;
+    let thread = coord.get_thread(thread_id).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Thread not found after creation".to_string(),
+        )
+    })?;
 
     Ok(Json(ThreadDetail {
         id: thread.id.to_string(),
@@ -706,7 +713,9 @@ pub async fn set_thread_temperature(
     Command::SetTemperature {
         thread_id,
         temperature: request.temperature,
-        reason: request.reason.unwrap_or_else(|| "Temperature adjustment".to_string()),
+        reason: request
+            .reason
+            .unwrap_or_else(|| "Temperature adjustment".to_string()),
     }
     .execute(&mut coord)
     .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
@@ -894,13 +903,19 @@ pub async fn register_agent(
     State(state): State<Arc<AppState>>,
     Json(request): Json<RegisterAgentRequest>,
 ) -> Result<Json<AgentDetail>, (StatusCode, String)> {
-    let agent_type = parse_agent_type(&request.agent_type)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("Invalid agent type: {}", request.agent_type)))?;
+    let agent_type = parse_agent_type(&request.agent_type).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid agent type: {}", request.agent_type),
+        )
+    })?;
 
     let mut coord = state.coordination.write().await;
 
     // Create the agent using the registry
-    let agent = coord.agents_mut().create_agent(agent_type)
+    let agent = coord
+        .agents_mut()
+        .create_agent(agent_type)
         .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
 
     let agent_id = agent.id.clone();
@@ -913,8 +928,12 @@ pub async fn register_agent(
     .execute(&mut coord)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let agent = coord.agents().get(&agent_id)
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Agent not found after registration".to_string()))?;
+    let agent = coord.agents().get(&agent_id).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Agent not found after registration".to_string(),
+        )
+    })?;
 
     Ok(Json(AgentDetail {
         id: agent.id.clone(),
@@ -975,7 +994,9 @@ pub async fn terminate_agent(
 // Escalation Endpoints
 // ============================================================================
 
-use impel_core::escalation::{Escalation, EscalationCategory, EscalationOption, EscalationPriority};
+use impel_core::escalation::{
+    Escalation, EscalationCategory, EscalationOption, EscalationPriority,
+};
 
 /// Summary of an escalation for listing
 #[derive(Debug, Serialize)]
@@ -1161,8 +1182,12 @@ pub async fn create_escalation(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateEscalationRequest>,
 ) -> Result<Json<EscalationDetail>, (StatusCode, String)> {
-    let category = parse_escalation_category(&request.category)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("Invalid category: {}", request.category)))?;
+    let category = parse_escalation_category(&request.category).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid category: {}", request.category),
+        )
+    })?;
 
     let thread_id = if let Some(ref tid) = request.thread_id {
         Some(ThreadId::parse(tid).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?)
@@ -1216,9 +1241,12 @@ pub async fn create_escalation(
     }
     .execute(&mut coord);
 
-    let escalation = coord
-        .get_escalation(&escalation_id)
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Escalation not found after creation".to_string()))?;
+    let escalation = coord.get_escalation(&escalation_id).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Escalation not found after creation".to_string(),
+        )
+    })?;
 
     Ok(Json(EscalationDetail {
         id: escalation.id.clone(),
@@ -1295,9 +1323,12 @@ pub async fn resolve_escalation(
 
     // If selected_option is provided, resolve with that option
     if let Some(option_idx) = request.selected_option {
-        let escalation = coord
-            .get_escalation_mut(&id)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Escalation not found: {}", id)))?;
+        let escalation = coord.get_escalation_mut(&id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Escalation not found: {}", id),
+            )
+        })?;
         escalation.resolve_with_option(request.by.clone(), option_idx);
     } else {
         Command::ResolveEscalation {
@@ -1356,9 +1387,12 @@ pub async fn poll_escalation(
         // Check current escalation status
         {
             let coord = state.coordination.read().await;
-            let escalation = coord
-                .get_escalation(&id)
-                .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Escalation not found: {}", id)))?;
+            let escalation = coord.get_escalation(&id).ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("Escalation not found: {}", id),
+                )
+            })?;
 
             // If resolved or dismissed, return immediately
             if escalation.status.is_handled() {
@@ -1378,9 +1412,12 @@ pub async fn poll_escalation(
         // Check if we've exceeded the timeout
         if std::time::Instant::now() >= deadline {
             let coord = state.coordination.read().await;
-            let escalation = coord
-                .get_escalation(&id)
-                .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Escalation not found: {}", id)))?;
+            let escalation = coord.get_escalation(&id).ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("Escalation not found: {}", id),
+                )
+            })?;
 
             return Ok(Json(EscalationPollResponse {
                 id: escalation.id.clone(),
@@ -1425,23 +1462,34 @@ pub async fn get_next_thread(
     // First, verify the agent exists and is not terminated
     {
         let coord = state.coordination.read().await;
-        let agent = coord.agents().get(&agent_id)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Agent not found: {}", agent_id)))?;
+        let agent = coord.agents().get(&agent_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Agent not found: {}", agent_id),
+            )
+        })?;
 
         if !agent.status.is_active() {
-            return Err((StatusCode::CONFLICT, format!("Agent {} is terminated", agent_id)));
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Agent {} is terminated", agent_id),
+            ));
         }
 
         // Check if agent already has a thread
         if agent.current_thread.is_some() {
-            return Err((StatusCode::CONFLICT, format!("Agent {} already has a thread claimed", agent_id)));
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Agent {} already has a thread claimed", agent_id),
+            ));
         }
     }
 
     // Get the hottest available thread
     let thread_to_claim: Option<ThreadId> = {
         let coord = state.coordination.read().await;
-        coord.threads_by_temperature()
+        coord
+            .threads_by_temperature()
             .into_iter()
             .find(|t| t.state.is_claimable() && t.claimed_by.is_none())
             .map(|t| t.id.clone())
@@ -1466,8 +1514,12 @@ pub async fn get_next_thread(
         .execute(&mut coord)
         .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
 
-        let thread = coord.get_thread(&thread_id.to_string())
-            .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Thread not found after claim".to_string()))?;
+        let thread = coord.get_thread(&thread_id.to_string()).ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Thread not found after claim".to_string(),
+            )
+        })?;
 
         return Ok(Json(NextThreadResponse {
             thread: Some(ThreadDetail {
@@ -1490,8 +1542,12 @@ pub async fn get_next_thread(
 
     // Just return the thread without claiming
     let coord = state.coordination.read().await;
-    let thread = coord.get_thread(&thread_id.to_string())
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Thread not found".to_string()))?;
+    let thread = coord.get_thread(&thread_id.to_string()).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Thread not found".to_string(),
+        )
+    })?;
 
     Ok(Json(NextThreadResponse {
         thread: Some(ThreadDetail {

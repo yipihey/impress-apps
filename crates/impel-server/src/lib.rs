@@ -89,7 +89,9 @@ impl AppState {
     pub async fn save_state(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(ref repo_mutex) = self.repository {
             let coord = self.coordination.read().await;
-            let repo = repo_mutex.lock().map_err(|e| format!("Mutex poisoned: {}", e))?;
+            let repo = repo_mutex
+                .lock()
+                .map_err(|e| format!("Mutex poisoned: {}", e))?;
             coord.save_to_repository(&repo)?;
             tracing::debug!("Saved state to persistence");
         }
@@ -119,7 +121,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/threads/{id}/review", put(http::submit_for_review))
         .route("/threads/{id}/complete", put(http::complete_thread))
         .route("/threads/{id}/kill", put(http::kill_thread))
-        .route("/threads/{id}/temperature", put(http::set_thread_temperature))
+        .route(
+            "/threads/{id}/temperature",
+            put(http::set_thread_temperature),
+        )
         .route("/threads/{id}/events", get(http::get_thread_events))
         // Agent endpoints
         .route("/agents", get(http::list_agents))
@@ -131,7 +136,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/escalations", get(http::list_escalations))
         .route("/escalations", post(http::create_escalation))
         .route("/escalations/{id}", get(http::get_escalation))
-        .route("/escalations/{id}/acknowledge", put(http::acknowledge_escalation))
+        .route(
+            "/escalations/{id}/acknowledge",
+            put(http::acknowledge_escalation),
+        )
         .route("/escalations/{id}/resolve", put(http::resolve_escalation))
         .route("/escalations/{id}/poll", get(http::poll_escalation))
         // Event endpoints
