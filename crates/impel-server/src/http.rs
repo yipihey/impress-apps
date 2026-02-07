@@ -1492,7 +1492,7 @@ pub async fn get_next_thread(
             .threads_by_temperature()
             .into_iter()
             .find(|t| t.state.is_claimable() && t.claimed_by.is_none())
-            .map(|t| t.id.clone())
+            .map(|t| t.id)
     };
 
     let Some(thread_id) = thread_to_claim else {
@@ -1508,7 +1508,7 @@ pub async fn get_next_thread(
         let mut coord = state.coordination.write().await;
 
         Command::ClaimThread {
-            thread_id: thread_id.clone(),
+            thread_id,
             agent_id: agent_id.clone(),
         }
         .execute(&mut coord)
