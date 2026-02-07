@@ -491,6 +491,53 @@ public class ImpelClient: ObservableObject {
         isConnected = true
     }
 
+    // MARK: - State Mutations (for HTTP API)
+
+    /// Append a new thread to the state.
+    public func appendThread(_ thread: ResearchThread) {
+        state.threads.append(thread)
+    }
+
+    /// Mutate a thread by ID. Returns true if found.
+    @discardableResult
+    public func mutateThread(id: String, _ mutation: (inout ResearchThread) -> Void) -> Bool {
+        if let idx = state.threads.firstIndex(where: { $0.id == id }) {
+            mutation(&state.threads[idx])
+            return true
+        }
+        return false
+    }
+
+    /// Append a new agent to the state.
+    public func appendAgent(_ agent: Agent) {
+        state.agents.append(agent)
+    }
+
+    /// Mutate an agent by ID. Returns true if found.
+    @discardableResult
+    public func mutateAgent(id: String, _ mutation: (inout Agent) -> Void) -> Bool {
+        if let idx = state.agents.firstIndex(where: { $0.id == id }) {
+            mutation(&state.agents[idx])
+            return true
+        }
+        return false
+    }
+
+    /// Append a new escalation to the state.
+    public func appendEscalation(_ escalation: Escalation) {
+        state.escalations.append(escalation)
+    }
+
+    /// Mutate an escalation by ID. Returns true if found.
+    @discardableResult
+    public func mutateEscalation(id: String, _ mutation: (inout Escalation) -> Void) -> Bool {
+        if let idx = state.escalations.firstIndex(where: { $0.id == id }) {
+            mutation(&state.escalations[idx])
+            return true
+        }
+        return false
+    }
+
     // MARK: - Escalation Actions
 
     /// Resolve an escalation by selecting an option

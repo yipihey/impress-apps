@@ -109,13 +109,14 @@ targets:
           - group.com.impress.suite
 
   impel-Widgets:
-    type: appex
+    type: app-extension
     platform: macOS
     sources:
       - path: impel-Widgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.impress.impel.widgets
+        PRODUCT_MODULE_NAME: impelWidgets
         GENERATE_INFOPLIST_FILE: YES
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -123,6 +124,7 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:
+      path: impel-Widgets/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

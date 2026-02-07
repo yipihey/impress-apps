@@ -318,8 +318,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
         )
 
         await MainActor.run {
-            guard let client = getClient() else { return }
-            client.state.threads.append(thread)
+            getClient()?.appendThread(thread)
         }
 
         return .json([
@@ -499,8 +498,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
         )
 
         await MainActor.run {
-            guard let client = getClient() else { return }
-            client.state.agents.append(agent)
+            getClient()?.appendAgent(agent)
         }
 
         return .json([
@@ -513,12 +511,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
     /// DELETE /agents/{id}
     private func handleUnregisterAgent(id: String, request: HTTPRequest) async -> HTTPResponse {
         let removed = await MainActor.run { () -> Bool in
-            guard let client = getClient() else { return false }
-            if let index = client.state.agents.firstIndex(where: { $0.id == id }) {
-                client.state.agents[index].status = .terminated
-                return true
-            }
-            return false
+            getClient()?.mutateAgent(id: id) { $0.status = .terminated } ?? false
         }
 
         guard removed else {
@@ -534,7 +527,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
     /// GET /agents/{id}/next-thread
     private func handleNextThread(agentId: String, request: HTTPRequest) async -> HTTPResponse {
         let state = await getState()
-        guard let agent = state.agents.first(where: { $0.id == agentId }) else {
+        guard state.agents.contains(where: { $0.id == agentId }) else {
             return .notFound("Agent not found: \(agentId)")
         }
 
@@ -555,15 +548,15 @@ public actor ImpelHTTPRouter: HTTPRouter {
         if autoClaim {
             await MainActor.run {
                 guard let client = getClient() else { return }
-                if let idx = client.state.threads.firstIndex(where: { $0.id == next.id }) {
-                    client.state.threads[idx].claimedBy = agentId
-                    client.state.threads[idx].state = .active
-                    client.state.threads[idx].updatedAt = Date()
+                client.mutateThread(id: next.id) {
+                    $0.claimedBy = agentId
+                    $0.state = .active
+                    $0.updatedAt = Date()
                 }
-                if let idx = client.state.agents.firstIndex(where: { $0.id == agentId }) {
-                    client.state.agents[idx].currentThread = next.id
-                    client.state.agents[idx].status = .working
-                    client.state.agents[idx].lastActiveAt = Date()
+                client.mutateAgent(id: agentId) {
+                    $0.currentThread = next.id
+                    $0.status = .working
+                    $0.lastActiveAt = Date()
                 }
             }
         }
@@ -632,8 +625,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
         )
 
         await MainActor.run {
-            guard let client = getClient() else { return }
-            client.state.escalations.append(escalation)
+            getClient()?.appendEscalation(escalation)
         }
 
         return .json([
@@ -649,12 +641,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
         let by = json?["by"] as? String ?? "api"
 
         let found = await MainActor.run { () -> Bool in
-            guard let client = getClient() else { return false }
-            if let idx = client.state.escalations.firstIndex(where: { $0.id == id }) {
-                client.state.escalations[idx].status = .acknowledged
-                return true
-            }
-            return false
+            getClient()?.mutateEscalation(id: id) { $0.status = .acknowledged } ?? false
         }
 
         guard found else {
@@ -677,12 +664,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
         let resolution = json["resolution"] as? String ?? ""
 
         let found = await MainActor.run { () -> Bool in
-            guard let client = getClient() else { return false }
-            if let idx = client.state.escalations.firstIndex(where: { $0.id == id }) {
-                client.state.escalations[idx].status = .resolved
-                return true
-            }
-            return false
+            getClient()?.mutateEscalation(id: id) { $0.status = .resolved } ?? false
         }
 
         guard found else {
@@ -824,12 +806,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
     /// Mutate a thread by ID and return success/failure response.
     private func mutateThread(id: String, mutation: @escaping (inout ResearchThread) -> Void) async -> HTTPResponse {
         let found = await MainActor.run { () -> Bool in
-            guard let client = getClient() else { return false }
-            if let idx = client.state.threads.firstIndex(where: { $0.id == id }) {
-                mutation(&client.state.threads[idx])
-                return true
-            }
-            return false
+            getClient()?.mutateThread(id: id, mutation) ?? false
         }
 
         guard found else {
