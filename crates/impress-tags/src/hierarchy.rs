@@ -1,7 +1,7 @@
 //! In-memory tag hierarchy with fast lookups.
 
 use std::collections::HashMap;
-use crate::tag::{Tag, TagColor, TagId};
+use crate::tag::{Tag, TagColor};
 
 /// An in-memory tag tree for fast hierarchy operations.
 pub struct TagHierarchy {
