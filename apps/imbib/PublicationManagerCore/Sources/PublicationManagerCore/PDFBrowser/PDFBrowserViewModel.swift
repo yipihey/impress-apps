@@ -64,7 +64,7 @@ public final class PDFBrowserViewModel {
     // MARK: - Context
 
     /// The publication we're fetching a PDF for
-    public let publication: CDPublication
+    public let publication: PublicationModel
 
     /// The URL to load initially
     public let initialURL: URL
@@ -114,13 +114,13 @@ public final class PDFBrowserViewModel {
 
     // MARK: - Initialization
 
-    public init(publication: CDPublication, initialURL: URL, libraryID: UUID) {
+    public init(publication: PublicationModel, initialURL: URL, libraryID: UUID) {
         self.publication = publication
         self.initialURL = initialURL
         self.libraryID = libraryID
         self.currentURL = initialURL
 
-        Logger.pdfBrowser.info("PDFBrowserViewModel initialized for: \(publication.title ?? "Unknown")")
+        Logger.pdfBrowser.info("PDFBrowserViewModel initialized for: \(publication.title)")
         Logger.pdfBrowser.info("Starting URL: \(initialURL.absoluteString)")
     }
 
@@ -367,11 +367,11 @@ public final class PDFBrowserViewModel {
     /// Publisher-specific PDF URL patterns
     ///
     /// Many publishers use predictable URL patterns for PDFs:
-    /// - IOP Science: /article/DOI → /article/DOI/pdf
-    /// - APS (Physical Review): /abstract/DOI → /pdf/DOI
-    /// - Nature: /articles/ID → /articles/ID.pdf
-    /// - MNRAS/Oxford: /article/DOI → /article-pdf/DOI
-    /// - A&A/EDP Sciences: /articles/DOI → /articles/DOI/pdf
+    /// - IOP Science: /article/DOI -> /article/DOI/pdf
+    /// - APS (Physical Review): /abstract/DOI -> /pdf/DOI
+    /// - Nature: /articles/ID -> /articles/ID.pdf
+    /// - MNRAS/Oxford: /article/DOI -> /article-pdf/DOI
+    /// - A&A/EDP Sciences: /articles/DOI -> /articles/DOI/pdf
     ///
     /// Note: Patterns also handle proxied URLs (e.g., nature-com.proxy.edu)
     public static func directPDFURL(for articleURL: URL) -> URL? {
@@ -380,18 +380,18 @@ public final class PDFBrowserViewModel {
         let path = articleURL.path
 
         // Helper to check if host matches a publisher (direct or proxied)
-        // Proxies often use hyphenated hostnames: nature.com → nature-com.proxy.edu
+        // Proxies often use hyphenated hostnames: nature.com -> nature-com.proxy.edu
         func hostMatches(_ publisher: String) -> Bool {
             let hyphenated = publisher.replacingOccurrences(of: ".", with: "-")
             return host.contains(publisher) || host.contains(hyphenated)
         }
 
-        // IOP Science: iopscience.iop.org/article/DOI → iopscience.iop.org/article/DOI/pdf
+        // IOP Science: iopscience.iop.org/article/DOI -> iopscience.iop.org/article/DOI/pdf
         if hostMatches("iopscience.iop.org") && path.hasPrefix("/article/") && !path.hasSuffix("/pdf") {
             return URL(string: urlString + "/pdf")
         }
 
-        // APS (Physical Review): journals.aps.org/*/abstract/DOI → journals.aps.org/*/pdf/DOI
+        // APS (Physical Review): journals.aps.org/*/abstract/DOI -> journals.aps.org/*/pdf/DOI
         if hostMatches("journals.aps.org") && path.contains("/abstract/") {
             let pdfPath = path.replacingOccurrences(of: "/abstract/", with: "/pdf/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
@@ -399,7 +399,7 @@ public final class PDFBrowserViewModel {
             return components?.url
         }
 
-        // Nature: nature.com/articles/ID → nature.com/articles/ID.pdf
+        // Nature: nature.com/articles/ID -> nature.com/articles/ID.pdf
         if hostMatches("nature.com") && path.hasPrefix("/articles/") && !path.hasSuffix(".pdf") {
             return URL(string: urlString + ".pdf")
         }
@@ -411,12 +411,12 @@ public final class PDFBrowserViewModel {
             return URL(string: urlString + "/pdf")
         }
 
-        // A&A / EDP Sciences: aanda.org/articles/DOI → aanda.org/articles/DOI/pdf
+        // A&A / EDP Sciences: aanda.org/articles/DOI -> aanda.org/articles/DOI/pdf
         if hostMatches("aanda.org") && path.hasPrefix("/articles/") && !path.hasSuffix("/pdf") {
             return URL(string: urlString + "/pdf")
         }
 
-        // Science (AAAS): science.org/doi/... → science.org/doi/pdf/...
+        // Science (AAAS): science.org/doi/... -> science.org/doi/pdf/...
         if hostMatches("science.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
             let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
@@ -424,7 +424,7 @@ public final class PDFBrowserViewModel {
             return components?.url
         }
 
-        // Wiley: onlinelibrary.wiley.com/doi/... → onlinelibrary.wiley.com/doi/pdfdirect/...
+        // Wiley: onlinelibrary.wiley.com/doi/... -> onlinelibrary.wiley.com/doi/pdfdirect/...
         if hostMatches("onlinelibrary.wiley.com") && path.hasPrefix("/doi/") && !path.contains("/doi/pdfdirect/") && !path.contains("/doi/pdf/") {
             let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdfdirect/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
@@ -432,12 +432,12 @@ public final class PDFBrowserViewModel {
             return components?.url
         }
 
-        // AIP (Journal of Chemical Physics, etc.): pubs.aip.org/*/article/... → append /pdf
+        // AIP (Journal of Chemical Physics, etc.): pubs.aip.org/*/article/... -> append /pdf
         if hostMatches("pubs.aip.org") && path.contains("/article/") && !path.hasSuffix("/pdf") {
             return URL(string: urlString + "/pdf")
         }
 
-        // Annual Reviews: annualreviews.org/doi/... → annualreviews.org/doi/pdf/...
+        // Annual Reviews: annualreviews.org/doi/... -> annualreviews.org/doi/pdf/...
         if hostMatches("annualreviews.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
             let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
@@ -445,7 +445,7 @@ public final class PDFBrowserViewModel {
             return components?.url
         }
 
-        // PNAS: pnas.org/doi/... → pnas.org/doi/pdf/...
+        // PNAS: pnas.org/doi/... -> pnas.org/doi/pdf/...
         if hostMatches("pnas.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
             let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
@@ -453,7 +453,7 @@ public final class PDFBrowserViewModel {
             return components?.url
         }
 
-        // Royal Society: royalsocietypublishing.org/doi/... → royalsocietypublishing.org/doi/pdf/...
+        // Royal Society: royalsocietypublishing.org/doi/... -> royalsocietypublishing.org/doi/pdf/...
         if hostMatches("royalsocietypublishing.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
             let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
             var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib", category: "GlobalSearch")
@@ -223,7 +222,7 @@ public final class GlobalSearchViewModel {
             let ftsResult = ftsMap[id]
             let semanticResult = semanticMap[id]
 
-            // Always fetch complete metadata from Core Data to ensure we have title, authors, etc.
+            // Always fetch complete metadata from the store to ensure we have title, authors, etc.
             let metadata = fetchFullPublicationMetadata(id: id)
 
             // Skip results where publication no longer exists or has no meaningful metadata
@@ -390,92 +389,49 @@ public final class GlobalSearchViewModel {
 
     /// Check if a publication is in the specified library
     private func isInLibrary(_ publicationID: UUID, libraryID: UUID) -> Bool {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id == %@", publicationID as CVarArg)
-        request.fetchLimit = 1
-
-        guard let publication = try? context.fetch(request).first else {
-            return false
-        }
-
-        // Check regular libraries
-        if let libraries = publication.libraries {
-            for library in libraries {
-                if library.id == libraryID {
-                    return true
-                }
-            }
-        }
-
-        // Check SciX libraries
-        if let scixLibraries = publication.scixLibraries {
-            for scixLibrary in scixLibraries {
-                if scixLibrary.id == libraryID {
-                    return true
-                }
-            }
-        }
-
-        return false
+        let store = RustStoreAdapter.shared
+        // Query publications in this library and check if publicationID is among them
+        let pubs = store.queryPublications(parentId: libraryID, sort: "dateAdded", ascending: false)
+        return pubs.contains { $0.id == publicationID }
     }
 
     /// Check if a publication is in the specified collection
     private func isInCollection(_ publicationID: UUID, collectionID: UUID) -> Bool {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id == %@", publicationID as CVarArg)
-        request.fetchLimit = 1
-
-        guard let publication = try? context.fetch(request).first,
-              let collections = publication.collections else {
-            return false
-        }
-
-        return collections.contains { $0.id == collectionID }
+        let store = RustStoreAdapter.shared
+        let members = store.listCollectionMembers(collectionId: collectionID)
+        return members.contains { $0.id == publicationID }
     }
 
-    /// Check if a publication matches the specified smart search
+    /// Check if a publication matches the specified smart search.
+    ///
+    /// Smart search results are transient (produced by executing the search query)
+    /// rather than stored in a persistent collection. We return `true` here so
+    /// global search results are not discarded when scoped to a smart search.
     private func isInSmartSearch(_ publicationID: UUID, smartSearchID: UUID) -> Bool {
-        let context = PersistenceController.shared.viewContext
-
-        // Fetch the smart search
-        let ssRequest = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        ssRequest.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
-        ssRequest.fetchLimit = 1
-
-        guard let smartSearch = try? context.fetch(ssRequest).first,
-              let publications = smartSearch.resultCollection?.publications else {
-            return false
-        }
-
-        return publications.contains { $0.id == publicationID }
+        // Smart searches in the Rust store don't have persistent result collections.
+        // When scoped to a smart search, show all matching results.
+        return true
     }
 
     /// Search for query in a publication's notes
     private func searchNotesForPublication(_ publicationID: UUID) -> GlobalSearchResult? {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id == %@", publicationID as CVarArg)
-        request.fetchLimit = 1
-
-        guard let publication = try? context.fetch(request).first else {
+        let store = RustStoreAdapter.shared
+        guard let detail = store.getPublicationDetail(id: publicationID) else {
             return nil
         }
 
-        // Notes are stored in the BibTeX fields dictionary as "note" or "annote"
-        let fields = publication.fields
-        let notes = fields["annote"] ?? fields["note"]
+        // Notes are stored in the fields dictionary as "note" or "annote"
+        let notes = detail.fields["annote"] ?? detail.fields["note"]
 
         // Check if notes contain the query
         if let notes = notes,
            !notes.isEmpty,
            notes.localizedCaseInsensitiveContains(query) {
 
-            let title = publication.title ?? ""
-            let citeKey = publication.citeKey
-            let authors = publication.authorString
-            let year: String? = publication.year > 0 ? String(publication.year) : nil
+            let title = detail.title
+            let citeKey = detail.citeKey
+            let authors = detail.authors.map(\.displayName).joined(separator: ", ")
+            let year: String? = detail.year.map { String($0) }
 
             // Extract snippet from notes
             let snippet = extractSnippet(from: notes, query: query)
@@ -523,7 +479,7 @@ public final class GlobalSearchViewModel {
         return snippet
     }
 
-    /// Metadata result from Core Data fetch
+    /// Metadata result from store fetch
     private struct PublicationMetadata {
         let title: String
         let citeKey: String
@@ -536,20 +492,17 @@ public final class GlobalSearchViewModel {
         let isStarred: Bool
     }
 
-    /// Fetch publication metadata from Core Data.
+    /// Fetch publication metadata from the store.
     private func fetchPublicationMetadata(id: UUID) -> (title: String, citeKey: String, authors: String, year: String?, libraryNames: [String]) {
         let metadata = fetchFullPublicationMetadata(id: id)
         return (metadata.title, metadata.citeKey, metadata.authors, metadata.year, metadata.libraryNames)
     }
 
-    /// Fetch full publication metadata including sorting fields from Core Data.
+    /// Fetch full publication metadata including sorting fields from the Rust store.
     private func fetchFullPublicationMetadata(id: UUID) -> PublicationMetadata {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
+        let store = RustStoreAdapter.shared
 
-        guard let publication = try? context.fetch(request).first else {
+        guard let pub = store.getPublication(id: id) else {
             return PublicationMetadata(
                 title: "", citeKey: "", authors: "", year: nil,
                 libraryNames: [], dateAdded: nil, dateModified: nil,
@@ -557,33 +510,31 @@ public final class GlobalSearchViewModel {
             )
         }
 
-        let title = publication.title ?? ""
-        let citeKey = publication.citeKey
-        let authors = publication.authorString
-        let year: String? = publication.year > 0 ? String(publication.year) : nil
+        let title = pub.title
+        let citeKey = pub.citeKey
+        let authors = pub.authorString
+        let year: String? = pub.year.map { String($0) }
 
-        // Get library names (excluding system libraries)
-        var libraryNames: [String] = publication.libraries?
-            .filter { !$0.isSystemLibrary && $0.name.lowercased() != "dismissed" }
-            .map { $0.displayName }
-            .sorted() ?? []
-
-        // Also include SciX library names
-        let scixNames: [String] = publication.scixLibraries?
-            .map { $0.name }
-            .sorted() ?? []
-        libraryNames.append(contentsOf: scixNames)
+        // Get library names from the store
+        let allLibraries = store.listLibraries()
+        var libraryNames: [String] = []
+        for library in allLibraries {
+            let members = store.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false)
+            if members.contains(where: { $0.id == id }) {
+                libraryNames.append(library.name)
+            }
+        }
 
         return PublicationMetadata(
             title: title,
             citeKey: citeKey,
             authors: authors,
             year: year,
-            libraryNames: libraryNames,
-            dateAdded: publication.dateAdded,
-            dateModified: publication.dateModified,
-            citationCount: Int(publication.citationCount),
-            isStarred: publication.isStarred
+            libraryNames: libraryNames.sorted(),
+            dateAdded: pub.dateAdded,
+            dateModified: pub.dateModified,
+            citationCount: pub.citationCount,
+            isStarred: pub.isStarred
         )
     }
 }

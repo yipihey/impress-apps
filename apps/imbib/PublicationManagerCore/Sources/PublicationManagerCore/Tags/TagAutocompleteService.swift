@@ -2,14 +2,15 @@
 //  TagAutocompleteService.swift
 //  PublicationManagerCore
 //
+//  In-memory tag autocomplete service for fast prefix matching.
+//
 
 import Foundation
-import CoreData
 import ImpressFTUI
 
 /// In-memory tag autocomplete service for fast prefix matching.
 ///
-/// Loads all tags from Core Data into memory and provides ranked completions.
+/// Loads all tags from the Rust store into memory and provides ranked completions.
 /// Ranking: recency > shallow depth > frequency > alphabetical.
 @MainActor
 @Observable
@@ -18,38 +19,28 @@ public final class TagAutocompleteService {
     // MARK: - Properties
 
     private var cachedTags: [CachedTag] = []
-    private let persistenceController: PersistenceController
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController) {
-        self.persistenceController = persistenceController
-    }
+    public init() {}
 
     // MARK: - Cache Management
 
-    /// Reload all tags from Core Data into the in-memory cache.
+    /// Reload all tags from the store into the in-memory cache.
     public func reload() {
-        let context = persistenceController.viewContext
+        let tags = RustStoreAdapter.shared.listTagsWithCounts()
 
-        context.performAndWait {
-            let request = NSFetchRequest<CDTag>(entityName: "Tag")
-            request.sortDescriptors = [NSSortDescriptor(key: "canonicalPath", ascending: true)]
-
-            guard let tags = try? context.fetch(request) else { return }
-
-            self.cachedTags = tags.map { tag in
-                CachedTag(
-                    id: tag.id,
-                    path: tag.canonicalPath ?? tag.name,
-                    leaf: tag.leaf,
-                    depth: tag.depth,
-                    useCount: Int(tag.useCount),
-                    lastUsedAt: tag.lastUsedAt,
-                    colorLight: tag.colorLight,
-                    colorDark: tag.colorDark
-                )
-            }
+        self.cachedTags = tags.map { tag in
+            let depth = tag.path.components(separatedBy: "/").count - 1
+            return CachedTag(
+                path: tag.path,
+                leaf: tag.leafName,
+                depth: depth,
+                useCount: tag.publicationCount,
+                lastUsedAt: nil,
+                colorLight: tag.colorLight,
+                colorDark: tag.colorDark
+            )
         }
     }
 
@@ -95,7 +86,7 @@ public final class TagAutocompleteService {
             .prefix(limit)
             .map { cached in
                 TagCompletion(
-                    id: cached.id,
+                    id: UUID(),
                     path: cached.path,
                     leaf: cached.leaf,
                     depth: cached.depth,
@@ -111,7 +102,6 @@ public final class TagAutocompleteService {
 // MARK: - Cached Tag
 
 private struct CachedTag {
-    let id: UUID
     let path: String
     let leaf: String
     let depth: Int

@@ -2,11 +2,10 @@
 //  MboxImporter.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-22.
+//  Imports mbox files into imbib libraries via RustStoreAdapter.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Mbox Importer
@@ -14,60 +13,48 @@ import OSLog
 /// Imports mbox files into imbib libraries.
 public actor MboxImporter {
 
-    private let context: NSManagedObjectContext
     private let options: MboxImportOptions
     private let parser: MboxParser
-    private let repository: PublicationRepository
     private let logger = Logger(subsystem: "PublicationManagerCore", category: "MboxImporter")
 
-    public init(context: NSManagedObjectContext, options: MboxImportOptions = .default) {
-        self.context = context
+    public init(options: MboxImportOptions = .default) {
         self.options = options
         self.parser = MboxParser()
-        self.repository = PublicationRepository()
+    }
+
+    /// Helper to call @MainActor RustStoreAdapter from actor context.
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
     }
 
     // MARK: - Public API
 
     /// Detect the export version from an mbox file.
-    /// - Parameter url: URL of the mbox file
-    /// - Returns: The detected export version
     public func detectExportVersion(from url: URL) async throws -> ExportVersion {
         let messages = try await parser.parse(url: url)
         return detectExportVersion(messages)
     }
 
     /// Detect the export version from parsed messages.
-    /// - Parameter messages: Parsed mbox messages
-    /// - Returns: The detected export version
     public func detectExportVersion(_ messages: [MboxMessage]) -> ExportVersion {
-        // Check for Everything export manifest
         if messages.first(where: { $0.headers[MboxHeader.exportType] == "everything" }) != nil {
             return .everything
         }
-
-        // Check for single library export
         if messages.first(where: { $0.subject == "[imbib Library Export]" }) != nil {
             return .singleLibrary
         }
-
         return .unknown
     }
 
     /// Prepare an import preview from an mbox file.
-    /// - Parameter url: URL of the mbox file
-    /// - Returns: Preview data for user confirmation
-    /// - Note: For Everything exports (v2.0), use `EverythingImporter` instead.
     public func prepareImport(from url: URL) async throws -> MboxImportPreview {
         logger.info("Preparing import preview from: \(url.path)")
 
         let messages = try await parser.parse(url: url)
 
-        // Detect version and handle accordingly
         let version = detectExportVersion(messages)
         if version == .everything {
             logger.info("Detected Everything export - falling back to first library")
-            // For backward compatibility, extract just the first library
         }
 
         var libraryMetadata: LibraryMetadata?
@@ -76,25 +63,20 @@ public actor MboxImporter {
         var parseErrors: [ParseError] = []
 
         for (index, message) in messages.enumerated() {
-            // Skip Everything manifest message
             if message.subject == "[imbib Everything Export]" {
                 continue
             }
 
-            // Check if this is the library header
             if message.subject == "[imbib Library Export]" {
-                // For v2.0, only take the first library (backward compat)
                 if libraryMetadata == nil {
                     libraryMetadata = parseLibraryMetadata(from: message)
                 }
                 continue
             }
 
-            // Parse as publication
             do {
                 let preview = try await parsePublicationPreview(from: message, index: index)
 
-                // Check for duplicates using repository's indexed lookups
                 if let existing = await findExistingPublication(
                     uuid: UUID(uuidString: message.headers[MboxHeader.imbibID] ?? ""),
                     citeKey: message.headers[MboxHeader.imbibCiteKey],
@@ -113,7 +95,7 @@ public actor MboxImporter {
                     duplicates.append(DuplicateInfo(
                         importPublication: preview,
                         existingCiteKey: existing.citeKey,
-                        existingTitle: existing.title ?? "Untitled",
+                        existingTitle: existing.title,
                         matchType: matchType
                     ))
                 } else {
@@ -138,15 +120,9 @@ public actor MboxImporter {
     }
 
     /// Execute the import after user confirmation.
-    /// - Parameters:
-    ///   - preview: The import preview
-    ///   - library: Target library (or nil to create new)
-    ///   - selectedPublications: UUIDs of publications to import (nil = all)
-    ///   - duplicateDecisions: How to handle each duplicate (UUID -> action)
-    /// - Returns: Import result
     public func executeImport(
         _ preview: MboxImportPreview,
-        to library: CDLibrary?,
+        to libraryId: UUID?,
         selectedPublications: Set<UUID>? = nil,
         duplicateDecisions: [UUID: DuplicateAction] = [:]
     ) async throws -> MboxImportResult {
@@ -157,36 +133,27 @@ public actor MboxImporter {
         var mergedCount = 0
         var errors: [MboxImportErrorInfo] = []
 
-        // Create or use library
-        let targetLibrary: CDLibrary
-        if let existingLibrary = library {
-            targetLibrary = existingLibrary
+        // Determine target library
+        let targetLibraryId: UUID
+        if let existingId = libraryId {
+            targetLibraryId = existingId
         } else if let metadata = preview.libraryMetadata {
-            targetLibrary = try await createLibrary(from: metadata)
+            let lib = await withStore { $0.createLibrary(name: metadata.name) }
+            targetLibraryId = lib?.id ?? UUID()
         } else {
-            targetLibrary = try await createDefaultLibrary()
+            let lib = await withStore { $0.createLibrary(name: "Imported Library") }
+            targetLibraryId = lib?.id ?? UUID()
         }
-
-        // Create collections map for assignment
-        let collectionsMap = try await createCollections(
-            from: preview.libraryMetadata?.collections ?? [],
-            in: targetLibrary
-        )
 
         // Import new publications
         for pubPreview in preview.publications {
-            // Check if selected
             if let selected = selectedPublications, !selected.contains(pubPreview.id) {
                 skippedCount += 1
                 continue
             }
 
             do {
-                try await importPublication(
-                    from: pubPreview,
-                    to: targetLibrary,
-                    collectionsMap: collectionsMap
-                )
+                try await importPublication(from: pubPreview, to: targetLibraryId)
                 importedCount += 1
             } catch {
                 errors.append(MboxImportErrorInfo(
@@ -205,7 +172,7 @@ public actor MboxImporter {
                 skippedCount += 1
             case .replace:
                 do {
-                    try await replacePublication(duplicate, in: targetLibrary, collectionsMap: collectionsMap)
+                    try await replacePublication(duplicate, in: targetLibraryId)
                     importedCount += 1
                 } catch {
                     errors.append(MboxImportErrorInfo(
@@ -215,7 +182,7 @@ public actor MboxImporter {
                 }
             case .merge:
                 do {
-                    try await mergePublication(duplicate, in: targetLibrary, collectionsMap: collectionsMap)
+                    try await mergePublication(duplicate, in: targetLibraryId)
                     mergedCount += 1
                 } catch {
                     errors.append(MboxImportErrorInfo(
@@ -223,13 +190,6 @@ public actor MboxImporter {
                         description: error.localizedDescription
                     ))
                 }
-            }
-        }
-
-        // Save context
-        try context.performAndWait {
-            if context.hasChanges {
-                try context.save()
             }
         }
 
@@ -245,9 +205,7 @@ public actor MboxImporter {
 
     // MARK: - Preview Parsing
 
-    /// Parse library metadata from header message.
     private func parseLibraryMetadata(from message: MboxMessage) -> LibraryMetadata? {
-        // Parse JSON body
         guard let jsonData = message.body.data(using: .utf8) else { return nil }
 
         let decoder = JSONDecoder()
@@ -257,7 +215,6 @@ public actor MboxImporter {
             return metadata
         }
 
-        // Fallback: extract from headers
         return LibraryMetadata(
             libraryID: UUID(uuidString: message.headers[MboxHeader.libraryID] ?? ""),
             name: message.headers[MboxHeader.libraryName] ?? "Imported Library",
@@ -267,7 +224,6 @@ public actor MboxImporter {
         )
     }
 
-    /// Parse publication preview from message.
     private func parsePublicationPreview(from message: MboxMessage, index: Int) async throws -> PublicationPreview {
         let headers = message.headers
 
@@ -279,20 +235,16 @@ public actor MboxImporter {
         let doi = headers[MboxHeader.imbibDOI]
         let arxivID = headers[MboxHeader.imbibArXiv]
 
-        // Parse year from date
         let calendar = Calendar(identifier: .gregorian)
         let year = calendar.component(.year, from: message.date)
 
-        // Count file attachments (exclude BibTeX)
         let fileCount = message.attachments.filter { $0.contentType != "text/x-bibtex" }.count
 
-        // Parse collection IDs
         var collectionIDs: [UUID] = []
         if let collectionsHeader = headers[MboxHeader.imbibCollections] {
             collectionIDs = collectionsHeader.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
         }
 
-        // Extract raw BibTeX from attachment
         var rawBibTeX: String?
         for attachment in message.attachments {
             if attachment.contentType == "text/x-bibtex" || attachment.filename.hasSuffix(".bib") {
@@ -320,42 +272,25 @@ public actor MboxImporter {
 
     // MARK: - Duplicate Detection
 
-    /// Find existing publication by UUID, cite key, DOI, or arXiv ID.
-    /// Reuses PublicationRepository's indexed lookup methods for efficiency.
-    private func findExistingPublication(uuid: UUID?, citeKey: String?, doi: String?, arxivID: String?) async -> CDPublication? {
-        // Check by UUID first (mbox round-trip preservation)
+    private func findExistingPublication(uuid: UUID?, citeKey: String?, doi: String?, arxivID: String?) async -> PublicationRowData? {
         if let uuid = uuid {
-            let existing = context.performAndWait {
-                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-                request.fetchLimit = 1
-                return try? context.fetch(request).first
-            }
-            if let pub = existing {
-                return pub
-            }
+            let existing = await withStore { $0.getPublication(id: uuid) }
+            if let pub = existing { return pub }
         }
 
-        // Use repository's indexed lookups for standard identifiers
-        // DOI - most reliable identifier
         if let doi = doi, !doi.isEmpty {
-            if let pub = await repository.findByDOI(doi) {
-                return pub
-            }
+            let results = await withStore { $0.findByDoi(doi: doi) }
+            if let pub = results.first { return pub }
         }
 
-        // arXiv ID - common in physics/CS
         if let arxivID = arxivID, !arxivID.isEmpty {
-            if let pub = await repository.findByArXiv(arxivID) {
-                return pub
-            }
+            let results = await withStore { $0.findByArxiv(arxivId: arxivID) }
+            if let pub = results.first { return pub }
         }
 
-        // Cite key - fallback for BibTeX-sourced publications
         if let citeKey = citeKey, !citeKey.isEmpty {
-            if let pub = await repository.findByCiteKey(citeKey) {
-                return pub
-            }
+            let existing = await withStore { $0.findByCiteKey(citeKey: citeKey) }
+            if let pub = existing { return pub }
         }
 
         return nil
@@ -363,232 +298,75 @@ public actor MboxImporter {
 
     // MARK: - Import Execution
 
-    /// Import a single publication from preview.
     private func importPublication(
         from preview: PublicationPreview,
-        to library: CDLibrary,
-        collectionsMap: [UUID: CDCollection]
+        to libraryId: UUID
     ) async throws {
-        try context.performAndWait {
-            let publication = CDPublication(context: context)
-
-            // Set ID (preserve if requested)
-            if options.preserveUUIDs {
-                publication.id = preview.id
-            } else {
-                publication.id = UUID()
-            }
-
-            // Set core fields
-            publication.citeKey = preview.citeKey
-            publication.entryType = preview.entryType
-            publication.title = preview.title
-            publication.year = Int16(preview.year ?? 0)
-            publication.abstract = preview.message.body.isEmpty ? nil : preview.message.body
-            publication.dateAdded = Date()
-            publication.dateModified = Date()
-            publication.citationCount = -1
-            publication.referenceCount = -1
-
-            // Set identifiers
-            if let doi = preview.doi {
-                publication.doi = doi
-            }
+        // Build BibTeX from preview data or use raw
+        let bibtex: String
+        if let raw = preview.rawBibTeX, !raw.isEmpty {
+            bibtex = raw
+        } else {
+            var fields: [String: String] = [:]
+            fields["title"] = preview.title
+            fields["author"] = preview.authors
+            if let year = preview.year { fields["year"] = String(year) }
+            if let doi = preview.doi { fields["doi"] = doi }
             if let arxivID = preview.arxivID {
-                var fields = publication.fields
                 fields["eprint"] = arxivID
-                publication.fields = fields
+                fields["archiveprefix"] = "arXiv"
+            }
+            if !preview.message.body.isEmpty {
+                fields["abstract"] = preview.message.body
             }
 
-            // Set raw BibTeX
-            publication.rawBibTeX = preview.rawBibTeX
-
-            // Parse and set fields from BibTeX if available
-            if let bibtex = preview.rawBibTeX {
-                if let items = try? BibTeXParser().parse(bibtex),
-                   let firstItem = items.first,
-                   case .entry(let entry) = firstItem {
-                    publication.update(from: entry, context: context)
-                }
-            }
-
-            // Add to library
-            publication.addToLibrary(library)
-
-            // Add to collections
-            for collectionID in preview.collectionIDs {
-                if let collection = collectionsMap[collectionID] {
-                    publication.addToCollection(collection)
-                }
-            }
-
-            // Import file attachments
-            if options.importFiles {
-                for attachment in preview.message.attachments {
-                    // Skip BibTeX attachment
-                    if attachment.contentType == "text/x-bibtex" {
-                        continue
-                    }
-
-                    let linkedFile = CDLinkedFile(context: context)
-                    linkedFile.id = UUID()
-                    linkedFile.filename = attachment.filename
-                    linkedFile.dateAdded = Date()
-                    linkedFile.fileData = attachment.data
-                    linkedFile.fileSize = Int64(attachment.data.count)
-                    linkedFile.mimeType = attachment.contentType
-
-                    // Get relative path from custom header or generate
-                    if let path = attachment.customHeaders[MboxHeader.linkedFilePath] {
-                        linkedFile.relativePath = path
-                    } else {
-                        linkedFile.relativePath = attachment.filename
-                    }
-
-                    linkedFile.publication = publication
-                }
-            }
+            let entry = BibTeXEntry(citeKey: preview.citeKey, entryType: preview.entryType, fields: fields)
+            bibtex = BibTeXExporter().export(entry)
         }
+
+        _ = await withStore { $0.importBibTeX(bibtex, libraryId: libraryId) }
     }
 
-    /// Replace an existing publication with imported data.
     private func replacePublication(
         _ duplicate: DuplicateInfo,
-        in library: CDLibrary,
-        collectionsMap: [UUID: CDCollection]
+        in libraryId: UUID
     ) async throws {
-        try context.performAndWait {
-            // Find and delete existing
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            request.predicate = NSPredicate(format: "citeKey == %@", duplicate.existingCiteKey)
-            request.fetchLimit = 1
-
-            if let existing = try context.fetch(request).first {
-                // Delete linked files
-                for linkedFile in existing.linkedFiles ?? [] {
-                    context.delete(linkedFile)
-                }
-                context.delete(existing)
-            }
+        // Find and delete existing by cite key
+        let existing = await withStore { $0.findByCiteKey(citeKey: duplicate.existingCiteKey) }
+        if let pub = existing {
+            await withStore { $0.deletePublications(ids: [pub.id]) }
         }
 
-        // Import as new
-        try await importPublication(
-            from: duplicate.importPublication,
-            to: library,
-            collectionsMap: collectionsMap
-        )
+        try await importPublication(from: duplicate.importPublication, to: libraryId)
     }
 
-    /// Merge imported data into existing publication.
     private func mergePublication(
         _ duplicate: DuplicateInfo,
-        in library: CDLibrary,
-        collectionsMap: [UUID: CDCollection]
+        in libraryId: UUID
     ) async throws {
         let preview = duplicate.importPublication
+        let existing = await withStore { $0.findByCiteKey(citeKey: duplicate.existingCiteKey) }
 
-        try context.performAndWait {
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            request.predicate = NSPredicate(format: "citeKey == %@", duplicate.existingCiteKey)
-            request.fetchLimit = 1
+        guard let pub = existing else { return }
 
-            guard let existing = try context.fetch(request).first else {
-                return
-            }
-
-            // Merge fields - only update empty fields
-            if existing.abstract == nil || existing.abstract?.isEmpty == true {
-                existing.abstract = preview.message.body.isEmpty ? nil : preview.message.body
-            }
-
-            if existing.doi == nil, let doi = preview.doi {
-                existing.doi = doi
-            }
-
-            // Add to collections
-            for collectionID in preview.collectionIDs {
-                if let collection = collectionsMap[collectionID] {
-                    existing.addToCollection(collection)
+        // Merge fields - only update empty fields
+        let detail = await withStore { $0.getPublicationDetail(id: pub.id) }
+        if let detail = detail {
+            if detail.abstract == nil || detail.abstract?.isEmpty == true {
+                let abstract = preview.message.body.isEmpty ? nil : preview.message.body
+                if let abstract = abstract {
+                    await withStore { $0.updateField(id: pub.id, field: "abstract_text", value: abstract) }
                 }
             }
 
-            // Add to library
-            existing.addToLibrary(library)
-
-            existing.dateModified = Date()
-        }
-    }
-
-    // MARK: - Library and Collection Creation
-
-    /// Create a new library from metadata.
-    private func createLibrary(from metadata: LibraryMetadata) async throws -> CDLibrary {
-        try context.performAndWait {
-            let library = CDLibrary(context: context)
-            if options.preserveUUIDs, let id = metadata.libraryID {
-                library.id = id
-            } else {
-                library.id = UUID()
-            }
-            library.name = metadata.name
-            library.bibFilePath = metadata.bibtexPath
-            library.dateCreated = Date()
-            return library
-        }
-    }
-
-    /// Create a default library for import.
-    private func createDefaultLibrary() async throws -> CDLibrary {
-        try context.performAndWait {
-            let library = CDLibrary(context: context)
-            library.id = UUID()
-            library.name = "Imported Library"
-            library.dateCreated = Date()
-            return library
-        }
-    }
-
-    /// Create collections from metadata.
-    private func createCollections(
-        from collectionInfos: [CollectionInfo],
-        in library: CDLibrary
-    ) async throws -> [UUID: CDCollection] {
-        var collectionsMap: [UUID: CDCollection] = [:]
-
-        try context.performAndWait {
-            // First pass: create all collections
-            for info in collectionInfos {
-                let collection = CDCollection(context: context)
-                if options.preserveUUIDs {
-                    collection.id = info.id
-                } else {
-                    collection.id = UUID()
-                }
-                collection.name = info.name
-                collection.isSmartCollection = info.isSmartCollection
-                collection.predicate = info.predicate
-                collection.library = library
-
-                collectionsMap[info.id] = collection
-            }
-
-            // Second pass: set parent relationships
-            for info in collectionInfos {
-                if let parentID = info.parentID,
-                   let child = collectionsMap[info.id],
-                   let parent = collectionsMap[parentID] {
-                    child.parentCollection = parent
-                }
+            if detail.doi == nil, let doi = preview.doi {
+                await withStore { $0.updateField(id: pub.id, field: "doi", value: doi) }
             }
         }
-
-        return collectionsMap
     }
 
     // MARK: - Helpers
 
-    /// Convert import option to duplicate action.
     private func duplicateActionFromOption() -> DuplicateAction {
         switch options.duplicateHandling {
         case .skip:
@@ -598,7 +376,7 @@ public actor MboxImporter {
         case .merge:
             return .merge
         case .askEach:
-            return .skip // Default to skip if askEach but no decision provided
+            return .skip
         }
     }
 }

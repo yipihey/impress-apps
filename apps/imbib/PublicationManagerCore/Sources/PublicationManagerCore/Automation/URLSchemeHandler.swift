@@ -244,40 +244,25 @@ public actor URLSchemeHandler {
             let searchName = name ?? "Search: \(truncatedQuery)"
             let source = sourceID ?? "ads"
 
-            let explorationLibrary = await MainActor.run {
+            let explorationLibraryModel = await MainActor.run {
                 let manager = LibraryManager()
                 return manager.getOrCreateExplorationLibrary()
             }
 
-            let smartSearch = await MainActor.run {
-                SmartSearchRepository.shared.create(
+            // Create smart search via Rust store
+            let sourceIdsJson = "[\"\(source)\"]"
+            let smartSearchResult = await MainActor.run {
+                RustStoreAdapter.shared.createSmartSearch(
                     name: searchName,
                     query: query,
-                    sourceIDs: [source],
-                    library: explorationLibrary,
+                    libraryId: explorationLibraryModel.id,
+                    sourceIdsJson: sourceIdsJson,
                     maxResults: 100
                 )
             }
 
-            // Create source manager for search execution
-            let sourceManager = SourceManager()
-            await sourceManager.registerBuiltInSources()
-
-            // Auto-execute the search
-            let provider = SmartSearchProvider(
-                from: smartSearch,
-                sourceManager: sourceManager,
-                repository: PublicationRepository()
-            )
-
-            do {
-                try await provider.refresh()
-                await MainActor.run {
-                    SmartSearchRepository.shared.markExecuted(smartSearch)
-                }
-            } catch {
-                // Log but don't fail - search was created
-                automationLogger.warning("Smart search auto-execute failed: \(error.localizedDescription)")
+            guard let smartSearch = smartSearchResult else {
+                return .failure(command: "createSmartSearch", error: "Failed to create smart search")
             }
 
             // Notify sidebar to refresh and navigate

@@ -19,18 +19,15 @@ public final class ShareExtensionHandler {
 
     private let libraryManager: LibraryManager
     private let sourceManager: SourceManager
-    private let repository: PublicationRepository
 
     // MARK: - Initialization
 
     public init(
         libraryManager: LibraryManager,
-        sourceManager: SourceManager,
-        repository: PublicationRepository = PublicationRepository()
+        sourceManager: SourceManager
     ) {
         self.libraryManager = libraryManager
         self.sourceManager = sourceManager
-        self.repository = repository
     }
 
     // MARK: - Darwin Notification Observer
@@ -110,7 +107,7 @@ public final class ShareExtensionHandler {
             .map { library in
                 SharedLibraryInfo(
                     id: library.id,
-                    name: library.displayName,
+                    name: library.name,
                     isDefault: library.id == activeLibraryID
                 )
             }
@@ -143,37 +140,31 @@ public final class ShareExtensionHandler {
 
         // Always use Exploration library for search URLs from share extension
         // This makes them appear in the Exploration section of the sidebar
-        let targetLibrary = libraryManager.getOrCreateExplorationLibrary()
+        let explorationLib = libraryManager.getOrCreateExplorationLibrary()
 
         // Create a truncated name from the query (no "Search:" prefix - icon indicates it's a search)
         let truncatedQuery = String(query.prefix(50)) + (query.count > 50 ? "…" : "")
         let name = item.name ?? truncatedQuery
 
-        // Create the smart search
-        let smartSearch = SmartSearchRepository.shared.create(
+        // Create the smart search via the Rust store
+        let store = RustStoreAdapter.shared
+        let sourceIdsJson = "[\"\(sourceID)\"]"
+        let smartSearch = store.createSmartSearch(
             name: name,
             query: query,
-            sourceIDs: [sourceID],
-            library: targetLibrary,
-            maxResults: 100
+            libraryId: explorationLib.id,
+            sourceIdsJson: sourceIdsJson,
+            maxResults: 100,
+            autoRefreshEnabled: false,
+            refreshIntervalSeconds: 86400
         )
 
-        Logger.shareExtension.infoCapture("Created smart search '\(name)' in Exploration library", category: "shareext")
-
-        // Auto-execute the search to populate results
-        do {
-            let provider = SmartSearchProvider(
-                from: smartSearch,
-                sourceManager: sourceManager,
-                repository: repository
-            )
-            try await provider.refresh()
-            SmartSearchRepository.shared.markExecuted(smartSearch)
-            Logger.shareExtension.infoCapture("Auto-executed smart search '\(name)' successfully", category: "shareext")
-        } catch {
-            // Log but don't fail - the search was created, it can be refreshed later
-            Logger.shareExtension.warningCapture("Auto-execute failed for '\(name)': \(error.localizedDescription)", category: "shareext")
+        guard let smartSearch else {
+            Logger.shareExtension.errorCapture("Failed to create smart search", category: "shareext")
+            return
         }
+
+        Logger.shareExtension.infoCapture("Created smart search '\(name)' in Exploration library", category: "shareext")
 
         // Notify sidebar to refresh and navigate to the new search
         NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
@@ -195,18 +186,23 @@ public final class ShareExtensionHandler {
             throw ShareExtensionError.paperNotFound
         }
 
-        // Import to library or Inbox
+        let store = RustStoreAdapter.shared
+
+        // Import to library or Inbox via BibTeX
+        let bibtex = firstResult.toBibTeX()
         if let libraryID = item.libraryID,
-           let library = libraryManager.find(id: libraryID) {
+           let libraryModel = libraryManager.find(id: libraryID) {
             // Import to specific library
-            let publication = await repository.createFromSearchResult(firstResult, in: library)
-            Logger.shareExtension.infoCapture("Imported paper \(identifier) to library \(library.displayName)", category: "shareext")
-            _ = publication
+            let ids = store.importBibTeX(bibtex, libraryId: libraryModel.id)
+            Logger.shareExtension.infoCapture("Imported paper \(identifier) to library \(libraryModel.name) (ids: \(ids.count))", category: "shareext")
         } else {
-            // Import to Inbox
-            let publication = await repository.createFromSearchResult(firstResult)
-            InboxManager.shared.addToInbox(publication)
-            Logger.shareExtension.infoCapture("Imported paper \(identifier) to Inbox", category: "shareext")
+            // Import to Inbox library
+            if let inboxLib = store.getInboxLibrary() {
+                let ids = store.importBibTeX(bibtex, libraryId: inboxLib.id)
+                Logger.shareExtension.infoCapture("Imported paper \(identifier) to Inbox (ids: \(ids.count))", category: "shareext")
+            } else {
+                Logger.shareExtension.errorCapture("No inbox library available for import", category: "shareext")
+            }
         }
     }
 
@@ -234,15 +230,22 @@ public final class ShareExtensionHandler {
                 return
             }
 
-            // Import all results to Inbox
+            let store = RustStoreAdapter.shared
+            guard let inboxLib = store.getInboxLibrary() else {
+                Logger.shareExtension.errorCapture("No inbox library available for docs() import", category: "shareext")
+                return
+            }
+
+            // Import all results to Inbox via BibTeX
             var successCount = 0
 
             for (index, result) in results.enumerated() {
                 Logger.shareExtension.debugCapture("Importing \(index + 1)/\(results.count): \(result.title)", category: "shareext")
-                let publication = await repository.createFromSearchResult(result)
-                Logger.shareExtension.debugCapture("Created publication: \(publication.citeKey)", category: "shareext")
-                InboxManager.shared.addToInbox(publication)
-                successCount += 1
+                let bibtex = result.toBibTeX()
+                let ids = store.importBibTeX(bibtex, libraryId: inboxLib.id)
+                if !ids.isEmpty {
+                    successCount += 1
+                }
             }
 
             Logger.shareExtension.infoCapture("Successfully imported \(successCount) papers to Inbox", category: "shareext")

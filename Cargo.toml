@@ -23,6 +23,8 @@ members = [
     "crates/impel-server",
     # impart - research conversation platform
     "crates/impart-core",
+    # impress-core - unified item protocol
+    "crates/impress-core",
 ]
 
 [workspace.package]
@@ -56,6 +58,7 @@ impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
 imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
+impress-core = { path = "crates/impress-core" }
 impress-llm = { path = "crates/impress-llm" }
 
 # implore crates

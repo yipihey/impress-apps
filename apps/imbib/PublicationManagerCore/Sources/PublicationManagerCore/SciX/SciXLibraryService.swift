@@ -305,7 +305,7 @@ public actor SciXLibraryService {
     public func setPermission(
         libraryID: String,
         email: String,
-        permission: CDSciXLibrary.PermissionLevel
+        permission: SciXPermissionLevel
     ) async throws {
         let request = SciXSetPermissionRequest(
             permissions: [(email: email, permission: permission.rawValue)]

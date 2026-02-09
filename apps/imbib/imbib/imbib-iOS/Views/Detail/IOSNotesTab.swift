@@ -18,9 +18,8 @@ import ImpressHelixCore
 /// - Auto-save with debouncing
 @available(iOS 17.0, *)
 struct IOSNotesTab: View {
-    let publication: CDPublication
+    let publicationID: UUID
 
-    @Environment(LibraryViewModel.self) private var viewModel
     @State private var notes: String = ""
     @State private var saveTask: Task<Void, Never>?
     @State private var showSaveConfirmation = false
@@ -50,20 +49,20 @@ struct IOSNotesTab: View {
             }
         }
         .background(Color(.systemBackground))
-        .onChange(of: publication.id, initial: true) { _, _ in
+        .onChange(of: publicationID, initial: true) { _, _ in
             saveTask?.cancel()
-            notes = publication.fields["note"] ?? ""
+            let pub = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
+            notes = pub?.note ?? ""
             helixState.reset()
         }
         .onChange(of: notes) { oldValue, newValue in
-            let targetPublication = publication
+            let targetID = publicationID
 
             saveTask?.cancel()
             saveTask = Task {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
-                guard targetPublication.id == self.publication.id else { return }
-                await viewModel.updateField(targetPublication, field: "note", value: newValue)
+                RustStoreAdapter.shared.updateField(id: targetID, field: "note", value: newValue)
             }
         }
     }
@@ -72,8 +71,6 @@ struct IOSNotesTab: View {
 
     private func saveNotes() {
         saveTask?.cancel()
-        Task {
-            await viewModel.updateField(publication, field: "note", value: notes)
-        }
+        RustStoreAdapter.shared.updateField(id: publicationID, field: "note", value: notes)
     }
 }

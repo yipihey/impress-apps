@@ -3217,6 +3217,129 @@ public func FfiConverterTypeShareCommand_lower(_ value: ShareCommand) -> RustBuf
 
 
 /**
+ * Result of compiling a Typst document to SVG (one SVG string per page)
+ */
+public struct SvgCompileResult {
+    /**
+     * SVG strings, one per page
+     */
+    public var svgPages: [String]
+    /**
+     * Number of pages in the output
+     */
+    public var pageCount: UInt32
+    /**
+     * Warning messages from compilation
+     */
+    public var warnings: [String]
+    /**
+     * Error message if compilation failed
+     */
+    public var error: String?
+    /**
+     * Source map entries for cursor synchronization
+     */
+    public var sourceMapEntries: [FfiSourceMapEntry]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * SVG strings, one per page
+         */svgPages: [String], 
+        /**
+         * Number of pages in the output
+         */pageCount: UInt32, 
+        /**
+         * Warning messages from compilation
+         */warnings: [String], 
+        /**
+         * Error message if compilation failed
+         */error: String?, 
+        /**
+         * Source map entries for cursor synchronization
+         */sourceMapEntries: [FfiSourceMapEntry]) {
+        self.svgPages = svgPages
+        self.pageCount = pageCount
+        self.warnings = warnings
+        self.error = error
+        self.sourceMapEntries = sourceMapEntries
+    }
+}
+
+
+
+extension SvgCompileResult: Equatable, Hashable {
+    public static func ==(lhs: SvgCompileResult, rhs: SvgCompileResult) -> Bool {
+        if lhs.svgPages != rhs.svgPages {
+            return false
+        }
+        if lhs.pageCount != rhs.pageCount {
+            return false
+        }
+        if lhs.warnings != rhs.warnings {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        if lhs.sourceMapEntries != rhs.sourceMapEntries {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(svgPages)
+        hasher.combine(pageCount)
+        hasher.combine(warnings)
+        hasher.combine(error)
+        hasher.combine(sourceMapEntries)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSvgCompileResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SvgCompileResult {
+        return
+            try SvgCompileResult(
+                svgPages: FfiConverterSequenceString.read(from: &buf), 
+                pageCount: FfiConverterUInt32.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf), 
+                sourceMapEntries: FfiConverterSequenceTypeFFISourceMapEntry.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SvgCompileResult, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.svgPages, into: &buf)
+        FfiConverterUInt32.write(value.pageCount, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterSequenceTypeFFISourceMapEntry.write(value.sourceMapEntries, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSvgCompileResult_lift(_ buf: RustBuffer) throws -> SvgCompileResult {
+    return try FfiConverterTypeSvgCompileResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSvgCompileResult_lower(_ value: SvgCompileResult) -> RustBuffer {
+    return FfiConverterTypeSvgCompileResult.lower(value)
+}
+
+
+/**
  * Sync with collaborators
  */
 public struct SyncCommand {
@@ -4690,6 +4813,20 @@ public func compileTypstToPdfDefault(source: String) -> CompileResult {
 })
 }
 /**
+ * Compile Typst source code to SVG (one SVG string per page)
+ *
+ * Uses the persistent renderer for incremental compilation.
+ * Each page is rendered as a separate SVG string.
+ */
+public func compileTypstToSvg(source: String, options: CompileOptions) -> SvgCompileResult {
+    return try!  FfiConverterTypeSvgCompileResult.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_compile_typst_to_svg(
+        FfiConverterString.lower(source),
+        FfiConverterTypeCompileOptions.lower(options),$0
+    )
+})
+}
+/**
  * Get source map entries for a compiled document
  *
  * This can be called separately if you already have PDF data and just need the source map.
@@ -4895,6 +5032,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_compile_typst_to_pdf_default() != 53711) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_compile_typst_to_svg() != 17224) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {

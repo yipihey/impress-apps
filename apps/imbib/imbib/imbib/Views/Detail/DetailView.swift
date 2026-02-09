@@ -7,7 +7,6 @@
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -34,8 +33,8 @@ struct DetailView: View {
     /// The paper to display (any PaperRepresentable)
     let paper: any PaperRepresentable
 
-    /// The underlying Core Data publication (enables editing for library papers)
-    let publication: CDPublication?
+    /// The publication ID for editing (enables editing for library papers)
+    let publicationID: UUID?
 
     /// External binding for tab selection (persists across paper changes)
     @Binding var selectedTab: DetailTab
@@ -68,7 +67,7 @@ struct DetailView: View {
 
     /// Whether this paper supports editing (local library papers only)
     private var canEdit: Bool {
-        publication != nil
+        publicationID != nil
     }
 
     /// Whether this is a persistent (library) paper
@@ -76,38 +75,35 @@ struct DetailView: View {
         paper.sourceType.isPersistent
     }
 
-    /// The owning library for this publication (for file drop imports)
-    private var owningLibrary: CDLibrary? {
-        publication?.libraries?.first
+    /// The owning library ID for this publication (for file drop imports)
+    private var owningLibraryID: UUID? {
+        libraryManager.activeLibrary?.id
     }
 
     // MARK: - Initialization
 
-    init(paper: any PaperRepresentable, publication: CDPublication? = nil, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
+    init(paper: any PaperRepresentable, publicationID: UUID? = nil, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
         self.paper = paper
-        self.publication = publication
+        self.publicationID = publicationID
         self._selectedTab = selectedTab
         self.isMultiSelection = isMultiSelection
         self.selectedPublicationIDs = selectedPublicationIDs
         self.onDownloadPDFs = onDownloadPDFs
     }
 
-    /// Primary initializer for CDPublication (ADR-016: all papers are CDPublication)
-    /// Returns nil if the publication has been deleted
-    init?(publication: CDPublication, libraryID: UUID, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
-        let start = CFAbsoluteTimeGetCurrent()
-        // Guard against deleted Core Data objects
-        guard let localPaper = LocalPaper(publication: publication, libraryID: libraryID) else {
+    /// Initializer from Rust store — loads PublicationModel by UUID.
+    /// Returns nil if the publication is not found.
+    init?(publicationID: UUID, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
+        guard let model = RustStoreAdapter.shared.getPublicationDetail(id: publicationID) else {
             return nil
         }
+        let localPaper = LocalPaper(from: model)
         self.paper = localPaper
-        self.publication = publication
+        self.publicationID = publicationID
         self._selectedTab = selectedTab
         self.isMultiSelection = isMultiSelection
         self.selectedPublicationIDs = selectedPublicationIDs
         self.onDownloadPDFs = onDownloadPDFs
-        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
-        logger.info("DetailView.init: \(elapsed, format: .fixed(precision: 1))ms")
     }
 
     // MARK: - Body
@@ -125,10 +121,6 @@ struct DetailView: View {
         // Note: window .toolbar {} cannot be used here because DetailView lives inside
         // HSplitView with .id() modifiers — toolbar items duplicate on view recreation.
         return VStack(spacing: 0) {
-            #if os(macOS)
-            detailToolbar
-            #endif
-
             Group {
                 switch selectedTab {
                 case .info:
@@ -231,7 +223,7 @@ struct DetailView: View {
             try await Task.sleep(for: .seconds(1))
             // Re-check after sleep in case publication was deleted while waiting
             guard !pub.isDeleted else { return }
-            await viewModel.markAsRead(pub)
+            await viewModel.markAsRead(id: pub.id)
             logger.debug("Auto-marked as read: \(pub.citeKey)")
         } catch {
             // Task was cancelled (user navigated away quickly)
@@ -284,149 +276,6 @@ struct DetailView: View {
         return subtitle
     }
 
-    // MARK: - Inline Toolbar (Liquid Glass)
-
-    #if os(macOS)
-    /// Inline toolbar with Liquid Glass segmented picker and action buttons.
-    /// Uses an inline view rather than window .toolbar {} because DetailView
-    /// lives inside HSplitView with .id() modifiers — window toolbar items
-    /// duplicate on each view recreation.
-    private var detailToolbar: some View {
-        HStack(spacing: 8) {
-            // Segmented tab picker with Liquid Glass
-            Picker("Tab", selection: $selectedTab) {
-                ForEach(availableTabs, id: \.self) { tab in
-                    Label(tab.label, systemImage: tab.icon).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .focusable(false)
-            .focusEffectDisabled()
-
-            Spacer()
-
-            // Action buttons
-            HStack(spacing: 6) {
-                // Copy BibTeX
-                Button {
-                    copyBibTeX()
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help("Copy BibTeX to clipboard")
-
-                // Open in Browser
-                if let webURL = publication?.webURLObject {
-                    Link(destination: webURL) {
-                        Image(systemName: "link")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help("Open paper's web page")
-                }
-
-                // Share menu
-                if let pub = publication {
-                    shareMenu(for: pub)
-                }
-
-                // Pop-out button
-                if let pub = publication {
-                    Divider()
-                        .frame(height: 16)
-
-                    Button {
-                        openInSeparateWindow(pub)
-                    } label: {
-                        Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
-                              ? "rectangle.portrait.on.rectangle.portrait.angled"
-                              : "uiwindow.split.2x1")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
-                          ? "Open \(selectedTab.rawValue) on secondary display"
-                          : "Open \(selectedTab.rawValue) in new window")
-                }
-            }
-        }
-        .focusable(false)
-        .focusEffectDisabled()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
-    }
-
-    /// Available tabs based on editing capability
-    private var availableTabs: [DetailTab] {
-        canEdit ? DetailTab.allCases : [.info, .pdf, .bibtex]
-    }
-
-    /// Share menu for a publication
-    private func shareMenu(for pub: CDPublication) -> some View {
-        Menu {
-            ShareLink(
-                item: ShareablePublication(from: pub),
-                preview: SharePreview(
-                    pub.title ?? "Paper",
-                    image: Image(systemName: "doc.text")
-                )
-            ) {
-                Label("Share Paper...", systemImage: "square.and.arrow.up")
-            }
-
-            ShareLink(
-                item: shareText(for: pub),
-                subject: Text(pub.title ?? "Paper"),
-                message: Text(shareText(for: pub))
-            ) {
-                Label("Share Citation...", systemImage: "text.bubble")
-            }
-
-            Divider()
-
-            Button {
-                copyBibTeX()
-            } label: {
-                Label("Copy BibTeX", systemImage: "doc.on.doc")
-            }
-
-            Button {
-                copyLink(for: pub)
-            } label: {
-                Label("Copy Link", systemImage: "link")
-            }
-
-            Divider()
-
-            Button {
-                shareViaEmail(pub)
-            } label: {
-                Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
-            }
-        } label: {
-            Image(systemName: "square.and.arrow.up")
-        }
-        .help("Share options")
-    }
-
-    /// Open the current tab in a separate window
-    private func openInSeparateWindow(_ publication: CDPublication) {
-        let detachedTab: DetachedTab
-        switch selectedTab {
-        case .info: detachedTab = .info
-        case .bibtex: detachedTab = .bibtex
-        case .pdf: detachedTab = .pdf
-        case .notes: detachedTab = .notes
-        }
-
-        DetailWindowController.shared.openTab(detachedTab, for: publication, library: libraryManager.activeLibrary)
-    }
-    #endif
-
     // MARK: - Actions
 
     private func openPDF() {
@@ -439,219 +288,6 @@ struct DetailView: View {
         }
     }
 
-    private func copyBibTeX() {
-        Task {
-            let bibtex: String
-            if let pub = publication {
-                // For library papers, use stored BibTeX
-                let entry = pub.toBibTeXEntry()
-                bibtex = BibTeXExporter().export([entry])
-            } else {
-                // For online papers, generate from metadata
-                let entry = BibTeXExporter.generateEntry(from: paper)
-                bibtex = BibTeXExporter().export([entry])
-            }
-
-            #if os(macOS)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(bibtex, forType: .string)
-            #endif
-        }
-    }
-
-    private func copyLink(for pub: CDPublication) {
-        var link: String?
-
-        // Prefer DOI
-        if let doi = pub.doi, !doi.isEmpty {
-            link = "https://doi.org/\(doi)"
-        }
-        // Then arXiv
-        else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            link = "https://arxiv.org/abs/\(arxivID)"
-        }
-        // Then ADS bibcode
-        else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
-            link = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
-        }
-        // Then any explicit URL field
-        else if let urlString = pub.fields["url"], !urlString.isEmpty {
-            link = urlString
-        }
-
-        if let link {
-            #if os(macOS)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(link, forType: .string)
-            #endif
-        }
-    }
-
-    #if os(macOS)
-    private func shareViaEmail(_ pub: CDPublication) {
-        // Build email body with abstract
-        var body: [String] = []
-
-        // Title
-        body.append(pub.title ?? "Untitled")
-        body.append("")
-
-        // Authors
-        let authors = pub.sortedAuthors.map { $0.displayName }
-        if !authors.isEmpty {
-            body.append("Authors: \(authors.joined(separator: ", "))")
-        }
-
-        // Year and venue
-        if pub.year > 0 {
-            let venue = pub.fields["journal"] ?? pub.fields["booktitle"] ?? ""
-            if !venue.isEmpty {
-                body.append("Published: \(venue), \(pub.year)")
-            } else {
-                body.append("Year: \(pub.year)")
-            }
-        }
-
-        // URL
-        if let doi = pub.doi, !doi.isEmpty {
-            body.append("Link: https://doi.org/\(doi)")
-        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            body.append("Link: https://arxiv.org/abs/\(arxivID)")
-        } else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
-            body.append("Link: https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-        }
-
-        // Abstract
-        if let abstract = pub.abstract, !abstract.isEmpty {
-            body.append("")
-            body.append("Abstract:")
-            body.append(abstract)
-        }
-
-        // Citation key
-        body.append("")
-        body.append("---")
-        body.append("Citation key: \(pub.citeKey)")
-
-        let emailBody = body.joined(separator: "\n")
-
-        // Build items to share
-        var items: [Any] = [emailBody]
-
-        // Add PDF attachments
-        if let linkedFiles = pub.linkedFiles {
-            for file in linkedFiles where file.isPDF {
-                if let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) {
-                    items.append(url)
-                }
-            }
-        }
-
-        // Create temporary BibTeX file
-        let bibtex = BibTeXExporter().export([pub.toBibTeXEntry()])
-        let tempBibURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(pub.citeKey).bib")
-        if let _ = try? bibtex.write(to: tempBibURL, atomically: true, encoding: .utf8) {
-            items.append(tempBibURL)
-        }
-
-        // Show sharing service picker
-        guard let window = NSApp.keyWindow,
-              let contentView = window.contentView else { return }
-
-        let picker = NSSharingServicePicker(items: items)
-        picker.show(relativeTo: .zero, of: contentView, preferredEdge: .minY)
-    }
-    #endif
-
-    /// Generate share text for a publication (used by ShareLink)
-    private func shareText(for pub: CDPublication) -> String {
-        var lines: [String] = []
-
-        // Title
-        lines.append(pub.title ?? "Untitled")
-
-        // Authors
-        let authors = pub.sortedAuthors.map { $0.displayName }
-        if !authors.isEmpty {
-            lines.append(authors.joined(separator: ", "))
-        }
-
-        // Year and venue (journal or booktitle)
-        var yearVenue: [String] = []
-        if pub.year > 0 {
-            yearVenue.append("(\(pub.year))")
-        }
-        let venue = pub.fields["journal"] ?? pub.fields["booktitle"]
-        if let venue, !venue.isEmpty {
-            yearVenue.append(venue)
-        }
-        if !yearVenue.isEmpty {
-            lines.append(yearVenue.joined(separator: " "))
-        }
-
-        // URL (prefer DOI, then arXiv, then ADS)
-        if let doi = pub.doi, !doi.isEmpty {
-            lines.append("")
-            lines.append("https://doi.org/\(doi)")
-        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            lines.append("")
-            lines.append("https://arxiv.org/abs/\(arxivID)")
-        } else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
-            // ADS bibcode format
-            lines.append("")
-            lines.append("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-        }
-
-        // Citation key for reference
-        lines.append("")
-        lines.append("Citation key: \(pub.citeKey)")
-
-        return lines.joined(separator: "\n")
-    }
-}
-
-// MARK: - Flow Layout
-
-/// A layout that arranges views horizontally and wraps to new lines as needed.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
-
-        for (subview, offset) in zip(subviews, offsets) {
-            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
-        }
-    }
-
-    private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {
-        var offsets: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
-
-        for size in sizes {
-            if currentX + size.width > containerWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-
-            offsets.append(CGPoint(x: currentX, y: currentY))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + spacing
-            maxWidth = max(maxWidth, currentX - spacing)
-        }
-
-        return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
-    }
 }
 
 // MARK: - File Drop Modifier
@@ -734,12 +370,16 @@ private struct FileDropTargetModifier: ViewModifier {
     func body(content: Content) -> some View {
         if let pub = publication {
             content
-                .fileDropTarget(
-                    for: pub,
-                    in: library,
-                    handler: handler,
-                    isTargeted: $isTargeted
-                )
+                .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: $isTargeted) { providers in
+                    Task { @MainActor in
+                        await handler.handleDrop(
+                            providers: providers,
+                            for: pub.id,
+                            in: library?.id
+                        )
+                    }
+                    return true
+                }
         } else {
             content
         }
@@ -776,5 +416,5 @@ private struct FileDropTargetModifier: ViewModifier {
         DetailView(publication: publication, libraryID: libraryID, selectedTab: .constant(.info))
     }
     .environment(LibraryViewModel())
-    .environment(LibraryManager(persistenceController: .preview))
+    .environment(LibraryManager())
 }

@@ -9,12 +9,10 @@ import Foundation
 
 // MARK: - Default Library Lookup Service
 
-/// Default implementation of LibraryLookupService using PublicationRepository.
+/// Default implementation of LibraryLookupService using RustStoreAdapter.
 public actor DefaultLibraryLookupService: LibraryLookupService {
 
     // MARK: - Properties
-
-    private let repository: PublicationRepository
 
     /// Cached identifier index for fast lookups
     private var doiIndex: Set<String> = []
@@ -31,8 +29,12 @@ public actor DefaultLibraryLookupService: LibraryLookupService {
 
     // MARK: - Initialization
 
-    public init(repository: PublicationRepository = PublicationRepository()) {
-        self.repository = repository
+    public init() {}
+
+    // MARK: - Store Access
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
     }
 
     // MARK: - LibraryLookupService
@@ -74,32 +76,31 @@ public actor DefaultLibraryLookupService: LibraryLookupService {
 
     /// Force refresh the identifier index
     public func refreshIndex() async {
-        let publications = await repository.fetchAll(sortedBy: "dateAdded", ascending: false)
+        // Fetch all publications from all libraries
+        let libraries = await withStore { $0.listLibraries() }
 
         var dois = Set<String>()
         var arxivs = Set<String>()
         var bibcodes = Set<String>()
 
-        for pub in publications {
-            // DOI
-            if let doi = pub.doi ?? pub.fields["doi"], !doi.isEmpty {
-                dois.insert(doi.lowercased())
-            }
+        for library in libraries {
+            let publications = await withStore { $0.queryPublications(parentId: library.id, sort: "created", ascending: false) }
 
-            // arXiv ID
-            let fields = pub.fields
-            if let arxiv = fields["eprint"] ?? fields["arxiv"], !arxiv.isEmpty {
-                arxivs.insert(arxiv.lowercased())
-            }
+            for pub in publications {
+                // DOI
+                if let doi = pub.doi, !doi.isEmpty {
+                    dois.insert(doi.lowercased())
+                }
 
-            // Bibcode
-            if let bibcode = fields["bibcode"], !bibcode.isEmpty {
-                bibcodes.insert(bibcode.lowercased())
-            }
-            // Also extract from ADS URL
-            if let adsurl = fields["adsurl"],
-               let extracted = extractBibcode(from: adsurl) {
-                bibcodes.insert(extracted.lowercased())
+                // arXiv ID
+                if let arxivID = pub.arxivID, !arxivID.isEmpty {
+                    arxivs.insert(arxivID.lowercased())
+                }
+
+                // Bibcode
+                if let bibcode = pub.bibcode, !bibcode.isEmpty {
+                    bibcodes.insert(bibcode.lowercased())
+                }
             }
         }
 
@@ -122,17 +123,6 @@ public actor DefaultLibraryLookupService: LibraryLookupService {
             return
         }
         await refreshIndex()
-    }
-
-    private func extractBibcode(from url: String) -> String? {
-        guard let url = URL(string: url),
-              url.host?.contains("adsabs") == true,
-              url.pathComponents.contains("abs"),
-              let bibcodeIndex = url.pathComponents.firstIndex(of: "abs"),
-              bibcodeIndex + 1 < url.pathComponents.count else {
-            return nil
-        }
-        return url.pathComponents[bibcodeIndex + 1]
     }
 }
 

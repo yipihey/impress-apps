@@ -14,11 +14,12 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "detail")
 /// iOS detail view showing publication information with tabbed interface.
 ///
 /// Matches macOS DetailView with 4 tabs: Info, PDF, Notes, BibTeX.
+/// Uses RustStoreAdapter for all data access (no Core Data).
 struct DetailView: View {
-    let publication: CDPublication
+    let publicationID: UUID
     let libraryID: UUID
     let listID: ListViewID?
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
@@ -26,60 +27,67 @@ struct DetailView: View {
 
     @State private var selectedTab: DetailTab = .info
     @State private var isPDFFullscreen: Bool = false
+    @State private var publication: PublicationModel?
 
-    init?(publication: CDPublication, libraryID: UUID, selectedPublication: Binding<CDPublication?>, listID: ListViewID? = nil) {
-        guard !publication.isDeleted, publication.managedObjectContext != nil else {
-            return nil
-        }
-        self.publication = publication
+    init(publicationID: UUID, libraryID: UUID, selectedPublicationID: Binding<UUID?>, listID: ListViewID? = nil) {
+        self.publicationID = publicationID
         self.libraryID = libraryID
         self.listID = listID
-        self._selectedPublication = selectedPublication
+        self._selectedPublicationID = selectedPublicationID
     }
 
     var body: some View {
         Group {
-            if isPDFFullscreen {
-                // Fullscreen PDF - no tab bar, no navigation bar
-                IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
-            } else {
-                // Normal tabbed view — Liquid Glass on iOS/iPadOS 26
-                TabView(selection: $selectedTab) {
-                    Tab(DetailTab.info.label, systemImage: DetailTab.info.icon, value: .info) {
-                        IOSInfoTab(publication: publication, libraryID: libraryID)
-                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
-                    }
+            if let pub = publication {
+                if isPDFFullscreen {
+                    // Fullscreen PDF - no tab bar, no navigation bar
+                    IOSPDFTab(publicationID: publicationID, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
+                } else {
+                    // Normal tabbed view
+                    TabView(selection: $selectedTab) {
+                        Tab(DetailTab.info.label, systemImage: DetailTab.info.icon, value: .info) {
+                            IOSInfoTab(publicationID: publicationID, libraryID: libraryID)
+                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
+                        }
 
-                    Tab(DetailTab.pdf.label, systemImage: DetailTab.pdf.icon, value: .pdf) {
-                        IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
-                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
-                    }
+                        Tab(DetailTab.pdf.label, systemImage: DetailTab.pdf.icon, value: .pdf) {
+                            IOSPDFTab(publicationID: publicationID, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
+                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
+                        }
 
-                    Tab(DetailTab.notes.label, systemImage: DetailTab.notes.icon, value: .notes) {
-                        IOSNotesTab(publication: publication)
-                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
-                    }
+                        Tab(DetailTab.notes.label, systemImage: DetailTab.notes.icon, value: .notes) {
+                            IOSNotesTab(publicationID: publicationID)
+                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
+                        }
 
-                    Tab(DetailTab.bibtex.label, systemImage: DetailTab.bibtex.icon, value: .bibtex) {
-                        IOSBibTeXTab(publication: publication)
-                            .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+                        Tab(DetailTab.bibtex.label, systemImage: DetailTab.bibtex.icon, value: .bibtex) {
+                            IOSBibTeXTab(publicationID: publicationID)
+                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+                        }
                     }
+                    .tabBarMinimizeBehavior(.onScrollDown)
                 }
-                .tabBarMinimizeBehavior(.onScrollDown)
+            } else {
+                ContentUnavailableView(
+                    "Publication Not Found",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("This publication is no longer available.")
+                )
             }
         }
-        .navigationTitle(isPDFFullscreen ? "" : (publication.title ?? "Details"))
+        .navigationTitle(isPDFFullscreen ? "" : (publication?.title ?? "Details"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(isPDFFullscreen)
         .toolbar(isPDFFullscreen ? .hidden : .visible, for: .navigationBar)
         .toolbar {
-            if !isPDFFullscreen {
+            if !isPDFFullscreen, let pub = publication {
                 ToolbarItem(placement: .topBarTrailing) {
-                    moreMenu
+                    moreMenu(for: pub)
                 }
             }
         }
-        .task(id: publication.id) {
+        .task(id: publicationID) {
+            loadPublication()
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
         }
@@ -100,10 +108,6 @@ struct DetailView: View {
             )
         }
         .onDisappear {
-            // Clear persisted state to prevent loadState() from re-selecting on view reload
-            // Note: We do NOT set selectedPublication = nil here because:
-            // 1. onDisappear can fire during push animations, not just pops
-            // 2. navigationDestination(item:) automatically manages the binding when user taps back
             if let listID = listID {
                 Task {
                     await ListViewStateStore.shared.clearSelection(for: listID)
@@ -112,16 +116,23 @@ struct DetailView: View {
         }
     }
 
+    // MARK: - Data Loading
+
+    private func loadPublication() {
+        publication = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
+    }
+
     // MARK: - Auto-Mark as Read
 
     private func autoMarkAsRead() async {
-        guard !publication.isRead else { return }
+        guard let pub = publication, !pub.isRead else { return }
 
         // Wait 1 second before marking as read (like Mail)
         do {
             try await Task.sleep(for: .seconds(1))
-            await libraryViewModel.markAsRead(publication)
-            logger.debug("Auto-marked as read: \(publication.citeKey)")
+            RustStoreAdapter.shared.setRead(ids: [publicationID], read: true)
+            loadPublication()
+            logger.debug("Auto-marked as read: \(pub.citeKey)")
         } catch {
             // Task was cancelled (user navigated away quickly)
         }
@@ -130,22 +141,20 @@ struct DetailView: View {
     // MARK: - Navigation
 
     private func goBack() {
-        // Use dismiss to pop navigation (same as swipe gesture)
-        // Also clear selection to keep state in sync
         dismiss()
-        selectedPublication = nil
+        selectedPublicationID = nil
     }
 
     // MARK: - More Menu
 
-    private var moreMenu: some View {
+    private func moreMenu(for pub: PublicationModel) -> some View {
         Menu {
             Button {
                 toggleReadStatus()
             } label: {
                 Label(
-                    publication.isRead ? "Mark as Unread" : "Mark as Read",
-                    systemImage: publication.isRead ? "envelope.badge" : "envelope.open"
+                    pub.isRead ? "Mark as Unread" : "Mark as Read",
+                    systemImage: pub.isRead ? "envelope.badge" : "envelope.open"
                 )
             }
 
@@ -163,7 +172,7 @@ struct DetailView: View {
 
             Divider()
 
-            if let doi = publication.doi {
+            if let doi = pub.doi {
                 Button {
                     openURL("https://doi.org/\(doi)")
                 } label: {
@@ -171,7 +180,7 @@ struct DetailView: View {
                 }
             }
 
-            if let arxivID = publication.arxivID {
+            if let arxivID = pub.arxivID {
                 Button {
                     openURL("https://arxiv.org/abs/\(arxivID)")
                 } label: {
@@ -179,7 +188,7 @@ struct DetailView: View {
                 }
             }
 
-            if let bibcode = publication.bibcode {
+            if let bibcode = pub.bibcode {
                 Button {
                     openURL("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
                 } label: {
@@ -194,40 +203,24 @@ struct DetailView: View {
     // MARK: - Actions
 
     private func toggleReadStatus() {
-        Task {
-            await libraryViewModel.toggleReadStatus(publication)
-        }
+        guard let pub = publication else { return }
+        RustStoreAdapter.shared.setRead(ids: [publicationID], read: !pub.isRead)
+        loadPublication()
     }
 
     private func copyBibTeX() {
         Task {
-            await libraryViewModel.copyToClipboard([publication.id])
+            await libraryViewModel.copyToClipboard([publicationID])
         }
     }
 
     private func copyCiteKey() {
-        UIPasteboard.general.string = publication.citeKey
+        UIPasteboard.general.string = publication?.citeKey
     }
 
     private func openURL(_ urlString: String) {
         if let url = URL(string: urlString) {
             _ = FileManager_Opener.shared.openURL(url)
-        }
-    }
-}
-
-// MARK: - Preview
-
-#Preview {
-    NavigationStack {
-        if let view = DetailView(
-            publication: CDPublication(),
-            libraryID: UUID(),
-            selectedPublication: .constant(nil)
-        ) {
-            view
-                .environment(LibraryViewModel())
-                .environment(LibraryManager())
         }
     }
 }

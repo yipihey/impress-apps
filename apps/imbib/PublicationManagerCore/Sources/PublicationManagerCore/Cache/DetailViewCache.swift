@@ -202,20 +202,6 @@ public extension DetailViewCache {
             }
         }
 
-        // Invalidate all when Core Data context changes significantly
-        NotificationCenter.default.addObserver(
-            forName: .NSManagedObjectContextDidSave,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            // Only invalidate all for major changes like sync
-            // Individual edits use publicationDidChange
-            Task {
-                // For now, don't invalidate on every save
-                // await self?.invalidateAll()
-            }
-        }
-
         Logger.performance.info("DetailViewCache invalidation observers set up")
     }
 }

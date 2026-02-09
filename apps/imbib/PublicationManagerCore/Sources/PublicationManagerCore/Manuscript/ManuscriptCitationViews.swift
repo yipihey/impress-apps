@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 
 // MARK: - Add Citation Sheet (ADR-021)
 
@@ -18,14 +17,17 @@ public struct AddCitationSheet: View {
 
     // MARK: - Properties
 
-    /// The publication to add as a citation
-    public let publication: CDPublication
+    /// The publication ID to add as a citation
+    public let publicationID: UUID
 
     /// Dismiss action
     @Environment(\.dismiss) private var dismiss
 
+    /// The publication data
+    @State private var publication: PublicationRowData?
+
     /// Available manuscripts
-    @State private var manuscripts: [CDPublication] = []
+    @State private var manuscripts: [PublicationRowData] = []
 
     /// Selected manuscript IDs
     @State private var selectedManuscriptIDs: Set<UUID> = []
@@ -33,16 +35,12 @@ public struct AddCitationSheet: View {
     /// Search text for filtering manuscripts
     @State private var searchText = ""
 
-    private let persistenceController: PersistenceController
+    private let store = RustStoreAdapter.shared
 
     // MARK: - Initialization
 
-    public init(
-        publication: CDPublication,
-        persistenceController: PersistenceController = .shared
-    ) {
-        self.publication = publication
-        self.persistenceController = persistenceController
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -95,12 +93,12 @@ public struct AddCitationSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text(publication.title ?? "Untitled")
+            Text(publication?.title ?? "Untitled")
                 .font(.headline)
                 .lineLimit(2)
 
-            if !publication.authorString.isEmpty {
-                Text(publication.authorString)
+            if let authorStr = publication?.authorString, !authorStr.isEmpty {
+                Text(authorStr)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -138,12 +136,12 @@ public struct AddCitationSheet: View {
 
     // MARK: - Computed Properties
 
-    private var filteredManuscripts: [CDPublication] {
+    private var filteredManuscripts: [PublicationRowData] {
         if searchText.isEmpty {
             return manuscripts
         }
         return manuscripts.filter { manuscript in
-            manuscript.title?.localizedCaseInsensitiveContains(searchText) ?? false ||
+            manuscript.title.localizedCaseInsensitiveContains(searchText) ||
             manuscript.authorString.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -151,16 +149,24 @@ public struct AddCitationSheet: View {
     // MARK: - Actions
 
     private func loadManuscripts() {
+        publication = store.getPublication(id: publicationID)
+
+        // Fetch all manuscripts — publications with _manuscript_status in fields
+        // Use search to find manuscripts, then filter
         manuscripts = ManuscriptCollectionManager.shared.fetchAllManuscripts()
-            .sortedByManuscriptStatus()
 
         // Pre-select manuscripts that already cite this publication
+        // Check via the manuscript's fields for cited publication IDs
         selectedManuscriptIDs = Set(
-            manuscripts.filter { $0.cites(publication) }.map(\.id)
+            manuscripts.filter { manuscript in
+                guard let detail = store.getPublicationDetail(id: manuscript.id) else { return false }
+                let citedIDs = ManuscriptCollectionManager.parseCitedIDs(from: detail.fields)
+                return citedIDs.contains(publicationID)
+            }.map(\.id)
         )
     }
 
-    private func toggleSelection(_ manuscript: CDPublication) {
+    private func toggleSelection(_ manuscript: PublicationRowData) {
         if selectedManuscriptIDs.contains(manuscript.id) {
             selectedManuscriptIDs.remove(manuscript.id)
         } else {
@@ -171,16 +177,20 @@ public struct AddCitationSheet: View {
     private func saveCitations() {
         for manuscript in manuscripts {
             let shouldCite = selectedManuscriptIDs.contains(manuscript.id)
-            let currentlyCites = manuscript.cites(publication)
+            guard let detail = store.getPublicationDetail(id: manuscript.id) else { continue }
+            var citedIDs = ManuscriptCollectionManager.parseCitedIDs(from: detail.fields)
+            let currentlyCites = citedIDs.contains(publicationID)
 
             if shouldCite && !currentlyCites {
-                manuscript.addCitation(publication)
+                citedIDs.insert(publicationID)
+                let idsJSON = ManuscriptCollectionManager.encodeCitedIDs(citedIDs)
+                store.updateField(id: manuscript.id, field: "_cited_publication_ids", value: idsJSON)
             } else if !shouldCite && currentlyCites {
-                manuscript.removeCitation(publication)
+                citedIDs.remove(publicationID)
+                let idsJSON = ManuscriptCollectionManager.encodeCitedIDs(citedIDs)
+                store.updateField(id: manuscript.id, field: "_cited_publication_ids", value: idsJSON)
             }
         }
-
-        persistenceController.save()
     }
 }
 
@@ -189,7 +199,7 @@ public struct AddCitationSheet: View {
 /// A row in the manuscript selection list showing citation status.
 struct ManuscriptCitationRow: View {
 
-    let manuscript: CDPublication
+    let manuscript: PublicationRowData
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -203,29 +213,14 @@ struct ManuscriptCitationRow: View {
 
                 // Manuscript info
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(manuscript.title ?? "Untitled")
+                    Text(manuscript.title)
                         .font(.body)
                         .lineLimit(2)
 
                     HStack(spacing: 8) {
-                        // Status badge
-                        if let status = manuscript.manuscriptStatus {
-                            Label(status.displayName, systemImage: status.systemImage)
-                                .font(.caption)
-                                .foregroundStyle(status.color)
-                        }
-
                         // Venue
-                        if let venue = manuscript.submissionVenue {
+                        if let venue = manuscript.venue {
                             Text(venue)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        // Citation count
-                        let citationCount = manuscript.citedPublicationCount
-                        if citationCount > 0 {
-                            Text("\(citationCount) refs")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -248,21 +243,20 @@ public struct CitedPublicationsView: View {
     // MARK: - Properties
 
     /// The manuscript whose citations to show
-    public let manuscript: CDPublication
+    public let manuscriptID: UUID
 
     /// Cited publications
-    @State private var citedPublications: [CDPublication] = []
+    @State private var citedPublications: [PublicationRowData] = []
 
     /// Search text
     @State private var searchText = ""
 
-    /// Selected publication for detail
-    @State private var selectedPublication: CDPublication?
+    private let store = RustStoreAdapter.shared
 
     // MARK: - Initialization
 
-    public init(manuscript: CDPublication) {
-        self.manuscript = manuscript
+    public init(manuscriptID: UUID) {
+        self.manuscriptID = manuscriptID
     }
 
     // MARK: - Body
@@ -325,12 +319,12 @@ public struct CitedPublicationsView: View {
 
     // MARK: - Computed Properties
 
-    private var filteredPublications: [CDPublication] {
+    private var filteredPublications: [PublicationRowData] {
         if searchText.isEmpty {
             return citedPublications
         }
         return citedPublications.filter { pub in
-            pub.title?.localizedCaseInsensitiveContains(searchText) ?? false ||
+            pub.title.localizedCaseInsensitiveContains(searchText) ||
             pub.authorString.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -339,12 +333,15 @@ public struct CitedPublicationsView: View {
 
     private func loadCitations() {
         citedPublications = ManuscriptCollectionManager.shared
-            .fetchCitedPublications(for: manuscript)
+            .fetchCitedPublications(for: manuscriptID)
     }
 
-    private func removeCitation(_ publication: CDPublication) {
-        manuscript.removeCitation(publication)
-        PersistenceController.shared.save()
+    private func removeCitation(_ publication: PublicationRowData) {
+        guard let detail = store.getPublicationDetail(id: manuscriptID) else { return }
+        var citedIDs = ManuscriptCollectionManager.parseCitedIDs(from: detail.fields)
+        citedIDs.remove(publication.id)
+        let idsJSON = ManuscriptCollectionManager.encodeCitedIDs(citedIDs)
+        store.updateField(id: manuscriptID, field: "_cited_publication_ids", value: idsJSON)
         loadCitations()
     }
 }
@@ -354,11 +351,11 @@ public struct CitedPublicationsView: View {
 /// A row showing a cited publication.
 struct CitedPublicationRow: View {
 
-    let publication: CDPublication
+    let publication: PublicationRowData
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(publication.title ?? "Untitled")
+            Text(publication.title)
                 .font(.body)
                 .lineLimit(2)
 
@@ -368,8 +365,8 @@ struct CitedPublicationRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                if publication.year > 0 {
-                    Text("(\(String(publication.year)))")
+                if let year = publication.year, year > 0 {
+                    Text("(\(String(year)))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -394,16 +391,16 @@ public struct ManuscriptsCitingView: View {
 
     // MARK: - Properties
 
-    /// The publication to check
-    public let publication: CDPublication
+    /// The publication ID to check
+    public let publicationID: UUID
 
     /// Manuscripts that cite this publication
-    @State private var citingManuscripts: [CDPublication] = []
+    @State private var citingManuscripts: [PublicationRowData] = []
 
     // MARK: - Initialization
 
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -456,8 +453,7 @@ public struct ManuscriptsCitingView: View {
 
     private func loadManuscripts() {
         citingManuscripts = ManuscriptCollectionManager.shared
-            .fetchManuscriptsCiting(publication)
-            .sortedByManuscriptStatus()
+            .fetchManuscriptsCiting(publicationID)
     }
 }
 
@@ -466,36 +462,23 @@ public struct ManuscriptsCitingView: View {
 /// A row showing a manuscript.
 struct ManuscriptRow: View {
 
-    let manuscript: CDPublication
+    let manuscript: PublicationRowData
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(manuscript.title ?? "Untitled")
+            Text(manuscript.title)
                 .font(.body)
                 .lineLimit(2)
 
             HStack(spacing: 8) {
-                // Status badge
-                if let status = manuscript.manuscriptStatus {
-                    Label(status.displayName, systemImage: status.systemImage)
-                        .font(.caption)
-                        .foregroundStyle(status.color)
-                }
-
                 // Venue
-                if let venue = manuscript.submissionVenue {
+                if let venue = manuscript.venue {
                     Text(venue)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
-
-                // Citation count
-                let citationCount = manuscript.citedPublicationCount
-                Text("\(citationCount) refs")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
@@ -507,14 +490,14 @@ struct ManuscriptRow: View {
 /// A badge showing how many manuscripts cite a publication.
 public struct ManuscriptCitationBadge: View {
 
-    /// The publication to check
-    public let publication: CDPublication
+    /// The publication ID to check
+    public let publicationID: UUID
 
     /// Number of manuscripts citing this publication
     @State private var citationCount = 0
 
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     public var body: some View {
@@ -540,7 +523,7 @@ public struct ManuscriptCitationBadge: View {
 
     private func loadCount() {
         citationCount = ManuscriptCollectionManager.shared
-            .fetchManuscriptsCiting(publication)
+            .fetchManuscriptsCiting(publicationID)
             .count
     }
 }
@@ -552,19 +535,19 @@ public struct UncitedPapersView: View {
 
     // MARK: - Properties
 
-    /// Library to filter by (nil for all)
-    public let library: CDLibrary?
+    /// Library ID to filter by (nil for all)
+    public let libraryID: UUID?
 
     /// Uncited publications
-    @State private var uncitedPublications: [CDPublication] = []
+    @State private var uncitedPublications: [PublicationRowData] = []
 
     /// Search text
     @State private var searchText = ""
 
     // MARK: - Initialization
 
-    public init(library: CDLibrary? = nil) {
-        self.library = library
+    public init(libraryID: UUID? = nil) {
+        self.libraryID = libraryID
     }
 
     // MARK: - Body
@@ -618,12 +601,12 @@ public struct UncitedPapersView: View {
 
     // MARK: - Computed Properties
 
-    private var filteredPublications: [CDPublication] {
+    private var filteredPublications: [PublicationRowData] {
         if searchText.isEmpty {
             return uncitedPublications
         }
         return uncitedPublications.filter { pub in
-            pub.title?.localizedCaseInsensitiveContains(searchText) ?? false ||
+            pub.title.localizedCaseInsensitiveContains(searchText) ||
             pub.authorString.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -632,7 +615,7 @@ public struct UncitedPapersView: View {
 
     private func loadUncitedPapers() {
         uncitedPublications = ManuscriptCollectionManager.shared
-            .fetchUncitedPublications(in: library)
+            .fetchUncitedPublications(in: libraryID)
     }
 }
 
@@ -646,7 +629,7 @@ public struct UncitedPapersView: View {
     HStack {
         Text("Paper Title")
         Spacer()
-        // ManuscriptCitationBadge requires CDPublication
+        // ManuscriptCitationBadge requires publicationID
     }
     .padding()
 }

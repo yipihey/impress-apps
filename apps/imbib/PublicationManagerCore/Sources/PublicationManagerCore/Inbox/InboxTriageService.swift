@@ -2,11 +2,10 @@
 //  InboxTriageService.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-19.
+//  Centralized service for inbox triage operations (save/dismiss).
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "inbox-triage")
@@ -24,6 +23,8 @@ public final class InboxTriageService {
 
     public static let shared = InboxTriageService()
 
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
+
     private init() {}
 
     // MARK: - Save to Library
@@ -36,61 +37,55 @@ public final class InboxTriageService {
     /// - Parameters:
     ///   - ids: Set of publication IDs to save
     ///   - publications: Current list of publications (for selection calculation)
-    ///   - currentSelection: Currently selected publication
-    ///   - targetLibrary: Library to save papers to
+    ///   - currentSelection: Currently selected publication ID
+    ///   - targetLibraryID: Library ID to save papers to
     ///   - source: Where the papers are coming from (for proper cleanup)
     /// - Returns: Result containing the next selection info and count of papers saved
     public func saveToLibrary(
         ids: Set<UUID>,
-        from publications: [CDPublication],
-        currentSelection: CDPublication?,
-        targetLibrary: CDLibrary,
+        from publications: [PublicationRowData],
+        currentSelectionID: UUID?,
+        targetLibraryID: UUID,
         source: TriageSource
     ) -> TriageResult {
         guard !ids.isEmpty else {
-            return TriageResult(nextSelectionID: nil, nextPublication: nil, affectedCount: 0)
+            return TriageResult(nextSelectionID: nil, affectedCount: 0)
         }
 
         // Calculate next selection BEFORE modifying data
-        let (nextID, nextPub) = SelectionAdvancement.advanceSelection(
+        let nextID = SelectionAdvancement.advanceSelection(
             removing: ids,
             from: publications,
-            currentSelection: currentSelection
+            currentSelectionID: currentSelectionID
         )
 
         let inboxManager = InboxManager.shared
         var savedCount = 0
 
         for id in ids {
-            guard let publication = publications.first(where: { $0.id == id }) else { continue }
+            guard publications.contains(where: { $0.id == id }) else { continue }
 
             switch source {
             case .inboxLibrary, .inboxFeed:
-                // Inbox save: use InboxManager for proper handling
-                inboxManager.saveToLibrary(publication, library: targetLibrary)
-                // Remove from ALL inbox feeds' result collections (not just the current one)
-                // This ensures the paper disappears from all feed views after save
-                removeFromAllInboxFeeds(publication)
+                // Inbox save: track dismissal, move to target library
+                inboxManager.trackDismissal(id)
+                store.movePublications(ids: [id], toLibraryId: targetLibraryID)
                 savedCount += 1
                 // ADR-020: Record save signal for recommendation engine
-                Task { await SignalCollector.shared.recordSave(publication) }
+                Task { await SignalCollector.shared.recordSave(id) }
 
-            case .regularLibrary(let sourceLibrary):
-                // Non-inbox: add to target, remove from source
-                publication.addToLibrary(targetLibrary)
-                publication.removeFromLibrary(sourceLibrary)
+            case .regularLibrary(let sourceLibraryID):
+                // Non-inbox: move to target library from source
+                store.movePublications(ids: [id], toLibraryId: targetLibraryID)
                 savedCount += 1
             }
         }
 
-        // Save changes
-        PersistenceController.shared.save()
-
-        logger.info("Saved \(savedCount) papers to '\(targetLibrary.displayName)' from \(source.logDescription)")
+        let targetLib = store.getLibrary(id: targetLibraryID)
+        logger.info("Saved \(savedCount) papers to '\(targetLib?.name ?? "unknown")' from \(source.logDescription)")
 
         return TriageResult(
             nextSelectionID: nextID,
-            nextPublication: nextPub,
             affectedCount: savedCount
         )
     }
@@ -105,92 +100,53 @@ public final class InboxTriageService {
     /// - Parameters:
     ///   - ids: Set of publication IDs to dismiss
     ///   - publications: Current list of publications (for selection calculation)
-    ///   - currentSelection: Currently selected publication
-    ///   - dismissedLibrary: Library to move dismissed papers to
+    ///   - currentSelectionID: Currently selected publication ID
+    ///   - dismissedLibraryID: Library ID to move dismissed papers to
     ///   - source: Where the papers are coming from (for proper cleanup)
     /// - Returns: Result containing the next selection info and count of papers dismissed
     public func dismissFromInbox(
         ids: Set<UUID>,
-        from publications: [CDPublication],
-        currentSelection: CDPublication?,
-        dismissedLibrary: CDLibrary,
+        from publications: [PublicationRowData],
+        currentSelectionID: UUID?,
+        dismissedLibraryID: UUID,
         source: TriageSource
     ) -> TriageResult {
         guard !ids.isEmpty else {
-            return TriageResult(nextSelectionID: nil, nextPublication: nil, affectedCount: 0)
+            return TriageResult(nextSelectionID: nil, affectedCount: 0)
         }
 
         // Calculate next selection BEFORE modifying data
-        let (nextID, nextPub) = SelectionAdvancement.advanceSelection(
+        let nextID = SelectionAdvancement.advanceSelection(
             removing: ids,
             from: publications,
-            currentSelection: currentSelection
+            currentSelectionID: currentSelectionID
         )
 
         let inboxManager = InboxManager.shared
         var dismissedCount = 0
 
         for id in ids {
-            guard let publication = publications.first(where: { $0.id == id }) else { continue }
+            guard publications.contains(where: { $0.id == id }) else { continue }
 
             // Track dismissal to prevent reappearance
-            inboxManager.trackDismissal(publication)
+            inboxManager.trackDismissal(id)
 
-            // Remove from source based on context
-            switch source {
-            case .inboxLibrary, .inboxFeed:
-                // Remove from inbox library
-                if let inbox = inboxManager.inboxLibrary {
-                    publication.removeFromLibrary(inbox)
-                }
-                // Remove from ALL inbox feeds' result collections (not just the current one)
-                // This ensures the paper disappears from all feed views, not just the one being dismissed from
-                removeFromAllInboxFeeds(publication)
-
-            case .regularLibrary(let library):
-                // Remove from the regular library
-                publication.removeFromLibrary(library)
-            }
-
-            // Add to Dismissed library (NOT delete)
-            publication.addToLibrary(dismissedLibrary)
+            // Move to Dismissed library
+            store.movePublications(ids: [id], toLibraryId: dismissedLibraryID)
             dismissedCount += 1
 
             // ADR-020: Record dismiss signal for recommendation engine
-            Task { await SignalCollector.shared.recordDismiss(publication) }
+            Task { await SignalCollector.shared.recordDismiss(id) }
         }
 
-        // Save changes
-        PersistenceController.shared.save()
         inboxManager.updateUnreadCount()
 
         logger.info("Dismissed \(dismissedCount) papers from \(source.logDescription)")
 
         return TriageResult(
             nextSelectionID: nextID,
-            nextPublication: nextPub,
             affectedCount: dismissedCount
         )
-    }
-
-    // MARK: - Private Helpers
-
-    /// Remove a publication from all inbox feeds' result collections.
-    /// This ensures dismissed papers don't show up in any feed view.
-    private func removeFromAllInboxFeeds(_ publication: CDPublication) {
-        let context = PersistenceController.shared.viewContext
-
-        // Fetch all smart searches that feed to inbox
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-
-        guard let inboxFeeds = try? context.fetch(request) else { return }
-
-        for feed in inboxFeeds {
-            if let collection = feed.resultCollection {
-                publication.removeFromCollection(collection)
-            }
-        }
     }
 }
 
@@ -202,19 +158,19 @@ public enum TriageSource {
     case inboxLibrary
 
     /// Viewing an inbox feed (smart search that feeds to inbox)
-    case inboxFeed(CDSmartSearch)
+    case inboxFeed(UUID)  // smart search ID
 
     /// Viewing a regular (non-inbox) library
-    case regularLibrary(CDLibrary)
+    case regularLibrary(UUID)  // library ID
 
     var logDescription: String {
         switch self {
         case .inboxLibrary:
             return "Inbox"
-        case .inboxFeed(let smartSearch):
-            return "feed '\(smartSearch.name)'"
-        case .regularLibrary(let library):
-            return "library '\(library.displayName)'"
+        case .inboxFeed(let id):
+            return "feed '\(id)'"
+        case .regularLibrary(let id):
+            return "library '\(id)'"
         }
     }
 }
@@ -224,15 +180,11 @@ public struct TriageResult {
     /// The UUID of the next paper to select (or nil if none remain)
     public let nextSelectionID: UUID?
 
-    /// The actual publication to select (for binding updates)
-    public let nextPublication: CDPublication?
-
     /// Number of papers affected by the operation
     public let affectedCount: Int
 
-    public init(nextSelectionID: UUID?, nextPublication: CDPublication?, affectedCount: Int) {
+    public init(nextSelectionID: UUID?, affectedCount: Int) {
         self.nextSelectionID = nextSelectionID
-        self.nextPublication = nextPublication
         self.affectedCount = affectedCount
     }
 }

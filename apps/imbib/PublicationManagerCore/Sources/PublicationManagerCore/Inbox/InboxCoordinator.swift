@@ -2,7 +2,7 @@
 //  InboxCoordinator.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
+//  Coordinates Inbox services: scheduling, fetching, and management.
 //
 
 import Foundation
@@ -16,15 +16,6 @@ import OSLog
 /// - InboxManager: Inbox library and mute management
 /// - PaperFetchService: Unified fetch pipeline
 /// - InboxScheduler: Automatic feed refresh
-///
-/// ## Usage
-///
-/// Start on app launch:
-/// ```swift
-/// Task {
-///     await InboxCoordinator.shared.start()
-/// }
-/// ```
 @MainActor
 public final class InboxCoordinator {
 
@@ -54,8 +45,6 @@ public final class InboxCoordinator {
     // MARK: - Lifecycle
 
     /// Start Inbox services.
-    ///
-    /// This should be called on app launch after other services are initialized.
     public func start() async {
         guard !isStarted else {
             Logger.inbox.debug("InboxCoordinator already started")
@@ -70,14 +59,12 @@ public final class InboxCoordinator {
 
         // Create fetch service with shared dependencies
         let sourceManager = SourceManager(credentialManager: CredentialManager.shared)
-        let repository = PublicationRepository()
 
         // Register built-in sources if not already done
         await sourceManager.registerBuiltInSources()
 
         let fetchService = PaperFetchService(
-            sourceManager: sourceManager,
-            repository: repository
+            sourceManager: sourceManager
         )
         self.paperFetchService = fetchService
         Logger.inbox.debugCapture("PaperFetchService created", category: "coordinator")

@@ -7,6 +7,16 @@
 
 import Foundation
 
+// MARK: - Permission Level
+
+/// Permission levels for SciX library access.
+public enum SciXPermissionLevel: String, Codable, Sendable, CaseIterable {
+    case owner
+    case admin
+    case write
+    case read
+}
+
 // MARK: - API Response Types
 
 /// Response from GET /libraries endpoint (list all libraries)
@@ -112,8 +122,8 @@ public struct SciXPermission: Codable, Sendable, Identifiable {
 
     public var id: String { email }
 
-    public var level: CDSciXLibrary.PermissionLevel {
-        CDSciXLibrary.PermissionLevel(rawValue: permission) ?? .read
+    public var level: SciXPermissionLevel {
+        SciXPermissionLevel(rawValue: permission) ?? .read
     }
 }
 

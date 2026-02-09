@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 
 // MARK: - Activity Feed View
 
@@ -15,12 +14,12 @@ import CoreData
 /// Shows content-level events (papers added, annotations made, comments posted)
 /// grouped by date. No personal behavior tracking.
 public struct ActivityFeedView: View {
-    let library: CDLibrary
+    let libraryID: UUID
 
-    @State private var activities: [CDActivityRecord] = []
+    @State private var activities: [ActivityRecord] = []
 
-    public init(library: CDLibrary) {
-        self.library = library
+    public init(libraryID: UUID) {
+        self.libraryID = libraryID
     }
 
     public var body: some View {
@@ -48,17 +47,17 @@ public struct ActivityFeedView: View {
         }
         .navigationTitle("Activity")
         .onAppear {
-            activities = ActivityFeedService.shared.recentActivity(in: library, limit: 100)
+            activities = RustStoreAdapter.shared.recentActivity(libraryID: libraryID, limit: 100)
         }
         .onReceive(NotificationCenter.default.publisher(for: .activityFeedUpdated)) { notification in
-            if let lib = notification.object as? CDLibrary, lib.id == library.id {
-                activities = ActivityFeedService.shared.recentActivity(in: library, limit: 100)
+            if let libID = notification.object as? UUID, libID == libraryID {
+                activities = RustStoreAdapter.shared.recentActivity(libraryID: libraryID, limit: 100)
             }
         }
     }
 
     /// Group activities by calendar date
-    private var groupedActivities: [(key: Date, value: [CDActivityRecord])] {
+    private var groupedActivities: [(key: Date, value: [ActivityRecord])] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: activities) { record in
             calendar.startOfDay(for: record.date)
@@ -70,7 +69,7 @@ public struct ActivityFeedView: View {
 // MARK: - Activity Row
 
 struct ActivityRow: View {
-    let record: CDActivityRecord
+    let record: ActivityRecord
 
     var body: some View {
         HStack(spacing: 10) {
@@ -110,6 +109,7 @@ struct ActivityRow: View {
         case .annotated: return .yellow
         case .commented: return .blue
         case .organized: return .purple
+        case .modified: return .orange
         case .none: return .secondary
         }
     }
@@ -119,12 +119,12 @@ struct ActivityRow: View {
 
 /// Badge showing unread activity count for sidebar display.
 public struct ActivityBadge: View {
-    let library: CDLibrary
+    let libraryID: UUID
     @State private var count: Int = 0
 
     /// Date of last viewed activity (stored per-library in UserDefaults)
     private var lastViewedKey: String {
-        "activityLastViewed_\(library.id.uuidString)"
+        "activityLastViewed_\(libraryID.uuidString)"
     }
 
     private var lastViewedDate: Date {
@@ -132,8 +132,8 @@ public struct ActivityBadge: View {
         return timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : Date.distantPast
     }
 
-    public init(library: CDLibrary) {
-        self.library = library
+    public init(libraryID: UUID) {
+        self.libraryID = libraryID
     }
 
     public var body: some View {

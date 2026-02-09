@@ -435,7 +435,7 @@ public final class SearchViewModel {
     // MARK: - Edit Mode State
 
     /// The smart search being edited (nil = new search / ad-hoc search mode)
-    public var editingSmartSearch: CDSmartSearch?
+    public var editingSmartSearch: SmartSearch?
 
     /// Whether we're in edit mode (editing an existing smart search)
     public var isEditMode: Bool {
@@ -459,7 +459,6 @@ public final class SearchViewModel {
 
     public let sourceManager: SourceManager
     private let deduplicationService: DeduplicationService
-    public let repository: PublicationRepository
     private weak var libraryManager: LibraryManager?
 
     // MARK: - Initialization
@@ -467,12 +466,10 @@ public final class SearchViewModel {
     public init(
         sourceManager: SourceManager = SourceManager(),
         deduplicationService: DeduplicationService = DeduplicationService(),
-        repository: PublicationRepository = PublicationRepository(),
         libraryManager: LibraryManager? = nil
     ) {
         self.sourceManager = sourceManager
         self.deduplicationService = deduplicationService
-        self.repository = repository
         self.libraryManager = libraryManager
     }
 
@@ -483,15 +480,12 @@ public final class SearchViewModel {
 
     // MARK: - Last Search Collection
 
-    /// Publications from the Last Search collection (excludes deleted objects)
-    public var publications: [CDPublication] {
-        guard let collection = libraryManager?.activeLibrary?.lastSearchCollection else {
+    /// Publications from the Last Search collection
+    public var publications: [PublicationRowData] {
+        guard let collectionId = libraryManager?.getOrCreateLastSearchCollection()?.id else {
             return []
         }
-        // Filter out deleted publications
-        return (collection.publications ?? [])
-            .filter { !$0.isDeleted }
-            .sorted { ($0.dateAdded) > ($1.dateAdded) }
+        return RustStoreAdapter.shared.listCollectionMembers(collectionId: collectionId)
     }
 
     // MARK: - Available Sources
@@ -529,7 +523,7 @@ public final class SearchViewModel {
     /// 1. Clears the previous Last Search results
     /// 2. Executes the search query
     /// 3. Deduplicates against existing library publications
-    /// 4. Creates new CDPublication entities for new results
+    /// 4. Imports new results as publications via the Rust store
     /// 5. Adds all results to the Last Search collection
     public func search() async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -541,10 +535,12 @@ public final class SearchViewModel {
             return
         }
 
-        guard let collection = manager.getOrCreateLastSearchCollection() else {
+        guard let collectionModel = manager.getOrCreateLastSearchCollection() else {
             Logger.viewModels.errorCapture("Could not create Last Search collection", category: "search")
             return
         }
+
+        let collectionId = collectionModel.id
 
         Logger.viewModels.entering()
         defer { Logger.viewModels.exiting() }
@@ -571,35 +567,45 @@ public final class SearchViewModel {
 
             Logger.viewModels.infoCapture("Search returned \(deduped.count) deduplicated results", category: "search")
 
-            // Auto-import results to Last Search collection
+            // Auto-import results to Last Search collection via Rust store
+            let store = RustStoreAdapter.shared
             var importedCount = 0
             var existingCount = 0
 
             for result in deduped {
                 // Check for existing publication by identifiers
-                if let existing = await repository.findByIdentifiers(result.primary) {
+                let existingPubs = store.findByIdentifiers(
+                    doi: result.primary.doi,
+                    arxivId: result.primary.arxivID,
+                    bibcode: result.primary.bibcode
+                )
+                if let existingPub = existingPubs.first {
                     // Add existing publication to Last Search collection
-                    await repository.addToCollection(existing, collection: collection)
+                    store.addToCollection(publicationIds: [existingPub.id], collectionId: collectionId)
                     existingCount += 1
                 } else {
-                    // Create new publication and add to collection
-                    // Use bestAbstract to merge abstracts from alternates (e.g., ADS has abstract but Crossref doesn't)
-                    let publication = await repository.createFromSearchResult(
-                        result.primary,
-                        abstractOverride: result.bestAbstract
-                    )
-                    await repository.addToCollection(publication, collection: collection)
+                    // Import new publication via BibTeX and add to collection
+                    let bibtex = result.primary.toBibTeX(abstractOverride: result.bestAbstract)
+                    let libraryId = libraryManager?.activeLibrary?.id
+                    guard let libraryId else { continue }
+                    let ids = store.importBibTeX(bibtex, libraryId: libraryId)
+                    if let newId = ids.first {
+                        store.addToCollection(publicationIds: [newId], collectionId: collectionId)
+                    }
                     importedCount += 1
                 }
             }
 
             Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
 
+            // Get imported publication IDs from the collection
+            let collectionPubIds = store.listCollectionMembers(collectionId: collectionId).map(\.id)
+
             // Create exploration smart search for sidebar display
             await createExplorationSearch(
                 query: query,
                 sourceIDs: sourceIDs,
-                publications: Array(collection.publications ?? []),
+                publicationIds: collectionPubIds,
                 maxResults: maxResults
             )
 
@@ -625,90 +631,75 @@ public final class SearchViewModel {
     private func createExplorationSearch(
         query: String,
         sourceIDs: [String],
-        publications: [CDPublication],
+        publicationIds: [UUID],
         maxResults: Int
     ) async {
-        Logger.viewModels.infoCapture("createExplorationSearch called with query: \(query), \(publications.count) publications", category: "search")
+        Logger.viewModels.infoCapture("createExplorationSearch called with query: \(query), \(publicationIds.count) publications", category: "search")
 
         guard let manager = libraryManager else {
             Logger.viewModels.errorCapture("No library manager available for exploration search", category: "search")
             return
         }
 
+        let store = RustStoreAdapter.shared
+
         // Get or create the exploration library (ensures it exists)
         let explorationLib = manager.getOrCreateExplorationLibrary()
 
-        Logger.viewModels.infoCapture("Exploration library found: \(explorationLib.name), has \(explorationLib.smartSearches?.count ?? 0) smart searches", category: "search")
+        let existingSmartSearches = store.listSmartSearches(libraryId: explorationLib.id)
+        Logger.viewModels.infoCapture("Exploration library found: \(explorationLib.name), has \(existingSmartSearches.count) smart searches", category: "search")
 
         // Truncate query for display name (no "Search:" prefix - icon indicates it's a search)
         let truncatedQuery = String(query.prefix(50)) + (query.count > 50 ? "…" : "")
         let searchName = truncatedQuery
 
         // Check if a search with the same query already exists
-        let existingSearches = explorationLib.smartSearches ?? []
-        if let existing = existingSearches.first(where: { $0.query == query }) {
-            // Update existing search's results instead of creating new
-            Logger.viewModels.infoCapture("Updating existing exploration search: \(existing.name)", category: "search")
+        if let existing = existingSmartSearches.first(where: { $0.query == query }) {
+            Logger.viewModels.infoCapture("Found existing exploration search: \(existing.name), navigating to it", category: "search")
 
-            if let collection = existing.resultCollection {
-                // Clear old results
-                collection.publications = []
-
-                // Add new results
-                for pub in publications {
-                    pub.addToCollection(collection)
+            // Index publications for global search (Cmd+F) after a short delay
+            let capturedIds = publicationIds
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                for pubId in capturedIds {
+                    await FullTextSearchService.shared.indexPublication(id: pubId)
                 }
-
-                try? PersistenceController.shared.viewContext.save()
-
-                // Index publications for global search (Cmd+F) after a short delay
-                Task {
-                    try? await Task.sleep(for: .seconds(1))
-                    // Index for fulltext search
-                    await FullTextSearchService.shared.indexPublications(publications)
-                    // Index for semantic search
-                    for pub in publications {
-                        await EmbeddingService.shared.addToIndex(pub)
-                    }
-                    Logger.viewModels.infoCapture("Indexed \(publications.count) exploration search results for global search", category: "search")
-                }
-
-                // Navigate to the existing search
-                NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
-                NotificationCenter.default.post(name: .navigateToSmartSearch, object: existing.id)
+                Logger.viewModels.infoCapture("Indexed \(capturedIds.count) exploration search results for global search", category: "search")
             }
+
+            // Navigate to the existing search
+            NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+            NotificationCenter.default.post(name: .navigateToSmartSearch, object: existing.id)
             return
         }
 
-        // Create new smart search in exploration library
-        let smartSearch = SmartSearchRepository.shared.create(
+        // Create new smart search in exploration library via Rust store
+        let sourceIdsJson = "[" + sourceIDs.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+        let smartSearch = store.createSmartSearch(
             name: searchName,
             query: query,
-            sourceIDs: sourceIDs,
-            library: explorationLib,
-            maxResults: Int16(maxResults)
+            libraryId: explorationLib.id,
+            sourceIdsJson: sourceIdsJson,
+            maxResults: Int64(maxResults),
+            autoRefreshEnabled: false,
+            refreshIntervalSeconds: 86400
         )
 
-        // Add publications to the smart search's result collection
-        if let collection = smartSearch.resultCollection {
-            for pub in publications {
-                pub.addToCollection(collection)
-            }
-            try? PersistenceController.shared.viewContext.save()
+        guard let smartSearch else {
+            Logger.viewModels.errorCapture("Failed to create exploration search", category: "search")
+            return
         }
 
-        Logger.viewModels.infoCapture("Created exploration search: \(searchName) with \(publications.count) results", category: "search")
+        Logger.viewModels.infoCapture("Created exploration search: \(searchName) with \(publicationIds.count) results", category: "search")
 
         // Index publications for global search (Cmd+F) after a short delay
+        let capturedIds = publicationIds
         Task {
             try? await Task.sleep(for: .seconds(1))
-            // Index for fulltext search
-            await FullTextSearchService.shared.indexPublications(publications)
-            // Index for semantic search
-            for pub in publications {
-                await EmbeddingService.shared.addToIndex(pub)
+            for pubId in capturedIds {
+                await FullTextSearchService.shared.indexPublication(id: pubId)
             }
-            Logger.viewModels.infoCapture("Indexed \(publications.count) exploration search results for global search", category: "search")
+            Logger.viewModels.infoCapture("Indexed \(capturedIds.count) exploration search results for global search", category: "search")
         }
 
         // Notify sidebar to refresh and navigate to the new search
@@ -718,11 +709,11 @@ public final class SearchViewModel {
 
     // MARK: - Selection
 
-    public func toggleSelection(_ publication: CDPublication) {
-        if selectedPublicationIDs.contains(publication.id) {
-            selectedPublicationIDs.remove(publication.id)
+    public func toggleSelection(_ id: UUID) {
+        if selectedPublicationIDs.contains(id) {
+            selectedPublicationIDs.remove(id)
         } else {
-            selectedPublicationIDs.insert(publication.id)
+            selectedPublicationIDs.insert(id)
         }
     }
 
@@ -758,10 +749,10 @@ public final class SearchViewModel {
     ///
     /// Attempts to parse the query back to the classic form if possible,
     /// otherwise falls back to the modern form.
-    public func loadSmartSearch(_ smartSearch: CDSmartSearch) {
+    public func loadSmartSearch(_ smartSearch: SmartSearch) {
         editingSmartSearch = smartSearch
         query = smartSearch.query
-        selectedSourceIDs = Set(smartSearch.sources)
+        selectedSourceIDs = Set(smartSearch.sourceIDs)
 
         // Clear all forms first
         classicFormState.clear()
@@ -862,23 +853,23 @@ public final class SearchViewModel {
         case .vagueMemory: formMaxResults = vagueMemoryFormState.maxResults
         }
 
-        // Update the smart search
-        smartSearch.query = newQuery
-        smartSearch.maxResults = Int16(formMaxResults)
-        smartSearch.sourceIDs = selectedSourceIDs.isEmpty ? nil : {
-            if let data = try? JSONEncoder().encode(Array(selectedSourceIDs)) {
+        // Update the smart search via the Rust store
+        let store = RustStoreAdapter.shared
+        let sourceIdsJson: String? = selectedSourceIDs.isEmpty ? nil : {
+            let arr = Array(selectedSourceIDs)
+            if let data = try? JSONEncoder().encode(arr) {
                 return String(data: data, encoding: .utf8)
             }
             return nil
         }()
-
-        // Save to Core Data
-        do {
-            try PersistenceController.shared.viewContext.save()
-            Logger.viewModels.infoCapture("Saved smart search '\(smartSearch.name)' with query: \(newQuery)", category: "search-edit")
-        } catch {
-            Logger.viewModels.errorCapture("Failed to save smart search: \(error.localizedDescription)", category: "search-edit")
-        }
+        store.updateSmartSearch(
+            id: smartSearch.id,
+            name: smartSearch.name,
+            query: newQuery,
+            sourceIdsJson: sourceIdsJson,
+            maxResults: Int64(formMaxResults)
+        )
+        Logger.viewModels.infoCapture("Saved smart search '\(smartSearch.name)' with query: \(newQuery)", category: "search-edit")
 
         // Exit edit mode
         exitEditMode()

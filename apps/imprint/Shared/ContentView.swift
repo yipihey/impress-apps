@@ -20,8 +20,13 @@ struct ContentView: View {
     @State private var debugStatus: String = "idle"
     @State private var debugHistory: String = ""
 
+    // SVG preview state
+    @State private var svgPages: [String] = []
+
     // Auto-compile
     @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
+    @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
+    @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
     @State private var autoCompileTask: Task<Void, Never>?
 
     // AI Context Menu state
@@ -104,7 +109,7 @@ struct ContentView: View {
                         Image(systemName: "hammer")
                     }
                 }
-                .help("Compile (Cmd+B)")
+                .help("Refresh Preview (⌘B)")
                 .keyboardShortcut("B", modifiers: [.command])
                 .accessibilityIdentifier("toolbar.compileButton")
 
@@ -174,6 +179,9 @@ struct ContentView: View {
             onExportPDF: { exportPDF() },
             onPrintPDF: { printPDF() }
         ))
+        .task {
+            await compile()
+        }
         .onChange(of: document.source) { _, _ in
             scheduleAutoCompile()
         }
@@ -313,13 +321,23 @@ struct ContentView: View {
                 .frame(minWidth: 300, maxHeight: .infinity)
 
                 VStack(spacing: 0) {
-                    PDFPreviewView(
-                        pdfData: pdfData,
-                        isCompiling: isCompiling,
-                        sourceMapEntries: sourceMapEntries,
-                        cursorPosition: cursorPosition
-                    )
-                    .frame(maxHeight: .infinity)
+                    if previewFormat == "svg" && !svgPages.isEmpty {
+                        SVGPreviewView(
+                            svgPages: svgPages,
+                            isCompiling: isCompiling,
+                            sourceMapEntries: sourceMapEntries,
+                            cursorPosition: cursorPosition
+                        )
+                        .frame(maxHeight: .infinity)
+                    } else {
+                        PDFPreviewView(
+                            pdfData: pdfData,
+                            isCompiling: isCompiling,
+                            sourceMapEntries: sourceMapEntries,
+                            cursorPosition: cursorPosition
+                        )
+                        .frame(maxHeight: .infinity)
+                    }
 
                     CompilationErrorView(
                         errors: compilationError,
@@ -401,8 +419,9 @@ struct ContentView: View {
     private func scheduleAutoCompile() {
         guard autoCompileEnabled else { return }
         autoCompileTask?.cancel()
+        let delayMs = compileDebounceMs
         autoCompileTask = Task {
-            try? await Task.sleep(for: .seconds(1.5))
+            try? await Task.sleep(for: .milliseconds(delayMs))
             guard !Task.isCancelled else { return }
             await compile()
         }
@@ -498,11 +517,12 @@ struct ContentView: View {
         compilationError = nil
         compilationWarnings = []
 
-        // Get source before any async work
+        // Capture @State/AppStorage before any async work
         let sourceText = document.source
+        let format = previewFormat
         debugStatus = "2:src=\(sourceText.count)ch"
         debugHistory += "2:\(sourceText.count) "
-        log("Source text length: \(sourceText.count)")
+        log("Source text length: \(sourceText.count), format: \(format)")
 
         do {
             log("Creating RenderOptions")
@@ -513,28 +533,63 @@ struct ContentView: View {
                 isDraft: false
             )
 
-            debugStatus = "4:rendering"
-            debugHistory += "4 "
-            log("Calling renderer.render()")
-            let output = try await renderer.render(sourceText, options: options)
-            debugStatus = "5:done,ok=\(output.isSuccess),sz=\(output.pdfData.count)"
-            debugHistory += "5:\(output.pdfData.count) "
-            log("renderer.render() completed, success: \(output.isSuccess), size: \(output.pdfData.count)")
+            if format == "svg" {
+                // SVG rendering — per-page SVG strings for split view
+                debugStatus = "4:rendering(svg)"
+                debugHistory += "4svg "
+                log("Calling renderer.renderSVG()")
+                let output = try await renderer.renderSVG(sourceText, options: options)
+                debugStatus = "5:done,ok=\(output.isSuccess),pages=\(output.svgPages.count)"
+                debugHistory += "5:\(output.svgPages.count)p "
+                log("renderer.renderSVG() completed, success: \(output.isSuccess), pages: \(output.svgPages.count)")
 
-            if output.isSuccess {
-                pdfData = output.pdfData
-                sourceMapEntries = output.sourceMapEntries
-                compilationWarnings = output.warnings
-                // Cache PDF for HTTP API access
-                DocumentRegistry.shared.cachePDF(output.pdfData, for: document.id)
-                debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
-                debugHistory += "6:ok "
-                log("PDF data set, size: \(output.pdfData.count), source map entries: \(output.sourceMapEntries.count)")
+                if output.isSuccess {
+                    svgPages = output.svgPages
+                    sourceMapEntries = output.sourceMapEntries
+                    compilationWarnings = output.warnings
+
+                    // Also render PDF for Direct PDF mode, export, and print.
+                    // This is fast because the persistent engine already compiled the document.
+                    let pdfOutput = try await renderer.render(sourceText, options: options)
+                    if pdfOutput.isSuccess {
+                        pdfData = pdfOutput.pdfData
+                        DocumentRegistry.shared.cachePDF(pdfOutput.pdfData, for: document.id)
+                    }
+
+                    debugStatus = "6:set,\(output.svgPages.count)p,map=\(output.sourceMapEntries.count)"
+                    debugHistory += "6:ok "
+                    log("SVG pages set: \(output.svgPages.count), source map entries: \(output.sourceMapEntries.count)")
+                } else {
+                    compilationError = output.errors.joined(separator: "\n")
+                    debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
+                    debugHistory += "E "
+                    log("SVG compilation errors: \(output.errors)")
+                }
             } else {
-                compilationError = output.errors.joined(separator: "\n")
-                debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
-                debugHistory += "E "
-                log("Compilation errors: \(output.errors)")
+                // PDF rendering — traditional path
+                debugStatus = "4:rendering(pdf)"
+                debugHistory += "4pdf "
+                log("Calling renderer.render()")
+                let output = try await renderer.render(sourceText, options: options)
+                debugStatus = "5:done,ok=\(output.isSuccess),sz=\(output.pdfData.count)"
+                debugHistory += "5:\(output.pdfData.count) "
+                log("renderer.render() completed, success: \(output.isSuccess), size: \(output.pdfData.count)")
+
+                if output.isSuccess {
+                    pdfData = output.pdfData
+                    sourceMapEntries = output.sourceMapEntries
+                    compilationWarnings = output.warnings
+                    // Cache PDF for HTTP API access
+                    DocumentRegistry.shared.cachePDF(output.pdfData, for: document.id)
+                    debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
+                    debugHistory += "6:ok "
+                    log("PDF data set, size: \(output.pdfData.count), source map entries: \(output.sourceMapEntries.count)")
+                } else {
+                    compilationError = output.errors.joined(separator: "\n")
+                    debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
+                    debugHistory += "E "
+                    log("Compilation errors: \(output.errors)")
+                }
             }
         } catch {
             compilationError = error.localizedDescription

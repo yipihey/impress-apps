@@ -116,6 +116,11 @@ targets:
             UTTypeTagSpecification: {}
           - UTTypeConformsTo:
               - public.data
+            UTTypeDescription: imbib Sidebar Section ID
+            UTTypeIdentifier: com.imbib.sidebar-section-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
             UTTypeDescription: Impress Paper Reference
             UTTypeIdentifier: com.impress.paper-reference
             UTTypeTagSpecification: {}
@@ -233,6 +238,11 @@ targets:
               - public.data
             UTTypeDescription: imbib Publication ID
             UTTypeIdentifier: com.imbib.publication-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Sidebar Section ID
+            UTTypeIdentifier: com.imbib.sidebar-section-id
             UTTypeTagSpecification: {}
           - UTTypeConformsTo:
               - public.data

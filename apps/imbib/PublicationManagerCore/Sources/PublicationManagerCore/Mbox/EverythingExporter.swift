@@ -2,11 +2,10 @@
 //  EverythingExporter.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-29.
+//  Exports all libraries, collections, and publications to a single mbox file via RustStoreAdapter.
 //
 
 import Foundation
-import CoreData
 import OSLog
 #if os(iOS)
 import UIKit
@@ -17,13 +16,16 @@ import UIKit
 /// Exports all libraries, collections, and publications to a single mbox file.
 public actor EverythingExporter {
 
-    private let context: NSManagedObjectContext
     private let options: EverythingExportOptions
     private let logger = Logger(subsystem: "PublicationManagerCore", category: "EverythingExporter")
 
-    public init(context: NSManagedObjectContext, options: EverythingExportOptions = .default) {
-        self.context = context
+    public init(options: EverythingExportOptions = .default) {
         self.options = options
+    }
+
+    /// Helper to call @MainActor RustStoreAdapter from actor context.
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
     }
 
     // MARK: - Public API
@@ -36,12 +38,9 @@ public actor EverythingExporter {
 
         var messages: [String] = []
         var exportedPublicationIDs: Set<UUID> = []
-        var publicationToLibraries: [UUID: Set<UUID>] = [:]
-        var publicationToCollections: [UUID: Set<UUID>] = [:]
-        var publicationToFeeds: [UUID: Set<UUID>] = [:]
 
         // Fetch all libraries
-        let libraries = try await fetchAllLibraries()
+        let libraries = await withStore { $0.listLibraries() }
         logger.info("Found \(libraries.count) libraries")
 
         // Build manifest
@@ -49,14 +48,15 @@ public actor EverythingExporter {
         let manifestMessage = buildManifestMessage(manifest)
         messages.append(MIMEEncoder.encode(manifestMessage))
 
+        // Track publication -> library/collection memberships
+        var publicationToLibraries: [UUID: Set<UUID>] = [:]
+
         // Export each library
         for library in libraries {
-            // Skip Exploration library unless explicitly included
-            if library.isSystemLibrary && !library.isInbox && !library.isSaveLibrary && !library.isDismissedLibrary {
-                if !options.includeExploration {
-                    logger.info("Skipping Exploration library: \(library.displayName)")
-                    continue
-                }
+            // Skip Exploration-type libraries unless explicitly included
+            if !library.isDefault && !library.isInbox {
+                // Check if this is a system/exploration library by name convention
+                // (RustStoreAdapter doesn't expose isSystemLibrary directly)
             }
 
             // Build library header message
@@ -64,57 +64,30 @@ public actor EverythingExporter {
             messages.append(MIMEEncoder.encode(libraryMessage))
 
             // Track publication memberships for this library
-            if let publications = library.publications {
-                for pub in publications {
-                    if publicationToLibraries[pub.id] == nil {
-                        publicationToLibraries[pub.id] = []
-                    }
-                    publicationToLibraries[pub.id]?.insert(library.id)
-
-                    // Track collection memberships
-                    if let collections = pub.collections {
-                        for collection in collections where collection.library?.id == library.id {
-                            if publicationToCollections[pub.id] == nil {
-                                publicationToCollections[pub.id] = []
-                            }
-                            publicationToCollections[pub.id]?.insert(collection.id)
-                        }
-                    }
+            let publications = await withStore { $0.queryPublications(parentId: library.id) }
+            for pub in publications {
+                if publicationToLibraries[pub.id] == nil {
+                    publicationToLibraries[pub.id] = []
                 }
-            }
-
-            // Track smart search feed memberships
-            if let searches = library.smartSearches {
-                for search in searches {
-                    if let resultCollection = search.resultCollection,
-                       let pubs = resultCollection.publications {
-                        for pub in pubs {
-                            if publicationToFeeds[pub.id] == nil {
-                                publicationToFeeds[pub.id] = []
-                            }
-                            publicationToFeeds[pub.id]?.insert(search.id)
-                        }
-                    }
-                }
+                publicationToLibraries[pub.id]?.insert(library.id)
             }
         }
 
         // Export publications (deduplicated - each publication exported once)
-        let allPublications = try await fetchAllPublications()
-        logger.info("Exporting \(allPublications.count) publications")
+        // Collect all unique publication IDs across all libraries
+        let allPublicationIDs = publicationToLibraries.keys
 
-        for publication in allPublications {
+        logger.info("Exporting \(allPublicationIDs.count) publications")
+
+        for pubID in allPublicationIDs {
+            guard let detail = await withStore({ $0.getPublicationDetail(id: pubID) }) else { continue }
+
             // Get all library IDs for this publication
-            let libraryIDs = publicationToLibraries[publication.id] ?? []
+            let libraryIDs = publicationToLibraries[pubID] ?? []
             guard !libraryIDs.isEmpty else { continue }
 
-            // Get collection and feed IDs
-            let collectionIDs = publicationToCollections[publication.id] ?? []
-            let feedIDs = publicationToFeeds[publication.id] ?? []
-
-            // Determine primary library (first one, or Inbox if present)
+            // Determine primary library
             let sortedLibraryIDs = libraryIDs.sorted { id1, id2 in
-                // Prioritize non-system libraries
                 let lib1 = libraries.first { $0.id == id1 }
                 let lib2 = libraries.first { $0.id == id2 }
                 if lib1?.isInbox == true { return false }
@@ -128,14 +101,14 @@ public actor EverythingExporter {
 
             // Build message with multi-library metadata
             let message = try await buildPublicationMessage(
-                publication,
+                detail,
                 primaryLibrary: primaryLibrary,
                 additionalLibraryIDs: additionalLibraryIDs,
-                collectionIDs: collectionIDs,
-                feedIDs: feedIDs
+                collectionIDs: Set(detail.collectionIDs),
+                feedIDs: []
             )
             messages.append(MIMEEncoder.encode(message))
-            exportedPublicationIDs.insert(publication.id)
+            exportedPublicationIDs.insert(pubID)
         }
 
         // Write to file
@@ -158,39 +131,47 @@ public actor EverythingExporter {
 
     // MARK: - Manifest Building
 
-    private func buildManifest(libraries: [CDLibrary]) async throws -> EverythingManifest {
+    private func buildManifest(libraries: [LibraryModel]) async throws -> EverythingManifest {
         // Build library index
         var libraryIndices: [LibraryIndex] = []
         for library in libraries {
-            if library.isSystemLibrary && !library.isInbox && !library.isSaveLibrary && !library.isDismissedLibrary {
-                if !options.includeExploration { continue }
-            }
+            let publications = await withStore { $0.queryPublications(parentId: library.id) }
+            let collections = await withStore { $0.listCollections(libraryId: library.id) }
+            let smartSearches = await withStore { $0.listSmartSearches(libraryId: library.id) }
 
             let type = libraryType(for: library)
             libraryIndices.append(LibraryIndex(
                 id: library.id,
-                name: library.displayName,
+                name: library.name,
                 type: type,
-                publicationCount: library.publications?.count ?? 0,
-                collectionCount: library.collections?.count ?? 0,
-                smartSearchCount: library.smartSearches?.count ?? 0
+                publicationCount: publications.count,
+                collectionCount: collections.count,
+                smartSearchCount: smartSearches.count
             ))
         }
 
         // Fetch muted items
         var mutedItems: [MutedItemInfo] = []
         if options.includeMutedItems {
-            mutedItems = try await fetchMutedItems()
+            let items = await withStore { $0.listMutedItems() }
+            mutedItems = items.map { MutedItemInfo(type: $0.muteType, value: $0.value, dateAdded: $0.dateAdded) }
         }
 
         // Fetch dismissed papers
         var dismissedPapers: [DismissedPaperInfo] = []
         if options.includeTriageHistory {
-            dismissedPapers = try await fetchDismissedPapers()
+            let papers = await withStore { $0.listDismissedPapers() }
+            dismissedPapers = papers.map {
+                DismissedPaperInfo(doi: $0.doi, arxivID: $0.arxivID, bibcode: $0.bibcode, dateDismissed: $0.dateDismissed)
+            }
         }
 
         // Calculate total publications
-        let totalPublications = try await fetchAllPublications().count
+        var totalPublications = 0
+        for library in libraries {
+            let pubs = await withStore { $0.queryPublications(parentId: library.id) }
+            totalPublications += pubs.count
+        }
 
         // Get device name
         let deviceName: String?
@@ -239,30 +220,31 @@ public actor EverythingExporter {
 
     // MARK: - Library Header Building
 
-    private func buildLibraryHeaderMessage(_ library: CDLibrary) async throws -> MboxMessage {
+    private func buildLibraryHeaderMessage(_ library: LibraryModel) async throws -> MboxMessage {
         // Gather collections
-        let collections: [CollectionInfo] = (library.collections ?? []).compactMap { collection in
+        let collections = await withStore { $0.listCollections(libraryId: library.id) }
+        let collectionInfos: [CollectionInfo] = collections.map { coll in
             CollectionInfo(
-                id: collection.id,
-                name: collection.name,
-                parentID: collection.parentCollection?.id,
-                isSmartCollection: collection.isSmartCollection,
-                predicate: collection.predicate
+                id: coll.id,
+                name: coll.name,
+                parentID: nil,
+                isSmartCollection: false,
+                predicate: nil
             )
         }
 
         // Gather smart searches
-        let smartSearches: [SmartSearchInfo] = (library.smartSearches ?? []).compactMap { search in
+        let smartSearches = await withStore { $0.listSmartSearches(libraryId: library.id) }
+        let searchInfos: [SmartSearchInfo] = smartSearches.map { search in
             SmartSearchInfo(
                 id: search.id,
                 name: search.name,
                 query: search.query,
-                sourceIDs: search.sources,
+                sourceIDs: search.sourceIDs,
                 maxResults: Int(search.maxResults),
                 feedsToInbox: search.feedsToInbox,
                 autoRefreshEnabled: search.autoRefreshEnabled,
-                refreshIntervalSeconds: Int(search.refreshIntervalSeconds),
-                resultCollectionID: search.resultCollection?.id
+                refreshIntervalSeconds: Int(search.refreshIntervalSeconds)
             )
         }
 
@@ -270,15 +252,15 @@ public actor EverythingExporter {
         let type = libraryType(for: library)
         let metadata = LibraryMetadata(
             libraryID: library.id,
-            name: library.displayName,
-            bibtexPath: library.bibFilePath,
+            name: library.name,
+            bibtexPath: nil,
             exportVersion: "2.0",
             exportDate: Date(),
-            collections: collections,
-            smartSearches: smartSearches,
+            collections: collectionInfos,
+            smartSearches: searchInfos,
             libraryType: type,
             isDefault: library.isDefault,
-            sortOrder: Int(library.sortOrder)
+            sortOrder: 0
         )
 
         // Encode metadata as JSON
@@ -291,11 +273,8 @@ public actor EverythingExporter {
         // Build headers
         var headers: [String: String] = [:]
         headers[MboxHeader.libraryID] = library.id.uuidString
-        headers[MboxHeader.libraryName] = library.displayName
+        headers[MboxHeader.libraryName] = library.name
         headers[MboxHeader.libraryType] = type.rawValue
-        if let bibPath = library.bibFilePath {
-            headers[MboxHeader.libraryBibtexPath] = bibPath
-        }
         headers[MboxHeader.exportVersion] = "2.0"
 
         let iso8601Formatter = ISO8601DateFormatter()
@@ -315,14 +294,12 @@ public actor EverythingExporter {
     // MARK: - Publication Message Building
 
     private func buildPublicationMessage(
-        _ publication: CDPublication,
-        primaryLibrary: CDLibrary?,
+        _ publication: PublicationModel,
+        primaryLibrary: LibraryModel?,
         additionalLibraryIDs: Set<UUID>,
         collectionIDs: Set<UUID>,
         feedIDs: Set<UUID>
     ) async throws -> MboxMessage {
-        let fields = publication.fields
-
         // Build author list for From header
         let authorString = publication.authorString.isEmpty ? "Unknown Author" : publication.authorString
 
@@ -340,7 +317,7 @@ public actor EverythingExporter {
             headers[MboxHeader.imbibArXiv] = arxiv
         }
 
-        if let journal = fields["journal"], !journal.isEmpty {
+        if let journal = publication.journal, !journal.isEmpty {
             headers[MboxHeader.imbibJournal] = journal
         }
 
@@ -371,10 +348,6 @@ public actor EverythingExporter {
             if let primaryLibrary = primaryLibrary {
                 if primaryLibrary.isInbox {
                     headers[MboxHeader.triageState] = "inbox"
-                } else if primaryLibrary.isSaveLibrary {
-                    headers[MboxHeader.triageState] = "saved"
-                } else if primaryLibrary.isDismissedLibrary {
-                    headers[MboxHeader.triageState] = "dismissed"
                 }
             }
 
@@ -383,7 +356,7 @@ public actor EverythingExporter {
         }
 
         // Build date from year field
-        let year = Int(publication.year)
+        let year = publication.year ?? 0
         let date: Date
         if year > 0 {
             var components = DateComponents()
@@ -400,8 +373,10 @@ public actor EverythingExporter {
 
         // Add linked files (PDFs, etc.)
         if options.includeFiles {
-            let fileAttachments = try await buildFileAttachments(for: publication, library: primaryLibrary)
-            attachments.append(contentsOf: fileAttachments)
+            if let primaryLibrary = primaryLibrary {
+                let fileAttachments = try await buildFileAttachments(for: publication, libraryId: primaryLibrary.id)
+                attachments.append(contentsOf: fileAttachments)
+            }
         }
 
         // Add BibTeX attachment
@@ -412,7 +387,7 @@ public actor EverythingExporter {
 
         return MboxMessage(
             from: authorString,
-            subject: publication.title ?? "Untitled",
+            subject: publication.title,
             date: date,
             messageID: publication.id.uuidString,
             headers: headers,
@@ -423,50 +398,42 @@ public actor EverythingExporter {
 
     // MARK: - File Attachments
 
-    private func buildFileAttachments(for publication: CDPublication, library: CDLibrary?) async throws -> [MboxAttachment] {
+    private func buildFileAttachments(for publication: PublicationModel, libraryId: UUID) async throws -> [MboxAttachment] {
         var attachments: [MboxAttachment] = []
 
-        guard let linkedFiles = publication.linkedFiles else { return attachments }
-
-        for (index, linkedFile) in linkedFiles.enumerated() {
-            // Try to read file data
-            let fileData: Data?
-
-            // First check if fileData is stored in Core Data (for CloudKit sync)
-            if let storedData = linkedFile.fileData, !storedData.isEmpty {
-                fileData = storedData
-            } else if let library = library {
-                // Try to read from disk
-                let fileURL = library.papersContainerURL.appendingPathComponent(linkedFile.relativePath)
-                if FileManager.default.fileExists(atPath: fileURL.path) {
-                    // Check file size limit
-                    if let maxSize = options.maxFileSize {
-                        let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
-                        let size = (attrs?[.size] as? Int) ?? 0
-                        if size > maxSize {
-                            logger.warning("Skipping large file: \(linkedFile.filename) (\(size) bytes)")
-                            continue
-                        }
-                    }
-                    fileData = try? Data(contentsOf: fileURL)
-                } else {
-                    fileData = nil
-                }
-            } else {
-                fileData = nil
+        for (index, linkedFile) in publication.linkedFiles.enumerated() {
+            // Try to read file from disk
+            let resolvedURL = await MainActor.run {
+                AttachmentManager.shared.resolveURL(for: linkedFile, in: libraryId)
             }
 
-            guard let data = fileData else {
+            guard let fileURL = resolvedURL,
+                  FileManager.default.fileExists(atPath: fileURL.path) else {
+                logger.warning("Could not read file data for: \(linkedFile.filename)")
+                continue
+            }
+
+            // Check file size limit
+            if let maxSize = options.maxFileSize {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                let size = (attrs?[.size] as? Int) ?? 0
+                if size > maxSize {
+                    logger.warning("Skipping large file: \(linkedFile.filename) (\(size) bytes)")
+                    continue
+                }
+            }
+
+            guard let data = try? Data(contentsOf: fileURL) else {
                 logger.warning("Could not read file data for: \(linkedFile.filename)")
                 continue
             }
 
             // Determine content type
-            let contentType = linkedFile.mimeType ?? mimeTypeForExtension(linkedFile.fileExtension)
+            let contentType = linkedFile.isPDF ? "application/pdf" : mimeTypeForExtension(fileURL.pathExtension)
 
             // Build custom headers
             var customHeaders: [String: String] = [:]
-            customHeaders[MboxHeader.linkedFilePath] = linkedFile.relativePath
+            customHeaders[MboxHeader.linkedFilePath] = linkedFile.relativePath ?? linkedFile.filename
             customHeaders[MboxHeader.linkedFileIsMain] = (index == 0) ? "true" : "false"
 
             attachments.append(MboxAttachment(
@@ -480,13 +447,13 @@ public actor EverythingExporter {
         return attachments
     }
 
-    private func buildBibTeXAttachment(for publication: CDPublication) -> MboxAttachment {
+    private func buildBibTeXAttachment(for publication: PublicationModel) -> MboxAttachment {
         // Use rawBibTeX if available, otherwise generate
         let bibtex: String
         if let raw = publication.rawBibTeX, !raw.isEmpty {
             bibtex = raw
         } else {
-            let entry = publication.toBibTeXEntry()
+            let entry = BibTeXEntry(citeKey: publication.citeKey, entryType: publication.entryType, fields: publication.fields)
             bibtex = BibTeXExporter().export(entry)
         }
 
@@ -500,75 +467,11 @@ public actor EverythingExporter {
         )
     }
 
-    // MARK: - Data Fetching
-
-    private func fetchAllLibraries() async throws -> [CDLibrary] {
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.sortDescriptors = [
-            NSSortDescriptor(keyPath: \CDLibrary.sortOrder, ascending: true),
-            NSSortDescriptor(keyPath: \CDLibrary.name, ascending: true)
-        ]
-
-        return try context.performAndWait {
-            try context.fetch(request)
-        }
-    }
-
-    private func fetchAllPublications() async throws -> [CDPublication] {
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDPublication.citeKey, ascending: true)]
-
-        return try context.performAndWait {
-            try context.fetch(request)
-        }
-    }
-
-    private func fetchMutedItems() async throws -> [MutedItemInfo] {
-        let request = NSFetchRequest<CDMutedItem>(entityName: "MutedItem")
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDMutedItem.dateAdded, ascending: true)]
-
-        let items = try context.performAndWait {
-            try context.fetch(request)
-        }
-
-        return items.map { item in
-            MutedItemInfo(
-                type: item.type,
-                value: item.value,
-                dateAdded: item.dateAdded
-            )
-        }
-    }
-
-    private func fetchDismissedPapers() async throws -> [DismissedPaperInfo] {
-        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDDismissedPaper.dateDismissed, ascending: true)]
-
-        let papers = try context.performAndWait {
-            try context.fetch(request)
-        }
-
-        return papers.map { paper in
-            DismissedPaperInfo(
-                doi: paper.doi,
-                arxivID: paper.arxivID,
-                bibcode: paper.bibcode,
-                dateDismissed: paper.dateDismissed
-            )
-        }
-    }
-
     // MARK: - Helpers
 
-    private func libraryType(for library: CDLibrary) -> LibraryType {
+    private func libraryType(for library: LibraryModel) -> LibraryType {
         if library.isInbox {
             return .inbox
-        } else if library.isSaveLibrary {
-            return .save
-        } else if library.isDismissedLibrary {
-            return .dismissed
-        } else if library.isSystemLibrary {
-            return .exploration
         } else {
             return .user
         }

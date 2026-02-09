@@ -19,57 +19,66 @@ public final class CollectionViewModel {
     // MARK: - Published State
 
     /// All collections
-    public private(set) var collections: [CDCollection] = []
+    public private(set) var collections: [CollectionModel] = []
 
     /// Smart collections only
-    public var smartCollections: [CDCollection] {
-        collections.filter { $0.isSmartCollection }
+    public var smartCollections: [CollectionModel] {
+        collections.filter { $0.isSmart }
     }
 
     /// Static collections only
-    public var staticCollections: [CDCollection] {
-        collections.filter { !$0.isSmartCollection }
+    public var staticCollections: [CollectionModel] {
+        collections.filter { !$0.isSmart }
     }
 
     /// Currently selected collection
-    public var selectedCollection: CDCollection?
+    public var selectedCollection: CollectionModel?
 
     /// Publications in the selected collection
-    public private(set) var selectedCollectionPublications: [CDPublication] = []
+    public private(set) var selectedCollectionPublications: [PublicationRowData] = []
 
     /// Loading state
     public private(set) var isLoading = false
 
     // MARK: - Dependencies
 
-    private let repository: CollectionRepository
+    private let store: RustStoreAdapter
 
     // MARK: - Initialization
 
-    public init(repository: CollectionRepository = CollectionRepository()) {
-        self.repository = repository
+    public init(store: RustStoreAdapter = .shared) {
+        self.store = store
     }
 
     // MARK: - Loading
 
-    public func loadCollections() async {
+    public func loadCollections(libraryId: UUID? = nil) async {
         isLoading = true
-        collections = await repository.fetchAll()
+        if let libraryId {
+            collections = store.listCollections(libraryId: libraryId)
+        } else {
+            // Load all collections across libraries
+            let libraries = store.listLibraries()
+            var allCollections: [CollectionModel] = []
+            for lib in libraries {
+                allCollections.append(contentsOf: store.listCollections(libraryId: lib.id))
+            }
+            collections = allCollections
+        }
         Logger.viewModels.infoCapture("Loaded \(collections.count) collections", category: "collections")
         isLoading = false
     }
 
-    public func loadSmartCollections() async {
+    public func loadSmartCollections(libraryId: UUID? = nil) async {
         isLoading = true
-        let smart = await repository.fetchSmartCollections()
-        // Merge with existing - update smart collections only
-        collections = collections.filter { !$0.isSmartCollection } + smart
+        await loadCollections(libraryId: libraryId)
+        // Filter to only smart collections is done via computed property
         isLoading = false
     }
 
     // MARK: - Selection
 
-    public func selectCollection(_ collection: CDCollection?) async {
+    public func selectCollection(_ collection: CollectionModel?) async {
         selectedCollection = collection
 
         guard let collection else {
@@ -79,47 +88,29 @@ public final class CollectionViewModel {
 
         Logger.viewModels.infoCapture("Selected collection: \(collection.name)", category: "collections")
 
-        // Execute the collection query
-        selectedCollectionPublications = await repository.executeSmartCollection(collection)
+        // Load publications for this collection
+        selectedCollectionPublications = store.listCollectionMembers(
+            collectionId: collection.id,
+            sort: "created",
+            ascending: false
+        )
         Logger.viewModels.infoCapture("Collection has \(selectedCollectionPublications.count) publications", category: "collections")
     }
 
     // MARK: - Create
 
-    /// Create a new smart collection
+    /// Create a new collection
     @discardableResult
-    public func createSmartCollection(name: String, predicate: String) async -> CDCollection {
-        Logger.viewModels.infoCapture("Creating smart collection: \(name)", category: "collections")
-        let collection = await repository.create(name: name, isSmartCollection: true, predicate: predicate)
-        await loadCollections()
+    public func createCollection(name: String, libraryId: UUID, isSmart: Bool = false) async -> CollectionModel? {
+        Logger.viewModels.infoCapture("Creating collection: \(name) (smart: \(isSmart))", category: "collections")
+        let collection = store.createCollection(name: name, libraryId: libraryId)
+        await loadCollections(libraryId: libraryId)
         return collection
-    }
-
-    /// Create a new static collection
-    @discardableResult
-    public func createStaticCollection(name: String) async -> CDCollection {
-        Logger.viewModels.infoCapture("Creating static collection: \(name)", category: "collections")
-        let collection = await repository.create(name: name, isSmartCollection: false)
-        await loadCollections()
-        return collection
-    }
-
-    // MARK: - Update
-
-    public func updateCollection(_ collection: CDCollection, name: String? = nil, predicate: String? = nil) async {
-        Logger.viewModels.infoCapture("Updating collection: \(collection.name)", category: "collections")
-        await repository.update(collection, name: name, predicate: predicate)
-        await loadCollections()
-
-        // Refresh selected collection if it was updated
-        if selectedCollection?.id == collection.id {
-            await selectCollection(collection)
-        }
     }
 
     // MARK: - Delete
 
-    public func deleteCollection(_ collection: CDCollection) async {
+    public func deleteCollection(_ collection: CollectionModel, libraryId: UUID? = nil) async {
         Logger.viewModels.infoCapture("Deleting collection: \(collection.name)", category: "collections")
 
         // Clear selection if deleting selected collection
@@ -128,20 +119,20 @@ public final class CollectionViewModel {
             selectedCollectionPublications = []
         }
 
-        await repository.delete(collection)
-        await loadCollections()
+        store.deleteItem(id: collection.id)
+        await loadCollections(libraryId: libraryId)
     }
 
     // MARK: - Static Collection Management
 
-    public func addToCollection(_ publications: [CDPublication], collection: CDCollection) async {
-        guard !collection.isSmartCollection else {
+    public func addToCollection(_ publicationIds: [UUID], collection: CollectionModel) async {
+        guard !collection.isSmart else {
             Logger.viewModels.warning("Cannot add to smart collection")
             return
         }
 
-        Logger.viewModels.infoCapture("Adding \(publications.count) publications to: \(collection.name)", category: "collections")
-        await repository.addPublications(publications, to: collection)
+        Logger.viewModels.infoCapture("Adding \(publicationIds.count) publications to: \(collection.name)", category: "collections")
+        store.addToCollection(publicationIds: publicationIds, collectionId: collection.id)
 
         // Refresh if this is the selected collection
         if selectedCollection?.id == collection.id {
@@ -149,40 +140,19 @@ public final class CollectionViewModel {
         }
     }
 
-    public func removeFromCollection(_ publications: [CDPublication], collection: CDCollection) async {
-        guard !collection.isSmartCollection else {
+    public func removeFromCollection(_ publicationIds: [UUID], collection: CollectionModel) async {
+        guard !collection.isSmart else {
             Logger.viewModels.warning("Cannot remove from smart collection")
             return
         }
 
-        Logger.viewModels.infoCapture("Removing \(publications.count) publications from: \(collection.name)", category: "collections")
-        await repository.removePublications(publications, from: collection)
+        Logger.viewModels.infoCapture("Removing \(publicationIds.count) publications from: \(collection.name)", category: "collections")
+        store.removeFromCollection(publicationIds: publicationIds, collectionId: collection.id)
 
         // Refresh if this is the selected collection
         if selectedCollection?.id == collection.id {
             await selectCollection(collection)
         }
-    }
-
-    // MARK: - Predefined Smart Collections
-
-    /// Create common predefined smart collections
-    public func createDefaultSmartCollections() async {
-        // Recent additions (last 30 days)
-        let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
-        let recentPredicate = "dateAdded >= CAST(\(thirtyDaysAgo.timeIntervalSinceReferenceDate), 'NSDate')"
-        await repository.create(name: "Recent Additions", isSmartCollection: true, predicate: recentPredicate)
-
-        // Unread (no linked PDF opened yet) - would need a read flag
-        // For now, just create "Missing PDF"
-        // Note: This would need linkedFiles relationship to work
-        // await repository.create(name: "Missing PDF", isSmartCollection: true, predicate: "linkedFiles.@count == 0")
-
-        // This year
-        let currentYear = Calendar.current.component(.year, from: Date())
-        await repository.create(name: "This Year", isSmartCollection: true, predicate: "year == \(currentYear)")
-
-        await loadCollections()
     }
 }
 
@@ -192,27 +162,17 @@ public final class CollectionViewModel {
 public struct CollectionItem: Identifiable, Hashable {
     public let id: UUID
     public let name: String
-    public let isSmartCollection: Bool
+    public let isSmart: Bool
     public let publicationCount: Int
-    public let collection: CDCollection
 
-    public init(collection: CDCollection, publicationCount: Int = 0) {
+    public init(collection: CollectionModel) {
         self.id = collection.id
         self.name = collection.name
-        self.isSmartCollection = collection.isSmartCollection
-        self.publicationCount = publicationCount
-        self.collection = collection
-    }
-
-    public static func == (lhs: CollectionItem, rhs: CollectionItem) -> Bool {
-        lhs.id == rhs.id
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        self.isSmart = collection.isSmart
+        self.publicationCount = collection.publicationCount
     }
 
     public var icon: String {
-        isSmartCollection ? "gear" : "folder"
+        isSmart ? "gear" : "folder"
     }
 }

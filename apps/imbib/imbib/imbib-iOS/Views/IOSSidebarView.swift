@@ -1403,6 +1403,31 @@ struct IOSSidebarView: View {
 
                 Spacer()
 
+                // Starred count badge
+                let starredCount = allPublications(for: library).filter { $0.isStarred }.count
+                if starredCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                        Text("\(starredCount)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Paper count badge
+                let paperCount = allPublications(for: library).count
+                if paperCount > 0 {
+                    Text("\(paperCount)")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.2))
+                        .foregroundStyle(.secondary)
+                        .clipShape(Capsule())
+                }
+
                 // + menu for adding collections to this library
                 Menu {
                     Button {
@@ -2208,6 +2233,7 @@ extension SidebarSectionType {
         case .scixLibraries: return "star"
         case .search: return "magnifyingglass"
         case .exploration: return "safari"
+        case .flagged: return "flag"
         case .dismissed: return "xmark.circle"
         }
     }

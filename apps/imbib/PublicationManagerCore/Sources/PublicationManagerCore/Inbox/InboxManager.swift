@@ -2,11 +2,10 @@
 //  InboxManager.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
+//  Manages the Inbox library for paper discovery and curation.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Inbox Manager
@@ -32,14 +31,14 @@ public final class InboxManager {
 
     // MARK: - Published State
 
-    /// The Inbox library (lazily created on first access)
-    public private(set) var inboxLibrary: CDLibrary?
+    /// The Inbox library (lazily loaded on first access)
+    public private(set) var inboxLibrary: LibraryModel?
 
     /// Number of unread papers in the Inbox
     public private(set) var unreadCount: Int = 0
 
     /// All muted items
-    public private(set) var mutedItems: [CDMutedItem] = []
+    public private(set) var mutedItems: [MutedItem] = []
 
     /// Shared feed new result counts, keyed by feed name
     public private(set) var sharedFeedCounts: [String: Int] = [:]
@@ -51,96 +50,63 @@ public final class InboxManager {
 
     /// Number of dismissed papers (for Settings display)
     public var dismissedPaperCount: Int {
-        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
-        do {
-            return try persistenceController.viewContext.count(for: request)
-        } catch {
-            Logger.inbox.errorCapture("Failed to count dismissed papers: \(error.localizedDescription)", category: "dismiss")
-            return 0
-        }
+        let store = RustStoreAdapter.shared
+        return store.listDismissedPapers().count
     }
 
-    // MARK: - Dependencies
+    // MARK: - Properties
 
-    private let persistenceController: PersistenceController
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
+    public init() {
         loadInbox()
         loadMutedItems()
         setupObservers()
-
-        // Clean up orphaned papers in feed collections (papers that were dismissed
-        // before the fix that removes papers from all feed collections on dismiss)
-        cleanupOrphanedFeedPapers()
     }
 
     // MARK: - Inbox Library
 
     /// Get or create the Inbox library
     @discardableResult
-    public func getOrCreateInbox() -> CDLibrary {
-        // Validate cached reference is still valid (not deleted/faulted)
-        if let inbox = inboxLibrary, !inbox.isDeleted, inbox.managedObjectContext != nil {
-            return inbox
+    public func getOrCreateInbox() -> LibraryModel {
+        // Return cached reference if still valid
+        if let inbox = inboxLibrary {
+            // Verify it still exists in the store
+            if store.getLibrary(id: inbox.id) != nil {
+                return inbox
+            }
         }
 
         // Clear invalid cached reference
         inboxLibrary = nil
 
-        // Try to find existing inbox - prefer one with canonical ID
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isInbox == YES")
-
-        do {
-            let allInboxes = try persistenceController.viewContext.fetch(request)
-
-            if !allInboxes.isEmpty {
-                // Prefer inbox with canonical ID, or migrate the oldest to canonical
-                let canonical = allInboxes.first { $0.id == CDLibrary.canonicalInboxLibraryID }
-                let existing = canonical ?? allInboxes.sorted { $0.dateCreated < $1.dateCreated }.first!
-
-                // Migrate to canonical ID if needed
-                if existing.id != CDLibrary.canonicalInboxLibraryID {
-                    Logger.inbox.infoCapture("Migrating Inbox library to canonical ID", category: "manager")
-                    existing.id = CDLibrary.canonicalInboxLibraryID
-                    persistenceController.save()
-                }
-
-                Logger.inbox.infoCapture("Found existing Inbox library (canonical: \(existing.id == CDLibrary.canonicalInboxLibraryID))", category: "manager")
-                inboxLibrary = existing
-                updateUnreadCount()
-                return existing
-            }
-        } catch {
-            Logger.inbox.errorCapture("Failed to fetch Inbox: \(error.localizedDescription)", category: "manager")
+        // Try to find existing inbox
+        if let existing = store.getInboxLibrary() {
+            Logger.inbox.infoCapture("Found existing Inbox library", category: "manager")
+            inboxLibrary = existing
+            updateUnreadCount()
+            return existing
         }
 
-        // Create new Inbox with canonical ID
-        Logger.inbox.infoCapture("Creating Inbox library with canonical ID", category: "manager")
+        // Create new Inbox
+        Logger.inbox.infoCapture("Creating Inbox library", category: "manager")
 
-        let context = persistenceController.viewContext
-        let inbox = CDLibrary(context: context)
-        inbox.id = CDLibrary.canonicalInboxLibraryID  // Use canonical ID for CloudKit sync
-        inbox.name = "Inbox"
-        inbox.isInbox = true
-        inbox.isDefault = false
-        inbox.dateCreated = Date()
-        inbox.sortOrder = -1  // Always at top
+        guard let inbox = store.createInboxLibrary(name: "Inbox") else {
+            Logger.inbox.errorCapture("Failed to create Inbox library", category: "manager")
+            // Return a placeholder that will be replaced on next access
+            let placeholder = LibraryModel(id: UUID(), name: "Inbox", isDefault: false, isInbox: true)
+            inboxLibrary = placeholder
+            return placeholder
+        }
 
-        persistenceController.save()
         inboxLibrary = inbox
-
-        Logger.inbox.infoCapture("Created Inbox library with canonical ID: \(inbox.id)", category: "manager")
+        Logger.inbox.infoCapture("Created Inbox library with ID: \(inbox.id)", category: "manager")
         return inbox
     }
 
     /// Invalidate cached state after a reset.
-    ///
-    /// Call this after `FirstRunManager.resetToFirstRun()` to clear stale references
-    /// before the app restarts or re-initializes.
     public func invalidateCaches() {
         Logger.inbox.infoCapture("Invalidating InboxManager caches", category: "manager")
         inboxLibrary = nil
@@ -159,20 +125,12 @@ public final class InboxManager {
         sharedFeedCounts = [:]
     }
 
-    /// Load the Inbox library from Core Data
+    /// Load the Inbox library from the store
     private func loadInbox() {
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isInbox == YES")
-        request.fetchLimit = 1
-
-        do {
-            inboxLibrary = try persistenceController.viewContext.fetch(request).first
-            if inboxLibrary != nil {
-                Logger.inbox.debugCapture("Loaded Inbox library", category: "manager")
-                updateUnreadCount()
-            }
-        } catch {
-            Logger.inbox.errorCapture("Failed to load Inbox: \(error.localizedDescription)", category: "manager")
+        if let inbox = store.getInboxLibrary() {
+            inboxLibrary = inbox
+            Logger.inbox.debugCapture("Loaded Inbox library", category: "manager")
+            updateUnreadCount()
         }
     }
 
@@ -188,27 +146,12 @@ public final class InboxManager {
             return
         }
 
-        // Count unread papers in Inbox
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            NSPredicate(format: "ANY libraries == %@", inbox),
-            NSPredicate(format: "isRead == NO")
-        ])
-
-        do {
-            let newCount = try persistenceController.viewContext.count(for: request)
-            if newCount != unreadCount {
-                unreadCount = newCount
-                postUnreadCountChanged()
-            }
-            Logger.inbox.debugCapture("Inbox unread count: \(unreadCount)", category: "unread")
-        } catch {
-            Logger.inbox.errorCapture("Failed to count unread: \(error.localizedDescription)", category: "unread")
-            if unreadCount != 0 {
-                unreadCount = 0
-                postUnreadCountChanged()
-            }
+        let newCount = store.countUnread(parentId: inbox.id)
+        if newCount != unreadCount {
+            unreadCount = newCount
+            postUnreadCountChanged()
         }
+        Logger.inbox.debugCapture("Inbox unread count: \(unreadCount)", category: "unread")
     }
 
     /// Post notification when unread count changes
@@ -220,14 +163,13 @@ public final class InboxManager {
         )
 
         // Update widget data
-        let totalCount = inboxLibrary?.publications?.count ?? 0
+        let totalCount = inboxLibrary.map { store.queryPublications(parentId: $0.id).count } ?? 0
         WidgetDataStore.shared.updateInboxStats(unread: unreadCount, total: totalCount)
     }
 
     /// Mark a paper as read in the Inbox
-    public func markAsRead(_ publication: CDPublication) {
-        publication.isRead = true
-        persistenceController.save()
+    public func markAsRead(_ publicationID: UUID) {
+        store.setRead(ids: [publicationID], read: true)
         updateUnreadCount()
     }
 
@@ -237,21 +179,10 @@ public final class InboxManager {
 
         Logger.inbox.infoCapture("Marking all Inbox papers as read", category: "unread")
 
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            NSPredicate(format: "ANY libraries == %@", inbox),
-            NSPredicate(format: "isRead == NO")
-        ])
-
-        do {
-            let unread = try persistenceController.viewContext.fetch(request)
-            for pub in unread {
-                pub.isRead = true
-            }
-            persistenceController.save()
+        let unreadPubs = store.queryUnread(parentId: inbox.id)
+        if !unreadPubs.isEmpty {
+            store.setRead(ids: unreadPubs.map(\.id), read: true)
             unreadCount = 0
-        } catch {
-            Logger.inbox.errorCapture("Failed to mark all as read: \(error.localizedDescription)", category: "unread")
         }
     }
 
@@ -266,10 +197,10 @@ public final class InboxManager {
             queue: .main
         ) { [weak self] notification in
             guard let self = self,
-                  let publication = notification.object as? CDPublication else { return }
+                  let pubID = notification.object as? UUID else { return }
 
             Task { @MainActor in
-                self.handleSave(publication)
+                self.handleSave(pubID)
             }
         }
 
@@ -291,71 +222,61 @@ public final class InboxManager {
     }
 
     /// Handle when a paper is saved to another library
-    private func handleSave(_ publication: CDPublication) {
+    private func handleSave(_ publicationID: UUID) {
         guard let inbox = inboxLibrary else { return }
 
-        // Check if paper is in Inbox
-        guard let libraries = publication.libraries, libraries.contains(inbox) else {
-            return
-        }
+        // Check if paper is in Inbox by looking at its detail
+        guard let detail = store.getPublicationDetail(id: publicationID) else { return }
+
+        let isInInbox = detail.libraryIDs.contains(inbox.id)
+        guard isInInbox else { return }
 
         // Check if paper is now in any non-Inbox library
-        let otherLibraries = libraries.filter { !$0.isInbox }
+        let otherLibraries = detail.libraryIDs.filter { libID in
+            if let lib = store.getLibrary(id: libID) {
+                return !lib.isInbox
+            }
+            return false
+        }
+
         if !otherLibraries.isEmpty {
-            // Remove from Inbox
-            Logger.inbox.infoCapture("Auto-removing paper from Inbox: \(publication.citeKey)", category: "papers")
-            publication.removeFromLibrary(inbox)
-            persistenceController.save()
+            Logger.inbox.infoCapture("Auto-removing paper from Inbox: \(detail.citeKey)", category: "papers")
+            store.movePublications(ids: [publicationID], toLibraryId: otherLibraries.first!)
             updateUnreadCount()
         }
     }
 
     // MARK: - Mute Management
 
-    /// Load all muted items from Core Data
+    /// Load all muted items from the store
     private func loadMutedItems() {
-        let request = NSFetchRequest<CDMutedItem>(entityName: "MutedItem")
-        request.sortDescriptors = [NSSortDescriptor(key: "dateAdded", ascending: false)]
-
-        do {
-            mutedItems = try persistenceController.viewContext.fetch(request)
-            Logger.inbox.debugCapture("Loaded \(mutedItems.count) muted items", category: "mute")
-        } catch {
-            Logger.inbox.errorCapture("Failed to load muted items: \(error.localizedDescription)", category: "mute")
-            mutedItems = []
-        }
+        mutedItems = store.listMutedItems()
+        Logger.inbox.debugCapture("Loaded \(mutedItems.count) muted items", category: "mute")
     }
 
     /// Mute an item (author, paper, venue, category)
     @discardableResult
-    public func mute(type: CDMutedItem.MuteType, value: String) -> CDMutedItem {
+    public func mute(type: MuteType, value: String) -> MutedItem? {
         Logger.inbox.infoCapture("Muting \(type.rawValue): \(value)", category: "mute")
 
-        let context = persistenceController.viewContext
-
         // Check if already muted
-        if let existing = mutedItems.first(where: { $0.type == type.rawValue && $0.value == value }) {
+        if let existing = mutedItems.first(where: { $0.muteType == type.rawValue && $0.value == value }) {
             return existing
         }
 
-        let item = CDMutedItem(context: context)
-        item.id = UUID()
-        item.type = type.rawValue
-        item.value = value
-        item.dateAdded = Date()
+        guard let item = store.createMutedItem(muteType: type.rawValue, value: value) else {
+            Logger.inbox.errorCapture("Failed to create muted item", category: "mute")
+            return nil
+        }
 
-        persistenceController.save()
         mutedItems.insert(item, at: 0)
-
         return item
     }
 
     /// Unmute an item
-    public func unmute(_ item: CDMutedItem) {
-        Logger.inbox.infoCapture("Unmuting \(item.type): \(item.value)", category: "mute")
-
-        persistenceController.viewContext.delete(item)
-        persistenceController.save()
+    public func unmute(_ item: MutedItem) {
+        Logger.inbox.infoCapture("Unmuting \(item.muteType): \(item.value)", category: "mute")
+        store.deleteItem(id: item.id)
         mutedItems.removeAll { $0.id == item.id }
     }
 
@@ -390,11 +311,10 @@ public final class InboxManager {
         arxivID: String?
     ) -> Bool {
         for item in mutedItems {
-            guard let muteType = item.muteType else { continue }
+            guard let muteType = MuteType(rawValue: item.muteType) else { continue }
 
             switch muteType {
             case .author:
-                // Check if any author matches
                 if authors.contains(where: { $0.lowercased().contains(item.value.lowercased()) }) {
                     return true
                 }
@@ -425,8 +345,8 @@ public final class InboxManager {
     }
 
     /// Get muted items by type
-    public func mutedItems(ofType type: CDMutedItem.MuteType) -> [CDMutedItem] {
-        mutedItems.filter { $0.type == type.rawValue }
+    public func mutedItems(ofType type: MuteType) -> [MutedItem] {
+        mutedItems.filter { $0.muteType == type.rawValue }
     }
 
     /// Clear all muted items
@@ -434,55 +354,50 @@ public final class InboxManager {
         Logger.inbox.warningCapture("Clearing all \(mutedItems.count) muted items", category: "mute")
 
         for item in mutedItems {
-            persistenceController.viewContext.delete(item)
+            store.deleteItem(id: item.id)
         }
 
-        persistenceController.save()
         mutedItems = []
     }
 
     // MARK: - Paper Operations
 
-    /// Add a paper to the Inbox
-    public func addToInbox(_ publication: CDPublication) {
+    /// Add a paper to the Inbox (by importing BibTeX and adding to inbox library)
+    public func addToInbox(_ publicationID: UUID) {
         let inbox = getOrCreateInbox()
 
-        guard !(publication.libraries?.contains(inbox) ?? false) else {
-            Logger.inbox.debugCapture("Paper already in Inbox: \(publication.citeKey)", category: "papers")
+        // Check if already in inbox
+        if let detail = store.getPublicationDetail(id: publicationID),
+           detail.libraryIDs.contains(inbox.id) {
+            Logger.inbox.debugCapture("Paper already in Inbox", category: "papers")
             return
         }
 
-        Logger.inbox.infoCapture("Adding paper to Inbox: \(publication.citeKey)", category: "papers")
-        publication.addToLibrary(inbox)
-        publication.isRead = false  // Mark as unread in Inbox
-        publication.dateAddedToInbox = Date()  // Track when added for age filtering
-        persistenceController.save()
+        Logger.inbox.infoCapture("Adding paper to Inbox", category: "papers")
+        store.movePublications(ids: [publicationID], toLibraryId: inbox.id)
+        store.setRead(ids: [publicationID], read: false)
         updateUnreadCount()
     }
 
-    /// Add multiple papers to the Inbox in a single batch (more efficient than multiple addToInbox calls)
-    ///
-    /// This avoids multiple Core Data saves and unread count updates.
-    /// - Parameter publications: Array of publications to add
-    /// - Returns: Number of papers actually added (excludes duplicates)
+    /// Add multiple paper IDs to the Inbox in a single batch
     @discardableResult
-    public func addToInboxBatch(_ publications: [CDPublication]) -> Int {
+    public func addToInboxBatch(_ publicationIDs: [UUID]) -> Int {
         let inbox = getOrCreateInbox()
         var addedCount = 0
 
-        for publication in publications {
-            guard !(publication.libraries?.contains(inbox) ?? false) else {
-                continue  // Skip already in inbox
+        for pubID in publicationIDs {
+            // Check if already in inbox
+            if let detail = store.getPublicationDetail(id: pubID),
+               detail.libraryIDs.contains(inbox.id) {
+                continue
             }
 
-            publication.addToLibrary(inbox)
-            publication.isRead = false
-            publication.dateAddedToInbox = Date()
+            store.duplicatePublications(ids: [pubID], toLibraryId: inbox.id)
+            store.setRead(ids: [pubID], read: false)
             addedCount += 1
         }
 
         if addedCount > 0 {
-            persistenceController.save()
             updateUnreadCount()
             Logger.inbox.infoCapture("Added \(addedCount) papers to Inbox (batch)", category: "papers")
         }
@@ -491,111 +406,57 @@ public final class InboxManager {
     }
 
     /// Remove a paper from the Inbox (dismiss)
-    public func dismissFromInbox(_ publication: CDPublication) {
+    public func dismissFromInbox(_ publicationID: UUID) {
         guard let inbox = inboxLibrary else { return }
 
-        Logger.inbox.infoCapture("Dismissing paper from Inbox: \(publication.citeKey)", category: "papers")
+        Logger.inbox.infoCapture("Dismissing paper from Inbox", category: "papers")
 
         // Track dismissal so paper won't reappear
-        trackDismissal(publication)
+        trackDismissal(publicationID)
 
-        publication.removeFromLibrary(inbox)
-
-        // If paper is not in any other library, delete it
-        if publication.libraries?.isEmpty ?? true {
-            persistenceController.viewContext.delete(publication)
-        }
-
-        persistenceController.save()
+        // Delete from inbox library
+        store.deletePublications(ids: [publicationID])
         updateUnreadCount()
     }
 
     /// Save a paper from Inbox to a target library
-    public func saveToLibrary(_ publication: CDPublication, library: CDLibrary) {
-        Logger.inbox.infoCapture("Saving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
+    public func saveToLibrary(_ publicationID: UUID, libraryID: UUID) {
+        Logger.inbox.infoCapture("Saving paper to library", category: "papers")
 
         // Track dismissal so paper won't reappear in Inbox
-        trackDismissal(publication)
+        trackDismissal(publicationID)
 
-        // Remove from Inbox
-        if let inbox = inboxLibrary {
-            publication.removeFromLibrary(inbox)
-        }
-
-        // Add to target library
-        publication.addToLibrary(library)
-        persistenceController.save()
+        // Move to target library (removes from inbox)
+        store.movePublications(ids: [publicationID], toLibraryId: libraryID)
 
         // Update unread count
         updateUnreadCount()
 
-        // Post notification for auto-remove
-        NotificationCenter.default.post(name: .publicationSavedToLibrary, object: publication)
+        // Post notification
+        NotificationCenter.default.post(name: .publicationSavedToLibrary, object: publicationID)
     }
 
-    /// Get all papers in the Inbox, filtered by age limit
-    public func getInboxPapers() async -> [CDPublication] {
+    /// Get all papers in the Inbox
+    public func getInboxPapers() -> [PublicationRowData] {
         guard let inbox = inboxLibrary else { return [] }
-
-        let settings = await InboxSettingsStore.shared.settings
-
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-
-        // Build predicates
-        var predicates: [NSPredicate] = [
-            NSPredicate(format: "ANY libraries == %@", inbox)
-        ]
-
-        // Apply age limit if set
-        if settings.ageLimit.hasLimit {
-            let cutoffDate = Calendar.current.date(
-                byAdding: .day,
-                value: -settings.ageLimit.days,
-                to: Date()
-            ) ?? Date()
-            predicates.append(NSPredicate(format: "dateAddedToInbox >= %@ OR dateAddedToInbox == nil", cutoffDate as NSDate))
-        }
-
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-        request.sortDescriptors = [NSSortDescriptor(key: "dateAdded", ascending: false)]
-
-        do {
-            let papers = try persistenceController.viewContext.fetch(request)
-            Logger.inbox.debugCapture("Fetched \(papers.count) Inbox papers (age limit: \(settings.ageLimit.displayName))", category: "papers")
-            return papers
-        } catch {
-            Logger.inbox.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "papers")
-            return []
-        }
-    }
-
-    /// Synchronous version for compatibility
-    public func getInboxPapersSync() -> [CDPublication] {
-        guard let inbox = inboxLibrary else { return [] }
-
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "ANY libraries == %@", inbox)
-        request.sortDescriptors = [NSSortDescriptor(key: "dateAdded", ascending: false)]
-
-        do {
-            return try persistenceController.viewContext.fetch(request)
-        } catch {
-            Logger.inbox.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "papers")
-            return []
-        }
+        return store.queryPublications(parentId: inbox.id, sort: "created", ascending: false)
     }
 
     // MARK: - Dismissal Tracking
 
     /// Track a dismissed paper so it won't reappear in the Inbox
-    public func trackDismissal(_ publication: CDPublication) {
-        // Only track if we have at least one identifier
-        let doi = publication.doi
-        let arxivID = publication.arxivID
-        let bibcode = publication.bibcode
+    public func trackDismissal(_ publicationID: UUID) {
+        guard let pub = store.getPublication(id: publicationID) else {
+            Logger.inbox.debugCapture("Cannot track dismissal for unknown publication", category: "dismiss")
+            return
+        }
+
+        let doi = pub.doi
+        let arxivID = pub.arxivID
+        let bibcode = pub.bibcode
 
         guard doi != nil || arxivID != nil || bibcode != nil else {
-            Logger.inbox.debugCapture("Cannot track dismissal for paper without identifiers: \(publication.citeKey)", category: "dismiss")
+            Logger.inbox.debugCapture("Cannot track dismissal for paper without identifiers", category: "dismiss")
             return
         }
 
@@ -604,50 +465,16 @@ public final class InboxManager {
             return
         }
 
-        let context = persistenceController.viewContext
-        let dismissed = CDDismissedPaper(context: context)
-        dismissed.id = UUID()
-        dismissed.doi = doi
-        dismissed.arxivID = arxivID
-        dismissed.bibcode = bibcode
-        dismissed.dateDismissed = Date()
-
+        store.dismissPaper(doi: doi, arxivId: arxivID, bibcode: bibcode)
         Logger.inbox.infoCapture("Tracked dismissal for paper: DOI=\(doi ?? "nil"), arXiv=\(arxivID ?? "nil"), bibcode=\(bibcode ?? "nil")", category: "dismiss")
     }
 
     /// Check if a paper was previously dismissed
     public func wasDismissed(doi: String?, arxivID: String?, bibcode: String?) -> Bool {
-        // Need at least one identifier to check
         guard doi != nil || arxivID != nil || bibcode != nil else {
             return false
         }
-
-        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
-
-        // Build OR predicate for any matching identifier
-        var orPredicates: [NSPredicate] = []
-
-        if let doi = doi {
-            orPredicates.append(NSPredicate(format: "doi == %@", doi))
-        }
-        if let arxivID = arxivID {
-            // DismissedPaper has arxivID as a Core Data attribute (unlike Publication which has arxivIDNormalized)
-            orPredicates.append(NSPredicate(format: "arxivID == %@", arxivID))
-        }
-        if let bibcode = bibcode {
-            orPredicates.append(NSPredicate(format: "bibcode == %@", bibcode))
-        }
-
-        request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: orPredicates)
-        request.fetchLimit = 1
-
-        do {
-            let count = try persistenceController.viewContext.count(for: request)
-            return count > 0
-        } catch {
-            Logger.inbox.errorCapture("Failed to check dismissal status: \(error.localizedDescription)", category: "dismiss")
-            return false
-        }
+        return store.isPaperDismissed(doi: doi, arxivId: arxivID, bibcode: bibcode)
     }
 
     /// Check if a search result was previously dismissed
@@ -655,68 +482,25 @@ public final class InboxManager {
         wasDismissed(doi: result.doi, arxivID: result.arxivID, bibcode: result.bibcode)
     }
 
-    /// Clear all dismissed paper records (for testing)
+    /// Clear all dismissed paper records
     public func clearAllDismissedPapers() {
-        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
-
-        do {
-            let dismissed = try persistenceController.viewContext.fetch(request)
-            for item in dismissed {
-                persistenceController.viewContext.delete(item)
-            }
-            persistenceController.save()
-            Logger.inbox.warningCapture("Cleared \(dismissed.count) dismissed paper records", category: "dismiss")
-        } catch {
-            Logger.inbox.errorCapture("Failed to clear dismissed papers: \(error.localizedDescription)", category: "dismiss")
+        let dismissed = store.listDismissedPapers()
+        for item in dismissed {
+            store.deleteItem(id: item.id)
         }
+        Logger.inbox.warningCapture("Cleared \(dismissed.count) dismissed paper records", category: "dismiss")
     }
+}
 
-    // MARK: - Feed Collection Cleanup
+// MARK: - MuteType
 
-    /// Synchronize inbox feed collections with the inbox library.
-    ///
-    /// Removes papers from feed result collections if they're not in the inbox library.
-    /// This cleans up orphaned papers that were dismissed before the fix that removes
-    /// papers from all feed collections on dismiss.
-    public func cleanupOrphanedFeedPapers() {
-        guard let inbox = inboxLibrary else { return }
-
-        let context = persistenceController.viewContext
-
-        // Get all inbox feeds
-        let feedRequest = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        feedRequest.predicate = NSPredicate(format: "feedsToInbox == YES")
-
-        guard let inboxFeeds = try? context.fetch(feedRequest) else { return }
-
-        // Get all paper IDs that are in the inbox library
-        let inboxPaperIDs = Set((inbox.publications ?? []).map { $0.id })
-
-        var removedCount = 0
-
-        for feed in inboxFeeds {
-            guard let collection = feed.resultCollection,
-                  let feedPapers = collection.publications else {
-                continue
-            }
-
-            // Find papers in this feed's collection that are NOT in the inbox library
-            let orphanedPapers = feedPapers.filter { !inboxPaperIDs.contains($0.id) }
-
-            for paper in orphanedPapers {
-                paper.removeFromCollection(collection)
-                removedCount += 1
-            }
-        }
-
-        if removedCount > 0 {
-            persistenceController.save()
-            Logger.inbox.infoCapture(
-                "Cleaned up \(removedCount) orphaned papers from feed collections",
-                category: "cleanup"
-            )
-        }
-    }
+/// Types of items that can be muted in the inbox
+public enum MuteType: String, CaseIterable, Sendable {
+    case author
+    case doi
+    case bibcode
+    case venue
+    case arxivCategory
 }
 
 // MARK: - Notifications

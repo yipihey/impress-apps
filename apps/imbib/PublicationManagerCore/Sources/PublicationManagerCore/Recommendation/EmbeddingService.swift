@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 import NaturalLanguage
 
@@ -37,13 +36,13 @@ extension Logger {
 /// ## Usage
 /// ```swift
 /// // Build index from library
-/// await EmbeddingService.shared.buildIndex(from: library)
+/// await EmbeddingService.shared.buildIndex(from: libraryID)
 ///
 /// // Find similar papers
-/// let similar = await EmbeddingService.shared.findSimilar(to: publication)
+/// let similar = await EmbeddingService.shared.findSimilar(to: publicationID)
 ///
 /// // Get similarity score for a publication
-/// let score = await EmbeddingService.shared.similarityScore(for: publication)
+/// let score = await EmbeddingService.shared.similarityScore(for: publicationID)
 /// ```
 public actor EmbeddingService {
 
@@ -65,7 +64,7 @@ public actor EmbeddingService {
 
     // Reactive staleness tracking (ADR-022)
     private var isStale = false
-    private var indexedLibraryIDs: [NSManagedObjectID] = []
+    private var indexedLibraryIDs: [UUID] = []
     private var lastBuildDate: Date?
     private var observersSetUp = false
 
@@ -93,21 +92,21 @@ public actor EmbeddingService {
         await annIndex?.count() ?? 0
     }
 
-    /// Build or rebuild the ANN index from library publications.
+    /// Build or rebuild the ANN index from a library.
     ///
-    /// - Parameter library: The library to index
+    /// - Parameter libraryID: The library ID to index
     /// - Returns: Number of publications indexed
     @discardableResult
-    public func buildIndex(from library: CDLibrary) async -> Int {
-        return await buildIndex(from: [library])
+    public func buildIndex(from libraryID: UUID) async -> Int {
+        return await buildIndex(from: [libraryID])
     }
 
     /// Build or rebuild the ANN index from multiple libraries.
     ///
-    /// - Parameter libraries: The libraries to index
+    /// - Parameter libraryIDs: The library IDs to index
     /// - Returns: Number of publications indexed
     @discardableResult
-    public func buildIndex(from libraries: [CDLibrary]) async -> Int {
+    public func buildIndex(from libraryIDs: [UUID]) async -> Int {
         // Guard against concurrent builds
         guard !isBuilding else {
             Logger.embeddingService.debug("Skipping index build - already in progress")
@@ -116,7 +115,7 @@ public actor EmbeddingService {
         isBuilding = true
         defer { isBuilding = false }
 
-        Logger.embeddingService.infoCapture("Building embedding index for \(libraries.count) libraries", category: "embedding")
+        Logger.embeddingService.infoCapture("Building embedding index for \(libraryIDs.count) libraries", category: "embedding")
 
         // Initialize new index
         let index = RustAnnIndex()
@@ -130,22 +129,19 @@ public actor EmbeddingService {
         var indexedCount = 0
         var items: [(String, [Float])] = []
 
-        for library in libraries {
-            // Get publications on main actor
+        for libraryID in libraryIDs {
+            // Get publications from the Rust store
             let publications = await MainActor.run {
-                Array(library.publications ?? [])
+                RustStoreAdapter.shared.queryPublications(parentId: libraryID)
             }
 
-            for publication in publications {
+            for pub in publications {
                 // Extract embedding vector from publication metadata
-                let (id, embedding) = await MainActor.run {
-                    let pubID = publication.id.uuidString
-                    let vector = self.computeEmbedding(for: publication)
-                    return (pubID, vector)
-                }
+                let pubID = pub.id.uuidString
+                let vector = computeEmbeddingFromRowData(pub)
 
-                items.append((id, embedding))
-                indexedPublicationIDs.insert(id)
+                items.append((pubID, vector))
+                indexedPublicationIDs.insert(pubID)
                 indexedCount += 1
             }
         }
@@ -159,33 +155,34 @@ public actor EmbeddingService {
         self.isIndexBuilt = true
         self.isStale = false
         self.lastBuildDate = Date()
-        self.indexedLibraryIDs = await MainActor.run {
-            libraries.map { $0.objectID }
-        }
+        self.indexedLibraryIDs = libraryIDs
         self.invalidateCache()
 
-        Logger.embeddingService.infoCapture("Built embedding index with \(indexedCount) publications from \(libraries.count) libraries", category: "embedding")
+        Logger.embeddingService.infoCapture("Built embedding index with \(indexedCount) publications from \(libraryIDs.count) libraries", category: "embedding")
 
         return indexedCount
     }
 
-    /// Add a publication to the index.
+    /// Add a publication to the index by ID.
     ///
     /// Use this when a new publication is added to the library.
-    public func addToIndex(_ publication: CDPublication) async {
+    public func addToIndex(_ publicationID: UUID) async {
         guard let index = annIndex else {
             Logger.embeddingService.warning("Cannot add to index: index not built")
             return
         }
 
-        let (id, embedding) = await MainActor.run {
-            let pubID = publication.id.uuidString
-            let vector = self.computeEmbedding(for: publication)
-            return (pubID, vector)
+        // Get publication detail from Rust store
+        guard let pub = await MainActor.run(body: { RustStoreAdapter.shared.getPublicationDetail(id: publicationID) }) else {
+            Logger.embeddingService.warning("Cannot add to index: publication not found")
+            return
         }
 
-        if await index.add(publicationId: id, embedding: embedding) {
-            indexedPublicationIDs.insert(id)
+        let pubID = publicationID.uuidString
+        let vector = computeEmbeddingFromModel(pub)
+
+        if await index.add(publicationId: pubID, embedding: vector) {
+            indexedPublicationIDs.insert(pubID)
             invalidateCache()
         }
     }
@@ -196,10 +193,10 @@ public actor EmbeddingService {
     /// library changes (reactive freshness - ADR-022).
     ///
     /// - Parameters:
-    ///   - publication: The publication to find similar papers for
+    ///   - publicationID: The publication ID to find similar papers for
     ///   - topK: Maximum number of results to return
     /// - Returns: Array of similarity results
-    public func findSimilar(to publication: CDPublication, topK: Int = 10) async -> [SimilarityResult] {
+    public func findSimilar(to publicationID: UUID, topK: Int = 10) async -> [SimilarityResult] {
         // Ensure index is fresh before searching (reactive rebuild if stale)
         if isStale {
             await ensureFreshIndex()
@@ -209,10 +206,12 @@ public actor EmbeddingService {
             return []
         }
 
-        let embedding = await MainActor.run {
-            self.computeEmbedding(for: publication)
+        // Get publication detail for embedding
+        guard let pub = await MainActor.run(body: { RustStoreAdapter.shared.getPublicationDetail(id: publicationID) }) else {
+            return []
         }
 
+        let embedding = computeEmbeddingFromModel(pub)
         return await index.findSimilar(to: embedding, topK: topK)
     }
 
@@ -248,29 +247,28 @@ public actor EmbeddingService {
     /// Automatically rebuilds the index if it has become stale due to
     /// library changes (reactive freshness - ADR-022).
     ///
-    /// - Parameter publication: The publication to score
+    /// - Parameter publicationID: The publication ID to score
     /// - Returns: Similarity score (0 = no similarity, 1 = very similar)
-    public func similarityScore(for publication: CDPublication) async -> Double {
+    public func similarityScore(for publicationID: UUID) async -> Double {
         // Ensure index is fresh before scoring (reactive rebuild if stale)
         if isStale {
             await ensureFreshIndex()
         }
 
         // Check cache
-        let pubID = await MainActor.run { publication.id }
-        if let cached = cachedScore(for: pubID) {
+        if let cached = cachedScore(for: publicationID) {
             return cached
         }
 
         // Find similar papers
-        let results = await findSimilar(to: publication, topK: 5)
+        let results = await findSimilar(to: publicationID, topK: 5)
 
         // Compute aggregate score
         let similarities = results.map { $0.similarity }
         let score = FeatureExtractor.librarySimilarityScore(from: similarities)
 
         // Cache result
-        cacheScore(score, for: pubID)
+        cacheScore(score, for: publicationID)
 
         return score
     }
@@ -305,22 +303,23 @@ public actor EmbeddingService {
     /// collective content rather than any individual's reading habits.
     ///
     /// - Parameters:
-    ///   - library: The library to compute the group profile from
-    ///   - candidates: Publications to score against the group profile
+    ///   - libraryID: The library ID to compute the group profile from
+    ///   - candidateIDs: Publication IDs to score against the group profile
     ///   - topK: Maximum number of recommendations
-    /// - Returns: Array of candidate publications sorted by relevance
+    /// - Returns: Array of candidate publication IDs sorted by relevance
     public func groupRecommendations(
-        for library: CDLibrary,
-        candidates: [CDPublication],
+        for libraryID: UUID,
+        candidateIDs: [UUID],
         topK: Int = 10
-    ) async -> [CDPublication] {
+    ) async -> [UUID] {
         guard isAvailable else { return [] }
 
-        // Compute centroid embedding from all library publications
-        let libraryEmbeddings: [[Float]] = await MainActor.run {
-            let publications = Array(library.publications ?? [])
-            return publications.map { self.computeEmbedding(for: $0) }
+        // Get all library publications and compute embeddings
+        let libraryPubs = await MainActor.run {
+            RustStoreAdapter.shared.queryPublications(parentId: libraryID)
         }
+
+        let libraryEmbeddings: [[Float]] = libraryPubs.map { computeEmbeddingFromRowData($0) }
 
         guard !libraryEmbeddings.isEmpty else { return [] }
 
@@ -341,18 +340,20 @@ public actor EmbeddingService {
         }
 
         // Score each candidate against the centroid
-        var scored: [(CDPublication, Float)] = []
-        for candidate in candidates {
-            let embedding = await MainActor.run {
-                self.computeEmbedding(for: candidate)
+        var scored: [(UUID, Float)] = []
+        for candidateID in candidateIDs {
+            guard let pub = await MainActor.run(body: { RustStoreAdapter.shared.getPublicationDetail(id: candidateID) }) else {
+                continue
             }
+
+            let embedding = computeEmbeddingFromModel(pub)
 
             // Cosine similarity
             var dot: Float = 0
             for i in 0..<embeddingDimension {
                 dot += centroid[i] * embedding[i]
             }
-            scored.append((candidate, dot))
+            scored.append((candidateID, dot))
         }
 
         // Sort by similarity descending and return top-K
@@ -362,26 +363,34 @@ public actor EmbeddingService {
 
     // MARK: - Private Methods
 
-    /// Compute an embedding vector for a publication.
-    ///
-    /// Currently uses a simple TF-IDF-like approach based on word frequencies.
-    /// In the future, this could use a proper sentence embedding model.
-    @MainActor
-    private func computeEmbedding(for publication: CDPublication) -> [Float] {
+    /// Compute an embedding vector from a PublicationRowData.
+    nonisolated private func computeEmbeddingFromRowData(_ pub: PublicationRowData) -> [Float] {
         // Combine relevant text fields
-        var text = ""
-        if let title = publication.title {
-            text += title + " "
+        var text = pub.title + " "
+        text += pub.authorString + " "
+        if let venue = pub.venue {
+            text += venue + " "
         }
-        if let abstract = publication.fields["abstract"] {
+        if let category = pub.primaryCategory {
+            text += category
+        }
+
+        return computeTextEmbedding(text)
+    }
+
+    /// Compute an embedding vector from a PublicationModel.
+    nonisolated private func computeEmbeddingFromModel(_ pub: PublicationModel) -> [Float] {
+        // Combine relevant text fields
+        var text = pub.title + " "
+        if let abstract = pub.abstract {
             text += abstract + " "
         }
         // Add author names
-        for author in publication.sortedAuthors {
+        for author in pub.authors {
             text += author.familyName + " "
         }
         // Add keywords if available
-        if let keywords = publication.fields["keywords"] {
+        if let keywords = pub.fields["keywords"] {
             text += keywords
         }
 
@@ -535,11 +544,10 @@ public actor EmbeddingService {
 
 extension EmbeddingService {
 
-    /// Set up Core Data change observers for reactive index updates.
+    /// Set up notification observers for reactive index updates.
     ///
     /// Call this once on app startup. The service will then automatically:
-    /// - Add new publications incrementally to the index
-    /// - Mark the index stale when publications are updated or deleted
+    /// - Mark the index stale when data changes
     /// - Rebuild lazily before the next scoring operation
     public func setupChangeObservers() async {
         guard !observersSetUp else { return }
@@ -547,72 +555,17 @@ extension EmbeddingService {
 
         await MainActor.run {
             NotificationCenter.default.addObserver(
-                forName: .NSManagedObjectContextDidSave,
+                forName: .rustStoreDidMutate,
                 object: nil,
                 queue: .main
-            ) { [weak self] notification in
+            ) { [weak self] _ in
                 Task {
-                    await self?.handleContextDidSave(notification)
+                    await self?.markStale()
                 }
             }
         }
 
         Logger.embeddingService.info("Embedding service change observers set up")
-    }
-
-    /// Handle Core Data context save notification.
-    private func handleContextDidSave(_ notification: Notification) async {
-        guard isIndexBuilt else { return }
-
-        let userInfo = notification.userInfo ?? [:]
-
-        // Check for inserted publications
-        if let inserted = userInfo[NSInsertedObjectsKey] as? Set<NSManagedObject> {
-            let newPublications = inserted.compactMap { $0 as? CDPublication }
-            var addedCount = 0
-            for publication in newPublications {
-                // Check if this publication belongs to any indexed library
-                let pubLibraryIDs = await MainActor.run {
-                    publication.libraries?.map { $0.objectID } ?? []
-                }
-                let belongsToIndexedLibrary = pubLibraryIDs.contains { indexedLibraryIDs.contains($0) }
-                if belongsToIndexedLibrary {
-                    await addToIndex(publication)
-                    addedCount += 1
-                }
-            }
-            if addedCount > 0 {
-                Logger.embeddingService.debug("Incrementally added \(addedCount) publications to embedding index")
-            }
-        }
-
-        // Check for updated publications - mark stale (HNSW can't update in place)
-        if let updated = userInfo[NSUpdatedObjectsKey] as? Set<NSManagedObject> {
-            let updatedPublications = updated.compactMap { $0 as? CDPublication }
-            if !updatedPublications.isEmpty {
-                // Check if any belong to indexed libraries
-                for publication in updatedPublications {
-                    let pubLibraryIDs = await MainActor.run {
-                        publication.libraries?.map { $0.objectID } ?? []
-                    }
-                    let belongsToIndexedLibrary = pubLibraryIDs.contains { indexedLibraryIDs.contains($0) }
-                    if belongsToIndexedLibrary {
-                        markStale()
-                        Logger.embeddingService.infoCapture("Marked index stale due to publication update", category: "embedding")
-                        break
-                    }
-                }
-            }
-        }
-
-        // Check for deleted publications - mark stale (HNSW can't remove)
-        if let deleted = userInfo[NSDeletedObjectsKey] as? Set<NSManagedObject> {
-            let deletedPublications = deleted.filter { $0.entity.name == "Publication" }
-            if !deletedPublications.isEmpty {
-                markStale()
-                Logger.embeddingService.infoCapture("Marked index stale due to publication deletion", category: "embedding")
-            }
-        }
     }
 
     /// Mark the index as stale, requiring rebuild before next use.
@@ -638,24 +591,10 @@ extension EmbeddingService {
             return isIndexBuilt
         }
 
-        // Capture IDs before entering MainActor context (actor isolation)
         let libraryIDs = indexedLibraryIDs
 
-        // Fetch libraries from their object IDs using the shared persistence controller
-        let libraries = await MainActor.run {
-            let context = PersistenceController.shared.viewContext
-            return libraryIDs.compactMap { objectID -> CDLibrary? in
-                try? context.existingObject(with: objectID) as? CDLibrary
-            }
-        }
-
-        guard !libraries.isEmpty else {
-            Logger.embeddingService.warning("No valid libraries found for index rebuild")
-            return false
-        }
-
-        Logger.embeddingService.info("Rebuilding stale index from \(libraries.count) libraries")
-        await buildIndex(from: libraries)
+        Logger.embeddingService.info("Rebuilding stale index from \(libraryIDs.count) libraries")
+        await buildIndex(from: libraryIDs)
         return true
     }
 
@@ -666,4 +605,7 @@ extension EmbeddingService {
 public extension Notification.Name {
     /// Posted when the embedding index is rebuilt
     static let embeddingIndexDidRebuild = Notification.Name("embeddingIndexDidRebuild")
+
+    /// Posted when the Rust store has been mutated (used by EmbeddingService for staleness tracking)
+    static let rustStoreDidMutate = Notification.Name("rustStoreDidMutate")
 }

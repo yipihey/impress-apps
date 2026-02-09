@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 import OSLog
 
 // MARK: - Assignment List View
@@ -17,20 +16,20 @@ import OSLog
 /// Each shows the paper title, who suggested it, optional note,
 /// and optional due date. No completion tracking.
 public struct AssignmentListView: View {
-    let library: CDLibrary
+    let libraryID: UUID
 
-    @State private var assignments: [CDAssignment] = []
+    @State private var assignments: [Assignment] = []
     @Environment(\.dismiss) private var dismiss
 
-    public init(library: CDLibrary) {
-        self.library = library
+    public init(libraryID: UUID) {
+        self.libraryID = libraryID
     }
 
     public var body: some View {
         NavigationStack {
             List {
-                let myAssignments = AssignmentService.shared.myAssignments(in: library)
-                let allAssignments = AssignmentService.shared.assignments(in: library)
+                let myAssignments = RustStoreAdapter.shared.myAssignments(libraryID: libraryID)
+                let allAssignments = RustStoreAdapter.shared.assignments(libraryID: libraryID)
 
                 if myAssignments.isEmpty && allAssignments.isEmpty {
                     ContentUnavailableView(
@@ -70,37 +69,37 @@ public struct AssignmentListView: View {
                 }
             }
             .onAppear {
-                assignments = AssignmentService.shared.assignments(in: library)
+                assignments = RustStoreAdapter.shared.assignments(libraryID: libraryID)
             }
         }
     }
 
-    private func deleteAssignments(at offsets: IndexSet, from list: [CDAssignment]) {
+    private func deleteAssignments(at offsets: IndexSet, from list: [Assignment]) {
         for index in offsets {
             let assignment = list[index]
-            try? AssignmentService.shared.remove(assignment)
+            RustStoreAdapter.shared.removeAssignment(assignment.id)
         }
-        assignments = AssignmentService.shared.assignments(in: library)
+        assignments = RustStoreAdapter.shared.assignments(libraryID: libraryID)
     }
 }
 
 // MARK: - Assignment Row
 
 private struct AssignmentRow: View {
-    let assignment: CDAssignment
+    let assignment: Assignment
     let showAssignee: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Paper title
-            Text(assignment.publication?.title ?? "Unknown Paper")
+            Text(assignment.publicationTitle ?? "Unknown Paper")
                 .font(.body)
                 .lineLimit(2)
 
             // Metadata line
             HStack(spacing: 8) {
-                if showAssignee, let assignee = assignment.assigneeName {
-                    Label(assignee, systemImage: "person")
+                if showAssignee, !assignment.assigneeName.isEmpty {
+                    Label(assignment.assigneeName, systemImage: "person")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -135,8 +134,9 @@ private struct AssignmentRow: View {
 
 /// Sheet for suggesting a paper to a participant.
 public struct SuggestToSheet: View {
-    let publication: CDPublication
-    let library: CDLibrary
+    let publicationID: UUID
+    let publicationTitle: String
+    let libraryID: UUID
 
     @State private var selectedParticipant: String = ""
     @State private var note: String = ""
@@ -146,9 +146,10 @@ public struct SuggestToSheet: View {
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
-    public init(publication: CDPublication, library: CDLibrary) {
-        self.publication = publication
-        self.library = library
+    public init(publicationID: UUID, publicationTitle: String, libraryID: UUID) {
+        self.publicationID = publicationID
+        self.publicationTitle = publicationTitle
+        self.libraryID = libraryID
     }
 
     public var body: some View {
@@ -156,7 +157,7 @@ public struct SuggestToSheet: View {
             Form {
                 // Paper being suggested
                 Section("Paper") {
-                    Text(publication.title ?? "Untitled")
+                    Text(publicationTitle)
                         .font(.body)
                         .lineLimit(3)
                 }
@@ -218,7 +219,7 @@ public struct SuggestToSheet: View {
                 }
             }
             .onAppear {
-                participantNames = AssignmentService.shared.participantNames(in: library)
+                participantNames = RustStoreAdapter.shared.participantNames(libraryID: libraryID)
                 if let first = participantNames.first {
                     selectedParticipant = first
                 }
@@ -228,10 +229,10 @@ public struct SuggestToSheet: View {
 
     private func createAssignment() {
         do {
-            try AssignmentService.shared.suggest(
-                publication: publication,
+            try RustStoreAdapter.shared.suggestPublication(
+                publicationID: publicationID,
                 to: selectedParticipant,
-                in: library,
+                libraryID: libraryID,
                 note: note.isEmpty ? nil : note,
                 dueDate: showDatePicker ? dueDate : nil
             )

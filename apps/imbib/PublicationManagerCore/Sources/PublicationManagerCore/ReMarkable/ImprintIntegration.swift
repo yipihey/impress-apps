@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CoreData
 
 #if os(macOS)
 import AppKit
@@ -56,24 +55,26 @@ public struct RemarkableQuote: Codable, Identifiable, Sendable {
     }
 }
 
-// MARK: - CDRemarkableAnnotation Extension
+// MARK: - AnnotationModel Extension for Quotes
 
-public extension CDRemarkableAnnotation {
+public extension AnnotationModel {
 
-    /// Convert this reMarkable annotation to a quotable format for imprint.
+    /// Convert this annotation to a quotable format for imprint.
     ///
-    /// - Parameter publication: The publication this annotation belongs to
+    /// - Parameters:
+    ///   - citeKey: The publication's citation key
+    ///   - publicationTitle: The publication's title
     /// - Returns: A `RemarkableQuote` suitable for export to imprint
-    func toQuote(publication: CDPublication) -> RemarkableQuote {
+    func toQuote(citeKey: String, publicationTitle: String) -> RemarkableQuote {
         RemarkableQuote(
             id: id,
-            text: ocrText ?? "",
-            pageNumber: Int(pageNumber),
-            citeKey: publication.citeKey,
-            publicationTitle: publication.title ?? "Untitled",
+            text: selectedText ?? contents ?? "",
+            pageNumber: pageNumber,
+            citeKey: citeKey,
+            publicationTitle: publicationTitle,
             annotationType: annotationType,
             extractedAt: Date(),
-            hasImage: strokeDataCompressed != nil,
+            hasImage: false,
             imageData: nil  // Image rendering done on-demand by imprint
         )
     }
@@ -114,66 +115,68 @@ public actor RemarkableQuotesService {
     /// - Parameter citeKey: The citation key of the publication
     /// - Returns: Response containing quotes or error
     public func getQuotes(forCiteKey citeKey: String) async -> RemarkableQuotesResponse {
-        let context = await MainActor.run {
-            PersistenceController.shared.viewContext
+        // Find publication by cite key via RustStoreAdapter
+        let pub = await MainActor.run {
+            RustStoreAdapter.shared.findByCiteKey(citeKey: citeKey)
         }
 
-        // Find publication by cite key
-        let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-        pubRequest.predicate = NSPredicate(format: "citeKey == %@", citeKey)
-
-        do {
-            let publications = try await MainActor.run {
-                try context.fetch(pubRequest)
-            }
-
-            guard let publication = publications.first else {
-                return RemarkableQuotesResponse(
-                    quotes: [],
-                    citeKey: citeKey,
-                    publicationTitle: "",
-                    error: "Publication not found: \(citeKey)"
-                )
-            }
-
-            // Find reMarkable document for this publication
-            let docRequest = NSFetchRequest<CDRemarkableDocument>(entityName: "RemarkableDocument")
-            docRequest.predicate = NSPredicate(format: "publication == %@", publication)
-
-            let documents = try await MainActor.run {
-                try context.fetch(docRequest)
-            }
-
-            guard let rmDocument = documents.first else {
-                return RemarkableQuotesResponse(
-                    quotes: [],
-                    citeKey: citeKey,
-                    publicationTitle: publication.title ?? "Untitled",
-                    error: "No reMarkable document found for this publication"
-                )
-            }
-
-            // Convert annotations to quotes
-            let quotes = await MainActor.run {
-                rmDocument.sortedAnnotations.map { annotation in
-                    annotation.toQuote(publication: publication)
-                }
-            }
-
-            return RemarkableQuotesResponse(
-                quotes: quotes,
-                citeKey: citeKey,
-                publicationTitle: publication.title ?? "Untitled"
-            )
-
-        } catch {
+        guard let pub else {
             return RemarkableQuotesResponse(
                 quotes: [],
                 citeKey: citeKey,
                 publicationTitle: "",
-                error: error.localizedDescription
+                error: "Publication not found: \(citeKey)"
             )
         }
+
+        // Get full detail for the title
+        let detail = await MainActor.run {
+            RustStoreAdapter.shared.getPublicationDetail(id: pub.id)
+        }
+
+        let publicationTitle = detail?.title ?? pub.title
+
+        // Find linked PDF files and their annotations
+        let linkedFiles = await MainActor.run {
+            RustStoreAdapter.shared.listLinkedFiles(publicationId: pub.id)
+        }
+
+        guard let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
+            return RemarkableQuotesResponse(
+                quotes: [],
+                citeKey: citeKey,
+                publicationTitle: publicationTitle,
+                error: "No PDF linked file found for this publication"
+            )
+        }
+
+        // Get annotations for this file
+        let annotations = await MainActor.run {
+            RustStoreAdapter.shared.listAnnotations(linkedFileId: pdfFile.id)
+        }
+
+        // Filter to reMarkable-sourced annotations (author == "reMarkable")
+        let rmAnnotations = annotations.filter { $0.authorName == "reMarkable" }
+
+        guard !rmAnnotations.isEmpty else {
+            return RemarkableQuotesResponse(
+                quotes: [],
+                citeKey: citeKey,
+                publicationTitle: publicationTitle,
+                error: "No reMarkable annotations found for this publication"
+            )
+        }
+
+        // Convert annotations to quotes
+        let quotes = rmAnnotations.map { annotation in
+            annotation.toQuote(citeKey: citeKey, publicationTitle: publicationTitle)
+        }
+
+        return RemarkableQuotesResponse(
+            quotes: quotes,
+            citeKey: citeKey,
+            publicationTitle: publicationTitle
+        )
     }
 
     /// Export quotes to pasteboard for imprint pickup.

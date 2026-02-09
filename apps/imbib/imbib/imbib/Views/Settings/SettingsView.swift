@@ -641,7 +641,7 @@ struct InboxSettingsTab: View {
                 Picker("Save to", selection: $selectedSaveLibraryID) {
                     Text("Auto (create Save library)").tag(nil as UUID?)
                     ForEach(availableSaveLibraries, id: \.id) { library in
-                        Text(library.displayName).tag(library.id as UUID?)
+                        Text(library.name).tag(library.id as UUID?)
                     }
                 }
                 .onChange(of: selectedSaveLibraryID) { _, newValue in
@@ -757,12 +757,11 @@ struct InboxSettingsTab: View {
     // MARK: - Save Library
 
     /// Libraries available as save destinations (excludes Inbox, Dismissed, system libraries)
-    private var availableSaveLibraries: [CDLibrary] {
+    private var availableSaveLibraries: [LibraryModel] {
         libraryManager.libraries.filter { library in
-            !library.isInbox &&
-            !library.isDismissedLibrary &&
-            !library.isSystemLibrary
-        }.sorted { $0.displayName < $1.displayName }
+            // TODO: Re-add filters for isDismissedLibrary and isSystemLibrary when those properties are added to LibraryModel
+            !library.isInbox
+        }.sorted { $0.name < $1.name }
     }
 
     private func loadSaveLibrarySetting() {
@@ -1131,7 +1130,6 @@ struct AdvancedSettingsTab: View {
 
     @Environment(LibraryManager.self) private var libraryManager
 
-    @AppStorage("useTabSidebar") private var useTabSidebar = false
     @State private var isOptionKeyPressed = false
     @State private var showingResetConfirmation = false
     @State private var showingResetInProgress = false
@@ -1159,13 +1157,6 @@ struct AdvancedSettingsTab: View {
                     libraryManager.clearExplorationLibrary()
                 }
                 .help("Delete all exploration collections immediately")
-            }
-
-            Section("Experimental") {
-                Toggle("Tab Sidebar", isOn: $useTabSidebar)
-                Text("Use new TabView sidebar instead of classic NavigationSplitView. Requires restart.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             // Developer section - visible when Option key is held

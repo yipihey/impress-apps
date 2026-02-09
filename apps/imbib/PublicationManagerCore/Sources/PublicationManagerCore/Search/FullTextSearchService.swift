@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Full-Text Search Service
@@ -18,7 +17,7 @@ import OSLog
 /// - Maintains a persistent search index on disk
 /// - Indexes publication metadata including abstracts
 /// - Provides fast full-text search with relevance ranking
-/// - Syncs with Core Data changes
+/// - Syncs with store changes
 ///
 /// ## Usage
 /// ```swift
@@ -39,14 +38,11 @@ public actor FullTextSearchService {
     private var searchIndex: RustSearchIndexSession?
     private var isIndexReady = false
     private var indexPath: URL?
-    private let persistenceController: PersistenceController
     private var isRebuilding = false
 
     // MARK: - Initialization
 
-    private init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-
+    private init() {
         // Set up index path in Application Support
         if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             let indexDir = appSupport.appendingPathComponent("imbib/search_index", isDirectory: true)
@@ -172,7 +168,7 @@ public actor FullTextSearchService {
         }
     }
 
-    /// Rebuild the entire search index from Core Data.
+    /// Rebuild the entire search index from the Rust store.
     ///
     /// This is useful for:
     /// - Initial setup
@@ -194,15 +190,17 @@ public actor FullTextSearchService {
 
         Logger.search.infoCapture("Rebuilding search index...", category: "search")
 
-        let context = persistenceController.viewContext
-        let publications = await context.perform {
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            return (try? context.fetch(request)) ?? []
+        // Get all libraries, then all publications from the store
+        let libraries = await MainActor.run { RustStoreAdapter.shared.listLibraries() }
+        var allPubIDs: [UUID] = []
+        for library in libraries {
+            let pubs = await MainActor.run { RustStoreAdapter.shared.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false) }
+            allPubIDs.append(contentsOf: pubs.map(\.id))
         }
 
         var indexedCount = 0
-        for publication in publications {
-            await indexPublication(publication, using: index, fullText: nil)
+        for pubID in allPubIDs {
+            await indexPublicationFromStore(id: pubID, using: index, fullText: nil)
             indexedCount += 1
         }
 
@@ -214,13 +212,13 @@ public actor FullTextSearchService {
         }
     }
 
-    /// Index a single publication.
+    /// Index a single publication by ID.
     ///
     /// Call this when a publication is created or updated.
-    public func indexPublication(_ publication: CDPublication) async {
+    public func indexPublication(id: UUID) async {
         guard let index = searchIndex else { return }
 
-        await indexPublication(publication, using: index)
+        await indexPublicationFromStore(id: id, using: index)
 
         do {
             try await index.commit()
@@ -243,19 +241,19 @@ public actor FullTextSearchService {
         }
     }
 
-    /// Index multiple publications in batch.
+    /// Index multiple publications in batch by IDs.
     ///
     /// More efficient than indexing one at a time.
-    public func indexPublications(_ publications: [CDPublication]) async {
+    public func indexPublications(ids: [UUID]) async {
         guard let index = searchIndex else { return }
 
-        for publication in publications {
-            await indexPublication(publication, using: index)
+        for id in ids {
+            await indexPublicationFromStore(id: id, using: index)
         }
 
         do {
             try await index.commit()
-            Logger.search.debug("Batch indexed \(publications.count) publications")
+            Logger.search.debug("Batch indexed \(ids.count) publications")
         } catch {
             Logger.search.error("Failed to commit batch index: \(error.localizedDescription)")
         }
@@ -265,15 +263,10 @@ public actor FullTextSearchService {
 
     /// Index a publication with its PDF content.
     ///
-    /// Call this after importing a PDF to include full-text search.
-    ///
     /// - Parameters:
-    ///   - publication: The publication with the PDF
+    ///   - id: The publication ID
     ///   - pdfData: Raw PDF file data
-    public func indexPublicationWithPDF(
-        _ publication: CDPublication,
-        pdfData: Data
-    ) async {
+    public func indexPublicationWithPDF(id: UUID, pdfData: Data) async {
         guard let index = searchIndex else { return }
 
         // Extract PDF text using Rust/pdfium
@@ -291,7 +284,7 @@ public actor FullTextSearchService {
             pdfText = nil
         }
 
-        await indexPublication(publication, using: index, fullText: pdfText)
+        await indexPublicationFromStore(id: id, using: index, fullText: pdfText)
 
         do {
             try await index.commit()
@@ -302,64 +295,52 @@ public actor FullTextSearchService {
 
     /// Index a publication with PDF from its linked file.
     ///
-    /// Convenience method that resolves the PDF file and extracts text.
-    ///
     /// - Parameters:
-    ///   - publication: The publication with linked PDF
-    ///   - library: The library containing the publication
+    ///   - publicationId: The publication ID
+    ///   - libraryId: Optional library ID for resolving file paths
     public func indexPublicationWithLinkedPDF(
-        _ publication: CDPublication,
-        in library: CDLibrary?
+        publicationId: UUID,
+        libraryId: UUID?
     ) async {
         guard RustPDFService.isAvailable else { return }
 
-        // Get linked PDF file and resolve URL on main actor (Core Data thread safety)
-        let (pdfURL, citeKey): (URL?, String) = await MainActor.run {
-            guard let linkedFiles = publication.linkedFiles,
-                  let pdfFile = linkedFiles.first(where: { $0.fileType?.lowercased() == "pdf" }) else {
-                return (nil, publication.citeKey)
-            }
-            let url = AttachmentManager.shared.resolveURL(for: pdfFile, in: library)
-            return (url, publication.citeKey)
+        let store = await MainActor.run { RustStoreAdapter.shared }
+
+        // Get linked files from store
+        let linkedFiles = await MainActor.run { store.listLinkedFiles(publicationId: publicationId) }
+        guard let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
+            return
         }
 
-        guard let url = pdfURL else { return }
+        let url = await MainActor.run { AttachmentManager.shared.resolveURL(for: pdfFile, in: libraryId) }
+        guard let url else { return }
 
-        // Read PDF data (can be done off main actor)
+        // Read PDF data
         let pdfData: Data?
         do {
             pdfData = try Data(contentsOf: url)
         } catch {
-            Logger.search.warning("Could not read PDF for indexing: \(citeKey)")
+            Logger.search.warning("Could not read PDF for indexing: \(publicationId)")
             return
         }
 
-        guard let data = pdfData else {
-            return
-        }
-
-        await indexPublicationWithPDF(publication, pdfData: data)
+        guard let data = pdfData else { return }
+        await indexPublicationWithPDF(id: publicationId, pdfData: data)
     }
 
     // MARK: - Private Methods
 
-    private func indexPublication(_ publication: CDPublication, using index: RustSearchIndexSession, fullText: String? = nil) async {
-        // Extract data on main actor since CDPublication isn't thread-safe
-        // Guard against deleted objects to prevent crashes during deletion
-        let input: SearchIndexInput? = await MainActor.run {
-            guard !publication.isDeleted, publication.managedObjectContext != nil else {
-                return nil
-            }
-            return SearchIndexInput(
-                id: publication.id.uuidString,
-                citeKey: publication.citeKey,
-                title: publication.title ?? "",
-                authors: publication.authorString,
-                abstractText: publication.fields["abstract"]
-            )
-        }
+    private func indexPublicationFromStore(id: UUID, using index: RustSearchIndexSession, fullText: String? = nil) async {
+        let store = await MainActor.run { RustStoreAdapter.shared }
+        guard let pub = await MainActor.run(body: { store.getPublication(id: id) }) else { return }
 
-        guard let input = input else { return }
+        let input = SearchIndexInput(
+            id: id.uuidString,
+            citeKey: pub.citeKey,
+            title: pub.title,
+            authors: pub.authorString,
+            abstractText: pub.abstract
+        )
 
         do {
             try await index.add(input, fullText: fullText)

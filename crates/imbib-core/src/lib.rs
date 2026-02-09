@@ -45,6 +45,9 @@ pub mod annotations;
 pub mod pdf;
 pub mod recommendation;
 
+// Unified item architecture (Phase 5)
+pub mod unified;
+
 // Re-export main types for convenience
 // Re-export types (not functions that are wrapped for FFI)
 pub use bibtex::{

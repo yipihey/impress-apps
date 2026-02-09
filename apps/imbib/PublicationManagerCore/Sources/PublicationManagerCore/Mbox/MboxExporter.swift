@@ -2,37 +2,40 @@
 //  MboxExporter.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-22.
+//  Exports libraries and publications to mbox format via RustStoreAdapter.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Mbox Exporter
 
-/// Exports CDLibrary and publications to mbox format.
+/// Exports libraries and publications to mbox format.
 public actor MboxExporter {
 
-    private let context: NSManagedObjectContext
     private let options: MboxExportOptions
     private let logger = Logger(subsystem: "PublicationManagerCore", category: "MboxExporter")
 
-    public init(context: NSManagedObjectContext, options: MboxExportOptions = .default) {
-        self.context = context
+    public init(options: MboxExportOptions = .default) {
         self.options = options
+    }
+
+    /// Helper to call @MainActor RustStoreAdapter from actor context.
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
     }
 
     // MARK: - Public API
 
     /// Export a library to mbox format.
-    /// - Parameters:
-    ///   - library: The library to export
-    ///   - url: Destination file URL
-    public func export(library: CDLibrary, to url: URL) async throws {
-        logger.info("Exporting library '\(library.displayName)' to mbox")
+    public func export(libraryId: UUID, to url: URL) async throws {
+        let library = await withStore { $0.getLibrary(id: libraryId) }
+        guard let library else {
+            throw MboxExportError.writeError("Library not found")
+        }
 
-        // Build all messages
+        logger.info("Exporting library '\(library.name)' to mbox")
+
         var messages: [String] = []
 
         // Add library header message
@@ -40,11 +43,12 @@ public actor MboxExporter {
         messages.append(MIMEEncoder.encode(headerMessage))
 
         // Export publications
-        let publications = try await fetchPublications(for: library)
+        let publications = await withStore { $0.queryPublications(parentId: libraryId, sort: "cite_key", ascending: true) }
         logger.info("Exporting \(publications.count) publications")
 
-        for publication in publications {
-            let message = try await publicationToMessage(publication, library: library)
+        for pub in publications {
+            guard let detail = await withStore({ $0.getPublicationDetail(id: pub.id) }) else { continue }
+            let message = try await publicationToMessage(detail, libraryId: libraryId)
             messages.append(MIMEEncoder.encode(message))
         }
 
@@ -56,22 +60,22 @@ public actor MboxExporter {
     }
 
     /// Export specific publications to mbox format.
-    /// - Parameters:
-    ///   - publications: Publications to export
-    ///   - library: The owning library (for metadata)
-    ///   - url: Destination file URL
-    public func export(publications: [CDPublication], library: CDLibrary?, to url: URL) async throws {
+    public func export(publicationIds: [UUID], libraryId: UUID?, to url: URL) async throws {
         var messages: [String] = []
 
         // Add library header if provided
-        if let library = library {
-            let headerMessage = try await buildLibraryHeaderMessage(library)
-            messages.append(MIMEEncoder.encode(headerMessage))
+        if let libraryId = libraryId {
+            let library = await withStore { $0.getLibrary(id: libraryId) }
+            if let library = library {
+                let headerMessage = try await buildLibraryHeaderMessage(library)
+                messages.append(MIMEEncoder.encode(headerMessage))
+            }
         }
 
         // Export publications
-        for publication in publications {
-            let message = try await publicationToMessage(publication, library: library)
+        for pubId in publicationIds {
+            guard let detail = await withStore({ $0.getPublicationDetail(id: pubId) }) else { continue }
+            let message = try await publicationToMessage(detail, libraryId: libraryId)
             messages.append(MIMEEncoder.encode(message))
         }
 
@@ -82,55 +86,48 @@ public actor MboxExporter {
 
     // MARK: - Library Header
 
-    /// Build the library metadata header message.
-    private func buildLibraryHeaderMessage(_ library: CDLibrary) async throws -> MboxMessage {
-        // Gather collections
-        let collections: [CollectionInfo] = (library.collections ?? []).compactMap { collection in
+    private func buildLibraryHeaderMessage(_ library: LibraryModel) async throws -> MboxMessage {
+        let collections = await withStore { $0.listCollections(libraryId: library.id) }
+        let collectionInfos: [CollectionInfo] = collections.map { coll in
             CollectionInfo(
-                id: collection.id,
-                name: collection.name,
-                parentID: collection.parentCollection?.id,
-                isSmartCollection: collection.isSmartCollection,
-                predicate: collection.predicate
+                id: coll.id,
+                name: coll.name,
+                parentID: nil,
+                isSmartCollection: false,
+                predicate: nil
             )
         }
 
-        // Gather smart searches
-        let smartSearches: [SmartSearchInfo] = (library.smartSearches ?? []).compactMap { search in
+        let smartSearches = await withStore { $0.listSmartSearches(libraryId: library.id) }
+        let searchInfos: [SmartSearchInfo] = smartSearches.map { search in
             SmartSearchInfo(
                 id: search.id,
                 name: search.name,
                 query: search.query,
-                sourceIDs: search.sources,
+                sourceIDs: search.sourceIDs,
                 maxResults: Int(search.maxResults)
             )
         }
 
-        // Build metadata
         let metadata = LibraryMetadata(
             libraryID: library.id,
-            name: library.displayName,
-            bibtexPath: library.bibFilePath,
+            name: library.name,
+            bibtexPath: nil,
             exportVersion: "1.0",
             exportDate: Date(),
-            collections: collections,
-            smartSearches: smartSearches
+            collections: collectionInfos,
+            smartSearches: searchInfos
         )
 
-        // Encode metadata as JSON
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let jsonData = try encoder.encode(metadata)
         let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
 
-        // Build headers
         var headers: [String: String] = [:]
         headers[MboxHeader.libraryID] = library.id.uuidString
-        headers[MboxHeader.libraryName] = library.displayName
-        if let bibPath = library.bibFilePath {
-            headers[MboxHeader.libraryBibtexPath] = bibPath
-        }
+        headers[MboxHeader.libraryName] = library.name
         headers[MboxHeader.exportVersion] = "1.0"
 
         let iso8601Formatter = ISO8601DateFormatter()
@@ -139,7 +136,7 @@ public actor MboxExporter {
         return MboxMessage(
             from: "imbib@imbib.local",
             subject: "[imbib Library Export]",
-            date: Date(timeIntervalSince1970: 0), // Unix epoch
+            date: Date(timeIntervalSince1970: 0),
             messageID: library.id.uuidString,
             headers: headers,
             body: jsonString,
@@ -149,14 +146,9 @@ public actor MboxExporter {
 
     // MARK: - Publication to Message
 
-    /// Convert a publication to an mbox message.
-    private func publicationToMessage(_ publication: CDPublication, library: CDLibrary?) async throws -> MboxMessage {
-        let fields = publication.fields
-
-        // Build author list for From header
+    private func publicationToMessage(_ publication: PublicationModel, libraryId: UUID?) async throws -> MboxMessage {
         let authorString = publication.authorString.isEmpty ? "Unknown Author" : publication.authorString
 
-        // Build headers
         var headers: [String: String] = [:]
         headers[MboxHeader.imbibID] = publication.id.uuidString
         headers[MboxHeader.imbibCiteKey] = publication.citeKey
@@ -165,27 +157,18 @@ public actor MboxExporter {
         if let doi = publication.doi, !doi.isEmpty {
             headers[MboxHeader.imbibDOI] = doi
         }
-
         if let arxiv = publication.arxivID, !arxiv.isEmpty {
             headers[MboxHeader.imbibArXiv] = arxiv
         }
-
-        if let journal = fields["journal"], !journal.isEmpty {
+        if let journal = publication.journal, !journal.isEmpty {
             headers[MboxHeader.imbibJournal] = journal
         }
-
         if let bibcode = publication.bibcode, !bibcode.isEmpty {
             headers[MboxHeader.imbibBibcode] = bibcode
         }
 
-        // Collection memberships
-        let collectionIDs = (publication.collections ?? []).map { $0.id.uuidString }
-        if !collectionIDs.isEmpty {
-            headers[MboxHeader.imbibCollections] = collectionIDs.joined(separator: ",")
-        }
-
         // Build date from year field
-        let year = Int(publication.year)
+        let year = publication.year ?? 0
         let date: Date
         if year > 0 {
             var components = DateComponents()
@@ -200,13 +183,11 @@ public actor MboxExporter {
         // Build attachments
         var attachments: [MboxAttachment] = []
 
-        // Add linked files (PDFs, etc.)
-        if options.includeFiles {
-            let fileAttachments = try await buildFileAttachments(for: publication, library: library)
+        if options.includeFiles, let libraryId = libraryId {
+            let fileAttachments = try await buildFileAttachments(for: publication, libraryId: libraryId)
             attachments.append(contentsOf: fileAttachments)
         }
 
-        // Add BibTeX attachment
         if options.includeBibTeX {
             let bibtexAttachment = buildBibTeXAttachment(for: publication)
             attachments.append(bibtexAttachment)
@@ -214,7 +195,7 @@ public actor MboxExporter {
 
         return MboxMessage(
             from: authorString,
-            subject: publication.title ?? "Untitled",
+            subject: publication.title,
             date: date,
             messageID: publication.id.uuidString,
             headers: headers,
@@ -225,51 +206,40 @@ public actor MboxExporter {
 
     // MARK: - File Attachments
 
-    /// Build file attachments for a publication.
-    private func buildFileAttachments(for publication: CDPublication, library: CDLibrary?) async throws -> [MboxAttachment] {
+    private func buildFileAttachments(for publication: PublicationModel, libraryId: UUID) async throws -> [MboxAttachment] {
         var attachments: [MboxAttachment] = []
 
-        guard let linkedFiles = publication.linkedFiles else { return attachments }
-
-        for (index, linkedFile) in linkedFiles.enumerated() {
-            // Try to read file data
-            let fileData: Data?
-
-            // First check if fileData is stored in Core Data (for CloudKit sync)
-            if let storedData = linkedFile.fileData, !storedData.isEmpty {
-                fileData = storedData
-            } else if let library = library {
-                // Try to read from disk
-                let fileURL = library.papersContainerURL.appendingPathComponent(linkedFile.relativePath)
-                if FileManager.default.fileExists(atPath: fileURL.path) {
-                    // Check file size limit
-                    if let maxSize = options.maxFileSize {
-                        let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
-                        let size = (attrs?[.size] as? Int) ?? 0
-                        if size > maxSize {
-                            logger.warning("Skipping large file: \(linkedFile.filename) (\(size) bytes)")
-                            continue
-                        }
-                    }
-                    fileData = try? Data(contentsOf: fileURL)
-                } else {
-                    fileData = nil
-                }
-            } else {
-                fileData = nil
+        for (index, linkedFile) in publication.linkedFiles.enumerated() {
+            // Try to read file from disk
+            let resolvedURL = await MainActor.run {
+                AttachmentManager.shared.resolveURL(for: linkedFile, in: libraryId)
             }
 
-            guard let data = fileData else {
+            guard let fileURL = resolvedURL,
+                  FileManager.default.fileExists(atPath: fileURL.path) else {
                 logger.warning("Could not read file data for: \(linkedFile.filename)")
                 continue
             }
 
-            // Determine content type
-            let contentType = linkedFile.mimeType ?? mimeTypeForExtension(linkedFile.fileExtension)
+            // Check file size limit
+            if let maxSize = options.maxFileSize {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                let size = (attrs?[.size] as? Int) ?? 0
+                if size > maxSize {
+                    logger.warning("Skipping large file: \(linkedFile.filename) (\(size) bytes)")
+                    continue
+                }
+            }
 
-            // Build custom headers
+            guard let data = try? Data(contentsOf: fileURL) else {
+                logger.warning("Could not read file data for: \(linkedFile.filename)")
+                continue
+            }
+
+            let contentType = linkedFile.isPDF ? "application/pdf" : mimeTypeForExtension(fileURL.pathExtension)
+
             var customHeaders: [String: String] = [:]
-            customHeaders[MboxHeader.linkedFilePath] = linkedFile.relativePath
+            customHeaders[MboxHeader.linkedFilePath] = linkedFile.relativePath ?? linkedFile.filename
             customHeaders[MboxHeader.linkedFileIsMain] = (index == 0) ? "true" : "false"
 
             attachments.append(MboxAttachment(
@@ -283,14 +253,12 @@ public actor MboxExporter {
         return attachments
     }
 
-    /// Build BibTeX attachment for a publication.
-    private func buildBibTeXAttachment(for publication: CDPublication) -> MboxAttachment {
-        // Use rawBibTeX if available, otherwise generate
+    private func buildBibTeXAttachment(for publication: PublicationModel) -> MboxAttachment {
         let bibtex: String
         if let raw = publication.rawBibTeX, !raw.isEmpty {
             bibtex = raw
         } else {
-            let entry = publication.toBibTeXEntry()
+            let entry = BibTeXEntry(citeKey: publication.citeKey, entryType: publication.entryType, fields: publication.fields)
             bibtex = BibTeXExporter().export(entry)
         }
 
@@ -306,42 +274,19 @@ public actor MboxExporter {
 
     // MARK: - Helpers
 
-    /// Fetch all publications for a library.
-    private func fetchPublications(for library: CDLibrary) async throws -> [CDPublication] {
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "ANY libraries == %@", library)
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDPublication.citeKey, ascending: true)]
-
-        return try context.performAndWait {
-            try context.fetch(request)
-        }
-    }
-
-    /// Get MIME type for file extension.
     private func mimeTypeForExtension(_ ext: String) -> String {
         switch ext.lowercased() {
-        case "pdf":
-            return "application/pdf"
-        case "txt":
-            return "text/plain"
-        case "html", "htm":
-            return "text/html"
-        case "doc":
-            return "application/msword"
-        case "docx":
-            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        case "png":
-            return "image/png"
-        case "jpg", "jpeg":
-            return "image/jpeg"
-        case "gif":
-            return "image/gif"
-        case "bib":
-            return "text/x-bibtex"
-        case "ris":
-            return "application/x-research-info-systems"
-        default:
-            return "application/octet-stream"
+        case "pdf": return "application/pdf"
+        case "txt": return "text/plain"
+        case "html", "htm": return "text/html"
+        case "doc": return "application/msword"
+        case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "bib": return "text/x-bibtex"
+        case "ris": return "application/x-research-info-systems"
+        default: return "application/octet-stream"
         }
     }
 }

@@ -2,11 +2,10 @@
 //  InboxScheduler.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
+//  Schedules automatic refresh of Inbox feeds.
 //
 
 import Foundation
-import CoreData
 import OSLog
 import Network
 #if os(macOS)
@@ -22,19 +21,6 @@ import IOKit.ps
 /// - Respects per-feed `refreshIntervalSeconds`
 /// - Uses PaperFetchService to execute searches and route results to Inbox
 /// - Tracks statistics and next refresh times
-///
-/// ## Usage
-///
-/// ```swift
-/// let scheduler = InboxScheduler(
-///     paperFetchService: fetchService,
-///     persistenceController: .shared
-/// )
-///
-/// await scheduler.start()
-/// // ... later
-/// await scheduler.stop()
-/// ```
 public actor InboxScheduler {
 
     // MARK: - Configuration
@@ -51,7 +37,12 @@ public actor InboxScheduler {
     // MARK: - Dependencies
 
     private let paperFetchService: PaperFetchService
-    private let persistenceController: PersistenceController
+
+    // MARK: - Store Access
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
 
     // MARK: - Network Monitoring
 
@@ -88,11 +79,9 @@ public actor InboxScheduler {
     // MARK: - Initialization
 
     public init(
-        paperFetchService: PaperFetchService,
-        persistenceController: PersistenceController = .shared
+        paperFetchService: PaperFetchService
     ) {
         self.paperFetchService = paperFetchService
-        self.persistenceController = persistenceController
         self.networkMonitor = NWPathMonitor()
     }
 
@@ -138,8 +127,6 @@ public actor InboxScheduler {
     }
 
     /// Trigger an immediate refresh of all due feeds.
-    ///
-    /// - Returns: Total number of new papers fetched
     @discardableResult
     public func triggerImmediateCheck() async -> Int {
         Logger.inbox.infoCapture("Manual Inbox refresh triggered", category: "scheduler")
@@ -147,21 +134,14 @@ public actor InboxScheduler {
     }
 
     /// Refresh a specific feed immediately with high priority.
-    ///
-    /// This queues the feed with high priority, which will be processed next
-    /// in the staggered refresh queue.
-    ///
-    /// - Returns: Number of new papers fetched (0 since actual count is async)
     @discardableResult
-    public func refreshFeed(_ smartSearch: CDSmartSearch) async throws -> Int {
-        Logger.inbox.infoCapture("Manual refresh of feed: \(smartSearch.name)", category: "scheduler")
+    public func refreshFeed(_ smartSearchID: UUID) async throws -> Int {
+        let name = await withStore { $0.getSmartSearch(id: smartSearchID)?.name ?? "unknown" }
+        Logger.inbox.infoCapture("Manual refresh of feed: \(name)", category: "scheduler")
 
-        // Queue with high priority for immediate processing
-        await SmartSearchRefreshService.shared.queueRefresh(smartSearch, priority: .high)
-        lastRefreshTimes[smartSearch.id] = Date()
+        await SmartSearchRefreshService.shared.queueRefreshByID(smartSearchID, priority: .high)
+        lastRefreshTimes[smartSearchID] = Date()
 
-        // Return 0 since actual papers are fetched asynchronously
-        // UI will update via notification when refresh completes
         return 0
     }
 
@@ -187,16 +167,13 @@ public actor InboxScheduler {
     /// Get next refresh time for a specific feed.
     public func nextRefreshTime(for smartSearchID: UUID) -> Date? {
         guard let lastRefresh = lastRefreshTimes[smartSearchID] else {
-            return nil  // Never refreshed, due immediately
+            return nil
         }
-
-        // We need to look up the interval - for now return a default
-        // In practice this would query the smart search
         return lastRefresh.addingTimeInterval(Self.defaultRefreshInterval)
     }
 
     /// Get all feeds that are due for refresh.
-    public func dueFeeds() async -> [CDSmartSearch] {
+    public func dueFeeds() async -> [SmartSearch] {
         let feeds = await fetchInboxFeeds()
         return feeds.filter { isDue($0) }
     }
@@ -205,19 +182,15 @@ public actor InboxScheduler {
 
     /// Main scheduler loop.
     private func runSchedulerLoop() async {
-        // Do an initial check immediately on start
         await performCheckCycle()
 
         while isRunning && !Task.isCancelled {
-            // Wait for next check interval
             do {
                 try await Task.sleep(for: .seconds(Self.checkInterval))
             } catch {
-                // Task was cancelled
                 break
             }
 
-            // Perform check cycle
             if isRunning {
                 await performCheckCycle()
             }
@@ -230,7 +203,6 @@ public actor InboxScheduler {
         lastCheckDate = Date()
         totalRefreshCycles += 1
 
-        // Check network availability
         if skipWhenOffline && !isNetworkAvailable {
             skippedCyclesForNetwork += 1
             Logger.inbox.debugCapture(
@@ -240,7 +212,6 @@ public actor InboxScheduler {
             return 0
         }
 
-        // Check power state (macOS only)
         #if os(macOS)
         if skipOnBattery && isOnBatteryPower() {
             skippedCyclesForPower += 1
@@ -252,7 +223,6 @@ public actor InboxScheduler {
         }
         #endif
 
-        // Fetch all inbox feeds
         let feeds = await fetchInboxFeeds()
 
         if feeds.isEmpty {
@@ -260,12 +230,10 @@ public actor InboxScheduler {
             return 0
         }
 
-        // Only log to system console, not to app console (runs every minute)
         let cycleNum = totalRefreshCycles
         let feedCount = feeds.count
         Logger.inbox.debug("InboxScheduler cycle \(cycleNum): checking \(feedCount) feeds")
 
-        // Find feeds that are due
         let dueFeeds = feeds.filter { isDue($0) }
 
         if dueFeeds.isEmpty {
@@ -278,10 +246,8 @@ public actor InboxScheduler {
             category: "inbox"
         )
 
-        // Queue all due feeds for staggered background refresh
-        // This returns immediately - refreshes happen in background via SmartSearchRefreshService
         for feed in dueFeeds {
-            await SmartSearchRefreshService.shared.queueRefresh(feed, priority: .low)
+            await SmartSearchRefreshService.shared.queueRefreshByID(feed.id, priority: .low)
             lastRefreshTimes[feed.id] = Date()
         }
 
@@ -290,34 +256,19 @@ public actor InboxScheduler {
             category: "inbox"
         )
 
-        // Return count of queued feeds (actual papers will be fetched asynchronously)
         return dueFeeds.count
     }
 
     /// Fetch all smart searches configured to feed the Inbox.
-    private func fetchInboxFeeds() async -> [CDSmartSearch] {
-        await MainActor.run {
-            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                NSPredicate(format: "feedsToInbox == YES"),
-                NSPredicate(format: "autoRefreshEnabled == YES")
-            ])
-
-            do {
-                return try persistenceController.viewContext.fetch(request)
-            } catch {
-                Logger.inbox.errorCapture(
-                    "Failed to fetch Inbox feeds: \(error.localizedDescription)",
-                    category: "inbox"
-                )
-                return []
-            }
+    private func fetchInboxFeeds() async -> [SmartSearch] {
+        await withStore { store in
+            let allSearches = store.listSmartSearches()
+            return allSearches.filter { $0.feedsToInbox && $0.autoRefreshEnabled }
         }
     }
 
     /// Check if a feed is due for refresh.
-    private func isDue(_ smartSearch: CDSmartSearch) -> Bool {
-        // Calculate effective refresh interval (treat 0 as "use default")
+    private func isDue(_ smartSearch: SmartSearch) -> Bool {
         var interval = TimeInterval(smartSearch.refreshIntervalSeconds)
         if interval <= 0 {
             interval = Self.defaultRefreshInterval
@@ -325,11 +276,10 @@ public actor InboxScheduler {
         let effectiveInterval = max(interval, Self.minimumRefreshInterval)
 
         guard let lastRefresh = lastRefreshTimes[smartSearch.id] else {
-            // Never refreshed - check dateLastExecuted from Core Data
-            if let lastExecuted = smartSearch.dateLastExecuted {
+            if let lastExecuted = smartSearch.lastExecuted {
                 return Date().timeIntervalSince(lastExecuted) >= effectiveInterval
             }
-            return true  // Never executed, due immediately
+            return true
         }
 
         return Date().timeIntervalSince(lastRefresh) >= effectiveInterval
@@ -337,7 +287,6 @@ public actor InboxScheduler {
 
     // MARK: - Network Monitoring
 
-    /// Start monitoring network connectivity.
     private func startNetworkMonitoring() {
         let queue = DispatchQueue(label: "com.imbib.inbox.network", qos: .utility)
         networkMonitorQueue = queue
@@ -352,19 +301,16 @@ public actor InboxScheduler {
         Logger.inbox.debugCapture("Network monitoring started", category: "network")
     }
 
-    /// Stop monitoring network connectivity.
     private func stopNetworkMonitoring() {
         networkMonitor.cancel()
         networkMonitorQueue = nil
         Logger.inbox.debugCapture("Network monitoring stopped", category: "network")
     }
 
-    /// Handle network path changes.
     private func handleNetworkChange(_ path: NWPath) {
         let wasAvailable = isNetworkAvailable
         isNetworkAvailable = path.status == .satisfied
 
-        // Check for cellular on iOS
         #if os(iOS)
         if skipOnCellular && path.usesInterfaceType(.cellular) {
             isNetworkAvailable = false
@@ -382,23 +328,18 @@ public actor InboxScheduler {
     // MARK: - Power State (macOS)
 
     #if os(macOS)
-    /// Check if the Mac is running on battery power.
     private nonisolated func isOnBatteryPower() -> Bool {
-        // Get power source info
         guard let powerSources = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sourcesList = IOPSCopyPowerSourcesList(powerSources)?.takeRetainedValue() as? [CFTypeRef],
               !sourcesList.isEmpty else {
-            // No battery (desktop Mac) - never skip
             return false
         }
 
-        // Check the first power source (internal battery)
         guard let source = sourcesList.first,
               let description = IOPSGetPowerSourceDescription(powerSources, source)?.takeUnretainedValue() as? [String: Any] else {
             return false
         }
 
-        // Check if running on battery
         if let powerSource = description[kIOPSPowerSourceStateKey as String] as? String {
             return powerSource == kIOPSBatteryPowerValue as String
         }
@@ -412,28 +353,13 @@ public actor InboxScheduler {
 
 /// Statistics about the Inbox scheduler.
 public struct InboxSchedulerStatistics: Sendable, Equatable {
-    /// Whether the scheduler is running.
     public let isRunning: Bool
-
-    /// When the last check cycle occurred.
     public let lastCheckDate: Date?
-
-    /// Total papers fetched since scheduler started.
     public let totalPapersFetched: Int
-
-    /// Number of check cycles completed.
     public let totalRefreshCycles: Int
-
-    /// Number of feeds being tracked.
     public let feedCount: Int
-
-    /// Number of cycles skipped due to battery power.
     public let skippedCyclesForPower: Int
-
-    /// Number of cycles skipped due to network unavailability.
     public let skippedCyclesForNetwork: Int
-
-    /// Whether network is currently available.
     public let isNetworkAvailable: Bool
 }
 
@@ -446,15 +372,13 @@ public struct InboxFeedStatus: Sendable, Identifiable {
     public let lastRefresh: Date?
     public let nextRefresh: Date?
     public let lastFetchCount: Int
-    public let refreshIntervalSeconds: Int32
+    public let refreshIntervalSeconds: Int
 
-    /// Whether this feed is due for refresh.
     public var isDue: Bool {
         guard let next = nextRefresh else { return true }
         return Date() >= next
     }
 
-    /// Time until next refresh (negative if overdue).
     public var timeUntilRefresh: TimeInterval? {
         nextRefresh?.timeIntervalSinceNow
     }
@@ -464,12 +388,12 @@ public struct InboxFeedStatus: Sendable, Identifiable {
 
 /// Common refresh interval presets for UI pickers.
 public enum RefreshIntervalPreset: Int32, CaseIterable, Sendable {
-    case oneHour = 3600             // 1 hour (minimum to avoid rate limiting)
-    case threeHours = 10800         // 3 hours
-    case sixHours = 21600           // 6 hours (default)
-    case twelveHours = 43200        // 12 hours
-    case daily = 86400              // 24 hours
-    case weekly = 604800            // 7 days
+    case oneHour = 3600
+    case threeHours = 10800
+    case sixHours = 21600
+    case twelveHours = 43200
+    case daily = 86400
+    case weekly = 604800
 
     public var displayName: String {
         switch self {

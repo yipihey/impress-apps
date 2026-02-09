@@ -38,10 +38,10 @@ public struct FileTypeIcon: View {
         self.size = size
     }
 
-    /// Create an icon for a CDLinkedFile.
-    public init(linkedFile: CDLinkedFile, size: CGFloat = 20) {
-        self.fileExtension = linkedFile.fileExtension
-        self.mimeType = linkedFile.mimeType
+    /// Create an icon for a LinkedFileModel.
+    public init(linkedFile: LinkedFileModel, size: CGFloat = 20) {
+        self.fileExtension = URL(fileURLWithPath: linkedFile.filename).pathExtension.lowercased()
+        self.mimeType = nil
         self.size = size
     }
 

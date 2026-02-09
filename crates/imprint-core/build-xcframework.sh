@@ -121,12 +121,26 @@ if [ -f "$FRAMEWORK_DIR/generated/imprint_core.swift" ]; then
     echo "Copying Swift bindings..."
     cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$FRAMEWORK_DIR/"
 
-    # Also copy to the Swift package if it exists (flat structure, no Generated/ subdir)
+    # Also copy to the Swift packages if they exist
     SWIFT_PACKAGE_DIR="$WORKSPACE_ROOT/apps/imprint/Packages/ImprintCore/Sources/ImprintCore"
     if [ -d "$SWIFT_PACKAGE_DIR" ]; then
         echo "Copying Swift bindings to ImprintCore package..."
         cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$SWIFT_PACKAGE_DIR/"
     fi
+
+    RUST_CORE_PKG_DIR="$WORKSPACE_ROOT/apps/imprint/ImprintRustCore/Sources/ImprintRustCore"
+    if [ -d "$RUST_CORE_PKG_DIR" ]; then
+        echo "Copying Swift bindings to ImprintRustCore package..."
+        cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$RUST_CORE_PKG_DIR/"
+    fi
+fi
+
+# Copy XCFramework to the location referenced by the SPM package
+APP_FRAMEWORKS_DIR="$WORKSPACE_ROOT/apps/imprint/Frameworks"
+if [ -d "$APP_FRAMEWORKS_DIR" ]; then
+    echo "Copying XCFramework to app Frameworks directory..."
+    rm -rf "$APP_FRAMEWORKS_DIR/$XCFRAMEWORK_NAME.xcframework"
+    cp -R "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORKS_DIR/"
 fi
 
 echo ""

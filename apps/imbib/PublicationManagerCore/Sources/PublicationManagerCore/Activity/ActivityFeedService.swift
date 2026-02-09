@@ -2,11 +2,10 @@
 //  ActivityFeedService.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-02-03.
+//  Service for recording and querying activity in shared libraries.
 //
 
 import Foundation
-import CoreData
 import OSLog
 #if canImport(UIKit)
 import UIKit
@@ -24,22 +23,15 @@ public final class ActivityFeedService {
 
     public static let shared = ActivityFeedService()
 
-    private let persistenceController: PersistenceController
+    private let store: RustStoreAdapter
 
     private init() {
-        self.persistenceController = .shared
-    }
-
-    /// Initialize with custom persistence controller (for testing)
-    public init(persistenceController: PersistenceController) {
-        self.persistenceController = persistenceController
+        self.store = .shared
     }
 
     // MARK: - Record Activity
 
-    /// Record an activity event in a shared library.
-    ///
-    /// Only records for shared libraries. Silently returns for private libraries.
+    /// Record an activity event in a library.
     ///
     /// - Parameters:
     ///   - type: The type of activity
@@ -47,34 +39,30 @@ public final class ActivityFeedService {
     ///   - targetTitle: Title of the affected paper or collection
     ///   - targetID: ID of the affected entity
     ///   - detail: Optional extra context
-    ///   - library: The library where this happened
+    ///   - libraryID: The library where this happened
     @discardableResult
     public func recordActivity(
-        type: CDActivityRecord.ActivityType,
+        type: ActivityType,
         actorName: String? = nil,
         targetTitle: String? = nil,
         targetID: UUID? = nil,
         detail: String? = nil,
-        in library: CDLibrary
-    ) throws -> CDActivityRecord? {
-        // Only record for shared libraries
-        guard library.isSharedLibrary else { return nil }
+        in libraryID: UUID
+    ) -> ActivityRecord? {
+        let resolvedActorName = actorName ?? resolveCurrentUserName()
 
-        let context = persistenceController.viewContext
+        let record = store.createActivityRecord(
+            libraryId: libraryID,
+            activityType: type.rawValue,
+            actorDisplayName: resolvedActorName,
+            targetTitle: targetTitle,
+            targetId: targetID?.uuidString,
+            detail: detail
+        )
 
-        let record = CDActivityRecord(context: context)
-        record.id = UUID()
-        record.activityType = type.rawValue
-        record.actorDisplayName = actorName ?? resolveCurrentUserName(for: library)
-        record.targetTitle = targetTitle
-        record.targetID = targetID
-        record.detail = detail
-        record.date = Date()
-        record.library = library
-
-        try context.save()
-
-        NotificationCenter.default.post(name: .activityFeedUpdated, object: library)
+        if record != nil {
+            NotificationCenter.default.post(name: .activityFeedUpdated, object: libraryID)
+        }
 
         return record
     }
@@ -84,38 +72,28 @@ public final class ActivityFeedService {
     /// Get recent activity for a library.
     ///
     /// - Parameters:
-    ///   - library: The library to query
+    ///   - libraryID: The library to query
     ///   - limit: Maximum number of records to return (default 50)
     /// - Returns: Activity records sorted by date (newest first)
-    public func recentActivity(in library: CDLibrary, limit: Int = 50) -> [CDActivityRecord] {
-        (library.activityRecords ?? [])
-            .sorted { $0.date > $1.date }
-            .prefix(limit)
-            .map { $0 }
+    public func recentActivity(in libraryID: UUID, limit: Int = 50) -> [ActivityRecord] {
+        store.listActivityRecords(libraryId: libraryID, limit: UInt32(limit))
     }
 
     /// Count of activity records since a given date.
     /// Useful for badge display.
-    public func unreadActivityCount(in library: CDLibrary, since date: Date) -> Int {
-        (library.activityRecords ?? [])
-            .filter { $0.date > date }
-            .count
+    public func unreadActivityCount(in libraryID: UUID, since date: Date) -> Int {
+        let records = store.listActivityRecords(libraryId: libraryID)
+        return records.filter { $0.date > date }.count
+    }
+
+    /// Clear all activity records for a library.
+    public func clearActivity(in libraryID: UUID) {
+        store.clearActivityRecords(libraryId: libraryID)
     }
 
     // MARK: - Helpers
 
-    private func resolveCurrentUserName(for library: CDLibrary) -> String {
-        #if canImport(CloudKit)
-        if let share = PersistenceController.shared.share(for: library),
-           let participant = share.currentUserParticipant,
-           let nameComponents = participant.userIdentity.nameComponents {
-            let formatter = PersonNameComponentsFormatter()
-            formatter.style = .default
-            let name = formatter.string(from: nameComponents)
-            if !name.isEmpty { return name }
-        }
-        #endif
-
+    private func resolveCurrentUserName() -> String {
         #if os(macOS)
         return Host.current().localizedName ?? "You"
         #else

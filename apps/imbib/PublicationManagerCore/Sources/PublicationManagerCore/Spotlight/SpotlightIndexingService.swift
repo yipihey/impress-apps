@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import CoreSpotlight
 import OSLog
 
@@ -68,73 +67,74 @@ public actor SpotlightIndexingService {
 
     // MARK: - Indexing Operations
 
-    /// Index a publication for Spotlight search.
+    /// Index a publication for Spotlight search by ID.
     ///
     /// Creates a searchable item with the publication's metadata including
     /// title, authors, abstract, and identifiers as keywords.
     ///
-    /// - Parameter publication: The publication to index
-    public func indexPublication(_ publication: CDPublication) async {
+    /// - Parameter id: The publication UUID to index
+    public func indexPublication(id: UUID) async {
         guard isAvailable else { return }
+
+        let pub = await MainActor.run { RustStoreAdapter.shared.getPublication(id: id) }
+        guard let pub else { return }
+
+        let detail = await MainActor.run { RustStoreAdapter.shared.getPublicationDetail(id: id) }
 
         let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
 
         // Title
-        attributeSet.title = publication.title
-        attributeSet.displayName = publication.title
+        attributeSet.title = pub.title
+        attributeSet.displayName = pub.title
 
         // Authors
-        let authors = publication.sortedAuthors.map { $0.displayName }
-        attributeSet.authorNames = authors
-        if let firstAuthor = authors.first {
+        let authorNames = pub.authorString.components(separatedBy: ", ")
+        attributeSet.authorNames = authorNames
+        if let firstAuthor = authorNames.first {
             attributeSet.creator = firstAuthor
         }
 
         // Abstract/Description
-        attributeSet.contentDescription = publication.abstract
+        attributeSet.contentDescription = pub.abstract
 
         // Keywords: DOI, arXiv ID, cite key, bibcode
-        var keywords: [String] = [publication.citeKey]
-        if let doi = publication.doi, !doi.isEmpty {
+        var keywords: [String] = [pub.citeKey]
+        if let doi = pub.doi, !doi.isEmpty {
             keywords.append(doi)
         }
-        if let arxivID = publication.arxivID, !arxivID.isEmpty {
+        if let arxivID = pub.arxivID, !arxivID.isEmpty {
             keywords.append(arxivID)
             keywords.append("arXiv")
         }
-        if let bibcode = publication.bibcode, !bibcode.isEmpty {
+        if let bibcode = pub.bibcode, !bibcode.isEmpty {
             keywords.append(bibcode)
         }
-        if let journal = publication.fields["journal"], !journal.isEmpty {
-            keywords.append(journal)
+        if let venue = pub.venue, !venue.isEmpty {
+            keywords.append(venue)
         }
         attributeSet.keywords = keywords
 
         // Year
-        if publication.year > 0 {
-            // Create a date from just the year
+        if let year = pub.year, year > 0 {
             var components = DateComponents()
-            components.year = Int(publication.year)
+            components.year = year
             if let date = Calendar.current.date(from: components) {
                 attributeSet.contentCreationDate = date
             }
         }
 
         // Entry type for categorization
-        attributeSet.kind = publication.entryType.capitalized
+        if let entryType = detail?.entryType {
+            attributeSet.kind = entryType.capitalized
+        }
 
         // URL for deep linking
-        let deepLink = URL(string: "imbib://paper/\(publication.id.uuidString)")
+        let deepLink = URL(string: "imbib://paper/\(pub.id.uuidString)")
         attributeSet.url = deepLink
-
-        // Thumbnail hint: has PDF indicator
-        if publication.hasPDFAvailable {
-            attributeSet.thumbnailData = nil  // Could add PDF icon data here
-        }
 
         // Create searchable item
         let item = CSSearchableItem(
-            uniqueIdentifier: publication.id.uuidString,
+            uniqueIdentifier: pub.id.uuidString,
             domainIdentifier: Self.domainIdentifier,
             attributeSet: attributeSet
         )
@@ -144,9 +144,9 @@ public actor SpotlightIndexingService {
 
         do {
             try await index.indexSearchableItems([item])
-            Logger.spotlight.debug("Indexed publication: \(publication.citeKey)")
+            Logger.spotlight.debug("Indexed publication: \(pub.citeKey)")
         } catch {
-            Logger.spotlight.error("Failed to index publication \(publication.citeKey): \(error.localizedDescription)")
+            Logger.spotlight.error("Failed to index publication \(pub.citeKey): \(error.localizedDescription)")
         }
     }
 
@@ -164,56 +164,66 @@ public actor SpotlightIndexingService {
         }
     }
 
-    /// Index multiple publications in a batch.
+    /// Index multiple publications in a batch by IDs.
     ///
-    /// More efficient than calling `indexPublication()` multiple times.
+    /// More efficient than calling `indexPublication(id:)` multiple times.
     ///
-    /// - Parameter publications: The publications to index
-    public func indexPublications(_ publications: [CDPublication]) async {
-        guard isAvailable, !publications.isEmpty else { return }
+    /// - Parameter ids: The publication UUIDs to index
+    public func indexPublications(ids: [UUID]) async {
+        guard isAvailable, !ids.isEmpty else { return }
 
         var items: [CSSearchableItem] = []
 
-        for publication in publications {
+        for pubId in ids {
+            guard let pub = await MainActor.run(body: { RustStoreAdapter.shared.getPublication(id: pubId) }) else {
+                continue
+            }
+
             let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
 
-            attributeSet.title = publication.title
-            attributeSet.displayName = publication.title
+            attributeSet.title = pub.title
+            attributeSet.displayName = pub.title
 
-            let authors = publication.sortedAuthors.map { $0.displayName }
-            attributeSet.authorNames = authors
-            if let firstAuthor = authors.first {
+            let authorNames = pub.authorString.components(separatedBy: ", ")
+            attributeSet.authorNames = authorNames
+            if let firstAuthor = authorNames.first {
                 attributeSet.creator = firstAuthor
             }
 
-            attributeSet.contentDescription = publication.abstract
+            attributeSet.contentDescription = pub.abstract
 
-            var keywords: [String] = [publication.citeKey]
-            if let doi = publication.doi, !doi.isEmpty {
+            var keywords: [String] = [pub.citeKey]
+            if let doi = pub.doi, !doi.isEmpty {
                 keywords.append(doi)
             }
-            if let arxivID = publication.arxivID, !arxivID.isEmpty {
+            if let arxivID = pub.arxivID, !arxivID.isEmpty {
                 keywords.append(arxivID)
                 keywords.append("arXiv")
             }
-            if let bibcode = publication.bibcode, !bibcode.isEmpty {
+            if let bibcode = pub.bibcode, !bibcode.isEmpty {
                 keywords.append(bibcode)
+            }
+            if let venue = pub.venue, !venue.isEmpty {
+                keywords.append(venue)
             }
             attributeSet.keywords = keywords
 
-            if publication.year > 0 {
+            if let year = pub.year, year > 0 {
                 var components = DateComponents()
-                components.year = Int(publication.year)
+                components.year = year
                 if let date = Calendar.current.date(from: components) {
                     attributeSet.contentCreationDate = date
                 }
             }
 
-            attributeSet.kind = publication.entryType.capitalized
-            attributeSet.url = URL(string: "imbib://paper/\(publication.id.uuidString)")
+            // Entry type requires detail lookup
+            if let detail = await MainActor.run(body: { RustStoreAdapter.shared.getPublicationDetail(id: pubId) }) {
+                attributeSet.kind = detail.entryType.capitalized
+            }
+            attributeSet.url = URL(string: "imbib://paper/\(pub.id.uuidString)")
 
             let item = CSSearchableItem(
-                uniqueIdentifier: publication.id.uuidString,
+                uniqueIdentifier: pub.id.uuidString,
                 domainIdentifier: Self.domainIdentifier,
                 attributeSet: attributeSet
             )
@@ -265,21 +275,21 @@ public actor SpotlightIndexingService {
     /// This clears all existing items and re-indexes everything.
     /// Use this if the index becomes corrupted or out of sync.
     ///
-    /// - Parameter publications: All publications to index
-    public func rebuildIndex(publications: [CDPublication]) async {
+    /// - Parameter ids: All publication UUIDs to index
+    public func rebuildIndex(ids: [UUID]) async {
         guard isAvailable else { return }
 
-        Logger.spotlight.info("Rebuilding Spotlight index with \(publications.count) publications")
+        Logger.spotlight.info("Rebuilding Spotlight index with \(ids.count) publications")
 
         // Remove all existing items first
         await removeAllItems()
 
         // Re-index all publications in batches
         let batchSize = 100
-        for i in stride(from: 0, to: publications.count, by: batchSize) {
-            let end = min(i + batchSize, publications.count)
-            let batch = Array(publications[i..<end])
-            await indexPublications(batch)
+        for i in stride(from: 0, to: ids.count, by: batchSize) {
+            let end = min(i + batchSize, ids.count)
+            let batch = Array(ids[i..<end])
+            await indexPublications(ids: batch)
         }
 
         Logger.spotlight.info("Spotlight index rebuild complete")

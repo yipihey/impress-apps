@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Recommendation Engine (ADR-020)
@@ -32,13 +31,10 @@ public actor RecommendationEngine {
     private var cachedRanking: [UUID: RecommendationScore] = [:]
     private let settingsStore = RecommendationSettingsStore.shared
     private let embeddingService = EmbeddingService.shared
-    private let persistenceController: PersistenceController
 
     // MARK: - Initialization
 
-    private init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-
+    private init() {
         // Observe training events to invalidate cache
         Task {
             await setupNotificationObservers()
@@ -46,7 +42,6 @@ public actor RecommendationEngine {
     }
 
     private func setupNotificationObservers() async {
-        // Note: NotificationCenter observation setup happens on main actor
         await MainActor.run {
             NotificationCenter.default.addObserver(
                 forName: .recommendationTrainingEventRecorded,
@@ -60,19 +55,16 @@ public actor RecommendationEngine {
         }
     }
 
+    // MARK: - Store Access Helper
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
+
     // MARK: - Single Publication Scoring
 
-    /// Score a single publication.
-    ///
-    /// Uses cached score if available and recent enough.
-    /// The scoring approach depends on the selected engine type:
-    /// - Classic: Uses only rule-based features
-    /// - Semantic: Uses embedding similarity from ANN index
-    /// - Hybrid: Combines both approaches
-    public func score(_ publication: CDPublication) async -> RecommendationScore {
-        // Capture publication ID on main actor since CDPublication isn't thread-safe
-        let publicationID = await MainActor.run { publication.id }
-
+    /// Score a single publication by ID.
+    public func score(_ publicationID: UUID) async -> RecommendationScore {
         // Check cache
         if let cached = cachedRanking[publicationID],
            let lastRank = lastRankDate,
@@ -81,22 +73,28 @@ public actor RecommendationEngine {
         }
 
         // Compute fresh score
-        let profile = await getGlobalProfile()
-        let library = await getDefaultLibrary()
+        let profile = await getRecommendationProfile()
         let settings = await settingsStore.settings()
         let weights = await settingsStore.allWeights()
         let engineType = settings.engineType
 
-        // Run feature extraction on main actor since CDPublication isn't thread-safe
+        // Get publication detail for feature extraction
+        guard let pubDetail = await withStore({ $0.getPublicationDetail(id: publicationID) }) else {
+            return RecommendationScore(total: 0, breakdown: [:], explanation: "Publication not found")
+        }
+
+        // Get default library publications for context
+        let libraryPubs = await getDefaultLibraryPublications()
+
         var rawFeatures = await MainActor.run {
-            FeatureExtractor.extract(from: publication, profile: profile, library: library)
+            FeatureExtractor.extract(from: pubDetail, profile: profile, libraryPublications: libraryPubs)
         }
 
         // Add semantic similarity if engine type requires it
         if engineType.requiresEmbeddings {
             let hasIndex = await embeddingService.hasIndex
             if hasIndex {
-                let similarityScore = await embeddingService.similarityScore(for: publication)
+                let similarityScore = await embeddingService.similarityScore(for: publicationID)
                 rawFeatures[.librarySimilarity] = similarityScore
             }
         }
@@ -110,22 +108,25 @@ public actor RecommendationEngine {
     }
 
     /// Get detailed score breakdown for UI display.
-    public func scoreBreakdown(_ publication: CDPublication) async -> ScoreBreakdown {
-        let profile = await getGlobalProfile()
-        let library = await getDefaultLibrary()
+    public func scoreBreakdown(_ publicationID: UUID) async -> ScoreBreakdown {
+        let profile = await getRecommendationProfile()
         let settings = await settingsStore.settings()
         let engineType = settings.engineType
 
-        // Run feature extraction on main actor since CDPublication isn't thread-safe
+        guard let pubDetail = await withStore({ $0.getPublicationDetail(id: publicationID) }) else {
+            return ScoreBreakdown(total: 0, components: [])
+        }
+
+        let libraryPubs = await getDefaultLibraryPublications()
         var rawFeatures = await MainActor.run {
-            FeatureExtractor.extract(from: publication, profile: profile, library: library)
+            FeatureExtractor.extract(from: pubDetail, profile: profile, libraryPublications: libraryPubs)
         }
 
         // Add semantic similarity if engine type requires it
         if engineType.requiresEmbeddings {
             let hasIndex = await embeddingService.hasIndex
             if hasIndex {
-                let similarityScore = await embeddingService.similarityScore(for: publication)
+                let similarityScore = await embeddingService.similarityScore(for: publicationID)
                 rawFeatures[.librarySimilarity] = similarityScore
             }
         }
@@ -175,12 +176,7 @@ public actor RecommendationEngine {
     /// Rank publications for Inbox display.
     ///
     /// Returns publications sorted by score, with serendipity slots inserted.
-    public func rank(_ publications: [CDPublication]) async -> [RankedPublication] {
-        // Extract publication IDs on main actor for thread safety
-        let publicationIDs = await MainActor.run {
-            publications.map { $0.id }
-        }
-
+    public func rank(_ publicationIDs: [UUID]) async -> [RankedPublication] {
         let enabled = await settingsStore.isEnabled()
         guard enabled else {
             // If disabled, return in original order
@@ -193,11 +189,11 @@ public actor RecommendationEngine {
             }
         }
 
-        // Score all publications (score() handles thread safety internally)
+        // Score all publications
         var scoredPubs: [(UUID, RecommendationScore)] = []
-        for (index, pub) in publications.enumerated() {
-            let pubScore = await score(pub)
-            scoredPubs.append((publicationIDs[index], pubScore))
+        for pubID in publicationIDs {
+            let pubScore = await score(pubID)
+            scoredPubs.append((pubID, pubScore))
         }
 
         // Sort by score (descending)
@@ -242,27 +238,24 @@ public actor RecommendationEngine {
         // Update cache timestamp
         lastRankDate = Date()
 
-        Logger.recommendation.debug("Ranked \(publications.count) publications")
+        Logger.recommendation.debug("Ranked \(publicationIDs.count) publications")
 
         return result
     }
 
     /// Find serendipity candidates: high citation velocity but low topic match.
-    /// Uses UUIDs for thread safety.
     private func findSerendipityCandidatesFromIDs(
         from scoredPubs: [(UUID, RecommendationScore)]
     ) -> [(UUID, RecommendationScore)] {
-        // Serendipity = high potential (citation velocity, recency) + low familiarity
         return scoredPubs.filter { _, score in
             let citationVelocity = score.breakdown[.fieldCitationVelocity] ?? 0
             let authorStarred = score.breakdown[.authorStarred] ?? 0
             let topicMatch = score.breakdown[.readingTimeTopic] ?? 0
 
-            // High velocity/recency, low familiarity
             return citationVelocity > 0.3 && authorStarred < 0.2 && topicMatch < 0.2
         }
-        .shuffled()  // Randomize to avoid always showing same papers
-        .prefix(10)  // Limit pool size
+        .shuffled()
+        .prefix(10)
         .map { ($0, $1) }
     }
 
@@ -281,22 +274,18 @@ public actor RecommendationEngine {
             let rawValue = rawFeatures[feature] ?? 0.0
             var weight = weights[feature] ?? feature.defaultWeight
 
-            // Adjust weights based on engine type
             switch engineType {
             case .classic:
-                // Classic mode: ignore librarySimilarity
                 if feature == .librarySimilarity {
                     weight = 0.0
                 }
             case .semantic:
-                // Semantic mode: heavily weight librarySimilarity, reduce others
                 if feature == .librarySimilarity {
-                    weight = weight * 2.0  // Boost semantic similarity
+                    weight = weight * 2.0
                 } else if !feature.isNegativeFeature {
-                    weight = weight * 0.5  // Reduce other positive features
+                    weight = weight * 0.5
                 }
             case .hybrid:
-                // Hybrid: use weights as-is (balanced)
                 break
             }
 
@@ -305,7 +294,6 @@ public actor RecommendationEngine {
             total += contribution
         }
 
-        // Generate explanation from top contributors
         let explanation = generateExplanation(breakdown: breakdown, engineType: engineType)
 
         return RecommendationScore(
@@ -327,7 +315,6 @@ public actor RecommendationEngine {
 
         var reasons = topPositive.map { $0.key.displayName }
 
-        // Add engine type indicator for semantic/hybrid
         switch engineType {
         case .semantic:
             if breakdown[.librarySimilarity] ?? 0 > 0.1 {
@@ -347,28 +334,20 @@ public actor RecommendationEngine {
     // MARK: - Embedding Index Management
 
     /// Build the embedding index for semantic/hybrid recommendation modes.
-    ///
-    /// Call this when switching to semantic or hybrid mode, or when the library changes.
-    /// - Parameter library: The library to index
-    /// - Returns: Number of publications indexed
     @discardableResult
-    public func buildEmbeddingIndex(from library: CDLibrary) async -> Int {
-        let count = await embeddingService.buildIndex(from: library)
+    public func buildEmbeddingIndex(from libraryID: UUID) async -> Int {
+        let count = await embeddingService.buildIndex(from: libraryID)
         await invalidateCache()
         Logger.recommendation.info("Built embedding index with \(count) publications")
         return count
     }
 
     /// Build the embedding index from multiple libraries.
-    ///
-    /// Use this to index all libraries except system libraries like "Dismissed".
-    /// - Parameter libraries: The libraries to index
-    /// - Returns: Number of publications indexed
     @discardableResult
-    public func buildEmbeddingIndex(from libraries: [CDLibrary]) async -> Int {
-        let count = await embeddingService.buildIndex(from: libraries)
+    public func buildEmbeddingIndex(from libraryIDs: [UUID]) async -> Int {
+        let count = await embeddingService.buildIndex(from: libraryIDs)
         await invalidateCache()
-        Logger.recommendation.info("Built embedding index with \(count) publications from \(libraries.count) libraries")
+        Logger.recommendation.info("Built embedding index with \(count) publications from \(libraryIDs.count) libraries")
         return count
     }
 
@@ -388,100 +367,56 @@ public actor RecommendationEngine {
     // MARK: - "For You" Recommendations
 
     /// Generate personalized "For You" recommendations.
-    ///
-    /// Uses multiple signals to suggest papers the user should read next:
-    /// - Semantic similarity to recently read papers
-    /// - Citation graph connections to library papers
-    /// - Recency (new papers in active research areas)
-    /// - Reading history patterns (topics, authors)
-    ///
-    /// - Parameters:
-    ///   - candidates: Pool of papers to recommend from (e.g., inbox, exploration results)
-    ///   - recentlyRead: Papers the user has recently read (for similarity)
-    ///   - limit: Maximum number of recommendations
-    /// - Returns: Array of recommended papers with explanations
     public func forYouRecommendations(
-        candidates: [CDPublication],
-        recentlyRead: [CDPublication],
+        candidateIDs: [UUID],
+        recentlyReadIDs: Set<UUID>,
         limit: Int = 10
     ) async -> [ForYouRecommendation] {
-        guard !candidates.isEmpty else { return [] }
+        guard !candidateIDs.isEmpty else { return [] }
 
         let settings = await settingsStore.settings()
         let engineType = settings.engineType
         var recommendations: [ForYouRecommendation] = []
 
-        // Extract IDs on main actor
-        let candidateIDs = await MainActor.run { candidates.map { $0.id } }
-        let recentIDs = await MainActor.run { Set(recentlyRead.map { $0.id }) }
-
         // Score each candidate
-        var scored: [(CDPublication, UUID, Double, String)] = []
+        var scored: [(UUID, Double, String)] = []
 
-        for (index, candidate) in candidates.enumerated() {
-            let candidateID = candidateIDs[index]
-
+        for candidateID in candidateIDs {
             // Skip papers already in recently read
-            if recentIDs.contains(candidateID) { continue }
+            if recentlyReadIDs.contains(candidateID) { continue }
 
             // Compute base score
-            let baseScore = await score(candidate)
+            let baseScore = await score(candidateID)
 
             // Compute similarity to recently read papers (if semantic mode)
             var similarityBoost = 0.0
-            var similarTo: String? = nil
+            var reason = baseScore.explanation
 
-            if engineType.requiresEmbeddings && !recentlyRead.isEmpty {
-                let similarResults = await embeddingService.findSimilar(to: candidate, topK: 3)
-
-                // Check if any similar papers are in recently read
-                for result in similarResults {
-                    if let recentPub = recentlyRead.first(where: { $0.id.uuidString == result.publicationId }) {
-                        let title = await MainActor.run { recentPub.title ?? "Unknown" }
-                        similarityBoost = max(similarityBoost, Double(result.similarity) * 0.5)
-                        if result.similarity > 0.5 {
-                            similarTo = title
-                        }
+            if engineType.requiresEmbeddings && !recentlyReadIDs.isEmpty {
+                let hasIndex = await embeddingService.hasIndex
+                if hasIndex {
+                    let simScore = await embeddingService.similarityScore(for: candidateID)
+                    similarityBoost = simScore * 0.5
+                    if simScore > 0.5 {
+                        reason = "Related to your recent reading"
                     }
                 }
             }
 
-            // Combine scores
             let finalScore = baseScore.total + similarityBoost
-
-            // Generate reason
-            var reason = baseScore.explanation
-            if let similar = similarTo {
-                reason = "Similar to '\(similar.prefix(30))...'"
-            } else if similarityBoost > 0.1 {
-                reason = "Related to your recent reading"
-            }
-
-            scored.append((candidate, candidateID, finalScore, reason))
+            scored.append((candidateID, finalScore, reason))
         }
 
         // Sort by score descending
-        scored.sort { $0.2 > $1.2 }
+        scored.sort { $0.1 > $1.1 }
 
-        // Take top recommendations with diversity
-        var selectedIDs: Set<UUID> = []
-        var selectedAuthors: [String: Int] = [:]
-
-        for (candidate, candidateID, score, reason) in scored {
+        // Take top recommendations
+        for (candidateID, candidateScore, reason) in scored {
             guard recommendations.count < limit else { break }
-
-            // Diversity: limit papers from same author
-            let firstAuthor = await MainActor.run {
-                candidate.sortedAuthors.first?.familyName ?? ""
-            }
-            if selectedAuthors[firstAuthor, default: 0] >= 2 { continue }
-
-            selectedIDs.insert(candidateID)
-            selectedAuthors[firstAuthor, default: 0] += 1
 
             recommendations.append(ForYouRecommendation(
                 publicationID: candidateID,
-                score: score,
+                score: candidateScore,
                 reason: reason
             ))
         }
@@ -492,48 +427,31 @@ public actor RecommendationEngine {
     }
 
     /// Get "For You" recommendations based on the user's library.
-    ///
-    /// Convenience method that uses recently read papers from the library
-    /// and unread papers as candidates.
-    ///
-    /// - Parameters:
-    ///   - library: The user's library
-    ///   - limit: Maximum number of recommendations
-    /// - Returns: Array of recommended papers
     public func forYouFromLibrary(
-        _ library: CDLibrary,
+        _ libraryID: UUID,
         limit: Int = 10
     ) async -> [ForYouRecommendation] {
-        // Get recently read and unread papers
-        let (recentlyRead, unread) = await MainActor.run {
-            let allPubs = Array(library.publications ?? [])
+        // Get all publications in the library
+        let allPubs = await withStore({ $0.queryPublications(parentId: libraryID) })
 
-            // Recently read: read in last 30 days
-            let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 3600)
-            let recent = allPubs.filter { pub in
-                pub.isRead && (pub.dateModified ?? .distantPast) > thirtyDaysAgo
-            }.sorted {
-                ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }.prefix(20)
+        // Recently read: read in last 30 days
+        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 3600)
+        let recentlyReadIDs = Set(allPubs
+            .filter { $0.isRead && $0.dateModified > thirtyDaysAgo }
+            .map(\.id))
 
-            // Unread papers
-            let unreadPubs = allPubs.filter { !$0.isRead }
-
-            return (Array(recent), unreadPubs)
-        }
+        // Unread papers
+        let unreadIDs = allPubs.filter { !$0.isRead }.map(\.id)
 
         return await forYouRecommendations(
-            candidates: unread,
-            recentlyRead: recentlyRead,
+            candidateIDs: unreadIDs,
+            recentlyReadIDs: recentlyReadIDs,
             limit: limit
         )
     }
 
     // MARK: - Cache Management
 
-    /// Invalidate the ranking cache.
-    ///
-    /// Called automatically when training events occur.
     public func invalidateCache() async {
         cachedRanking.removeAll()
         lastRankDate = nil
@@ -541,33 +459,66 @@ public actor RecommendationEngine {
         Logger.recommendation.debug("Recommendation cache invalidated")
     }
 
-    /// Clear cache for a specific publication.
     public func invalidateCache(for publicationID: UUID) async {
         cachedRanking.removeValue(forKey: publicationID)
     }
 
     // MARK: - Profile Access
 
-    private func getGlobalProfile() async -> CDRecommendationProfile? {
-        return await MainActor.run {
-            let context = persistenceController.viewContext
-            let request = NSFetchRequest<CDRecommendationProfile>(entityName: "RecommendationProfile")
-            request.predicate = NSPredicate(format: "library == nil")
-            request.fetchLimit = 1
-
-            return try? context.fetch(request).first
-        }
+    private func getRecommendationProfile() async -> RecommendationProfile? {
+        guard let defaultLib = await withStore({ $0.getDefaultLibrary() }) else { return nil }
+        guard let json = await withStore({ $0.getRecommendationProfile(libraryId: defaultLib.id) }) else { return nil }
+        return RecommendationProfile.fromJSON(json)
     }
 
-    private func getDefaultLibrary() async -> CDLibrary? {
-        return await MainActor.run {
-            let context = persistenceController.viewContext
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            request.predicate = NSPredicate(format: "isDefault == YES")
-            request.fetchLimit = 1
+    private func getDefaultLibraryPublications() async -> [PublicationRowData] {
+        guard let defaultLib = await withStore({ $0.getDefaultLibrary() }) else { return [] }
+        return await withStore({ $0.queryPublications(parentId: defaultLib.id) })
+    }
+}
 
-            return try? context.fetch(request).first
-        }
+// MARK: - Recommendation Profile (replaces CDRecommendationProfile)
+
+/// In-memory profile structure backed by RustStoreAdapter JSON storage.
+public struct RecommendationProfile: Codable, Sendable {
+    public var authorAffinities: [String: Double]
+    public var venueAffinities: [String: Double]
+    public var topicAffinities: [String: Double]
+    public var trainingEvents: [TrainingEvent]
+    public var lastUpdated: Date
+
+    public var isColdStart: Bool {
+        authorAffinities.isEmpty && venueAffinities.isEmpty && topicAffinities.isEmpty
+    }
+
+    public init() {
+        self.authorAffinities = [:]
+        self.venueAffinities = [:]
+        self.topicAffinities = [:]
+        self.trainingEvents = []
+        self.lastUpdated = Date()
+    }
+
+    public func authorAffinity(for name: String) -> Double {
+        authorAffinities[name.lowercased()] ?? 0
+    }
+
+    public func venueAffinity(for venue: String) -> Double {
+        venueAffinities[venue.lowercased()] ?? 0
+    }
+
+    public func topicAffinity(for topic: String) -> Double {
+        topicAffinities[topic.lowercased()] ?? 0
+    }
+
+    public func toJSON() -> String? {
+        guard let data = try? JSONEncoder().encode(self) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    public static func fromJSON(_ json: String) -> RecommendationProfile? {
+        guard let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(RecommendationProfile.self, from: data)
     }
 }
 

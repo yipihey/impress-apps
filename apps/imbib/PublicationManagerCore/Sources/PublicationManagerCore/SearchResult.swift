@@ -239,6 +239,54 @@ public extension SearchResult {
         // Handle "First Last" format
         return first.components(separatedBy: " ").last
     }
+
+    /// Synthesize a BibTeX string from this search result.
+    func toBibTeX(abstractOverride: String? = nil) -> String {
+        // Generate a cite key
+        let lastName = firstAuthorLastName ?? "Unknown"
+        let yearStr = year.map { "\($0)" } ?? ""
+        let titleWord = title
+            .components(separatedBy: .whitespaces)
+            .first(where: { $0.count > 3 }) ?? "paper"
+        let citeKey = "\(lastName)\(yearStr)\(titleWord)"
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+
+        var fields: [(String, String)] = []
+        fields.append(("title", "{\(title)}"))
+        if !authors.isEmpty {
+            fields.append(("author", "{\(authors.joined(separator: " and "))}"))
+        }
+        if let y = year {
+            fields.append(("year", "{\(y)}"))
+        }
+        if let venue {
+            fields.append(("journal", "{\(venue)}"))
+        }
+        if let abs = abstractOverride ?? abstract {
+            fields.append(("abstract", "{\(abs)}"))
+        }
+        if let doi {
+            fields.append(("doi", "{\(doi)}"))
+        }
+        if let arxivID {
+            fields.append(("eprint", "{\(arxivID)}"))
+            fields.append(("archiveprefix", "{arXiv}"))
+        }
+        if let bibcode {
+            fields.append(("bibcode", "{\(bibcode)}"))
+        }
+        if let pmid {
+            fields.append(("pmid", "{\(pmid)}"))
+        }
+
+        var lines = ["@article{\(citeKey),"]
+        for (key, value) in fields {
+            lines.append("  \(key) = \(value),")
+        }
+        lines.append("}")
+        return lines.joined(separator: "\n")
+    }
 }
 
 // MARK: - Identifier Type

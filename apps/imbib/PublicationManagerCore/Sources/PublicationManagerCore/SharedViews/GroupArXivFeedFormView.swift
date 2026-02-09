@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 import OSLog
 
 #if os(macOS)
@@ -47,7 +46,7 @@ public struct GroupArXivFeedFormView: View {
 
     // MARK: - Edit Mode State
 
-    @State private var editingFeed: CDSmartSearch?
+    @State private var editingFeed: SmartSearch?
 
     var isEditMode: Bool {
         editingFeed != nil
@@ -184,7 +183,7 @@ public struct GroupArXivFeedFormView: View {
         }
         .background(Color(nsColor: .controlBackgroundColor))
         .onReceive(NotificationCenter.default.publisher(for: .editGroupArXivFeed)) { notification in
-            if let feed = notification.object as? CDSmartSearch {
+            if let feed = notification.object as? SmartSearch {
                 loadFeedForEditing(feed)
             }
         }
@@ -320,15 +319,17 @@ public struct GroupArXivFeedFormView: View {
                 // Create the smart search using the inbox feed factory method
                 // Group feeds are always inbox feeds with auto-refresh
                 // Use formMaxResults if > 0, otherwise pass nil to use default
-                let maxResultsParam: Int16? = formMaxResults > 0 ? Int16(formMaxResults) : nil
-                let smartSearch = SmartSearchRepository.shared.createInboxFeed(
+                let maxResultsParam: Int? = formMaxResults > 0 ? formMaxResults : nil
+                guard let smartSearch = SmartSearchRepository.shared.createInboxFeed(
                     name: effectiveFeedName,
                     query: query,
                     sourceIDs: ["arxiv"],
                     maxResults: maxResultsParam,
                     refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
                     isGroupFeed: true
-                )
+                ) else {
+                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create inbox feed"])
+                }
 
                 Logger.viewModels.infoCapture(
                     "Created group arXiv feed '\(smartSearch.name)' with \(parsedAuthors.count) authors and \(selectedCategories.count) categories",
@@ -361,10 +362,10 @@ public struct GroupArXivFeedFormView: View {
         }
     }
 
-    private func executeInitialFetch(_ smartSearch: CDSmartSearch) async {
+    private func executeInitialFetch(_ smartSearch: SmartSearch) async {
         // Use GroupFeedRefreshService for staggered searches
         do {
-            let fetchedCount = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+            let fetchedCount = try await GroupFeedRefreshService.shared.refreshGroupFeedByID(smartSearch.id)
             Logger.viewModels.infoCapture(
                 "Initial group feed fetch complete: \(fetchedCount) papers added to Inbox",
                 category: "feed"
@@ -384,33 +385,18 @@ public struct GroupArXivFeedFormView: View {
         // Build the group feed query
         let query = buildGroupFeedQuery()
 
-        // Update the feed
-        feed.name = effectiveFeedName
-        feed.query = query
-        feed.isGroupFeed = true
-        feed.maxResults = Int16(formMaxResults)
+        // Update the feed via RustStoreAdapter
+        RustStoreAdapter.shared.updateSmartSearch(feed.id, name: effectiveFeedName, query: query, maxResults: Int16(formMaxResults))
+        Logger.viewModels.infoCapture("Updated group arXiv feed '\(effectiveFeedName)'", category: "feed")
 
-        // Update the result collection name too
-        feed.resultCollection?.name = effectiveFeedName
+        // Notify sidebar
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
 
-        // Save
-        do {
-            try PersistenceController.shared.viewContext.save()
-            Logger.viewModels.infoCapture("Updated group arXiv feed '\(feed.name)'", category: "feed")
-
-            // Notify sidebar
-            NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
-
-            // Exit edit mode
-            exitEditMode()
-        } catch {
-            Logger.viewModels.errorCapture("Failed to save group feed: \(error.localizedDescription)", category: "feed")
-            errorMessage = error.localizedDescription
-            showError = true
-        }
+        // Exit edit mode
+        exitEditMode()
     }
 
-    private func loadFeedForEditing(_ feed: CDSmartSearch) {
+    private func loadFeedForEditing(_ feed: SmartSearch) {
         editingFeed = feed
         feedName = feed.name
 
@@ -423,7 +409,7 @@ public struct GroupArXivFeedFormView: View {
         includeCrossListed = !feed.query.contains("crosslist:false")
 
         // Load maxResults from the feed
-        formMaxResults = Int(feed.maxResults)
+        formMaxResults = feed.maxResults
 
         Logger.viewModels.infoCapture(
             "Loaded group feed '\(feed.name)' for editing with \(authors.count) authors and \(categories.count) categories",
@@ -512,7 +498,7 @@ public struct GroupArXivFeedFormView: View {
 
     // MARK: - Edit Mode State
 
-    @State private var editingFeed: CDSmartSearch?
+    @State private var editingFeed: SmartSearch?
 
     var isEditMode: Bool {
         editingFeed != nil
@@ -656,7 +642,7 @@ public struct GroupArXivFeedFormView: View {
         }
         .navigationTitle(isEditMode ? "Edit Group Feed" : "Group Feed")
         .onReceive(NotificationCenter.default.publisher(for: .editGroupArXivFeed)) { notification in
-            if let feed = notification.object as? CDSmartSearch {
+            if let feed = notification.object as? SmartSearch {
                 loadFeedForEditing(feed)
             }
         }
@@ -710,15 +696,17 @@ public struct GroupArXivFeedFormView: View {
                 // Create the smart search using the inbox feed factory method
                 // Group feeds are always inbox feeds with auto-refresh
                 // Use formMaxResults if > 0, otherwise pass nil to use default
-                let maxResultsParam: Int16? = formMaxResults > 0 ? Int16(formMaxResults) : nil
-                let smartSearch = SmartSearchRepository.shared.createInboxFeed(
+                let maxResultsParam: Int? = formMaxResults > 0 ? formMaxResults : nil
+                guard let smartSearch = SmartSearchRepository.shared.createInboxFeed(
                     name: effectiveFeedName,
                     query: query,
                     sourceIDs: ["arxiv"],
                     maxResults: maxResultsParam,
                     refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
                     isGroupFeed: true
-                )
+                ) else {
+                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create inbox feed"])
+                }
 
                 Logger.viewModels.infoCapture(
                     "Created group arXiv feed '\(smartSearch.name)' with \(parsedAuthors.count) authors and \(selectedCategories.count) categories",
@@ -748,9 +736,9 @@ public struct GroupArXivFeedFormView: View {
         }
     }
 
-    private func executeInitialFetch(_ smartSearch: CDSmartSearch) async {
+    private func executeInitialFetch(_ smartSearch: SmartSearch) async {
         do {
-            let fetchedCount = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+            let fetchedCount = try await GroupFeedRefreshService.shared.refreshGroupFeedByID(smartSearch.id)
             Logger.viewModels.infoCapture(
                 "Initial group feed fetch complete: \(fetchedCount) papers added to Inbox",
                 category: "feed"
@@ -769,25 +757,18 @@ public struct GroupArXivFeedFormView: View {
 
         let query = buildGroupFeedQuery()
 
-        feed.name = effectiveFeedName
-        feed.query = query
-        feed.isGroupFeed = true
-        feed.maxResults = Int16(formMaxResults)
-        feed.resultCollection?.name = effectiveFeedName
+        // Update the feed via RustStoreAdapter
+        RustStoreAdapter.shared.updateSmartSearch(feed.id, name: effectiveFeedName, query: query, maxResults: Int16(formMaxResults))
+        Logger.viewModels.infoCapture("Updated group arXiv feed '\(effectiveFeedName)'", category: "feed")
 
-        do {
-            try PersistenceController.shared.viewContext.save()
-            Logger.viewModels.infoCapture("Updated group arXiv feed '\(feed.name)'", category: "feed")
-            NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
-            exitEditMode()
-        } catch {
-            Logger.viewModels.errorCapture("Failed to save group feed: \(error.localizedDescription)", category: "feed")
-            errorMessage = error.localizedDescription
-            showError = true
-        }
+        // Notify sidebar
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+
+        // Exit edit mode
+        exitEditMode()
     }
 
-    private func loadFeedForEditing(_ feed: CDSmartSearch) {
+    private func loadFeedForEditing(_ feed: SmartSearch) {
         editingFeed = feed
         feedName = feed.name
 
@@ -796,7 +777,7 @@ public struct GroupArXivFeedFormView: View {
         selectedCategories = categories
 
         includeCrossListed = !feed.query.contains("crosslist:false")
-        formMaxResults = Int(feed.maxResults)
+        formMaxResults = feed.maxResults
 
         Logger.viewModels.infoCapture(
             "Loaded group feed '\(feed.name)' for editing with \(authors.count) authors and \(categories.count) categories",
@@ -854,6 +835,6 @@ public struct GroupArXivFeedFormView: View {
 // MARK: - Notifications
 
 public extension Notification.Name {
-    /// Posted when a group feed should be edited (object is CDSmartSearch)
+    /// Posted when a group feed should be edited (object is SmartSearch)
     static let editGroupArXivFeed = Notification.Name("editGroupArXivFeed")
 }

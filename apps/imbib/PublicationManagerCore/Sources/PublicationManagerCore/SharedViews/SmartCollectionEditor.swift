@@ -15,7 +15,7 @@ public struct SmartCollectionEditor: View {
     // MARK: - Properties
 
     @Binding var isPresented: Bool
-    let collection: CDCollection?
+    let collection: CollectionModel?
     let onSave: (String, String) -> Void  // (name, predicate)
 
     @State private var name: String = ""
@@ -26,7 +26,7 @@ public struct SmartCollectionEditor: View {
 
     public init(
         isPresented: Binding<Bool>,
-        collection: CDCollection? = nil,
+        collection: CollectionModel? = nil,
         onSave: @escaping (String, String) -> Void
     ) {
         self._isPresented = isPresented
@@ -120,15 +120,9 @@ public struct SmartCollectionEditor: View {
         }
 
         name = collection.name
-
-        // Parse existing predicate
-        if let predicate = collection.predicate {
-            let parsed = SmartCollectionRule.parse(predicate: predicate)
-            matchType = parsed.matchType
-            rules = parsed.rules.isEmpty ? [SmartCollectionRule()] : parsed.rules
-        } else {
-            rules = [SmartCollectionRule()]
-        }
+        // Smart collections in the Rust store use queries, not NSPredicate strings.
+        // Start with a default empty rule for the editor.
+        rules = [SmartCollectionRule()]
     }
 
     private func buildPredicate() -> String {
@@ -186,7 +180,6 @@ public struct SmartCollectionRule: Identifiable {
         let escapedValue = value.replacingOccurrences(of: "'", with: "\\'")
 
         // Fields stored in rawFields JSON need special handling
-        // We search the JSON string directly since Core Data can't query JSON fields
         if field.isStoredInRawFields {
             switch comparison {
             case .contains:
@@ -202,7 +195,7 @@ public struct SmartCollectionRule: Identifiable {
             }
         }
 
-        // Direct Core Data attributes
+        // Direct attributes
         switch comparison {
         case .contains:
             return "\(fieldKey) CONTAINS[cd] '\(escapedValue)'"
@@ -325,7 +318,7 @@ public enum RuleField: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether this field is stored in rawFields JSON (vs direct Core Data attribute)
+    /// Whether this field is stored in rawFields JSON (vs direct attribute)
     public var isStoredInRawFields: Bool {
         switch self {
         case .author, .journal, .keywords:
@@ -335,7 +328,7 @@ public enum RuleField: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The Core Data attribute key or rawFields key
+    /// The attribute key or rawFields key
     public var predicateKey: String {
         switch self {
         case .title: return "title"

@@ -424,30 +424,30 @@ public struct GlobalSearchPaletteView: View {
 
     /// Menu for a single library with its collections
     @ViewBuilder
-    private func libraryMenu(for library: CDLibrary) -> some View {
-        let collections = (library.collections ?? [])
-            .filter { !$0.isSystemCollection && !$0.isSmartSearchResults }
+    private func libraryMenu(for library: LibraryModel) -> some View {
+        let collections = RustStoreAdapter.shared.listCollections(libraryId: library.id)
+            .filter { !$0.isSmart }
             .sorted { $0.name < $1.name }
 
         if collections.isEmpty {
             // No collections - just a button
             Button {
-                viewModel.selectScope(.library(library.id, library.displayName))
+                viewModel.selectScope(.library(library.id, library.name))
             } label: {
-                Label(library.displayName, systemImage: "books.vertical")
+                Label(library.name, systemImage: "books.vertical")
             }
         } else {
             // Has collections - show as submenu
-            Menu(library.displayName) {
+            Menu(library.name) {
                 Button {
-                    viewModel.selectScope(.library(library.id, library.displayName))
+                    viewModel.selectScope(.library(library.id, library.name))
                 } label: {
-                    Label("All in \(library.displayName)", systemImage: "books.vertical")
+                    Label("All in \(library.name)", systemImage: "books.vertical")
                 }
 
                 Divider()
 
-                ForEach(Array(collections), id: \.id) { collection in
+                ForEach(collections, id: \.id) { collection in
                     Button {
                         viewModel.selectScope(.collection(collection.id, collection.name))
                     } label: {
@@ -461,8 +461,9 @@ public struct GlobalSearchPaletteView: View {
     /// Smart searches section for the scope picker
     @ViewBuilder
     private var smartSearchesSection: some View {
-        let allSmartSearches = libraryManager.libraries.flatMap { library in
-            (library.smartSearches ?? []).map { ($0, library) }
+        let allSmartSearches: [(SmartSearch, LibraryModel)] = libraryManager.libraries.flatMap { library -> [(SmartSearch, LibraryModel)] in
+            let searches = SmartSearchRepository.shared.smartSearches(for: library.id)
+            return searches.map { ($0, library) }
         }
         .sorted { $0.0.name < $1.0.name }
 

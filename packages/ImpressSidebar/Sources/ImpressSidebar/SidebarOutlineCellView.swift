@@ -181,6 +181,39 @@ public final class SidebarOutlineCellView: NSTableCellView {
         }
     }
 
+    // MARK: - Group Item Configuration
+
+    /// Configure the cell as a group item (section header).
+    ///
+    /// Displays bold uppercase text with secondary color, no icon or badge.
+    /// Matches NSOutlineView source list group row styling.
+    public func configureAsGroup(displayName: String) {
+        for view in stackView.arrangedSubviews {
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        // Remove old tree line labels
+        for label in treeLineLabels {
+            label.removeFromSuperview()
+        }
+        treeLineLabels.removeAll()
+
+        // Leading spacer — enough room after the left-side disclosure chevron
+        let leadingSpacer = NSView()
+        leadingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        leadingSpacer.widthAnchor.constraint(equalToConstant: 6).isActive = true
+        stackView.addArrangedSubview(leadingSpacer)
+
+        // Bold uppercase text
+        nameField.stringValue = displayName.uppercased()
+        nameField.font = .systemFont(ofSize: 11, weight: .bold)
+        nameField.textColor = .secondaryLabelColor
+        stackView.addArrangedSubview(nameField)
+
+        badgeContainer.isHidden = true
+    }
+
     // MARK: - Tree Lines
 
     private func configureTreeLines(

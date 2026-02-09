@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import CoreData
 
 #if os(macOS)
 import AppKit
@@ -28,12 +27,14 @@ public struct AnnotationTimelineView: View {
 
     // MARK: - Properties
 
-    let publication: CDPublication
+    let publicationID: UUID
 
     @State private var annotations: [TimelineAnnotation] = []
     @State private var isLoading = true
     @State private var filterSource: SourceFilter = .all
     @State private var filterType: TypeFilter = .all
+
+    private let store = RustStoreAdapter.shared
 
     // MARK: - Filter Types
 
@@ -52,8 +53,8 @@ public struct AnnotationTimelineView: View {
 
     // MARK: - Initialization
 
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -178,39 +179,14 @@ public struct AnnotationTimelineView: View {
 
         var timeline: [TimelineAnnotation] = []
 
-        // Load local PDF annotations
-        await MainActor.run {
-            if let linkedFiles = publication.linkedFiles {
-                for file in linkedFiles where file.isPDF {
-                    if let cdAnnotations = file.annotations {
-                        timeline += cdAnnotations.map { TimelineAnnotation(from: $0) }
-                    }
-                }
+        // Load annotations from all linked PDF files
+        let linkedFiles = store.listLinkedFiles(publicationId: publicationID)
+        for file in linkedFiles where file.isPDF {
+            let fileAnnotations = store.listAnnotations(linkedFileId: file.id)
+            for annotation in fileAnnotations {
+                let source: TimelineAnnotation.Source = annotation.authorName == "reMarkable" ? .remarkable : .local
+                timeline.append(TimelineAnnotation(from: annotation, source: source))
             }
-        }
-
-        // Load reMarkable annotations
-        let context = await MainActor.run {
-            PersistenceController.shared.viewContext
-        }
-
-        let request = NSFetchRequest<CDRemarkableDocument>(entityName: "RemarkableDocument")
-        request.predicate = NSPredicate(format: "publication == %@", publication)
-
-        do {
-            let documents = try await MainActor.run {
-                try context.fetch(request)
-            }
-
-            if let rmDoc = documents.first {
-                let rmAnnotations = await MainActor.run {
-                    rmDoc.sortedAnnotations
-                }
-                timeline += rmAnnotations.map { TimelineAnnotation(from: $0) }
-            }
-        } catch {
-            // Log error but continue with whatever we have
-            print("Failed to load reMarkable annotations: \(error)")
         }
 
         // Sort by date (newest first)
@@ -236,28 +212,16 @@ struct TimelineAnnotation: Identifiable {
         case remarkable
     }
 
-    /// Create from a local CDAnnotation.
-    init(from cdAnnotation: CDAnnotation) {
-        id = cdAnnotation.id
-        type = cdAnnotation.annotationType
-        text = cdAnnotation.selectedText ?? cdAnnotation.contents ?? ""
-        pageNumber = Int(cdAnnotation.pageNumber)
-        date = cdAnnotation.dateCreated
-        source = .local
-        color = cdAnnotation.color
+    /// Create from an AnnotationModel.
+    init(from annotation: AnnotationModel, source: Source) {
+        id = annotation.id
+        type = annotation.annotationType
+        text = annotation.selectedText ?? annotation.contents ?? ""
+        pageNumber = annotation.pageNumber
+        date = annotation.dateCreated
+        self.source = source
+        color = annotation.color
         hasStrokeData = false
-    }
-
-    /// Create from a reMarkable annotation.
-    init(from rmAnnotation: CDRemarkableAnnotation) {
-        id = rmAnnotation.id
-        type = rmAnnotation.annotationType
-        text = rmAnnotation.ocrText ?? ""
-        pageNumber = Int(rmAnnotation.pageNumber)
-        date = rmAnnotation.dateImported
-        source = .remarkable
-        color = rmAnnotation.color
-        hasStrokeData = rmAnnotation.strokeDataCompressed != nil
     }
 }
 
@@ -281,7 +245,7 @@ struct AnnotationTimelineRow: View {
                         .font(.caption.bold())
                         .foregroundStyle(typeColor)
 
-                    Text("•")
+                    Text("*")
                         .foregroundStyle(.secondary)
 
                     Text("Page \(annotation.pageNumber + 1)")

@@ -624,30 +624,23 @@ extension ADSSource: BrowserURLProvider {
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
-        // Priority 1: Direct publisher PDF URLs (not gateway URLs)
-        // These load the PDF directly without going through landing pages
-        for link in publication.pdfLinks {
-            if link.type == .publisher,
-               isDirectPDFURL(link.url),
-               !isGatewayURL(link.url) {
-                Logger.pdfBrowser.debug("ADS: Using direct publisher PDF: \(link.url.absoluteString)")
-                return link.url
-            }
-        }
-
-        // Priority 2: DOI resolver - redirects to publisher
-        // User will need to navigate from landing page to PDF
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        // Priority 1: DOI resolver - redirects to publisher
         if let doi = publication.doi, !doi.isEmpty {
             Logger.pdfBrowser.debug("ADS: Using DOI resolver for: \(doi)")
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Priority 3: ADS abstract page - shows all available full text sources
-        // This always works and lets user choose from available links
+        // Priority 2: ADS abstract page - shows all available full text sources
         if let bibcode = publication.bibcode {
             Logger.pdfBrowser.debug("ADS: Using abstract page for bibcode: \(bibcode)")
             return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract")
+        }
+
+        // Priority 3: arXiv PDF if available
+        if let arxivID = publication.arxivID, !arxivID.isEmpty {
+            Logger.pdfBrowser.debug("ADS: Using arXiv PDF for: \(arxivID)")
+            return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
         }
 
         return nil

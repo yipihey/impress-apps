@@ -4,10 +4,9 @@
 //
 
 import Foundation
-import CoreData
 import ImpressFTUI
 
-/// Parsed local filter that can be applied to `[CDPublication]`.
+/// Parsed local filter that can be applied to `[PublicationRowData]`.
 ///
 /// Mirrors the Rust `ReferenceFilter` syntax:
 /// ```
@@ -95,7 +94,7 @@ public final class LocalFilterService {
     }
 
     /// Apply a filter to a list of publications, returning only those that match.
-    public func apply(_ filter: LocalFilter, to publications: [CDPublication]) -> [CDPublication] {
+    public func apply(_ filter: LocalFilter, to publications: [PublicationRowData]) -> [PublicationRowData] {
         guard !filter.isEmpty else { return publications }
 
         return publications.filter { pub in
@@ -105,16 +104,14 @@ public final class LocalFilterService {
 
     // MARK: - Private
 
-    private func matches(_ pub: CDPublication, filter: LocalFilter) -> Bool {
+    private func matches(_ pub: PublicationRowData, filter: LocalFilter) -> Bool {
         // Text terms: all must match (AND) against title, authors, abstract, venue
         for term in filter.textTerms {
             let lower = term.lowercased()
-            let titleMatch = pub.title?.localizedCaseInsensitiveContains(lower) ?? false
+            let titleMatch = pub.title.localizedCaseInsensitiveContains(lower)
             let authorMatch = pub.authorString.localizedCaseInsensitiveContains(lower)
             let abstractMatch = pub.abstract?.localizedCaseInsensitiveContains(lower) ?? false
-            let fields = pub.fields
-            let venue = fields["journal"] ?? fields["booktitle"] ?? fields["publisher"] ?? ""
-            let venueMatch = venue.localizedCaseInsensitiveContains(lower)
+            let venueMatch = (pub.venue ?? "").localizedCaseInsensitiveContains(lower)
             if !titleMatch && !authorMatch && !abstractMatch && !venueMatch {
                 return false
             }
@@ -125,32 +122,32 @@ public final class LocalFilterService {
             switch fq {
             case .pattern(let color, let style, let length):
                 // Must have a flag to match any pattern
-                guard pub.flagColor != nil else { return false }
-                if let c = color { guard pub.flagColor == c.rawValue else { return false } }
-                if let s = style { guard pub.flagStyle == s.rawValue else { return false } }
-                if let l = length { guard pub.flagLength == l.rawValue else { return false } }
+                guard let f = pub.flag else { return false }
+                if let c = color { guard f.color == c else { return false } }
+                if let s = style { guard f.style == s else { return false } }
+                if let l = length { guard f.length == l else { return false } }
             case .hasAny:
-                guard pub.flagColor != nil else { return false }
+                guard pub.flag != nil else { return false }
             case .hasNone:
-                guard pub.flagColor == nil else { return false }
+                guard pub.flag == nil else { return false }
             }
         }
 
         // Tag queries: all must match (AND)
         for tq in filter.tagQueries {
-            let tags = pub.tags ?? []
+            let tags = pub.tagDisplays
             switch tq {
             case .has(let path):
                 let lower = path.lowercased()
                 let found = tags.contains { tag in
-                    (tag.canonicalPath ?? tag.name).lowercased().hasPrefix(lower)
+                    tag.path.lowercased().hasPrefix(lower)
                 }
                 guard found else { return false }
 
             case .hasNot(let path):
                 let lower = path.lowercased()
                 let found = tags.contains { tag in
-                    (tag.canonicalPath ?? tag.name).lowercased().hasPrefix(lower)
+                    tag.path.lowercased().hasPrefix(lower)
                 }
                 guard !found else { return false }
 
@@ -158,7 +155,7 @@ public final class LocalFilterService {
                 for path in paths {
                     let lower = path.lowercased()
                     let found = tags.contains { tag in
-                        (tag.canonicalPath ?? tag.name).lowercased().hasPrefix(lower)
+                        tag.path.lowercased().hasPrefix(lower)
                     }
                     guard found else { return false }
                 }

@@ -240,12 +240,17 @@ pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileR
     }
 }
 
+// Thread-local persistent renderer — fonts load once per thread, comemo caches persist.
+#[cfg(all(feature = "uniffi", feature = "typst-render"))]
+thread_local! {
+    static PERSISTENT_RENDERER: std::cell::RefCell<crate::render::PersistentTypstRenderer> =
+        std::cell::RefCell::new(crate::render::PersistentTypstRenderer::new());
+}
+
 /// Inner compilation function that may panic
 #[cfg(feature = "uniffi")]
 fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> CompileResult {
-    use crate::render::{
-        DefaultTypstRenderer, OutputFormat, PageSize, RenderOptions, TypstRenderer,
-    };
+    use crate::render::PageSize;
 
     let page_size = match options.page_size {
         FFIPageSize::Letter => PageSize::Letter,
@@ -253,7 +258,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
         FFIPageSize::A5 => PageSize::A5,
     };
 
-    let render_options = RenderOptions {
+    let render_options = crate::render::RenderOptions {
         page_size,
         font_size: options.font_size,
         margins: (
@@ -262,43 +267,85 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
             options.margin_bottom,
             options.margin_left,
         ),
-        output_format: OutputFormat::Pdf,
+        output_format: crate::render::OutputFormat::Pdf,
         font_paths: Vec::new(),
         include_metadata: true,
     };
 
-    let renderer = DefaultTypstRenderer::new();
+    // Use the persistent renderer for incremental compilation
+    #[cfg(feature = "typst-render")]
+    {
+        PERSISTENT_RENDERER.with(|cell| {
+            let mut renderer = cell.borrow_mut();
+            match renderer.render_pdf(&source, &render_options) {
+                Ok(output) => {
+                    if let Some(pdf_bytes) = output.as_pdf() {
+                        let source_map_entries =
+                            generate_source_map_entries(&source, &render_options);
 
-    match renderer.render(&source, &render_options) {
-        Ok(output) => {
-            if let Some(pdf_bytes) = output.as_pdf() {
-                // Generate source map entries from the source
-                let source_map_entries = generate_source_map_entries(&source, &render_options);
-
-                CompileResult {
-                    pdf_data: Some(pdf_bytes.to_vec()),
-                    error: None,
-                    warnings: Vec::new(),
-                    page_count: 1, // TODO: Extract actual page count from PDF
-                    source_map_entries,
+                        CompileResult {
+                            pdf_data: Some(pdf_bytes.to_vec()),
+                            error: None,
+                            warnings: Vec::new(),
+                            page_count: 1, // TODO: Extract actual page count from PDF
+                            source_map_entries,
+                        }
+                    } else {
+                        CompileResult {
+                            pdf_data: None,
+                            error: Some("Unexpected output format".to_string()),
+                            warnings: Vec::new(),
+                            page_count: 0,
+                            source_map_entries: Vec::new(),
+                        }
+                    }
                 }
-            } else {
-                CompileResult {
+                Err(e) => CompileResult {
                     pdf_data: None,
-                    error: Some("Unexpected output format".to_string()),
+                    error: Some(e.to_string()),
                     warnings: Vec::new(),
                     page_count: 0,
                     source_map_entries: Vec::new(),
+                },
+            }
+        })
+    }
+
+    // Fallback for when typst-render is not enabled
+    #[cfg(not(feature = "typst-render"))]
+    {
+        use crate::render::{DefaultTypstRenderer, TypstRenderer};
+        let renderer = DefaultTypstRenderer::new();
+        match renderer.render(&source, &render_options) {
+            Ok(output) => {
+                if let Some(pdf_bytes) = output.as_pdf() {
+                    let source_map_entries =
+                        generate_source_map_entries(&source, &render_options);
+                    CompileResult {
+                        pdf_data: Some(pdf_bytes.to_vec()),
+                        error: None,
+                        warnings: Vec::new(),
+                        page_count: 1,
+                        source_map_entries,
+                    }
+                } else {
+                    CompileResult {
+                        pdf_data: None,
+                        error: Some("Unexpected output format".to_string()),
+                        warnings: Vec::new(),
+                        page_count: 0,
+                        source_map_entries: Vec::new(),
+                    }
                 }
             }
+            Err(e) => CompileResult {
+                pdf_data: None,
+                error: Some(e.to_string()),
+                warnings: Vec::new(),
+                page_count: 0,
+                source_map_entries: Vec::new(),
+            },
         }
-        Err(e) => CompileResult {
-            pdf_data: None,
-            error: Some(e.to_string()),
-            warnings: Vec::new(),
-            page_count: 0,
-            source_map_entries: Vec::new(),
-        },
     }
 }
 
@@ -632,6 +679,117 @@ pub fn source_to_render_lookup(
 #[uniffi::export]
 pub fn compile_typst_to_pdf_default(source: String) -> CompileResult {
     compile_typst_to_pdf(source, CompileOptions::default())
+}
+
+/// Result of compiling a Typst document to SVG (one SVG string per page)
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct SvgCompileResult {
+    /// SVG strings, one per page
+    pub svg_pages: Vec<String>,
+    /// Number of pages in the output
+    pub page_count: u32,
+    /// Warning messages from compilation
+    pub warnings: Vec<String>,
+    /// Error message if compilation failed
+    pub error: Option<String>,
+    /// Source map entries for cursor synchronization
+    pub source_map_entries: Vec<FFISourceMapEntry>,
+}
+
+/// Compile Typst source code to SVG (one SVG string per page)
+///
+/// Uses the persistent renderer for incremental compilation.
+/// Each page is rendered as a separate SVG string.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn compile_typst_to_svg(source: String, options: CompileOptions) -> SvgCompileResult {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compile_typst_to_svg_inner(source, options)
+    }));
+
+    match result {
+        Ok(compile_result) => compile_result,
+        Err(panic_info) => {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic during Typst SVG compilation".to_string()
+            };
+            SvgCompileResult {
+                svg_pages: Vec::new(),
+                page_count: 0,
+                warnings: Vec::new(),
+                error: Some(format!("Internal error: {}", panic_msg)),
+                source_map_entries: Vec::new(),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "uniffi")]
+fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCompileResult {
+    use crate::render::PageSize;
+
+    let page_size = match options.page_size {
+        FFIPageSize::Letter => PageSize::Letter,
+        FFIPageSize::A4 => PageSize::A4,
+        FFIPageSize::A5 => PageSize::A5,
+    };
+
+    let render_options = crate::render::RenderOptions {
+        page_size,
+        font_size: options.font_size,
+        margins: (
+            options.margin_top,
+            options.margin_right,
+            options.margin_bottom,
+            options.margin_left,
+        ),
+        output_format: crate::render::OutputFormat::Svg,
+        font_paths: Vec::new(),
+        include_metadata: true,
+    };
+
+    #[cfg(feature = "typst-render")]
+    {
+        PERSISTENT_RENDERER.with(|cell| {
+            let mut renderer = cell.borrow_mut();
+            match renderer.render_svg(&source, &render_options) {
+                Ok((svg_pages, warnings, page_count)) => {
+                    let source_map_entries =
+                        generate_source_map_entries(&source, &render_options);
+                    SvgCompileResult {
+                        svg_pages,
+                        page_count,
+                        warnings,
+                        error: None,
+                        source_map_entries,
+                    }
+                }
+                Err(e) => SvgCompileResult {
+                    svg_pages: Vec::new(),
+                    page_count: 0,
+                    warnings: Vec::new(),
+                    error: Some(e.to_string()),
+                    source_map_entries: Vec::new(),
+                },
+            }
+        })
+    }
+
+    #[cfg(not(feature = "typst-render"))]
+    {
+        SvgCompileResult {
+            svg_pages: Vec::new(),
+            page_count: 0,
+            warnings: Vec::new(),
+            error: Some("SVG rendering requires the 'typst-render' feature".to_string()),
+            source_map_entries: Vec::new(),
+        }
+    }
 }
 
 /// Get source map entries for a compiled document

@@ -9,10 +9,10 @@ import SwiftUI
 import PublicationManagerCore
 
 /// iOS BibTeX tab for viewing and editing BibTeX entries.
+/// Uses RustStoreAdapter for all data access (no Core Data).
 struct IOSBibTeXTab: View {
-    let publication: CDPublication
+    let publicationID: UUID
 
-    @Environment(LibraryViewModel.self) private var viewModel
     @State private var bibtexContent: String = ""
     @State private var isEditing = false
     @State private var hasChanges = false
@@ -59,7 +59,7 @@ struct IOSBibTeXTab: View {
                 }
             }
         }
-        .onChange(of: publication.id, initial: true) { _, _ in
+        .onChange(of: publicationID, initial: true) { _, _ in
             loadBibTeX()
             isEditing = false
             hasChanges = false
@@ -82,9 +82,9 @@ struct IOSBibTeXTab: View {
     // MARK: - Private Methods
 
     private func loadBibTeX() {
-        // Generate BibTeX from the publication
-        let entry = publication.toBibTeXEntry()
-        bibtexContent = BibTeXExporter().export([entry])
+        let store = RustStoreAdapter.shared
+        let bibtex = store.exportBibTeX(ids: [publicationID])
+        bibtexContent = bibtex
     }
 
     private func saveBibTeX() {
@@ -99,8 +99,11 @@ struct IOSBibTeXTab: View {
                     return
                 }
 
-                // Update the publication
-                await viewModel.updateFromBibTeX(publication, entry: entry)
+                // Update via Rust store - update fields from the parsed entry
+                let store = RustStoreAdapter.shared
+                for (key, value) in entry.fields {
+                    store.updateField(id: publicationID, field: key, value: value)
+                }
 
                 await MainActor.run {
                     isEditing = false

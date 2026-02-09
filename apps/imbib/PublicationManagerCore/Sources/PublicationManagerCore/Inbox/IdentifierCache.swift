@@ -2,11 +2,10 @@
 //  IdentifierCache.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
+//  In-memory cache of publication identifiers for fast O(1) deduplication.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Identifier Cache
@@ -14,34 +13,14 @@ import OSLog
 /// In-memory cache of publication identifiers for fast O(1) deduplication.
 ///
 /// This cache dramatically improves performance when adding papers to the Inbox
-/// by loading all existing identifiers upfront (5 queries) instead of doing
-/// per-paper lookups (5 queries × N papers).
+/// by loading all existing identifiers upfront instead of doing per-paper lookups.
 ///
 /// ## Performance
-/// - Before: 500 papers × 5 queries = 2,500 database round-trips (~35s)
-/// - After: 5 batch queries + 500 × O(1) hash lookups (~100ms)
-///
-/// ## Usage
-/// ```swift
-/// let cache = IdentifierCache(persistenceController: .shared)
-/// await cache.loadFromDatabase()
-///
-/// for result in searchResults {
-///     if cache.exists(result) {
-///         continue  // Already have this paper
-///     }
-///     let pub = createPublication(from: result)
-///     // Extract identifiers on main actor before adding to cache
-///     await cache.add(doi: pub.doi, arxivID: pub.arxivIDNormalized,
-///                     bibcode: pub.bibcodeNormalized, semanticScholarID: pub.semanticScholarID,
-///                     openAlexID: pub.openAlexID)
-/// }
-/// ```
+/// - Before: 500 papers x 5 queries = 2,500 database round-trips (~35s)
+/// - After: batch load + 500 x O(1) hash lookups (~100ms)
 public actor IdentifierCache {
 
     // MARK: - Properties
-
-    private let persistenceController: PersistenceController
 
     // Hash sets for O(1) lookups
     private var dois: Set<String> = []
@@ -52,125 +31,62 @@ public actor IdentifierCache {
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-    }
+    public init() {}
 
     // MARK: - Load from Database
 
     /// Load all existing identifiers from the database.
     ///
-    /// This performs 5 efficient batch queries that fetch only the identifier
-    /// columns (not full objects), then stores them in hash sets for O(1) lookup.
+    /// Uses RustStoreAdapter to query all publications and extract their identifiers
+    /// into hash sets for O(1) lookup.
     public func loadFromDatabase() async {
         Logger.inbox.debugCapture("Loading identifier cache from database", category: "cache")
 
-        let context = persistenceController.viewContext
+        // Query all publications from each library and extract identifiers
+        let allPubs: [PublicationRowData] = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var pubs: [PublicationRowData] = []
+            var seenIDs = Set<UUID>()
+            for lib in libraries {
+                let libPubs = store.queryPublications(parentId: lib.id)
+                for pub in libPubs {
+                    if seenIDs.insert(pub.id).inserted {
+                        pubs.append(pub)
+                    }
+                }
+            }
+            return pubs
+        }
 
-        // Load all identifiers in parallel using structured concurrency
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await self.loadDOIs(context: context)
+        // Extract identifiers into hash sets
+        for pub in allPubs {
+            if let doi = pub.doi?.lowercased() {
+                dois.insert(doi)
             }
-            group.addTask {
-                await self.loadArxivIDs(context: context)
+            if let arxivID = pub.arxivID {
+                let normalized = IdentifierExtractor.normalizeArXivID(arxivID)
+                arxivIDs.insert(normalized)
             }
-            group.addTask {
-                await self.loadBibcodes(context: context)
-            }
-            group.addTask {
-                await self.loadSemanticScholarIDs(context: context)
-            }
-            group.addTask {
-                await self.loadOpenAlexIDs(context: context)
+            if let bibcode = pub.bibcode?.uppercased() {
+                bibcodes.insert(bibcode)
             }
         }
 
         Logger.inbox.debugCapture(
-            "Identifier cache loaded: \(dois.count) DOIs, \(arxivIDs.count) arXiv, " +
-            "\(bibcodes.count) bibcodes, \(semanticScholarIDs.count) S2, \(openAlexIDs.count) OA",
+            "Identifier cache loaded: \(dois.count) DOIs, \(arxivIDs.count) arXiv, \(bibcodes.count) bibcodes",
             category: "cache"
         )
-    }
-
-    private func loadDOIs(context: NSManagedObjectContext) async {
-        let loaded = await context.perform {
-            let request = NSFetchRequest<NSDictionary>(entityName: "Publication")
-            request.resultType = .dictionaryResultType
-            request.propertiesToFetch = ["doi"]
-            request.predicate = NSPredicate(format: "doi != nil")
-
-            guard let results = try? context.fetch(request) else { return Set<String>() }
-            return Set(results.compactMap { ($0["doi"] as? String)?.lowercased() })
-        }
-        self.dois = loaded
-    }
-
-    private func loadArxivIDs(context: NSManagedObjectContext) async {
-        let loaded = await context.perform {
-            let request = NSFetchRequest<NSDictionary>(entityName: "Publication")
-            request.resultType = .dictionaryResultType
-            request.propertiesToFetch = ["arxivIDNormalized"]
-            request.predicate = NSPredicate(format: "arxivIDNormalized != nil")
-
-            guard let results = try? context.fetch(request) else { return Set<String>() }
-            return Set(results.compactMap { $0["arxivIDNormalized"] as? String })
-        }
-        self.arxivIDs = loaded
-    }
-
-    private func loadBibcodes(context: NSManagedObjectContext) async {
-        let loaded = await context.perform {
-            let request = NSFetchRequest<NSDictionary>(entityName: "Publication")
-            request.resultType = .dictionaryResultType
-            request.propertiesToFetch = ["bibcodeNormalized"]
-            request.predicate = NSPredicate(format: "bibcodeNormalized != nil")
-
-            guard let results = try? context.fetch(request) else { return Set<String>() }
-            return Set(results.compactMap { $0["bibcodeNormalized"] as? String })
-        }
-        self.bibcodes = loaded
-    }
-
-    private func loadSemanticScholarIDs(context: NSManagedObjectContext) async {
-        let loaded = await context.perform {
-            let request = NSFetchRequest<NSDictionary>(entityName: "Publication")
-            request.resultType = .dictionaryResultType
-            request.propertiesToFetch = ["semanticScholarID"]
-            request.predicate = NSPredicate(format: "semanticScholarID != nil")
-
-            guard let results = try? context.fetch(request) else { return Set<String>() }
-            return Set(results.compactMap { $0["semanticScholarID"] as? String })
-        }
-        self.semanticScholarIDs = loaded
-    }
-
-    private func loadOpenAlexIDs(context: NSManagedObjectContext) async {
-        let loaded = await context.perform {
-            let request = NSFetchRequest<NSDictionary>(entityName: "Publication")
-            request.resultType = .dictionaryResultType
-            request.propertiesToFetch = ["openAlexID"]
-            request.predicate = NSPredicate(format: "openAlexID != nil")
-
-            guard let results = try? context.fetch(request) else { return Set<String>() }
-            return Set(results.compactMap { $0["openAlexID"] as? String })
-        }
-        self.openAlexIDs = loaded
     }
 
     // MARK: - Lookup
 
     /// Check if any identifier from the search result matches an existing publication.
-    ///
-    /// This performs O(1) hash lookups instead of database queries.
-    /// - Returns: `true` if the paper already exists in the database
     public func exists(_ result: SearchResult) -> Bool {
-        // Check DOI (most reliable)
         if let doi = result.doi?.lowercased(), dois.contains(doi) {
             return true
         }
 
-        // Check arXiv ID (normalized)
         if let arxivID = result.arxivID {
             let normalized = IdentifierExtractor.normalizeArXivID(arxivID)
             if arxivIDs.contains(normalized) {
@@ -178,17 +94,14 @@ public actor IdentifierCache {
             }
         }
 
-        // Check bibcode
         if let bibcode = result.bibcode?.uppercased(), bibcodes.contains(bibcode) {
             return true
         }
 
-        // Check Semantic Scholar ID
         if let ssID = result.semanticScholarID, semanticScholarIDs.contains(ssID) {
             return true
         }
 
-        // Check OpenAlex ID
         if let oaID = result.openAlexID, openAlexIDs.contains(oaID) {
             return true
         }
@@ -198,20 +111,7 @@ public actor IdentifierCache {
 
     // MARK: - Update Cache
 
-    /// Add identifiers to the cache that were extracted on main actor.
-    ///
-    /// THREAD SAFETY: CDPublication properties must be extracted on main actor before calling.
-    /// The caller is responsible for extracting identifier values before passing them here.
-    ///
-    /// Example usage:
-    /// ```swift
-    /// // On main actor, extract identifiers:
-    /// let ids = (publication.doi, publication.arxivIDNormalized,
-    ///            publication.bibcodeNormalized, publication.semanticScholarID,
-    ///            publication.openAlexID)
-    /// await cache.add(doi: ids.0, arxivID: ids.1, bibcode: ids.2,
-    ///                 semanticScholarID: ids.3, openAlexID: ids.4)
-    /// ```
+    /// Add identifiers extracted from a publication.
     public func add(
         doi: String?,
         arxivID: String?,
@@ -237,8 +137,6 @@ public actor IdentifierCache {
     }
 
     /// Add identifiers from a SearchResult before it becomes a publication.
-    ///
-    /// Use this to prevent duplicates within the same batch of results.
     public func addFromResult(_ result: SearchResult) {
         if let doi = result.doi?.lowercased() {
             dois.insert(doi)
@@ -260,22 +158,12 @@ public actor IdentifierCache {
 
     // MARK: - Statistics
 
-    /// Number of cached DOIs
     public var doiCount: Int { dois.count }
-
-    /// Number of cached arXiv IDs
     public var arxivIDCount: Int { arxivIDs.count }
-
-    /// Number of cached bibcodes
     public var bibcodeCount: Int { bibcodes.count }
-
-    /// Number of cached Semantic Scholar IDs
     public var semanticScholarIDCount: Int { semanticScholarIDs.count }
-
-    /// Number of cached OpenAlex IDs
     public var openAlexIDCount: Int { openAlexIDs.count }
 
-    /// Total number of unique identifier entries across all types
     public var totalEntries: Int {
         dois.count + arxivIDs.count + bibcodes.count +
         semanticScholarIDs.count + openAlexIDs.count

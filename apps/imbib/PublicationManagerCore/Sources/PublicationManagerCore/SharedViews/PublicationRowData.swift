@@ -12,24 +12,12 @@ import OSLog
 /// Immutable value-type snapshot of publication data for safe list rendering.
 ///
 /// This struct captures all data needed to display a publication row at creation time.
-/// Unlike passing `CDPublication` directly (which can crash if the object is deleted
-/// during SwiftUI re-render), `PublicationRowData` is immune to Core Data lifecycle issues.
-///
-/// ## Why This Exists
-///
-/// When using `@ObservedObject CDPublication` in row views:
-/// 1. User deletes publications
-/// 2. Core Data marks objects as deleted
-/// 3. SwiftUI re-renders the List
-/// 4. `@ObservedObject` setup triggers property access on deleted objects
-/// 5. **CRASH** - before any guard in `body` can run
-///
-/// By converting to value types upfront, we eliminate this race condition entirely.
+/// Created from Rust `BibliographyRow` via `RustStoreAdapter`.
 public struct PublicationRowData: Identifiable, Hashable, Sendable {
 
     // MARK: - Core Identity
 
-    /// Unique identifier (matches CDPublication.id)
+    /// Unique identifier
     public let id: UUID
 
     /// BibTeX cite key
@@ -58,16 +46,13 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Rich flag state (color, style, length) — nil if unflagged
     public let flag: PublicationFlag?
 
-    /// Whether a PDF is downloaded locally (or available in iCloud on iOS)
-    /// Shows paperclip icon in list view
+    /// Whether a PDF is downloaded locally
     public let hasDownloadedPDF: Bool
 
-    /// Whether there are non-PDF attachments (images, data files, etc.)
-    /// Shows document icon in list view
+    /// Whether there are non-PDF attachments
     public let hasOtherAttachments: Bool
 
     /// Whether a PDF is available (local or can be downloaded from arXiv/ADS)
-    /// Used for "Open PDF" context menu option
     public var hasPDFAvailable: Bool {
         hasDownloadedPDF || arxivID != nil
     }
@@ -115,289 +100,60 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     // MARK: - Library Context (for grouped search results)
 
     /// Name of the library this publication belongs to (for grouping in search results)
-    /// When nil, the publication is shown ungrouped or in the "Current" section
     public let libraryName: String?
 
-    // MARK: - Initialization
+    // MARK: - Memberwise Init
 
-    /// Create a snapshot from a CDPublication.
-    ///
-    /// - Parameters:
-    ///   - publication: The Core Data publication to snapshot
-    ///   - libraryName: Optional library name for grouping in search results
-    /// - Returns: nil if the publication has been deleted or is invalid
-    public init?(publication: CDPublication, libraryName: String? = nil) {
-        // Guard against deleted Core Data objects
-        guard !publication.isDeleted,
-              publication.managedObjectContext != nil else {
-            return nil
-        }
-
-        // OPTIMIZATION: Decode fields ONCE instead of on every access
-        // publication.fields decodes JSON from rawFields each time it's called.
-        // For 2000 publications with 5+ field accesses each = 10,000+ JSON decodes!
-        let fields = publication.fields
-
-        self.id = publication.id
-        self.citeKey = publication.citeKey
-        self.title = publication.title ?? "Untitled"
-        self.authorString = Self.formatAuthorString(from: publication, fields: fields)
-        self.year = publication.year > 0 ? Int(publication.year) : Self.parseYearFromFields(fields)
-        self.abstract = publication.abstract
-        self.isRead = publication.isRead
-        self.isStarred = publication.isStarred
-        self.flag = publication.flag
-        let attachmentStatus = Self.checkAttachments(publication)
-        self.hasDownloadedPDF = attachmentStatus.hasDownloadedPDF
-        self.hasOtherAttachments = attachmentStatus.hasOtherAttachments
-        self.citationCount = Int(publication.citationCount)
-        self.referenceCount = Int(publication.referenceCount)
-        self.doi = publication.doi
-        self.arxivID = publication.arxivID
-        self.bibcode = publication.bibcode
-        self.venue = Self.extractVenue(from: fields)
-        self.note = fields["note"]
-        self.dateAdded = publication.dateAdded
-        self.dateModified = publication.dateModified
-        self.primaryCategory = Self.extractPrimaryCategory(from: fields)
-        self.categories = Self.extractCategories(from: fields)
-        self.tagDisplays = Self.extractTagDisplays(from: publication)
+    /// Direct memberwise initializer for creating PublicationRowData from any source.
+    public init(
+        id: UUID,
+        citeKey: String = "",
+        title: String = "Untitled",
+        authorString: String = "Unknown Author",
+        year: Int? = nil,
+        abstract: String? = nil,
+        isRead: Bool = false,
+        isStarred: Bool = false,
+        flag: PublicationFlag? = nil,
+        hasDownloadedPDF: Bool = false,
+        hasOtherAttachments: Bool = false,
+        citationCount: Int = 0,
+        referenceCount: Int = 0,
+        doi: String? = nil,
+        arxivID: String? = nil,
+        bibcode: String? = nil,
+        venue: String? = nil,
+        note: String? = nil,
+        dateAdded: Date = Date(),
+        dateModified: Date = Date(),
+        primaryCategory: String? = nil,
+        categories: [String] = [],
+        tagDisplays: [TagDisplayData] = [],
+        libraryName: String? = nil
+    ) {
+        self.id = id
+        self.citeKey = citeKey
+        self.title = title
+        self.authorString = authorString
+        self.year = year
+        self.abstract = abstract
+        self.isRead = isRead
+        self.isStarred = isStarred
+        self.flag = flag
+        self.hasDownloadedPDF = hasDownloadedPDF
+        self.hasOtherAttachments = hasOtherAttachments
+        self.citationCount = citationCount
+        self.referenceCount = referenceCount
+        self.doi = doi
+        self.arxivID = arxivID
+        self.bibcode = bibcode
+        self.venue = venue
+        self.note = note
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.primaryCategory = primaryCategory
+        self.categories = categories
+        self.tagDisplays = tagDisplays
         self.libraryName = libraryName
-    }
-
-    // MARK: - Venue Extraction
-
-    /// Extract venue from publication fields based on entry type.
-    ///
-    /// Priority: journal > booktitle > series > publisher
-    /// For articles: journal
-    /// For conference papers: booktitle
-    /// For books: publisher or series
-    private static func extractVenue(from fields: [String: String]) -> String? {
-        // Try journal first (for @article)
-        if let journal = fields["journal"], !journal.isEmpty {
-            return cleanVenue(journal)
-        }
-
-        // Try booktitle (for @inproceedings, @incollection)
-        if let booktitle = fields["booktitle"], !booktitle.isEmpty {
-            return cleanVenue(booktitle)
-        }
-
-        // Try series (for book series)
-        if let series = fields["series"], !series.isEmpty {
-            return cleanVenue(series)
-        }
-
-        // Try publisher as fallback (for @book, @proceedings)
-        if let publisher = fields["publisher"], !publisher.isEmpty {
-            return cleanVenue(publisher)
-        }
-
-        return nil
-    }
-
-    /// Clean venue string (remove braces, trim whitespace)
-    private static func cleanVenue(_ venue: String) -> String {
-        venue
-            .replacingOccurrences(of: "{", with: "")
-            .replacingOccurrences(of: "}", with: "")
-            .trimmingCharacters(in: .whitespaces)
-    }
-
-    // MARK: - Author Formatting
-
-    /// Format author list for Mail-style display.
-    ///
-    /// - 1 author: "LastName"
-    /// - 2 authors: "LastName1, LastName2"
-    /// - 3 authors: "LastName1, LastName2, LastName3"
-    /// - 4+ authors: "LastName1, LastName2 ... LastNameN"
-    ///
-    /// Performance: Checks raw BibTeX author field FIRST to avoid expensive
-    /// Core Data relationship fetches. For 2000 publications, CDAuthor lookups
-    /// would trigger thousands of relationship faults.
-    private static func formatAuthorString(from publication: CDPublication, fields: [String: String]) -> String {
-        // OPTIMIZATION: Check raw author field FIRST - this is O(1) dictionary lookup
-        // Avoids expensive Core Data relationship fetches (sortedAuthors triggers N+1 queries)
-        if let rawAuthor = fields["author"], !rawAuthor.isEmpty {
-            let authors = rawAuthor.components(separatedBy: " and ")
-                .map { BibTeXFieldCleaner.cleanAuthorName($0) }
-                .filter { !$0.isEmpty }
-
-            if !authors.isEmpty {
-                return formatAuthorList(authors)
-            }
-        }
-
-        // Fall back to CDAuthor entities only if raw field is missing
-        // This path is rarely taken for imported BibTeX entries
-        let sortedAuthors = publication.sortedAuthors
-        if !sortedAuthors.isEmpty {
-            let names = sortedAuthors.map { BibTeXFieldCleaner.cleanAuthorName($0.displayName) }
-            return formatAuthorList(names)
-        }
-
-        return "Unknown Author"
-    }
-
-    private static func formatAuthorList(_ authors: [String]) -> String {
-        guard !authors.isEmpty else {
-            return "Unknown Author"
-        }
-
-        let lastNames = authors.map { extractLastName(from: $0) }
-
-        switch lastNames.count {
-        case 1:
-            return lastNames[0]
-        case 2:
-            return "\(lastNames[0]), \(lastNames[1])"
-        case 3:
-            return "\(lastNames[0]), \(lastNames[1]), \(lastNames[2])"
-        default:
-            // 4+ authors: first two ... last
-            return "\(lastNames[0]), \(lastNames[1]) ... \(lastNames[lastNames.count - 1])"
-        }
-    }
-
-    private static func extractLastName(from author: String) -> String {
-        let trimmed = author.trimmingCharacters(in: .whitespaces)
-
-        if trimmed.contains(",") {
-            // "Last, First" format
-            return trimmed.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? trimmed
-        } else {
-            // "First Last" format - get the last word
-            let parts = trimmed.components(separatedBy: " ").filter { !$0.isEmpty }
-            return parts.last ?? trimmed
-        }
-    }
-
-    // MARK: - Year Parsing
-
-    private static func parseYearFromFields(_ fields: [String: String]) -> Int? {
-        guard let yearStr = fields["year"], let parsed = Int(yearStr) else {
-            return nil
-        }
-        return parsed > 0 ? parsed : nil
-    }
-
-    // MARK: - Attachment Check
-
-    /// Check for downloaded PDFs and other attachments.
-    ///
-    /// Returns:
-    /// - `hasDownloadedPDF`: True if there's a locally downloaded PDF file,
-    ///   or if the PDF data is available via CloudKit sync (fileData exists).
-    /// - `hasOtherAttachments`: True if there are non-PDF attachments.
-    ///
-    /// Note: Remote PDF links (arXiv, ADS, etc.) are NOT counted - only actual files.
-    private static func checkAttachments(_ publication: CDPublication) -> (hasDownloadedPDF: Bool, hasOtherAttachments: Bool) {
-        guard let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty else {
-            return (false, false)
-        }
-
-        var hasDownloadedPDF = false
-        var hasOtherAttachments = false
-
-        for file in linkedFiles {
-            if file.isPDF {
-                // Check if this PDF is actually downloaded (or synced via CloudKit)
-                // fileData means it's available from CloudKit even if local file is missing
-                // linkedFile record without fileData means PDF exists locally
-                if file.fileData != nil {
-                    hasDownloadedPDF = true
-                } else {
-                    // Trust that linkedFile record means PDF exists locally
-                    hasDownloadedPDF = true
-                }
-            } else {
-                hasOtherAttachments = true
-            }
-        }
-
-        return (hasDownloadedPDF, hasOtherAttachments)
-    }
-
-    // MARK: - Tag Extraction
-
-    /// Extract tag display data from a publication's tags.
-    ///
-    /// Converts CDTag entities into lightweight TagDisplayData values sorted by canonical path.
-    private static func extractTagDisplays(from publication: CDPublication) -> [TagDisplayData] {
-        let rawTags = publication.tags
-        guard let tags = rawTags, !tags.isEmpty else {
-            // Log only for the first few to avoid flooding the console
-            if publication.citeKey.hasPrefix("A") || publication.citeKey.hasPrefix("B") {
-                Logger.library.debug("extractTagDisplays: '\(publication.citeKey)' tags=\(rawTags == nil ? "nil" : "empty")")
-            }
-            return []
-        }
-
-        let result = tags
-            .sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
-            .map { tag in
-                TagDisplayData(
-                    id: tag.id,
-                    path: tag.canonicalPath ?? tag.name,
-                    leaf: tag.leaf,
-                    colorLight: tag.colorLight ?? tag.effectiveLightColor(),
-                    colorDark: tag.colorDark ?? tag.effectiveDarkColor()
-                )
-            }
-
-        Logger.library.infoCapture(
-            "extractTagDisplays: '\(publication.citeKey)' has \(result.count) tags: \(result.map(\.path).joined(separator: ", "))",
-            category: "tags"
-        )
-        return result
-    }
-
-    // MARK: - Category Extraction
-
-    /// Extract primary arXiv category from BibTeX fields.
-    ///
-    /// Looks for `primaryclass` field (standard arXiv BibTeX convention).
-    private static func extractPrimaryCategory(from fields: [String: String]) -> String? {
-        fields["primaryclass"]
-    }
-
-    /// Extract all arXiv categories from BibTeX fields.
-    ///
-    /// Returns the primary category plus any cross-listed categories from `categories` field.
-    private static func extractCategories(from fields: [String: String]) -> [String] {
-        var result: [String] = []
-
-        // Add primary category first
-        if let primary = fields["primaryclass"], !primary.isEmpty {
-            result.append(primary)
-        }
-
-        // Add additional categories from categories field (comma-separated)
-        if let categoriesField = fields["categories"] {
-            let additional = categoriesField
-                .components(separatedBy: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty && !result.contains($0) }
-            result.append(contentsOf: additional)
-        }
-
-        return result
-    }
-}
-
-// MARK: - Batch Conversion
-
-extension PublicationRowData {
-
-    /// Convert an array of CDPublications to row data, filtering out deleted objects.
-    ///
-    /// - Parameters:
-    ///   - publications: The publications to convert
-    ///   - libraryName: Optional library name to assign to all converted publications
-    /// - Returns: Array of valid row data (deleted publications are excluded)
-    public static func from(_ publications: [CDPublication], libraryName: String? = nil) -> [PublicationRowData] {
-        publications.compactMap { PublicationRowData(publication: $0, libraryName: libraryName) }
     }
 }

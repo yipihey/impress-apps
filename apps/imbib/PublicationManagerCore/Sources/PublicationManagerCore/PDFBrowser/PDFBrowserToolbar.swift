@@ -205,7 +205,7 @@ struct PDFBrowserToolbar_Previews: PreviewProvider {
         VStack {
             Text("PDFBrowserToolbar Preview")
                 .font(.headline)
-            Text("(Requires mock CDPublication)")
+            Text("(Requires mock data)")
                 .foregroundStyle(.secondary)
         }
         .frame(width: 600, height: 100)

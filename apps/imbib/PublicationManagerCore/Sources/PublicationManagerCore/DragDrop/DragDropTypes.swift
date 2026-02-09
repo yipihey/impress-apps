@@ -7,7 +7,6 @@
 
 import Foundation
 import UniformTypeIdentifiers
-import CoreData
 
 // MARK: - Drop Target
 

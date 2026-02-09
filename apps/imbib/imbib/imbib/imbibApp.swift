@@ -6,9 +6,7 @@
 //
 
 import SwiftUI
-import CoreData
 import CoreSpotlight
-import CloudKit
 import PublicationManagerCore
 import ImpressKit
 import OSLog
@@ -128,24 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func application(_ application: NSApplication,
-                     userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
-        debugLog("Accepting CloudKit share invitation")
-        let pc = PersistenceController.shared
-        guard let ckContainer = pc.container as? NSPersistentCloudKitContainer,
-              let sharedStore = pc.sharedStore else {
-            debugLog("Cannot accept share: CloudKit container or shared store not available")
-            return
-        }
-        ckContainer.acceptShareInvitations(from: [metadata], into: sharedStore) { _, error in
-            if let error {
-                appLogger.error("Share accept failed: \(error.localizedDescription)")
-            } else {
-                appLogger.info("CloudKit share accepted successfully")
-                NotificationCenter.default.post(name: .sharedLibraryAccepted, object: nil)
-            }
-        }
-    }
+    // CloudKit share acceptance removed — Rust store is now the sole data layer
 
     func application(_ application: NSApplication, open urls: [URL]) {
         debugLog("AppDelegate.application(open:) called with \(urls.count) URLs")
@@ -269,7 +250,6 @@ struct imbibApp: App {
     private struct AppDependencies: Sendable {
         let credentialManager: CredentialManager
         let sourceManager: SourceManager
-        let repository: PublicationRepository
         let deduplicationService: DeduplicationService
     }
 
@@ -332,23 +312,21 @@ struct imbibApp: App {
 
     /// Phase 2: Set up the data layer and create shared dependencies.
     private static func setupDataLayer() -> AppDependencies {
-        // Seed test data if requested in UI testing mode
-        if UITestingEnvironment.isUITesting {
-            TestDataSeeder.seedIfNeeded(context: PersistenceController.shared.viewContext)
-        }
-
         // Create shared dependencies
         let stepStart = CFAbsoluteTimeGetCurrent()
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
-        let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()
         appLogger.info("⏱ Created shared dependencies: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
+
+        // Initialize Rust store adapter (sole data layer)
+        let rustStart = CFAbsoluteTimeGetCurrent()
+        _ = RustStoreAdapter.shared
+        appLogger.info("⏱ RustStoreAdapter initialized: \(Int((CFAbsoluteTimeGetCurrent() - rustStart) * 1000))ms")
 
         return AppDependencies(
             credentialManager: credentialManager,
             sourceManager: sourceManager,
-            repository: repository,
             deduplicationService: deduplicationService
         )
     }
@@ -366,11 +344,10 @@ struct imbibApp: App {
         appLogger.info("⏱ LibraryManager initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
 
         stepStart = CFAbsoluteTimeGetCurrent()
-        let libraryViewModel = LibraryViewModel(repository: deps.repository)
+        let libraryViewModel = LibraryViewModel()
         let searchViewModel = SearchViewModel(
             sourceManager: deps.sourceManager,
-            deduplicationService: deps.deduplicationService,
-            repository: deps.repository
+            deduplicationService: deps.deduplicationService
         )
         let settingsViewModel = SettingsViewModel(
             sourceManager: deps.sourceManager,
@@ -415,16 +392,6 @@ struct imbibApp: App {
             await FullTextSearchService.shared.initialize()
             appLogger.info("Full-text search index initialized")
 
-            // Deduplicate feeds (CloudKit sync can create duplicates)
-            await MainActor.run {
-                let duplicatesRemoved = FeedDeduplicationService.shared.deduplicateFeeds(
-                    in: PersistenceController.shared.viewContext
-                )
-                if duplicatesRemoved > 0 {
-                    appLogger.info("Feed deduplication: removed \(duplicatesRemoved) duplicate(s)")
-                }
-            }
-
             // Register built-in sources
             await deps.sourceManager.registerBuiltInSources()
             DragDropCoordinator.shared.sourceManager = deps.sourceManager
@@ -440,8 +407,7 @@ struct imbibApp: App {
 
             // Configure staggered smart search refresh service (before InboxCoordinator)
             await SmartSearchRefreshService.shared.configure(
-                sourceManager: deps.sourceManager,
-                repository: deps.repository
+                sourceManager: deps.sourceManager
             )
             appLogger.info("SmartSearchRefreshService configured")
 
@@ -470,6 +436,8 @@ struct imbibApp: App {
 
             // Cleanup old exploration collections based on retention setting
             await cleanupExplorationCollectionsOnStartup()
+
+            // Core Data migration removed — clean break to Rust store
         }
     }
 
@@ -613,6 +581,9 @@ struct imbibApp: App {
         .commands {
             AppCommands()
         }
+        #if os(macOS)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        #endif
 
         #if os(macOS)
         Settings {
@@ -1292,20 +1263,17 @@ private func autoPopulateSearchIndexesOnStartup() async {
     if embeddingAvailable && !hasEmbeddingIndex {
         logInfo("Auto-building embedding index for global search...", category: "embedding")
 
-        // Fetch all user libraries from Core Data (excluding system libraries)
+        // Fetch all user libraries from Rust store (excluding system libraries)
         let libraries = await MainActor.run {
-            let context = PersistenceController.shared.viewContext
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            // Exclude system libraries: Dismissed, Exploration, and any marked as system
-            request.predicate = NSPredicate(
-                format: "name != %@ AND name != %@ AND isSystemLibrary == NO",
-                "Dismissed", "Exploration"
-            )
-            return (try? context.fetch(request)) ?? []
+            RustStoreAdapter.shared.listLibraries().filter { lib in
+                let name = lib.name.lowercased()
+                return name != "dismissed" && name != "exploration"
+            }
         }
 
         if !libraries.isEmpty {
-            let count = await EmbeddingService.shared.buildIndex(from: libraries)
+            let libraryIDs = libraries.map(\.id)
+            let count = await EmbeddingService.shared.buildIndex(from: libraryIDs)
             logInfo("Auto-built embedding index with \(count) publications from \(libraries.count) libraries", category: "embedding")
         }
     }

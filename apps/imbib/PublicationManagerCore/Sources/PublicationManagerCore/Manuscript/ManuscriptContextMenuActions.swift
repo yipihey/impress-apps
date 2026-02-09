@@ -14,8 +14,8 @@ public struct ManuscriptContextMenuActions: View {
 
     // MARK: - Properties
 
-    /// The publication to act on
-    public let publication: CDPublication
+    /// The publication ID to act on
+    public let publicationID: UUID
 
     /// Callback when citation action is triggered
     public var onAddCitation: (() -> Void)?
@@ -35,14 +35,14 @@ public struct ManuscriptContextMenuActions: View {
     // MARK: - Initialization
 
     public init(
-        publication: CDPublication,
+        publicationID: UUID,
         onAddCitation: (() -> Void)? = nil,
         onConvertToManuscript: (() -> Void)? = nil,
         onViewCitingManuscripts: (() -> Void)? = nil,
         onOpenInImprint: (() -> Void)? = nil,
         onLinkImprintDocument: (() -> Void)? = nil
     ) {
-        self.publication = publication
+        self.publicationID = publicationID
         self.onAddCitation = onAddCitation
         self.onConvertToManuscript = onConvertToManuscript
         self.onViewCitingManuscripts = onViewCitingManuscripts
@@ -50,11 +50,38 @@ public struct ManuscriptContextMenuActions: View {
         self.onLinkImprintDocument = onLinkImprintDocument
     }
 
+    // MARK: - Computed
+
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
+
+    private var detail: PublicationModel? {
+        store.getPublicationDetail(id: publicationID)
+    }
+
+    private var isManuscript: Bool {
+        detail?.fields[ManuscriptMetadataKey.status.rawValue] != nil
+    }
+
+    private var manuscriptStatus: ManuscriptStatus? {
+        guard let statusStr = detail?.fields[ManuscriptMetadataKey.status.rawValue] else { return nil }
+        return ManuscriptStatus(rawValue: statusStr)
+    }
+
+    private var hasLinkedImprintDocument: Bool {
+        guard let d = detail else { return false }
+        return d.fields[ManuscriptMetadataKey.imprintDocumentUUID.rawValue] != nil
+    }
+
+    private var citedPublicationCount: Int {
+        guard let d = detail else { return 0 }
+        return ManuscriptCollectionManager.parseCitedIDs(from: d.fields).count
+    }
+
     // MARK: - Body
 
     public var body: some View {
         Group {
-            if publication.isManuscript {
+            if isManuscript {
                 manuscriptActions
             } else {
                 publicationActions
@@ -88,7 +115,7 @@ public struct ManuscriptContextMenuActions: View {
             // View manuscripts citing this paper
             if onViewCitingManuscripts != nil {
                 let citingCount = ManuscriptCollectionManager.shared
-                    .fetchManuscriptsCiting(publication)
+                    .fetchManuscriptsCiting(publicationID)
                     .count
 
                 if citingCount > 0 {
@@ -116,13 +143,13 @@ public struct ManuscriptContextMenuActions: View {
             Divider()
 
             // Show citation count
-            let citationCount = publication.citedPublicationCount
-            if citationCount > 0 {
+            let citCount = citedPublicationCount
+            if citCount > 0 {
                 Button {
                     // This would navigate to citations view
                 } label: {
                     Label(
-                        "\(citationCount) Citation\(citationCount == 1 ? "" : "s")",
+                        "\(citCount) Citation\(citCount == 1 ? "" : "s")",
                         systemImage: "quote.bubble"
                     )
                 }
@@ -133,10 +160,9 @@ public struct ManuscriptContextMenuActions: View {
             Menu {
                 ForEach(ManuscriptStatus.allCases, id: \.self) { status in
                     Button {
-                        publication.updateManuscriptStatus(to: status)
-                        PersistenceController.shared.save()
+                        store.updateField(id: publicationID, field: ManuscriptMetadataKey.status.rawValue, value: status.rawValue)
                     } label: {
-                        if publication.manuscriptStatus == status {
+                        if manuscriptStatus == status {
                             Label(status.displayName, systemImage: "checkmark")
                         } else {
                             Text(status.displayName)
@@ -144,7 +170,7 @@ public struct ManuscriptContextMenuActions: View {
                     }
                 }
             } label: {
-                if let status = publication.manuscriptStatus {
+                if let status = manuscriptStatus {
                     Label("Status: \(status.displayName)", systemImage: status.systemImage)
                 } else {
                     Label("Set Status", systemImage: "flag")
@@ -155,8 +181,7 @@ public struct ManuscriptContextMenuActions: View {
 
             // Remove manuscript status
             Button(role: .destructive) {
-                publication.removeManuscriptStatus()
-                PersistenceController.shared.save()
+                store.updateField(id: publicationID, field: ManuscriptMetadataKey.status.rawValue, value: nil)
             } label: {
                 Label("Remove Manuscript Status", systemImage: "xmark.circle")
             }
@@ -168,7 +193,7 @@ public struct ManuscriptContextMenuActions: View {
     /// Actions for imprint integration
     @ViewBuilder
     private var imprintActions: some View {
-        if publication.hasLinkedImprintDocument {
+        if hasLinkedImprintDocument {
             // Open in imprint
             Button {
                 onOpenInImprint?()
@@ -179,9 +204,9 @@ public struct ManuscriptContextMenuActions: View {
             // Unlink action (in submenu to prevent accidents)
             Menu {
                 Button(role: .destructive) {
-                    try? publication.unlinkImprintDocument(
-                        context: PersistenceController.shared.viewContext
-                    )
+                    store.updateField(id: publicationID, field: ManuscriptMetadataKey.imprintDocumentUUID.rawValue, value: nil)
+                    store.updateField(id: publicationID, field: ManuscriptMetadataKey.imprintDocumentPath.rawValue, value: nil)
+                    store.updateField(id: publicationID, field: ManuscriptMetadataKey.imprintBookmarkData.rawValue, value: nil)
                 } label: {
                     Label("Unlink Document", systemImage: "link.badge.minus")
                 }
@@ -213,16 +238,16 @@ public struct QuickCitationMenu: View {
 
     // MARK: - Properties
 
-    /// The publication to cite
-    public let publication: CDPublication
+    /// The publication ID to cite
+    public let publicationID: UUID
 
-    /// Available manuscripts
-    @State private var manuscripts: [CDPublication] = []
+    /// Available manuscripts (as row data)
+    @State private var manuscripts: [PublicationRowData] = []
 
     // MARK: - Initialization
 
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -238,10 +263,10 @@ public struct QuickCitationMenu: View {
                         toggleCitation(manuscript)
                     } label: {
                         HStack {
-                            if manuscript.cites(publication) {
+                            if manuscriptCites(manuscript.id, publication: publicationID) {
                                 Image(systemName: "checkmark")
                             }
-                            Text(manuscript.title ?? "Untitled")
+                            Text(manuscript.title)
                         }
                     }
                 }
@@ -268,13 +293,26 @@ public struct QuickCitationMenu: View {
         manuscripts = ManuscriptCollectionManager.shared.fetchActiveManuscripts()
     }
 
-    private func toggleCitation(_ manuscript: CDPublication) {
-        if manuscript.cites(publication) {
-            manuscript.removeCitation(publication)
+    private func manuscriptCites(_ manuscriptID: UUID, publication pubID: UUID) -> Bool {
+        let store = RustStoreAdapter.shared
+        guard let detail = store.getPublicationDetail(id: manuscriptID) else { return false }
+        let citedIDs = ManuscriptCollectionManager.parseCitedIDs(from: detail.fields)
+        return citedIDs.contains(pubID)
+    }
+
+    private func toggleCitation(_ manuscript: PublicationRowData) {
+        let store = RustStoreAdapter.shared
+        guard let detail = store.getPublicationDetail(id: manuscript.id) else { return }
+        var citedIDs = ManuscriptCollectionManager.parseCitedIDs(from: detail.fields)
+
+        if citedIDs.contains(publicationID) {
+            citedIDs.remove(publicationID)
         } else {
-            manuscript.addCitation(publication)
+            citedIDs.insert(publicationID)
         }
-        PersistenceController.shared.save()
+
+        let encoded = ManuscriptCollectionManager.encodeCitedIDs(citedIDs)
+        store.updateField(id: manuscript.id, field: ManuscriptMetadataKey.citedPublicationIDs.rawValue, value: encoded)
     }
 }
 
@@ -382,8 +420,8 @@ public struct ConvertToManuscriptSheet: View {
 
     // MARK: - Properties
 
-    /// The publication to convert
-    public let publication: CDPublication
+    /// The publication ID to convert
+    public let publicationID: UUID
 
     /// Dismiss action
     @Environment(\.dismiss) private var dismiss
@@ -397,10 +435,16 @@ public struct ConvertToManuscriptSheet: View {
     /// Notes
     @State private var notes = ""
 
+    // MARK: - Computed
+
+    private var title: String {
+        RustStoreAdapter.shared.getPublicationDetail(id: publicationID)?.title ?? "Untitled"
+    }
+
     // MARK: - Initialization
 
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -409,7 +453,7 @@ public struct ConvertToManuscriptSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(publication.title ?? "Untitled")
+                    Text(title)
                         .font(.headline)
                 } header: {
                     Text("Converting")
@@ -460,12 +504,14 @@ public struct ConvertToManuscriptSheet: View {
     // MARK: - Actions
 
     private func convertToManuscript() {
-        publication.convertToManuscript(targetJournal: targetJournal.isEmpty ? nil : targetJournal)
-        publication.manuscriptStatus = initialStatus
-        if !notes.isEmpty {
-            publication.manuscriptNotes = notes
+        let store = RustStoreAdapter.shared
+        store.updateField(id: publicationID, field: ManuscriptMetadataKey.status.rawValue, value: initialStatus.rawValue)
+        if !targetJournal.isEmpty {
+            store.updateField(id: publicationID, field: ManuscriptMetadataKey.targetJournal.rawValue, value: targetJournal)
         }
-        PersistenceController.shared.save()
+        if !notes.isEmpty {
+            store.updateField(id: publicationID, field: ManuscriptMetadataKey.notes.rawValue, value: notes)
+        }
     }
 }
 

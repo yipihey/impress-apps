@@ -166,11 +166,39 @@ Task {
 
 SwiftUI `@State` properties are backed by heap storage. Reading them inside a `Task` closure reads the *current* value when the Task body executes, not the value when `Task { }` was called. If another view (e.g., an overlay dismissing) clears the state between creation and execution, the Task sees the cleared value. This was the root cause of tags not being applied to publications — `tagTargetIDs` was empty by the time the async work started.
 
+### Sidebar Selection Patterns
+
+The sidebar uses `SidebarOutlineView` (NSOutlineView wrapper from ImpressSidebar). Selection flows through a **binding-only** pipeline — there is no `onSelect` callback.
+
+**How it works:**
+1. User clicks a row → NSOutlineView's `outlineViewSelectionDidChange` fires
+2. Coordinator writes to `selectionBinding.wrappedValue` (the `$viewModel.selectedNodeID` binding)
+3. `selectedNodeID`'s `didSet` calls `resolveSelectedTab()` → sets `selectedTab`
+4. SwiftUI views observe `selectedTab` via `@Observable` to update content
+
+**The `.id(source.id)` rule:** Any view that receives a "source" or "route" as a `let` property inside a `NavigationSplitView` detail closure **MUST** have `.id(source.id)` applied. This forces SwiftUI to recreate the view when the source changes, bypassing `detail:` closure caching. Example:
+```swift
+UnifiedPublicationListWrapper(source: source, ...).id(source.id)
+```
+
+Without `.id()`, NavigationSplitView caches the `detail:` closure and `let` properties of child views go stale — switching between sidebar items with the same view type (e.g., Red → Grey flags) won't update the content.
+
 ### macOS SwiftUI Form Gotchas
 
 - `TextField` inside `HStack` inside `Form` `.formStyle(.grouped)` can have broken hit-testing. Use `LabeledContent` rows instead.
 - `List` inside a Form `Section` renders poorly. For inline list-like UI, use a `VStack` with manual bordered styling.
 - Keyboard shortcuts that require Shift (like `*` = Shift+8) include `.shift` in the `KeyPress.modifiers`. Strip Shift when matching non-letter characters.
+
+### macOS Detail Pane Layout (FRAGILE — Read Before Modifying)
+
+The imbib macOS main view is `NavigationSplitView` > `SectionContentView` (HSplitView) > list pane | detail pane. The toolbar and detail pane vertical positioning was extensively debugged — see root CLAUDE.md "macOS Toolbar & Split View Layout" for the general pattern.
+
+**Key implementation details in `SectionContentView.swift` (~lines 230-240):**
+- `.ignoresSafeArea(.container, edges: .top)` on the detail ZStack (line 232) — removing this re-introduces a large empty strip above the detail pane
+- `.toolbar { ToolbarItem(placement: .primaryAction) { ... } }` (line 238) — all detail items (tab picker, copy, link, share, pop-out) in the window toolbar, clustered left with list items. This is intentional.
+- `InfoTab.swift` has `.padding(.top, 40)` (line 77) on `headerSection` for scroll clearance
+
+**If you need to modify the detail pane or toolbar:** read the root CLAUDE.md section first, then make targeted changes without restructuring the HSplitView or toolbar hierarchy.
 
 ## Project Status
 

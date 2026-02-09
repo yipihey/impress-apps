@@ -12,19 +12,10 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - NSOutlineView Subclass (Context Menu Support)
+// MARK: - NSOutlineView Subclass
 
-/// Minimal NSOutlineView subclass that supports dynamic context menus.
+/// Minimal NSOutlineView subclass for sidebar trees.
 final class SidebarNSOutlineView: NSOutlineView {
-    /// Closure called to build a context menu for the clicked row.
-    var contextMenuProvider: ((Int) -> NSMenu?)?
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let point = convert(event.locationInWindow, from: nil)
-        let row = self.row(at: point)
-        guard row >= 0 else { return nil }
-        return contextMenuProvider?(row)
-    }
 }
 
 // MARK: - SidebarOutlineView
@@ -86,11 +77,17 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
     // MARK: - NSViewRepresentable
 
-    public func makeNSView(context: Context) -> NSScrollView {
+    public func makeNSView(context: Context) -> NSView {
+        // Wrap in a plain NSView container so that NavigationSplitView's sidebar
+        // doesn't detect a top-level NSScrollView and nest it inside its own
+        // scroll management (which intercepts drag-drop and right-click events).
+        let container = NSView()
+
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let outlineView = SidebarNSOutlineView()
         outlineView.headerView = nil
@@ -110,18 +107,28 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         // Register for drag-drop
         let pasteboardType = configuration.pasteboardType
-        outlineView.registerForDraggedTypes([pasteboardType, .fileURL])
+        var dragTypes: [NSPasteboard.PasteboardType] = [pasteboardType, .fileURL]
+        dragTypes.append(contentsOf: configuration.additionalDragTypes)
+        outlineView.registerForDraggedTypes(dragTypes)
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
 
-        // Context menu
-        let coordinator = context.coordinator
-        outlineView.contextMenuProvider = { [weak coordinator] row in
-            coordinator?.contextMenu(for: row)
-        }
+        // Context menu via NSMenu delegate (more reliable than menu(for:) override
+        // which can be intercepted by parent views in the responder chain)
+        let contextMenu = NSMenu()
+        contextMenu.delegate = context.coordinator
+        outlineView.menu = contextMenu
 
         scrollView.documentView = outlineView
         context.coordinator.outlineView = outlineView
+
+        container.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
 
         // Initial load
         context.coordinator.rebuildData(
@@ -132,10 +139,10 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         context.coordinator.restoreExpansionState()
         context.coordinator.restoreSelection()
 
-        return scrollView
+        return container
     }
 
-    public func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    public func updateNSView(_ container: NSView, context: Context) {
         let coordinator = context.coordinator
         coordinator.configuration = configuration
         coordinator.expansionState = expansionState
@@ -154,11 +161,14 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             )
 
             // Update drag types in case pasteboard type changed
-            outlineView.registerForDraggedTypes([configuration.pasteboardType, .fileURL])
+            var dragTypes: [NSPasteboard.PasteboardType] = [configuration.pasteboardType, .fileURL]
+            dragTypes.append(contentsOf: configuration.additionalDragTypes)
+            outlineView.registerForDraggedTypes(dragTypes)
 
             coordinator.isUpdatingProgrammatically = true
             outlineView.reloadData()
             coordinator.restoreExpansionState()
+            coordinator.restoreSelection()
             coordinator.isUpdatingProgrammatically = false
         }
 
@@ -195,7 +205,7 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    public final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
+    public final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate, NSMenuDelegate {
 
         // MARK: - State
 
@@ -382,10 +392,38 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         // MARK: - NSOutlineViewDelegate
 
+        public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
+            // Always return false so NSOutlineView shows left-side disclosure
+            // triangles for all expandable items (consistent chevron placement).
+            // We handle section header styling ourselves in viewFor.
+            return false
+        }
+
+        public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
+            guard let node = node(for: item) else { return true }
+            if configuration.isGroupItem?(node) == true { return false }
+            return true
+        }
+
         public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = node(for: item),
                   let id = nodeID(for: item),
                   let info = flattenedInfo[id] else { return nil }
+
+            let isGroup = configuration.isGroupItem?(node) ?? false
+
+            if isGroup {
+                let cellID = NSUserInterfaceItemIdentifier("SidebarOutlineGroupCell")
+                let cell: SidebarOutlineCellView
+                if let reused = outlineView.makeView(withIdentifier: cellID, owner: nil) as? SidebarOutlineCellView {
+                    cell = reused
+                } else {
+                    cell = SidebarOutlineCellView(frame: .zero)
+                    cell.identifier = cellID
+                }
+                cell.configureAsGroup(displayName: node.displayName)
+                return cell
+            }
 
             let cellID = NSUserInterfaceItemIdentifier("SidebarOutlineCell")
             let cell: SidebarOutlineCellView
@@ -425,11 +463,9 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             if row >= 0, let wrapper = outlineView.item(atRow: row) as? SidebarOutlineNodeWrapper {
                 selectedNodeID = wrapper.id
                 selectionBinding.wrappedValue = wrapper.id
-                configuration.onSelect?(wrapper.id)
             } else {
                 selectedNodeID = nil
                 selectionBinding.wrappedValue = nil
-                configuration.onSelect?(nil)
             }
         }
 
@@ -470,10 +506,13 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         ) -> NSDragOperation {
             let pasteboard = info.draggingPasteboard
 
-            // External file drops
-            if pasteboard.types?.contains(.fileURL) == true,
-               configuration.onExternalDrop != nil {
-                return .copy
+            // External drops (files or additional registered types like publication IDs)
+            if configuration.onExternalDrop != nil {
+                let hasExternalType = pasteboard.types?.contains(.fileURL) == true
+                    || configuration.additionalDragTypes.contains(where: { pasteboard.types?.contains($0) == true })
+                if hasExternalType {
+                    return .copy
+                }
             }
 
             // Internal node drag
@@ -539,11 +578,14 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         ) -> Bool {
             let pasteboard = info.draggingPasteboard
 
-            // Handle external file drops
-            if pasteboard.types?.contains(.fileURL) == true,
-               let onExternalDrop = configuration.onExternalDrop {
-                let targetNode = node(for: item)
-                return onExternalDrop(pasteboard, targetNode)
+            // Handle external drops (files or additional registered types)
+            if let onExternalDrop = configuration.onExternalDrop {
+                let hasExternalType = pasteboard.types?.contains(.fileURL) == true
+                    || configuration.additionalDragTypes.contains(where: { pasteboard.types?.contains($0) == true })
+                if hasExternalType {
+                    let targetNode = node(for: item)
+                    return onExternalDrop(pasteboard, targetNode)
+                }
             }
 
             // Handle internal node drag
@@ -635,17 +677,28 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             autoExpandTargetID = nil
         }
 
-        // MARK: - Context Menu
+        // MARK: - Context Menu (NSMenuDelegate)
 
-        func contextMenu(for row: Int) -> NSMenu? {
-            guard let outlineView = outlineView,
+        public func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            guard let outlineView = outlineView else { return }
+            let row = outlineView.clickedRow
+            guard row >= 0,
                   let wrapper = outlineView.item(atRow: row) as? SidebarOutlineNodeWrapper,
-                  let node = nodeLookup[wrapper.id] else { return nil }
+                  let node = nodeLookup[wrapper.id] else { return }
 
-            // Select the row on right-click
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            // Select the row on right-click (unless it's a group item)
+            let isGroup = configuration.isGroupItem?(node) ?? false
+            if !isGroup {
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
 
-            return configuration.contextMenu?(node)
+            // Populate from the configuration's context menu builder
+            guard let sourceMenu = configuration.contextMenu?(node) else { return }
+            for item in sourceMenu.items {
+                sourceMenu.removeItem(item)
+                menu.addItem(item)
+            }
         }
 
         // MARK: - Inline Editing

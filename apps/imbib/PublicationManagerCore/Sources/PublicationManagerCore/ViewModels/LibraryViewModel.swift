@@ -2,10 +2,9 @@
 //  LibraryViewModel.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-04.
+//  View model for the main library view, backed by RustStoreAdapter.
 //
 
-import CoreData
 import Foundation
 import OSLog
 import SwiftUI
@@ -19,11 +18,11 @@ public final class LibraryViewModel {
 
     // MARK: - Published State
 
-    /// Raw Core Data publications
-    public private(set) var publications: [CDPublication] = []
+    /// Publication row data for list display
+    public private(set) var publicationRows: [PublicationRowData] = []
 
-    /// Fast lookup by ID (populated during loadPublications)
-    public private(set) var publicationsByID: [UUID: CDPublication] = [:]
+    /// Fast lookup by ID
+    public private(set) var publicationsByID: [UUID: PublicationRowData] = [:]
 
     /// LocalPaper wrappers for unified view layer
     public private(set) var papers: [LocalPaper] = []
@@ -47,18 +46,33 @@ public final class LibraryViewModel {
 
     // MARK: - Library Identity
 
-    /// Unique identifier for this library (used by LocalPaper)
+    /// Unique identifier for this library
     public let libraryID: UUID
+
+    // MARK: - Backward Compatibility
+
+    /// Publications array — returns row data for iteration.
+    /// Prefer `publicationRows` for new code.
+    public var publications: [PublicationRowData] { publicationRows }
 
     // MARK: - Dependencies
 
-    public let repository: PublicationRepository
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - Initialization
 
-    public init(repository: PublicationRepository = PublicationRepository(), libraryID: UUID = UUID()) {
-        self.repository = repository
+    public init(libraryID: UUID = UUID()) {
         self.libraryID = libraryID
+    }
+
+    /// Legacy initializer — ignores repository parameter.
+    public convenience init(repository: Any, libraryID: UUID = UUID()) {
+        self.init(libraryID: libraryID)
+    }
+
+    /// Default init for environment injection
+    public convenience init() {
+        self.init(libraryID: UUID())
     }
 
     // MARK: - Loading
@@ -68,60 +82,40 @@ public final class LibraryViewModel {
         error = nil
 
         let sortKey = sortOrder.sortKey
-        publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
+        publicationRows = store.queryPublications(
+            parentId: libraryID,
+            sort: sortKey,
+            ascending: sortAscending,
+            limit: nil,
+            offset: nil
+        )
 
-        // Build ID lookup cache for O(1) access (keep last in case of duplicates)
-        publicationsByID = Dictionary(publications.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        publicationsByID = Dictionary(publicationRows.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
 
-        // Create LocalPaper wrappers for unified view layer
-        papers = LocalPaper.from(publications: publications, libraryID: libraryID)
+        // Build LocalPaper wrappers from row data
+        papers = publicationRows.compactMap { row in
+            guard let model = store.getPublicationDetail(id: row.id) else { return nil }
+            return LocalPaper(from: model)
+        }
 
-        Logger.viewModels.infoCapture("Loaded \(self.publications.count) publications", category: "library")
+        Logger.viewModels.infoCapture("Loaded \(self.publicationRows.count) publications", category: "library")
 
         isLoading = false
     }
 
     // MARK: - Lookup
 
-    /// Fast O(1) lookup of publication by ID.
-    ///
-    /// First checks the local cache (for library publications), then falls back to
-    /// Core Data fetch (for smart search results, Inbox feeds, etc.).
-    ///
-    /// Returns nil if no publication with that ID exists or if the object was deleted.
-    public func publication(for id: UUID) -> CDPublication? {
-        // Fast path: check local cache first
-        if let pub = publicationsByID[id],
-           !pub.isDeleted,
-           pub.managedObjectContext != nil {
-            return pub
+    /// Fast O(1) lookup of publication row by ID.
+    public func publication(for id: UUID) -> PublicationRowData? {
+        if let row = publicationsByID[id] {
+            return row
         }
+        return store.getPublication(id: id)
+    }
 
-        // Slow path: fetch from Core Data (for smart searches, Inbox feeds, etc.)
-        // Guard against Core Data not being fully initialized
-        let context = PersistenceController.shared.viewContext
-        guard let entity = NSEntityDescription.entity(forEntityName: "Publication", in: context) else {
-            // Core Data not fully loaded yet, skip fetch
-            return nil
-        }
-
-        let request = NSFetchRequest<CDPublication>()
-        request.entity = entity
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
-
-        do {
-            let results = try context.fetch(request)
-            if let pub = results.first,
-               !pub.isDeleted,
-               pub.managedObjectContext != nil {
-                return pub
-            }
-        } catch {
-            Logger.viewModels.error("Failed to fetch publication \(id): \(error.localizedDescription)")
-        }
-
-        return nil
+    /// Get full publication detail by ID.
+    public func publicationDetail(for id: UUID) -> PublicationModel? {
+        store.getPublicationDetail(id: id)
     }
 
     // MARK: - Search
@@ -132,9 +126,8 @@ public final class LibraryViewModel {
                 await loadPublications()
             } else {
                 isLoading = true
-                publications = await repository.search(query: searchQuery)
-                publicationsByID = Dictionary(publications.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-                papers = LocalPaper.from(publications: publications, libraryID: libraryID)
+                publicationRows = store.searchPublications(query: searchQuery, parentId: libraryID)
+                publicationsByID = Dictionary(publicationRows.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                 isLoading = false
             }
         }
@@ -143,12 +136,8 @@ public final class LibraryViewModel {
     // MARK: - Import
 
     /// Import a bibliography file (BibTeX or RIS) based on file extension.
-    ///
-    /// - Parameter url: URL to the .bib or .ris file
-    /// - Returns: Number of entries imported
     public func importFile(from url: URL) async throws -> Int {
         let ext = url.pathExtension.lowercased()
-
         switch ext {
         case "bib", "bibtex":
             return try await importBibTeX(from: url)
@@ -163,20 +152,14 @@ public final class LibraryViewModel {
         Logger.viewModels.infoCapture("Importing BibTeX from \(url.lastPathComponent)", category: "import")
 
         let content = try String(contentsOf: url, encoding: .utf8)
-        let parser = BibTeXParserFactory.createParser()
-
-        Logger.viewModels.infoCapture("Parsing BibTeX file...", category: "import")
-        let entries = try parser.parseEntries(content)
-        Logger.viewModels.infoCapture("Parsed \(entries.count) entries from file", category: "import")
-
-        let imported = await repository.importEntries(entries)
+        let ids = store.importBibTeX(content, libraryId: libraryID)
         await loadPublications()
 
-        // Queue newly imported papers for enrichment
-        await queueNewlyImportedForEnrichment()
+        // Queue newly imported for enrichment
+        await queueNewlyImportedForEnrichment(ids: ids)
 
-        Logger.viewModels.infoCapture("Successfully imported \(imported) entries", category: "import")
-        return imported
+        Logger.viewModels.infoCapture("Successfully imported \(ids.count) entries", category: "import")
+        return ids.count
     }
 
     public func importRIS(from url: URL) async throws -> Int {
@@ -184,312 +167,230 @@ public final class LibraryViewModel {
 
         let content = try String(contentsOf: url, encoding: .utf8)
         let parser = RISParserFactory.createParser()
-
-        Logger.viewModels.infoCapture("Parsing RIS file...", category: "import")
         let entries = try parser.parse(content)
-        Logger.viewModels.infoCapture("Parsed \(entries.count) entries from file", category: "import")
 
-        let imported = await repository.importRISEntries(entries)
+        var importedCount = 0
+        for risEntry in entries {
+            let bibEntry = risEntry.toBibTeX()
+            let bibtex = bibEntry.rawBibTeX ?? bibEntry.synthesizeBibTeX()
+            let ids = store.importBibTeX(bibtex, libraryId: libraryID)
+            importedCount += ids.count
+        }
+
         await loadPublications()
 
-        // Queue newly imported papers for enrichment
-        await queueNewlyImportedForEnrichment()
-
-        Logger.viewModels.infoCapture("Successfully imported \(imported) RIS entries", category: "import")
-        return imported
+        Logger.viewModels.infoCapture("Successfully imported \(importedCount) RIS entries", category: "import")
+        return importedCount
     }
 
     public func importEntry(_ entry: BibTeXEntry) async {
         Logger.viewModels.infoCapture("Importing entry: \(entry.citeKey)", category: "import")
 
-        await repository.create(from: entry)
+        let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+        _ = store.importBibTeX(bibtex, libraryId: libraryID)
         await loadPublications()
     }
 
-    /// Import a PDF file and attach it to a publication.
-    public func importPDF(from url: URL, for publication: CDPublication, in library: CDLibrary? = nil) async throws {
-        Logger.viewModels.infoCapture("Importing PDF for: \(publication.citeKey)", category: "import")
-
-        try AttachmentManager.shared.importPDF(from: url, for: publication, in: library)
-        await loadPublications()
-    }
-
-    // Note: importOnlinePaper and importPaperLocally have been removed as part of ADR-016.
-    // Search results are now auto-imported to Last Search collection or smart search result collections.
-    // Use SearchViewModel.search() or SmartSearchProvider.refresh() instead.
-
-    /// Import a paper from a BibTeX entry directly.
-    ///
-    /// Use this when you have already fetched/parsed the BibTeX entry.
+    /// Import a BibTeX entry directly. Returns the UUID of the imported publication.
     @discardableResult
-    public func importBibTeXEntry(_ entry: BibTeXEntry) async -> CDPublication {
+    public func importBibTeXEntry(_ entry: BibTeXEntry) async -> UUID? {
         Logger.viewModels.infoCapture("Importing BibTeX entry: \(entry.citeKey)", category: "import")
 
-        let publication = await repository.create(from: entry)
+        let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+        let ids = store.importBibTeX(bibtex, libraryId: libraryID)
         await loadPublications()
-
-        // Invalidate library lookup cache
         await DefaultLibraryLookupService.shared.invalidateCache()
 
-        return publication
+        return ids.first
     }
 
     /// Import a paper from the citation explorer.
-    ///
-    /// Fetches full BibTeX from ADS using the paper stub's bibcode, then creates
-    /// a CDPublication and adds it to the specified library.
     @discardableResult
-    public func importFromPaperStub(_ stub: PaperStub, to library: CDLibrary) async throws -> CDPublication {
+    public func importFromPaperStub(_ stub: PaperStub, toLibraryId: UUID) async throws -> UUID? {
         Logger.viewModels.infoCapture("Importing paper stub: \(stub.title)", category: "import")
 
-        // The PaperStub's id is the ADS bibcode
         let bibcode = stub.id
-
-        // Fetch full BibTeX from ADS
         let adsSource = ADSSource()
         let entry = try await adsSource.fetchBibTeX(bibcode: bibcode)
 
-        // Create publication
-        let publication = await repository.create(from: entry)
-
-        // Add to library
-        await repository.addToLibrary([publication], library: library)
-
+        let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+        let ids = store.importBibTeX(bibtex, libraryId: toLibraryId)
         await loadPublications()
-
-        // Invalidate library lookup cache
         await DefaultLibraryLookupService.shared.invalidateCache()
 
-        Logger.viewModels.info("Imported: \(publication.citeKey) to \(library.name)")
-
-        return publication
+        if let id = ids.first {
+            Logger.viewModels.info("Imported: \(entry.citeKey)")
+            return id
+        }
+        return nil
     }
 
     // MARK: - Delete
 
     public func deleteSelected() async {
-        let toDelete = publications.filter { selectedPublications.contains($0.id) }
+        let toDelete = Array(selectedPublications)
         guard !toDelete.isEmpty else { return }
 
         Logger.viewModels.infoCapture("Deleting \(toDelete.count) publications", category: "library")
-
-        await repository.delete(toDelete)
+        store.deletePublications(ids: toDelete)
         selectedPublications.removeAll()
         await loadPublications()
     }
 
-    public func delete(_ publication: CDPublication) async {
-        // Capture values before deletion since accessing deleted object crashes
-        let citeKey = publication.citeKey
-        let publicationID = publication.id
-
-        Logger.viewModels.infoCapture("Deleting: \(citeKey)", category: "library")
-
-        await repository.delete(publication)
-        selectedPublications.remove(publicationID)
+    public func delete(id: UUID) async {
+        Logger.viewModels.infoCapture("Deleting: \(id)", category: "library")
+        store.deletePublications(ids: [id])
+        selectedPublications.remove(id)
         await loadPublications()
     }
 
     public func delete(ids: Set<UUID>) async {
         guard !ids.isEmpty else { return }
-
         Logger.viewModels.infoCapture("Deleting \(ids.count) publications by ID", category: "library")
 
-        // 1. Remove from selection first
         for id in ids {
             selectedPublications.remove(id)
         }
 
-        // 2. Remove from local publications array (if present)
-        // This prevents SwiftUI from trying to render deleted objects during re-render
-        // Use isDeleted/isFault check to avoid crash when accessing id on invalid objects
-        publications.removeAll { pub in
-            guard !pub.isDeleted, !pub.isFault else { return true }
-            return ids.contains(pub.id)
-        }
+        publicationRows.removeAll { ids.contains($0.id) }
 
-        // 3. Give SwiftUI a moment to process the state change before Core Data deletion
-        // This helps prevent race conditions where SwiftUI tries to render deleted objects
+        // Brief delay to let SwiftUI process state change
         try? await Task.sleep(for: .milliseconds(50))
 
-        // 4. Delete from Core Data by fetching fresh objects by ID
-        // This ensures deletion works even if publications came from a different source
-        // (e.g., library.publications vs viewModel.publications)
-        await repository.deleteByIDs(ids)
-
-        // 5. Reload to sync with database
+        store.deletePublications(ids: Array(ids))
         await loadPublications()
     }
 
     // MARK: - Update
 
-    public func updateField(_ publication: CDPublication, field: String, value: String?) async {
-        await repository.updateField(publication, field: field, value: value)
+    public func updateField(id: UUID, field: String, value: String?) async {
+        store.updateField(id: id, field: field, value: value)
     }
 
     /// Update a publication from an edited BibTeX entry.
-    ///
-    /// This replaces all fields in the publication with values from the entry.
-    public func updateFromBibTeX(_ publication: CDPublication, entry: BibTeXEntry) async {
+    public func updateFromBibTeX(id: UUID, entry: BibTeXEntry) async {
         Logger.viewModels.infoCapture("Updating publication from BibTeX: \(entry.citeKey)", category: "update")
 
-        await repository.update(publication, with: entry)
+        // Re-import the entry (Rust store handles upsert by cite key)
+        let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+        _ = store.importBibTeX(bibtex, libraryId: libraryID)
         await loadPublications()
     }
 
     // MARK: - Export
 
-    public func exportAll() async -> String {
-        await repository.exportAll()
+    public func exportAll() -> String {
+        store.exportAllBibTeX(libraryId: libraryID)
     }
 
-    public func exportSelected() async -> String {
-        let toExport = publications.filter { selectedPublications.contains($0.id) }
-        return await repository.export(toExport)
+    public func exportSelected() -> String {
+        let ids = Array(selectedPublications)
+        guard !ids.isEmpty else { return "" }
+        return store.exportBibTeX(ids: ids)
     }
 
     // MARK: - Selection
 
     public func selectAll() {
-        selectedPublications = Set(publications.map { $0.id })
+        selectedPublications = Set(publicationRows.map(\.id))
     }
 
     public func clearSelection() {
         selectedPublications.removeAll()
     }
 
-    public func toggleSelection(_ publication: CDPublication) {
-        if selectedPublications.contains(publication.id) {
-            selectedPublications.remove(publication.id)
+    public func toggleSelection(id: UUID) {
+        if selectedPublications.contains(id) {
+            selectedPublications.remove(id)
         } else {
-            selectedPublications.insert(publication.id)
+            selectedPublications.insert(id)
         }
     }
 
-    // MARK: - Read Status (Apple Mail Styling)
+    // MARK: - Read Status
 
-    /// Mark a publication as read
-    public func markAsRead(_ publication: CDPublication) async {
-        await repository.markAsRead(publication)
-        // Post notification with publication ID for efficient single-row cache update
-        // (O(1) update instead of O(n) full rebuild)
-        await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
-        }
-        // ADR-020: Record read signal for recommendation engine
-        Task { await SignalCollector.shared.recordRead(publication) }
+    public func markAsRead(id: UUID) async {
+        store.setRead(ids: [id], read: true)
+        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
+        // Phase 8: SignalCollector still uses CDPublication — will be migrated
+        // Task { await SignalCollector.shared.recordRead(publicationId: id) }
     }
 
-    /// Mark a publication as unread
-    public func markAsUnread(_ publication: CDPublication) async {
-        await repository.markAsUnread(publication)
-        // Post notification with publication ID for efficient single-row cache update
-        await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
-        }
+    /// Convenience for callers that have PublicationRowData
+    public func markAsRead(_ row: PublicationRowData) async {
+        await markAsRead(id: row.id)
     }
 
-    /// Toggle read/unread status
-    public func toggleReadStatus(_ publication: CDPublication) async {
-        await repository.toggleReadStatus(publication)
-        // Post notification with publication ID for efficient single-row cache update
-        await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
-        }
+    public func markAsUnread(id: UUID) async {
+        store.setRead(ids: [id], read: false)
+        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
     }
 
-    /// Mark all selected publications as read
+    public func toggleReadStatus(id: UUID) async {
+        let row = store.getPublication(id: id)
+        let isCurrentlyRead = row?.isRead ?? false
+        store.setRead(ids: [id], read: !isCurrentlyRead)
+        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
+    }
+
     public func markSelectedAsRead() async {
-        let toMark = publications.filter { selectedPublications.contains($0.id) }
-        await repository.markAllAsRead(toMark)
+        let ids = Array(selectedPublications)
+        store.setRead(ids: ids, read: true)
         await loadPublications()
     }
 
-    /// Smart toggle for multiple publications with intuitive behavior:
-    ///
-    /// 1. **All read** → mark ALL as unread
-    /// 2. **All unread** → mark ALL as read
-    /// 3. **Mixed (some read, some unread)** → mark ALL as read (consolidate first)
-    ///
-    /// This provides predictable behavior: mixed selections become uniform on first toggle,
-    /// then alternate between all-read and all-unread on subsequent toggles.
+    /// Smart toggle for multiple publications.
     public func smartToggleReadStatus(_ publicationIDs: Set<UUID>) async {
-        let selected = publications.filter { publicationIDs.contains($0.id) }
+        let selected = publicationRows.filter { publicationIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
 
-        // Determine target state based on current states
         let allRead = selected.allSatisfy { $0.isRead }
-        let allUnread = selected.allSatisfy { !$0.isRead }
 
         if allRead {
-            // Case 1: All read → mark all unread
-            for pub in selected {
-                await repository.markAsUnread(pub)
-            }
-        } else if allUnread {
-            // Case 2: All unread → mark all read
-            for pub in selected {
-                await repository.markAsRead(pub)
-            }
+            store.setRead(ids: selected.map(\.id), read: false)
         } else {
-            // Case 3: Mixed → mark all read (consolidate to uniform state)
-            for pub in selected where !pub.isRead {
-                await repository.markAsRead(pub)
-            }
+            store.setRead(ids: selected.map(\.id), read: true)
         }
 
-        // Post notification for each changed publication
-        await MainActor.run {
-            for pub in selected {
-                NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: pub.id)
-            }
+        for row in selected {
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: row.id)
         }
     }
 
-    /// Get count of unread publications
-    public func unreadCount() async -> Int {
-        await repository.unreadCount()
+    public func unreadCount() -> Int {
+        store.countUnread(parentId: libraryID)
     }
 
-    // MARK: - Clipboard Operations
+    // MARK: - Clipboard
 
-    /// Copy selected publications to clipboard as BibTeX
-    public func copySelectedToClipboard() async {
-        let toCopy = publications.filter { selectedPublications.contains($0.id) }
-        guard !toCopy.isEmpty else { return }
+    public func copySelectedToClipboard() {
+        let ids = Array(selectedPublications)
+        guard !ids.isEmpty else { return }
 
-        let bibtex = await repository.export(toCopy)
+        let bibtex = store.exportBibTeX(ids: ids)
         Clipboard.shared.setString(bibtex)
-
-        Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
+        Logger.viewModels.infoCapture("Copied \(ids.count) publications to clipboard", category: "clipboard")
     }
 
-    /// Copy specific publications by IDs to clipboard as BibTeX
-    public func copyToClipboard(_ ids: Set<UUID>) async {
-        let toCopy = publications.filter { ids.contains($0.id) }
-        guard !toCopy.isEmpty else { return }
-
-        let bibtex = await repository.export(toCopy)
+    public func copyToClipboard(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let bibtex = store.exportBibTeX(ids: Array(ids))
         Clipboard.shared.setString(bibtex)
-
-        Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
+        Logger.viewModels.infoCapture("Copied \(ids.count) publications to clipboard", category: "clipboard")
     }
 
-    /// Cut selected publications (copy to clipboard, then delete)
     public func cutSelectedToClipboard() async {
-        await copySelectedToClipboard()
+        copySelectedToClipboard()
         await deleteSelected()
         Logger.viewModels.infoCapture("Cut publications to clipboard", category: "clipboard")
     }
 
-    /// Cut specific publications by IDs (copy to clipboard, then delete)
     public func cutToClipboard(_ ids: Set<UUID>) async {
-        await copyToClipboard(ids)
+        copyToClipboard(ids)
         await delete(ids: ids)
         Logger.viewModels.infoCapture("Cut publications to clipboard", category: "clipboard")
     }
 
-    /// Paste publications from clipboard (import BibTeX)
     @discardableResult
     public func pasteFromClipboard() async throws -> Int {
         guard let bibtex = Clipboard.shared.getString() else {
@@ -502,105 +403,61 @@ public final class LibraryViewModel {
             throw ImportError.noBibTeXEntry
         }
 
-        let imported = await repository.importEntries(entries)
-        await loadPublications()
+        var totalImported = 0
+        for entry in entries {
+            let bibtexStr = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+            let ids = store.importBibTeX(bibtexStr, libraryId: libraryID)
+            totalImported += ids.count
+        }
 
-        Logger.viewModels.infoCapture("Pasted \(imported) publications from clipboard", category: "clipboard")
-        return imported
+        await loadPublications()
+        Logger.viewModels.infoCapture("Pasted \(totalImported) publications from clipboard", category: "clipboard")
+        return totalImported
     }
 
     // MARK: - Library and Collection Operations
 
-    /// Add publications by IDs to another library (publications can belong to multiple libraries)
-    public func addToLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
-        // Fetch publications directly from repository to avoid issues with faulted objects
-        let toAdd = await repository.fetch(byIDs: ids)
-        guard !toAdd.isEmpty else {
-            Logger.viewModels.warning("No publications found for IDs: \(ids)")
-            return
-        }
-
-        await repository.addToLibrary(toAdd, library: library)
-
-        // Publications stay in current library, just also added to target library
-        // No need to remove from selection or reload
-        Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(library.displayName)", category: "library")
-
-        // Notify sidebar to refresh counts
-        NotificationCenter.default.post(name: .libraryContentDidChange, object: library.id)
+    public func addToLibrary(_ ids: Set<UUID>, libraryId: UUID) {
+        guard !ids.isEmpty else { return }
+        store.movePublications(ids: Array(ids), toLibraryId: libraryId)
+        Logger.viewModels.infoCapture("Added \(ids.count) publications to library", category: "library")
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: libraryId)
     }
 
-    /// Add publications by IDs to a collection
-    public func addToCollection(_ ids: Set<UUID>, collection: CDCollection) async {
-        // Fetch publications directly from repository to avoid issues with faulted objects
-        let toAdd = await repository.fetch(byIDs: ids)
-        guard !toAdd.isEmpty else {
-            Logger.viewModels.warning("No publications found for IDs: \(ids)")
-            return
-        }
-
-        await repository.addPublications(toAdd, to: collection)
-        Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
-
-        // Notify sidebar to refresh counts
-        NotificationCenter.default.post(name: .libraryContentDidChange, object: collection.id)
+    public func addToCollection(_ ids: Set<UUID>, collectionId: UUID) {
+        guard !ids.isEmpty else { return }
+        store.addToCollection(publicationIds: Array(ids), collectionId: collectionId)
+        Logger.viewModels.infoCapture("Added \(ids.count) publications to collection", category: "library")
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: collectionId)
     }
 
-    /// Remove publications from all collections (return to "All Publications")
-    public func removeFromAllCollections(_ ids: Set<UUID>) async {
-        // Fetch publications directly from repository to avoid issues with faulted objects
-        let toRemove = await repository.fetch(byIDs: ids)
-        guard !toRemove.isEmpty else {
-            Logger.viewModels.warning("No publications found for IDs: \(ids)")
-            return
-        }
-
-        await repository.removeFromAllCollections(toRemove)
-        Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from all collections", category: "library")
-    }
-
-    /// Remove publications from a specific library
-    public func removeFromLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
-        // Fetch publications directly from repository to avoid issues with faulted objects
-        let toRemove = await repository.fetch(byIDs: ids)
-        guard !toRemove.isEmpty else {
-            Logger.viewModels.warning("No publications found for IDs: \(ids)")
-            return
-        }
-
-        await repository.removeFromLibrary(toRemove, library: library)
-        Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from \(library.displayName)", category: "library")
-    }
-
-    // MARK: - Smart Collections
-
-    /// Execute a smart collection query and return matching publications.
-    public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
-        await repository.executeSmartCollection(collection)
+    public func removeFromCollection(_ ids: Set<UUID>, collectionId: UUID) {
+        guard !ids.isEmpty else { return }
+        store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionId)
+        Logger.viewModels.infoCapture("Removed \(ids.count) publications from collection", category: "library")
     }
 
     // MARK: - Enrichment
 
-    /// Queue recently added publications for background enrichment.
-    ///
-    /// This finds publications that haven't been enriched and queues them
-    /// for background processing to fetch PDF URLs, citation counts, etc.
-    private func queueNewlyImportedForEnrichment() async {
-        let unenriched = publications.filter { pub in
-            pub.hasEnrichmentIdentifiers && !pub.hasBeenEnriched
+    private func queueNewlyImportedForEnrichment(ids: [UUID] = []) async {
+        let idsToEnrich: [UUID]
+        if ids.isEmpty {
+            idsToEnrich = publicationRows.compactMap { row in
+                // Check if the publication needs enrichment
+                guard let detail = store.getPublicationDetail(id: row.id) else { return nil }
+                let hasIdentifiers = detail.doi != nil || detail.arxivID != nil
+                let needsEnrichment = detail.citationCount == nil
+                return (hasIdentifiers && needsEnrichment) ? row.id : nil
+            }
+        } else {
+            idsToEnrich = ids
         }
 
-        guard !unenriched.isEmpty else { return }
+        guard !idsToEnrich.isEmpty else { return }
 
-        Logger.viewModels.infoCapture(
-            "Queueing \(unenriched.count) papers for enrichment",
-            category: "enrichment"
-        )
-
-        await EnrichmentCoordinator.shared.queueForEnrichment(
-            unenriched,
-            priority: .libraryPaper
-        )
+        Logger.viewModels.infoCapture("Queueing \(idsToEnrich.count) papers for enrichment", category: "enrichment")
+        // Phase 8: EnrichmentCoordinator still uses CDPublication — will be migrated
+        // await EnrichmentCoordinator.shared.queueForEnrichment(ids: idsToEnrich, priority: .libraryPaper)
     }
 }
 
@@ -613,8 +470,8 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
     case year
     case citeKey
     case citationCount
-    case starred      // Starred papers first
-    case recommended  // ADR-020: Recommendation-based sorting
+    case starred
+    case recommended
 
     public var id: String { rawValue }
 
@@ -633,30 +490,26 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
 
     var sortKey: String {
         switch self {
-        case .dateAdded: return "dateAdded"
-        case .dateModified: return "dateModified"
+        case .dateAdded: return "created"
+        case .dateModified: return "modified"
         case .title: return "title"
         case .year: return "year"
-        case .citeKey: return "citeKey"
-        case .citationCount: return "citationCount"
-        case .starred: return "isStarred"
-        case .recommended: return "dateAdded"  // Fallback for Core Data sort
+        case .citeKey: return "cite_key"
+        case .citationCount: return "citation_count"
+        case .starred: return "starred"
+        case .recommended: return "created"
         }
     }
 
-    /// Default sort direction for this field.
-    /// Dates/counts/year default to descending (newest/highest first).
-    /// Text fields default to ascending (A-Z).
     public var defaultAscending: Bool {
         switch self {
         case .dateAdded, .dateModified, .year, .citationCount, .starred, .recommended:
-            return false  // Descending (newest/highest first, highest score first, starred first)
+            return false
         case .title, .citeKey:
-            return true   // Ascending (A-Z)
+            return true
         }
     }
 
-    /// Whether this sort order uses the recommendation engine.
     public var usesRecommendation: Bool {
         self == .recommended
     }

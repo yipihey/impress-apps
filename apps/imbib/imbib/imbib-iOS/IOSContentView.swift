@@ -23,7 +23,8 @@ struct IOSContentView: View {
     // MARK: - State
 
     @State private var selectedSection: SidebarSection? = nil
-    @State private var selectedPublication: CDPublication?
+    /// UUID-based selection for the publication list wrappers.
+    @State private var selectedPublicationID: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     // File import/export
@@ -59,7 +60,7 @@ struct IOSContentView: View {
                 showImportPicker: $showImportPicker,
                 showExportPicker: $showExportPicker,
                 pendingCategorySearch: $pendingCategorySearch,
-                selectedPublication: $selectedPublication,
+                selectedPublicationID: $selectedPublicationID,
                 libraryManager: libraryManager,
                 libraryViewModel: libraryViewModel
             ))
@@ -106,12 +107,9 @@ struct IOSContentView: View {
                 contentLogger.info("IOSContentView appeared")
             }
             .onChange(of: selectedSection) { _, _ in
-                selectedPublication = nil
+                selectedPublicationID = nil
             }
-            .onChange(of: selectedPublication) { _, newValue in
-                if let pub = newValue, (pub.isDeleted || pub.managedObjectContext == nil) {
-                    selectedPublication = nil
-                }
+            .onChange(of: selectedPublicationID) { _, newValue in
                 // Reset active tab when publication changes
                 if newValue == nil {
                     activeDetailTab = .info
@@ -137,8 +135,8 @@ struct IOSContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             IOSSidebarView(
                 selection: $selectedSection,
-                onNavigateToSmartSearch: { smartSearch in
-                    selectedSection = .smartSearch(smartSearch)
+                onNavigateToSmartSearch: { smartSearchID in
+                    selectedSection = .smartSearch(smartSearchID)
                     columnVisibility = .detailOnly
                 }
             )
@@ -162,12 +160,11 @@ struct IOSContentView: View {
             }
         } content: {
             contentList
-                .navigationDestination(item: $selectedPublication) { publication in
-                    if let libraryID = selectedLibraryID,
-                       let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication, listID: currentListID) {
-                        detail
+                .navigationDestination(item: $selectedPublicationID) { pubID in
+                    if let libraryID = selectedLibraryID {
+                        DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
                     } else {
-                        // Fallback when DetailView can't be created (publication became invalid or no library context)
+                        // Fallback when no library context
                         ContentUnavailableView(
                             "Publication Unavailable",
                             systemImage: "doc.text.magnifyingglass",
@@ -187,10 +184,10 @@ struct IOSContentView: View {
     private var contentList: some View {
         switch selectedSection {
         case .inbox:
-            if let inboxLibrary = InboxManager.shared.inboxLibrary {
+            if let inboxLibrary = RustStoreAdapter.shared.getInboxLibrary() {
                 IOSUnifiedPublicationListWrapper(
-                    source: .library(inboxLibrary),
-                    selectedPublication: $selectedPublication
+                    source: .library(inboxLibrary.id, inboxLibrary.name, isInbox: true),
+                    selectedPublicationID: $selectedPublicationID
                 )
             } else {
                 ContentUnavailableView(
@@ -200,27 +197,27 @@ struct IOSContentView: View {
                 )
             }
 
-        case .inboxFeed(let smartSearch):
+        case .inboxFeed(let smartSearchID):
             IOSUnifiedPublicationListWrapper(
-                source: .smartSearch(smartSearch),
-                selectedPublication: $selectedPublication
+                source: .smartSearch(smartSearchID),
+                selectedPublicationID: $selectedPublicationID
             )
 
-        case .inboxCollection(let collection):
+        case .inboxCollection(let collectionID):
             IOSUnifiedPublicationListWrapper(
-                source: .collection(collection),
-                selectedPublication: $selectedPublication
+                source: .collection(collectionID),
+                selectedPublicationID: $selectedPublicationID
             )
 
-        case .library(let library):
+        case .library(let libraryID):
             IOSUnifiedPublicationListWrapper(
-                source: .library(library),
-                selectedPublication: $selectedPublication
+                source: .libraryByID(libraryID),
+                selectedPublicationID: $selectedPublicationID
             )
 
         case .search:
             IOSSearchView(
-                selectedPublication: $selectedPublication,
+                selectedPublicationID: $selectedPublicationID,
                 initialQuery: pendingCategorySearch
             )
             .onDisappear {
@@ -248,28 +245,28 @@ struct IOSContentView: View {
                 OpenAlexEnhancedSearchFormView()
             }
 
-        case .smartSearch(let smartSearch):
+        case .smartSearch(let smartSearchID):
             IOSUnifiedPublicationListWrapper(
-                source: .smartSearch(smartSearch),
-                selectedPublication: $selectedPublication
+                source: .smartSearch(smartSearchID),
+                selectedPublicationID: $selectedPublicationID
             )
 
-        case .collection(let collection):
+        case .collection(let collectionID):
             IOSUnifiedPublicationListWrapper(
-                source: .collection(collection),
-                selectedPublication: $selectedPublication
+                source: .collection(collectionID),
+                selectedPublicationID: $selectedPublicationID
             )
 
-        case .scixLibrary(let library):
+        case .scixLibrary(let scixLibID):
             IOSUnifiedPublicationListWrapper(
-                source: .scixLibrary(library),
-                selectedPublication: $selectedPublication
+                source: .scixLibrary(scixLibID),
+                selectedPublicationID: $selectedPublicationID
             )
 
         case .flagged(let color):
             IOSUnifiedPublicationListWrapper(
                 source: .flagged(color),
-                selectedPublication: $selectedPublication
+                selectedPublicationID: $selectedPublicationID
             )
 
         case .none:
@@ -285,12 +282,9 @@ struct IOSContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let publication = selectedPublication,
-           !publication.isDeleted,
-           publication.managedObjectContext != nil,
-           let libraryID = selectedLibraryID,
-           let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication, listID: currentListID) {
-            detail
+        if let pubID = selectedPublicationID,
+           let libraryID = selectedLibraryID {
+            DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
         } else {
             ContentUnavailableView(
                 "No Selection",
@@ -304,22 +298,33 @@ struct IOSContentView: View {
     private var selectedLibraryID: UUID? {
         switch selectedSection {
         case .inbox:
-            return InboxManager.shared.inboxLibrary?.id
-        case .inboxFeed(let smartSearch):
-            return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
+            return RustStoreAdapter.shared.getInboxLibrary()?.id
+        case .inboxFeed(let ssID):
+            if let ss = RustStoreAdapter.shared.getSmartSearch(id: ssID) {
+                return ss.libraryID ?? RustStoreAdapter.shared.getInboxLibrary()?.id
+            }
+            return RustStoreAdapter.shared.getInboxLibrary()?.id
         case .inboxCollection:
-            return InboxManager.shared.inboxLibrary?.id
-        case .library(let library):
-            return library.id
-        case .smartSearch(let smartSearch):
-            return smartSearch.library?.id
-        case .collection(let collection):
-            return collection.effectiveLibrary?.id
-        case .scixLibrary(let library):
-            // SciX libraries are remote - use the library's own ID for PDF paths
-            return library.id
+            return RustStoreAdapter.shared.getInboxLibrary()?.id
+        case .library(let libraryID):
+            return libraryID
+        case .smartSearch(let ssID):
+            return RustStoreAdapter.shared.getSmartSearch(id: ssID)?.libraryID
+        case .collection(let colID):
+            // Look up the collection's library from the store
+            let store = RustStoreAdapter.shared
+            // Try to find the collection in each library
+            for lib in store.listLibraries() {
+                let collections = store.listCollections(libraryId: lib.id)
+                if collections.contains(where: { $0.id == colID }) {
+                    return lib.id
+                }
+            }
+            return nil
+        case .scixLibrary(let libID):
+            return libID
         case .flagged:
-            return libraryManager.activeLibrary?.id
+            return RustStoreAdapter.shared.getDefaultLibrary()?.id
         default:
             return nil
         }
@@ -329,25 +334,22 @@ struct IOSContentView: View {
     private var currentListID: ListViewID? {
         switch selectedSection {
         case .inbox:
-            return InboxManager.shared.inboxLibrary.map { .library($0.id) }
-        case .inboxFeed(let smartSearch):
-            return .smartSearch(smartSearch.id)
-        case .inboxCollection(let collection):
-            return .collection(collection.id)
-        case .library(let library):
-            return .library(library.id)
-        case .smartSearch(let smartSearch):
-            return .smartSearch(smartSearch.id)
-        case .collection(let collection):
-            return .collection(collection.id)
-        case .scixLibrary(let library):
-            return .scixLibrary(library.id)
-        case .flagged:
-            if case .flagged(let color) = selectedSection {
-                let source = IOSUnifiedPublicationListWrapper.Source.flagged(color)
-                return .flagged(source.id)
-            }
-            return nil
+            return RustStoreAdapter.shared.getInboxLibrary().map { .library($0.id) }
+        case .inboxFeed(let ssID):
+            return .smartSearch(ssID)
+        case .inboxCollection(let colID):
+            return .collection(colID)
+        case .library(let libraryID):
+            return .library(libraryID)
+        case .smartSearch(let ssID):
+            return .smartSearch(ssID)
+        case .collection(let colID):
+            return .collection(colID)
+        case .scixLibrary(let libID):
+            return .scixLibrary(libID)
+        case .flagged(let color):
+            let source = IOSUnifiedPublicationListWrapper.Source.flagged(color)
+            return .flagged(source.id)
         default:
             return nil
         }
@@ -356,32 +358,36 @@ struct IOSContentView: View {
     /// Compute the current search context based on view state
     private var currentSearchContext: SearchContext {
         // If viewing a publication, context depends on active tab
-        if let pub = selectedPublication {
+        if let pubID = selectedPublicationID {
+            let store = RustStoreAdapter.shared
+            let pub = store.getPublication(id: pubID)
+            let title = pub?.title ?? "Publication"
             if activeDetailTab == .pdf {
-                return .pdf(pub.id, pub.title ?? "PDF")
+                return .pdf(pubID, title)
             }
-            return .publication(pub.id, pub.title ?? "Publication")
+            return .publication(pubID, title)
         }
 
         // Otherwise, context is based on selected section
         switch selectedSection {
-        case .library(let library):
-            return .library(library.id, library.displayName)
+        case .library(let libraryID):
+            let name = RustStoreAdapter.shared.getLibrary(id: libraryID)?.name ?? "Library"
+            return .library(libraryID, name)
 
-        case .collection(let collection):
-            return .collection(collection.id, collection.name)
+        case .collection(let colID):
+            return .collection(colID, "Collection")
 
-        case .smartSearch(let smartSearch):
-            return .smartSearch(smartSearch.id, smartSearch.name)
+        case .smartSearch(let ssID):
+            let name = RustStoreAdapter.shared.getSmartSearch(id: ssID)?.name ?? "Search"
+            return .smartSearch(ssID, name)
 
-        case .scixLibrary(let library):
-            return .library(library.id, library.name)
+        case .scixLibrary(let libID):
+            return .library(libID, "SciX Library")
 
-        case .inboxCollection(let collection):
-            return .collection(collection.id, collection.name)
+        case .inboxCollection(let colID):
+            return .collection(colID, "Collection")
 
         case .inbox, .inboxFeed, .search, .searchForm, .flagged, .none:
-            // Inbox, search, and flagged contexts default to global
             return .global
         }
     }
@@ -390,30 +396,28 @@ struct IOSContentView: View {
 
     /// Navigate to a specific publication from global search.
     private func navigateToPublication(_ publicationID: UUID) {
-        guard let publication = libraryViewModel.publication(for: publicationID) else {
+        let store = RustStoreAdapter.shared
+        guard let pub = store.getPublication(id: publicationID) else {
             contentLogger.warning("Cannot navigate to publication \(publicationID): not found")
             return
         }
 
-        // Find the library containing this publication (check regular libraries first, then SciX)
-        if let library = publication.libraries?.first {
-            // Navigate to the regular library
-            selectedSection = .library(library)
-        } else if let scixLibrary = publication.scixLibraries?.first {
-            // Navigate to the SciX library
-            selectedSection = .scixLibrary(scixLibrary)
+        // Find the library containing this publication
+        if let detail = store.getPublicationDetail(id: publicationID),
+           let firstLibID = detail.libraryIDs.first {
+            selectedSection = .library(firstLibID)
         } else {
-            contentLogger.warning("Publication \(publication.citeKey) not in any library")
+            contentLogger.warning("Publication \(pub.citeKey) not in any library")
             return
         }
 
         // Select the publication after a brief delay to let the list load
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(100))
-            selectedPublication = publication
+            selectedPublicationID = publicationID
         }
 
-        contentLogger.info("Navigated to publication: \(publication.citeKey)")
+        contentLogger.info("Navigated to publication: \(pub.citeKey)")
     }
 
     // MARK: - Import
@@ -464,25 +468,26 @@ struct BibTeXDocument: FileDocument {
     }
 }
 
-// MARK: - Sidebar Section (shared with macOS)
+// MARK: - Sidebar Section
 
+/// Sidebar navigation targets using UUIDs and value types only (no Core Data).
 enum SidebarSection: Hashable {
     case inbox
-    case inboxFeed(CDSmartSearch)
-    case inboxCollection(CDCollection)
-    case library(CDLibrary)
-    case search                        // Legacy, kept for compatibility
-    case searchForm(SearchFormType)    // Specific search form
-    case smartSearch(CDSmartSearch)
-    case collection(CDCollection)
-    case scixLibrary(CDSciXLibrary)
-    case flagged(String?)              // Flagged publications (nil = any flag, or specific color name)
+    case inboxFeed(UUID)              // SmartSearch ID
+    case inboxCollection(UUID)        // Collection ID
+    case library(UUID)                // Library ID
+    case search                       // Legacy, kept for compatibility
+    case searchForm(SearchFormType)   // Specific search form
+    case smartSearch(UUID)            // SmartSearch ID
+    case collection(UUID)             // Collection ID
+    case scixLibrary(UUID)            // SciXLibrary ID
+    case flagged(String?)             // Flagged publications (nil = any flag, or specific color name)
 }
 
 // MARK: - iOS Search View
 
 struct IOSSearchView: View {
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
 
     /// Optional initial query (e.g., from category chip tap)
     var initialQuery: String?
@@ -764,8 +769,6 @@ struct IOSSourceChip: View {
     }
 }
 
-// MARK: - Preview
-
 // MARK: - iOS Keyboard Shortcut Buttons
 
 /// Hidden buttons that provide keyboard shortcuts on iPad with external keyboard.
@@ -849,17 +852,17 @@ private struct NotificationHandlers: ViewModifier {
     @Binding var showImportPicker: Bool
     @Binding var showExportPicker: Bool
     @Binding var pendingCategorySearch: String?
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
     let libraryManager: LibraryManager
     let libraryViewModel: LibraryViewModel
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .showLibrary)) { notification in
-                if let library = notification.object as? CDLibrary {
-                    selectedSection = .library(library)
-                } else if let firstLibrary = libraryManager.libraries.first {
-                    selectedSection = .library(firstLibrary)
+                if let libraryID = notification.object as? UUID {
+                    selectedSection = .library(libraryID)
+                } else if let firstLibrary = RustStoreAdapter.shared.listLibraries().first {
+                    selectedSection = .library(firstLibrary.id)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSearch)) { _ in
@@ -881,20 +884,20 @@ private struct NotificationHandlers: ViewModifier {
                 if let firstPubID = notification.userInfo?["firstPublicationID"] as? UUID {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(100))
-                        selectedPublication = libraryViewModel.publication(for: firstPubID)
+                        selectedPublicationID = firstPubID
                     }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showInbox)) { _ in
-                if InboxManager.shared.inboxLibrary != nil {
+                if RustStoreAdapter.shared.getInboxLibrary() != nil {
                     selectedSection = .inbox
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
-                if let pub = selectedPublication {
-                    Task {
-                        await libraryViewModel.toggleReadStatus(pub)
-                    }
+                if let pubID = selectedPublicationID {
+                    let store = RustStoreAdapter.shared
+                    let pub = store.getPublication(id: pubID)
+                    store.setRead(ids: [pubID], read: !(pub?.isRead ?? false))
                 }
             }
     }

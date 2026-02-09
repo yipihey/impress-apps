@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 import PublicationManagerCore
 
 // MARK: - Notification Names
@@ -34,4 +35,29 @@ enum ImbibTab: Hashable {
     case inboxCollection(UUID)       // Collection in the inbox library
     case flagged(String?)     // nil = any flag, String = FlagColor.rawValue
     case dismissed
+}
+
+// MARK: - Flag Counts
+
+/// Sidebar flag counts for badge display
+struct FlagCounts {
+    var total: Int = 0
+    var byColor: [String: Int] = [:]
+
+    static let empty = FlagCounts()
+}
+
+// MARK: - Shareable Item (iCloud Sharing)
+
+/// Represents an item that can be shared via iCloud
+public enum ShareableItem: Identifiable {
+    case library(CDLibrary)
+    case collection(CDCollection)
+
+    public var id: String {
+        switch self {
+        case .library(let lib): return "library-\(lib.id)"
+        case .collection(let col): return "collection-\(col.id)"
+        }
+    }
 }

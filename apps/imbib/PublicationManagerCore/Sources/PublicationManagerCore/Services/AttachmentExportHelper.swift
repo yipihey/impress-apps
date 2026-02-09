@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Attachment Export Helper
@@ -41,29 +40,26 @@ public enum AttachmentExportHelper {
     /// Read attachment data for a publication.
     ///
     /// - Parameters:
-    ///   - linkedFiles: The linked files to read (from publication.linkedFiles).
+    ///   - linkedFiles: The linked files to read (from RustStoreAdapter.shared.listLinkedFiles).
     ///   - papersContainerURL: The URL of the library's papers container.
     ///   - maxFileSize: Optional maximum file size in bytes. Files larger than this are skipped.
     /// - Returns: Array of attachment data for the publication's linked files.
     public static func readAttachmentData(
-        linkedFiles: Set<CDLinkedFile>?,
+        linkedFiles: [LinkedFileModel],
         papersContainerURL: URL?,
         maxFileSize: Int? = nil
     ) -> [AttachmentData] {
         var attachments: [AttachmentData] = []
 
-        guard let linkedFiles = linkedFiles else { return attachments }
+        guard !linkedFiles.isEmpty else { return attachments }
 
         for (index, linkedFile) in linkedFiles.enumerated() {
-            // Try to read file data
+            // Try to read file data from disk
             let fileData: Data?
 
-            // First check if fileData is stored in Core Data (for CloudKit sync)
-            if let storedData = linkedFile.fileData, !storedData.isEmpty {
-                fileData = storedData
-            } else if let containerURL = papersContainerURL {
-                // Try to read from disk
-                let fileURL = containerURL.appendingPathComponent(linkedFile.relativePath)
+            if let containerURL = papersContainerURL,
+               let relativePath = linkedFile.relativePath {
+                let fileURL = containerURL.appendingPathComponent(relativePath)
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     // Check file size limit
                     if let maxSize = maxFileSize {
@@ -87,12 +83,13 @@ public enum AttachmentExportHelper {
                 continue
             }
 
-            // Determine content type
-            let contentType = linkedFile.mimeType ?? mimeType(for: linkedFile.fileExtension)
+            // Determine content type from file extension
+            let ext = URL(fileURLWithPath: linkedFile.filename).pathExtension
+            let contentType = mimeType(for: ext)
 
             attachments.append(AttachmentData(
                 filename: linkedFile.filename,
-                relativePath: linkedFile.relativePath,
+                relativePath: linkedFile.relativePath ?? linkedFile.filename,
                 data: data,
                 mimeType: contentType,
                 isMainFile: index == 0
@@ -120,28 +117,29 @@ public enum AttachmentExportHelper {
     /// Get all attachment files for publications.
     ///
     /// This is a data-gathering function that returns file information for later copying.
-    /// Called from within a MainActor context where AttachmentManager is available.
+    /// Called from within a MainActor context where RustStoreAdapter is available.
     ///
     /// - Parameters:
-    ///   - publications: The publications to get attachments from.
+    ///   - publications: The publications (as PublicationRowData) to get attachments from.
     ///   - resolveURL: A closure that resolves file URLs (typically AttachmentManager.shared.resolveURL).
     /// - Returns: Array of file information for copying.
-    public static func getAttachmentFiles<T: Sequence>(
-        from publications: T,
-        resolveURL: (CDLinkedFile) -> URL?
-    ) -> [FileToCopy] where T.Element == CDPublication {
+    @MainActor
+    public static func getAttachmentFiles(
+        from publications: [PublicationRowData],
+        resolveURL: (LinkedFileModel) -> URL?
+    ) -> [FileToCopy] {
         var files: [FileToCopy] = []
+        let store = RustStoreAdapter.shared
 
         for pub in publications {
-            guard let linkedFiles = pub.linkedFiles, !linkedFiles.isEmpty else {
-                continue
-            }
+            let linkedFiles = store.listLinkedFiles(publicationId: pub.id)
+            guard !linkedFiles.isEmpty else { continue }
 
             for linkedFile in linkedFiles {
                 if let sourceURL = resolveURL(linkedFile) {
                     files.append(FileToCopy(
                         citeKey: pub.citeKey,
-                        relativePath: linkedFile.relativePath,
+                        relativePath: linkedFile.relativePath ?? linkedFile.filename,
                         sourceURL: sourceURL
                     ))
                 }

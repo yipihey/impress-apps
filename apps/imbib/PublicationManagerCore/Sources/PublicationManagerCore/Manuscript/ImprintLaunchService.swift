@@ -38,15 +38,21 @@ public actor ImprintLaunchService {
     /// - Parameter publication: The manuscript with a linked imprint document
     /// - Returns: True if the document was opened, false otherwise
     @discardableResult
-    public func openLinkedDocument(for publication: CDPublication) async -> Bool {
-        // First try to resolve the document URL
-        if let url = publication.resolveImprintDocumentURL() {
-            return await openDocument(at: url)
+    public func openLinkedDocument(for publication: PublicationModel) async -> Bool {
+        // First try to resolve the document URL from the stored path
+        if let pathStr = publication.fields[ManuscriptMetadataKey.imprintDocumentPath.rawValue],
+           !pathStr.isEmpty {
+            let url = URL(fileURLWithPath: pathStr)
+            if FileManager.default.fileExists(atPath: url.path) {
+                return await openDocument(at: url)
+            }
         }
 
         // Fall back to URL scheme if we have the document UUID
-        if let imprintURL = publication.imprintOpenURL {
-            return await openURL(imprintURL)
+        if let docUUID = publication.fields[ManuscriptMetadataKey.imprintDocumentUUID.rawValue],
+           !docUUID.isEmpty,
+           let url = URL(string: "imprint://open/document/\(docUUID)") {
+            return await openURL(url)
         }
 
         return false
@@ -199,7 +205,7 @@ public actor ImprintLaunchService {
     ///   - destinationURL: Where to create the document
     /// - Returns: The UUID of the created document
     public func createDocument(
-        for publication: CDPublication,
+        for publication: PublicationModel,
         at destinationURL: URL
     ) throws -> UUID {
         let documentID = UUID()
@@ -207,14 +213,17 @@ public actor ImprintLaunchService {
         // Create package directory
         try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
 
+        let title = publication.title
+        let citeKey = publication.citeKey
+
         // Create main.typ with title
         let source = """
         // imprint document
-        // \(publication.title ?? "Untitled")
+        // \(title)
 
-        = \(publication.title ?? "Introduction")
+        = \(title)
 
-        This document was created from imbib for manuscript "\(publication.citeKey)".
+        This document was created from imbib for manuscript "\(citeKey)".
 
         Start writing here, or use Cmd+Shift+K to insert citations.
         """
@@ -223,8 +232,8 @@ public actor ImprintLaunchService {
         // Create metadata.json
         let metadata: [String: Any] = [
             "id": documentID.uuidString,
-            "title": publication.title ?? "Untitled",
-            "authors": publication.authors.map { $0.formattedName } ,
+            "title": title,
+            "authors": publication.authors.map(\.displayName),
             "createdAt": ISO8601DateFormatter().string(from: Date()),
             "modifiedAt": ISO8601DateFormatter().string(from: Date()),
             "linkedImbibManuscriptID": publication.id.uuidString

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Bib Drop Handler
@@ -36,12 +35,12 @@ public final class BibDropHandler {
 
     // MARK: - Dependencies
 
-    private let persistenceController: PersistenceController
+    private let store: RustStoreAdapter
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
+    public init(store: RustStoreAdapter = .shared) {
+        self.store = store
     }
 
     // MARK: - Public Methods
@@ -72,7 +71,7 @@ public final class BibDropHandler {
         let (entries, errors) = await parseFile(url: url, format: format)
 
         // Check for duplicates
-        let checkedEntries = await checkDuplicates(entries)
+        let checkedEntries = checkDuplicates(entries)
 
         let preview = BibImportPreview(
             sourceURL: url,
@@ -93,14 +92,7 @@ public final class BibDropHandler {
     public func commitImport(_ preview: BibImportPreview, to libraryID: UUID) async throws {
         Logger.files.infoCapture("Committing bib import: \(preview.entries.filter { $0.isSelected }.count) entries", category: "files")
 
-        let context = persistenceController.viewContext
-
-        // Fetch library
-        let libraryRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
-        libraryRequest.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-        libraryRequest.fetchLimit = 1
-
-        guard let library = try? context.fetch(libraryRequest).first else {
+        guard store.getLibrary(id: libraryID) != nil else {
             throw DragDropError.libraryNotFound
         }
 
@@ -113,14 +105,13 @@ public final class BibDropHandler {
             }
 
             do {
-                try await importEntry(entry, preview: preview, to: library)
+                try importEntry(entry, preview: preview, to: libraryID)
                 imported += 1
             } catch {
                 Logger.files.errorCapture("Failed to import \(entry.citeKey): \(error.localizedDescription)", category: "files")
             }
         }
 
-        try context.save()
         currentPreview = nil
 
         Logger.files.infoCapture("Imported \(imported) entries from \(preview.sourceURL.lastPathComponent)", category: "files")
@@ -183,20 +174,12 @@ public final class BibDropHandler {
         return (entries, errors)
     }
 
-    /// Check entries for duplicates.
-    private func checkDuplicates(_ entries: [BibImportEntry]) async -> [BibImportEntry] {
-        let context = persistenceController.viewContext
-
+    /// Check entries for duplicates via the Rust store.
+    private func checkDuplicates(_ entries: [BibImportEntry]) -> [BibImportEntry] {
         return entries.map { entry in
-            var checked = entry
-
             // Check by cite key
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            request.predicate = NSPredicate(format: "citeKey == %@", entry.citeKey)
-            request.fetchLimit = 1
-
-            if let existing = try? context.fetch(request).first {
-                checked = BibImportEntry(
+            if let existing = store.findByCiteKey(citeKey: entry.citeKey) {
+                return BibImportEntry(
                     id: entry.id,
                     citeKey: entry.citeKey,
                     entryType: entry.entryType,
@@ -210,71 +193,34 @@ public final class BibDropHandler {
                 )
             }
 
-            return checked
+            return entry
         }
     }
 
-    /// Import a single entry.
-    private func importEntry(_ entry: BibImportEntry, preview: BibImportPreview, to library: CDLibrary) async throws {
-        let context = persistenceController.viewContext
-
-        // Create publication
-        let publication = CDPublication(context: context)
-        publication.id = UUID()
-        publication.citeKey = entry.citeKey
-        publication.entryType = entry.entryType
-        publication.title = entry.title
-        publication.year = Int16(entry.year ?? 0)
-        publication.dateAdded = Date()
-        publication.dateModified = Date()
-
-        // Set authors
-        if !entry.authors.isEmpty {
-            publication.fields["author"] = entry.authors.joined(separator: " and ")
-        }
-
-        // Store raw content for round-trip
-        publication.rawBibTeX = entry.rawContent
-
-        // Add to library
-        publication.addToLibrary(library)
-
-        // Parse full entry if we have raw content for additional fields
+    /// Import a single entry via BibTeX import into the Rust store.
+    private func importEntry(_ entry: BibImportEntry, preview: BibImportPreview, to libraryID: UUID) throws {
+        // Build BibTeX string for the entry
+        let bibtex: String
         if let rawContent = entry.rawContent, preview.format == .bibtex {
-            try? parseBibTeXFields(rawContent, into: publication)
-        }
-    }
-
-    /// Parse additional fields from raw BibTeX.
-    private func parseBibTeXFields(_ rawBibTeX: String, into publication: CDPublication) throws {
-        let parser = BibTeXParserFactory.createParser()
-        let items = try parser.parse(rawBibTeX)
-
-        guard case .entry(let entry) = items.first else {
-            return
-        }
-
-        // Copy all fields
-        for (key, value) in entry.fields {
-            // Skip fields we've already set
-            if key == "author" { continue }
-
-            publication.fields[key] = value
-
-            // Extract special fields
-            switch key.lowercased() {
-            case "doi":
-                publication.doi = value
-            case "eprint", "arxivid", "arxiv":
-                // arxivID is computed from fields["eprint"], set the field directly
-                publication.fields["eprint"] = value
-            case "journal":
-                publication.fields["journal"] = value
-            case "abstract":
-                publication.fields["abstract"] = value
-            default:
-                break
+            bibtex = rawContent
+        } else {
+            // Construct minimal BibTeX from entry data
+            var fields: [String] = []
+            if let title = entry.title {
+                fields.append("  title = {\(title)}")
             }
+            if !entry.authors.isEmpty {
+                fields.append("  author = {\(entry.authors.joined(separator: " and "))}")
+            }
+            if let year = entry.year {
+                fields.append("  year = {\(year)}")
+            }
+            bibtex = "@\(entry.entryType){\(entry.citeKey),\n\(fields.joined(separator: ",\n"))\n}"
+        }
+
+        let importedIDs = store.importBibTeX(bibtex, libraryId: libraryID)
+        if importedIDs.isEmpty {
+            throw DragDropError.importFailed
         }
     }
 

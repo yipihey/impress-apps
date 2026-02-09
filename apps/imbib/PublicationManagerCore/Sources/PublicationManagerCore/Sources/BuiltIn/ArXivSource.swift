@@ -619,7 +619,7 @@ extension ArXivSource: BrowserURLProvider {
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: Direct arXiv PDF URL, or nil if no arXiv ID
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
         guard let arxivID = publication.arxivID, !arxivID.isEmpty else {
             return nil
         }

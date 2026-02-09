@@ -2,11 +2,10 @@
 //  SelectionAdvancement.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-19.
+//  Utility for calculating next selection after removing publications from a list.
 //
 
 import Foundation
-import CoreData
 
 /// Utility for calculating next selection after removing publications from a list.
 ///
@@ -26,30 +25,23 @@ public struct SelectionAdvancement {
     /// - Parameters:
     ///   - idsToRemove: Set of publication IDs being removed
     ///   - publications: Current list of publications (in display order)
-    ///   - currentSelection: Currently selected publication (optional)
+    ///   - currentSelectionID: Currently selected publication ID (optional)
     /// - Returns: The UUID of the next publication to select, or nil if none remain
     public static func findNextSelection(
         removing idsToRemove: Set<UUID>,
-        from publications: [CDPublication],
-        currentSelection: CDPublication? = nil
+        from publications: [PublicationRowData],
+        currentSelectionID: UUID? = nil
     ) -> UUID? {
         guard !idsToRemove.isEmpty else { return nil }
 
-        // Filter to only valid publications (not deleted, has context)
-        let validPublications = publications.filter { pub in
-            !pub.isDeleted && pub.managedObjectContext != nil
-        }
-
         // If current selection is not being removed, keep it
-        if let current = currentSelection,
-           !current.isDeleted,
-           current.managedObjectContext != nil,
-           !idsToRemove.contains(current.id) {
-            return current.id
+        if let currentID = currentSelectionID,
+           !idsToRemove.contains(currentID) {
+            return currentID
         }
 
         // Find indices of selected papers
-        let selectedIndices = validPublications.enumerated()
+        let selectedIndices = publications.enumerated()
             .filter { idsToRemove.contains($0.element.id) }
             .map { $0.offset }
             .sorted()
@@ -58,8 +50,8 @@ public struct SelectionAdvancement {
 
         // Try next paper after the last selected
         let nextIndex = lastIndex + 1
-        if nextIndex < validPublications.count {
-            let nextPub = validPublications[nextIndex]
+        if nextIndex < publications.count {
+            let nextPub = publications[nextIndex]
             if !idsToRemove.contains(nextPub.id) {
                 return nextPub.id
             }
@@ -67,47 +59,38 @@ public struct SelectionAdvancement {
 
         // Try paper before the first selected
         if let firstIndex = selectedIndices.first, firstIndex > 0 {
-            let prevPub = validPublications[firstIndex - 1]
+            let prevPub = publications[firstIndex - 1]
             if !idsToRemove.contains(prevPub.id) {
                 return prevPub.id
             }
         }
 
         // Find any remaining paper not in the selection
-        for pub in validPublications where !idsToRemove.contains(pub.id) {
+        for pub in publications where !idsToRemove.contains(pub.id) {
             return pub.id
         }
 
         return nil
     }
 
-    /// Calculate the next selection and update bindings atomically.
+    /// Calculate the next selection and return the ID.
     ///
     /// Use this before modifying the publications array for smooth transitions.
     ///
     /// - Parameters:
     ///   - idsToRemove: Set of publication IDs being removed
     ///   - publications: Current list of publications
-    ///   - selectedPublicationIDs: Binding to multi-selection set
-    ///   - selectedPublication: Binding to single selection
-    /// - Returns: The next publication to select (for updating bindings)
+    ///   - currentSelectionID: Currently selected publication ID
+    /// - Returns: The next publication ID to select, or nil if none remain
     public static func advanceSelection(
         removing idsToRemove: Set<UUID>,
-        from publications: [CDPublication],
-        currentSelection: CDPublication?
-    ) -> (nextID: UUID?, nextPublication: CDPublication?) {
-        let nextID = findNextSelection(
+        from publications: [PublicationRowData],
+        currentSelectionID: UUID?
+    ) -> UUID? {
+        findNextSelection(
             removing: idsToRemove,
             from: publications,
-            currentSelection: currentSelection
+            currentSelectionID: currentSelectionID
         )
-
-        let nextPublication = nextID.flatMap { id in
-            publications.first { pub in
-                !pub.isDeleted && pub.managedObjectContext != nil && pub.id == id
-            }
-        }
-
-        return (nextID, nextPublication)
     }
 }

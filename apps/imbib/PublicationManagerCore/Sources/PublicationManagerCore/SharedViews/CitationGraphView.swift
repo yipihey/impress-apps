@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 import CoreGraphics
 import OSLog
 
@@ -19,7 +18,7 @@ import OSLog
 /// Library papers are highlighted; external "missing link" papers
 /// are shown dimmed with a count badge.
 public struct CitationGraphView: View {
-    let library: CDLibrary
+    let libraryID: UUID
 
     @State private var graph = CitationGraph()
     @State private var isLoading = false
@@ -28,8 +27,8 @@ public struct CitationGraphView: View {
     @State private var showSuggestedOnly = false
     @Environment(\.dismiss) private var dismiss
 
-    public init(library: CDLibrary) {
-        self.library = library
+    public init(libraryID: UUID) {
+        self.libraryID = libraryID
     }
 
     public var body: some View {
@@ -278,7 +277,7 @@ public struct CitationGraphView: View {
 
     private func loadGraph() async {
         isLoading = true
-        graph = await CitationGraphService.shared.buildGraph(for: library)
+        graph = await CitationGraphService.shared.buildGraph(for: libraryID)
         computeLayout()
         isLoading = false
     }

@@ -23,6 +23,7 @@ impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
 impress-flags = { workspace = true }
 impress-tags = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite"] }
 
 # UniFFI for Swift/Kotlin bindings (optional, native only)
 uniffi = { workspace = true, features = ["tokio"], optional = true }

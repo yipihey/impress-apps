@@ -64,24 +64,24 @@ public enum UnifiedExportFormat: String, CaseIterable, Identifiable {
 
 /// What to export.
 public enum ExportScope {
-    case library(CDLibrary)
-    case selection([CDPublication])
+    case library(UUID, String, Int) // libraryID, displayName, publicationCount
+    case selection([UUID])          // publication IDs
 
     var displayName: String {
         switch self {
-        case .library(let library):
-            return "Library \"\(library.displayName)\""
-        case .selection(let publications):
-            return "\(publications.count) selected publication\(publications.count == 1 ? "" : "s")"
+        case .library(_, let name, _):
+            return "Library \"\(name)\""
+        case .selection(let ids):
+            return "\(ids.count) selected publication\(ids.count == 1 ? "" : "s")"
         }
     }
 
     var publicationCount: Int {
         switch self {
-        case .library(let library):
-            return library.publications?.count ?? 0
-        case .selection(let publications):
-            return publications.count
+        case .library(_, _, let count):
+            return count
+        case .selection(let ids):
+            return ids.count
         }
     }
 }
@@ -89,16 +89,6 @@ public enum ExportScope {
 // MARK: - Unified Export View
 
 /// Unified export dialog supporting both BibTeX and mbox formats.
-///
-/// Usage:
-/// ```
-/// .sheet(isPresented: $showExport) {
-///     UnifiedExportView(
-///         scope: .library(myLibrary),
-///         isPresented: $showExport
-///     )
-/// }
-/// ```
 public struct UnifiedExportView: View {
 
     // MARK: - Properties
@@ -126,19 +116,16 @@ public struct UnifiedExportView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Format picker
                 formatPicker
                     .padding()
 
                 Divider()
 
-                // Options
                 optionsSection
                     .padding()
 
                 Divider()
 
-                // Summary
                 summarySection
                     .padding()
 
@@ -278,16 +265,14 @@ public struct UnifiedExportView: View {
         #if os(macOS)
         let panel = NSSavePanel()
 
-        // Configure file extension
         if let contentType = UTType(filenameExtension: selectedFormat.fileExtension) {
             panel.allowedContentTypes = [contentType]
         }
 
-        // Default filename
         let baseName: String
         switch scope {
-        case .library(let library):
-            baseName = library.displayName
+        case .library(_, let name, _):
+            baseName = name
         case .selection:
             baseName = "export"
         }
@@ -317,7 +302,6 @@ public struct UnifiedExportView: View {
             }
         }
         #else
-        // iOS: Would use UIDocumentPickerViewController
         logger.warning("Export on iOS not yet implemented")
         #endif
     }
@@ -334,62 +318,70 @@ public struct UnifiedExportView: View {
     // MARK: - BibTeX Export
 
     private func exportBibTeX(to url: URL) async throws {
-        let publications: [CDPublication]
-        let library: CDLibrary?
+        let store = await MainActor.run { RustStoreAdapter.shared }
+        let publicationIDs: [UUID]
 
         switch scope {
-        case .library(let lib):
-            library = lib
-            publications = Array(lib.publications ?? [])
-        case .selection(let pubs):
-            library = pubs.first?.libraries?.first
-            publications = pubs
+        case .library(let libraryID, _, _):
+            publicationIDs = await MainActor.run {
+                store.queryPublications(parentId: libraryID).map(\.id)
+            }
+        case .selection(let ids):
+            publicationIDs = ids
         }
 
-        var content = "% imbib Library Export\n"
-        content += "% Generated: \(Date())\n"
-        content += "% Publications: \(publications.count)\n\n"
+        // Export BibTeX via store
+        let content = await MainActor.run {
+            var bibtex = "% imbib Library Export\n"
+            bibtex += "% Generated: \(Date())\n"
+            bibtex += "% Publications: \(publicationIDs.count)\n\n"
 
-        let exporter = BibTeXExporter()
+            let exported = store.exportBibTeX(ids: publicationIDs)
 
-        for publication in publications {
-            // Get raw BibTeX if available
-            var bibtex: String
-            if let raw = publication.rawBibTeX, !raw.isEmpty {
-                bibtex = raw
+            if includeAttachments {
+                // Split into entries and add Bdsk-File-* fields
+                // The exported string contains concatenated BibTeX entries
+                for pubID in publicationIDs {
+                    let linkedFiles = store.listLinkedFiles(publicationId: pubID)
+                    if !linkedFiles.isEmpty {
+                        // Re-export individually to add file fields
+                        var entry = store.exportBibTeX(ids: [pubID])
+                        entry = addBdskFileFields(to: entry, linkedFiles: linkedFiles)
+                        bibtex += entry + "\n"
+                    }
+                }
+                // Add entries without linked files
+                let idsWithFiles = Set(publicationIDs.filter { !store.listLinkedFiles(publicationId: $0).isEmpty })
+                let idsWithoutFiles = publicationIDs.filter { !idsWithFiles.contains($0) }
+                if !idsWithoutFiles.isEmpty {
+                    bibtex += store.exportBibTeX(ids: idsWithoutFiles)
+                }
             } else {
-                let entry = publication.toBibTeXEntry()
-                bibtex = exporter.export(entry)
+                bibtex += exported
             }
 
-            // Add Bdsk-File-* fields if including attachments
-            if includeAttachments, let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
-                bibtex = addBdskFileFields(to: bibtex, linkedFiles: Array(linkedFiles))
-            }
-
-            content += bibtex
-            content += "\n\n"
+            return bibtex
         }
 
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        logger.info("Exported \(publications.count) publications to BibTeX")
+        try Data(content.utf8).write(to: url)
+        logger.info("Exported \(publicationIDs.count) publications to BibTeX")
     }
 
     /// Add Bdsk-File-* fields to BibTeX entry for linked files.
-    private func addBdskFileFields(to bibtex: String, linkedFiles: [CDLinkedFile]) -> String {
-        // Find the closing brace of the entry
+    private func addBdskFileFields(to bibtex: String, linkedFiles: [LinkedFileModel]) -> String {
         guard let closingIndex = bibtex.lastIndex(of: "}") else {
             return bibtex
         }
 
         var fields = ""
         for (index, linkedFile) in linkedFiles.enumerated() {
-            if let encoded = BdskFileCodec.encode(relativePath: linkedFile.relativePath) {
-                fields += ",\n    Bdsk-File-\(index + 1) = {\(encoded)}"
+            if let relativePath = linkedFile.relativePath {
+                if let encoded = BdskFileCodec.encode(relativePath: relativePath) {
+                    fields += ",\n    Bdsk-File-\(index + 1) = {\(encoded)}"
+                }
             }
         }
 
-        // Insert before closing brace
         var result = bibtex
         result.insert(contentsOf: fields, at: closingIndex)
         return result
@@ -398,40 +390,41 @@ public struct UnifiedExportView: View {
     // MARK: - Mbox Export
 
     private func exportMbox(to url: URL) async throws {
-        let publications: [CDPublication]
-        let library: CDLibrary?
+        let store = await MainActor.run { RustStoreAdapter.shared }
+        let libraryID: UUID?
 
         switch scope {
-        case .library(let lib):
-            library = lib
-            publications = Array(lib.publications ?? [])
-        case .selection(let pubs):
-            library = pubs.first?.libraries?.first
-            publications = pubs
+        case .library(let id, _, _):
+            libraryID = id
+        case .selection:
+            libraryID = nil
         }
 
-        guard let library = library else {
+        guard let libraryID else {
             throw ExportError.noLibrary
         }
 
-        let context = PersistenceController.shared.viewContext
         let options = MboxExportOptions(
             includeFiles: includeAttachments,
             includeBibTeX: true,
             maxFileSize: nil
         )
 
-        let exporter = MboxExporter(context: context, options: options)
+        let exporter = MboxExporter(options: options)
 
-        if case .selection = scope {
-            // Export selected publications
-            try await exporter.export(publications: publications, library: library, to: url)
-        } else {
-            // Export entire library
-            try await exporter.export(library: library, to: url)
+        let publicationIDs: [UUID]
+        switch scope {
+        case .library:
+            publicationIDs = await MainActor.run {
+                store.queryPublications(parentId: libraryID).map(\.id)
+            }
+        case .selection(let ids):
+            publicationIDs = ids
         }
 
-        logger.info("Exported \(publications.count) publications to mbox")
+        try await exporter.export(publicationIds: publicationIDs, libraryId: libraryID, to: url)
+
+        logger.info("Exported \(publicationIDs.count) publications to mbox")
     }
 }
 
@@ -453,7 +446,6 @@ enum ExportError: LocalizedError {
 #if DEBUG
 struct UnifiedExportView_Previews: PreviewProvider {
     static var previews: some View {
-        // Mock preview
         Text("UnifiedExportView Preview")
             .frame(width: 400, height: 400)
     }

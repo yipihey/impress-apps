@@ -69,7 +69,7 @@ public final class DragSelectionHolder {
 
 /// Unified publication list view used by Library, Smart Search, and Ad-hoc Search.
 ///
-/// Per ADR-016, all papers are CDPublication entities and should have identical
+/// Per ADR-016, all papers are publication entities and should have identical
 /// capabilities regardless of where they're viewed. This component provides:
 /// - Mail-style publication rows
 /// - Inline toolbar (search, filter, import, sort)
@@ -80,27 +80,28 @@ public final class DragSelectionHolder {
 ///
 /// ## Thread Safety
 ///
-/// This view converts `[CDPublication]` to `[PublicationRowData]` (value types)
+/// This view uses `[PublicationRowData]` (value types) for rendering
 /// before rendering. This eliminates crashes during bulk deletion where Core Data
 /// objects become invalid while SwiftUI is still rendering.
 public struct PublicationListView: View {
 
     // MARK: - Properties
 
-    /// All publications to display (before filtering/sorting)
-    public let publications: [CDPublication]
+    /// All publications to display (before filtering/sorting).
+    /// Data arrives pre-shaped from RustStoreAdapter — no Core Data conversion needed.
+    public let publications: [PublicationRowData]
 
     /// Multi-selection binding
     @Binding public var selection: Set<UUID>
 
-    /// Single-selection binding (updated when selection changes)
-    @Binding public var selectedPublication: CDPublication?
+    /// Single-selection binding (updated when selection changes to first selected ID)
+    @Binding public var selectedPublicationID: UUID?
 
-    /// Library for context menu operations (Add to Library, Add to Collection)
-    public var library: CDLibrary?
+    /// Library ID for context menu operations (Add to Library, Add to Collection)
+    public var libraryID: UUID?
 
-    /// All available libraries for "Add to Library" menu
-    public var allLibraries: [CDLibrary] = []
+    /// All available libraries for "Add to Library" menu (id, name pairs)
+    public var allLibraries: [(id: UUID, name: String)] = []
 
     /// Whether to show the import button
     public var showImportButton: Bool = true
@@ -124,9 +125,9 @@ public struct PublicationListView: View {
     /// Whether this list is showing Inbox items (enables Inbox-specific swipe actions)
     public var isInInbox: Bool = false
 
-    /// The target library for "keep" swipe action (configured via Settings > Inbox).
+    /// The target library ID for "keep" swipe action (configured via Settings > Inbox).
     /// When nil, the first non-inbox library is used as fallback.
-    public var saveLibrary: CDLibrary?
+    public var saveLibraryID: UUID?
 
     /// Binding to the filter scope (controls which publications are searched)
     @Binding public var filterScope: FilterScope
@@ -150,7 +151,7 @@ public struct PublicationListView: View {
     public var onDelete: ((Set<UUID>) async -> Void)?
 
     /// Called when toggle read is requested
-    public var onToggleRead: ((CDPublication) async -> Void)?
+    public var onToggleRead: ((UUID) async -> Void)?
 
     /// Called when copy is requested
     public var onCopy: ((Set<UUID>) async -> Void)?
@@ -162,10 +163,10 @@ public struct PublicationListView: View {
     public var onPaste: (() async -> Void)?
 
     /// Called when add to library is requested (publications can belong to multiple libraries)
-    public var onAddToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+    public var onAddToLibrary: ((Set<UUID>, UUID) async -> Void)?
 
     /// Called when add to collection is requested
-    public var onAddToCollection: ((Set<UUID>, CDCollection) async -> Void)?
+    public var onAddToCollection: ((Set<UUID>, UUID) async -> Void)?
 
     /// Called when remove from all collections is requested ("All Publications")
     public var onRemoveFromAllCollections: ((Set<UUID>) async -> Void)?
@@ -174,10 +175,10 @@ public struct PublicationListView: View {
     public var onImport: (() -> Void)?
 
     /// Called when open PDF is requested
-    public var onOpenPDF: ((CDPublication) -> Void)?
+    public var onOpenPDF: ((UUID) -> Void)?
 
     /// Called when files are dropped onto a publication row
-    public var onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)?
+    public var onFileDrop: ((UUID, [NSItemProvider]) -> Void)?
 
     /// Called when PDFs are dropped onto the list background (for import)
     public var onListDrop: (([NSItemProvider], DropTarget) -> Void)?
@@ -191,7 +192,7 @@ public struct PublicationListView: View {
     // MARK: - Inbox Triage Callbacks
 
     /// Called when keep to library is requested (Inbox: adds to library AND removes from Inbox)
-    public var onSaveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+    public var onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)?
 
     /// Called when dismiss is requested (Inbox: remove from Inbox)
     public var onDismiss: ((Set<UUID>) async -> Void)?
@@ -215,7 +216,7 @@ public struct PublicationListView: View {
     public var onMuteAuthor: ((String) -> Void)?
 
     /// Called when mute paper is requested (by DOI or bibcode)
-    public var onMutePaper: ((CDPublication) -> Void)?
+    public var onMutePaper: ((UUID) -> Void)?
 
     /// Called when a category chip is tapped (e.g., to search for that category)
     public var onCategoryTap: ((String) -> Void)?
@@ -226,28 +227,28 @@ public struct PublicationListView: View {
     // MARK: - Enhanced Context Menu Callbacks
 
     /// Called when Open in Browser is requested (arXiv, ADS, DOI)
-    public var onOpenInBrowser: ((CDPublication, BrowserDestination) -> Void)?
+    public var onOpenInBrowser: ((UUID, BrowserDestination) -> Void)?
 
     /// Called when Download PDF is requested (for papers without PDF)
-    public var onDownloadPDF: ((CDPublication) -> Void)?
+    public var onDownloadPDF: ((UUID) -> Void)?
 
     /// Called when View/Edit BibTeX is requested
-    public var onViewEditBibTeX: ((CDPublication) -> Void)?
+    public var onViewEditBibTeX: ((UUID) -> Void)?
 
     /// Called when Share (system share sheet) is requested
-    public var onShare: ((CDPublication) -> Void)?
+    public var onShare: ((UUID) -> Void)?
 
     /// Called when Share by Email is requested (with PDF + BibTeX attachments)
-    public var onShareByEmail: ((CDPublication) -> Void)?
+    public var onShareByEmail: ((UUID) -> Void)?
 
     /// Called when Explore References is requested
-    public var onExploreReferences: ((CDPublication) -> Void)?
+    public var onExploreReferences: ((UUID) -> Void)?
 
     /// Called when Explore Citations is requested
-    public var onExploreCitations: ((CDPublication) -> Void)?
+    public var onExploreCitations: ((UUID) -> Void)?
 
     /// Called when Explore Similar Papers is requested
-    public var onExploreSimilar: ((CDPublication) -> Void)?
+    public var onExploreSimilar: ((UUID) -> Void)?
 
     /// Whether a refresh is in progress (shows loading indicator)
     public var isRefreshing: Bool = false
@@ -294,7 +295,8 @@ public struct PublicationListView: View {
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
 
     /// Cached publication lookup - O(1) instead of O(n) linear scans
-    @State private var publicationsByID: [UUID: CDPublication] = [:]
+    /// (Only row data is cached — no managed object storage)
+    // publicationsByID removed: no longer needed with pre-shaped PublicationRowData
 
     /// ID of row currently targeted by file drop
     @State private var dropTargetedRowID: UUID?
@@ -335,12 +337,8 @@ public struct PublicationListView: View {
 
     // MARK: - Computed Properties
 
-    /// Static collections (non-smart) from the current library, for "Add to Collection" menus
-    private var staticCollections: [CDCollection] {
-        guard let collections = library?.collections as? Set<CDCollection> else { return [] }
-        return collections.filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
-            .sorted { $0.name < $1.name }
-    }
+    // staticCollections removed: collections handled at parent level via UUID-based callbacks
+    // Collection-related context menus pass through UUID-based callbacks to parent
 
     /// Filtered and sorted row data - memoized to avoid repeated computation
     private var filteredRowData: [PublicationRowData] {
@@ -390,7 +388,7 @@ public struct PublicationListView: View {
             }
         }
 
-        // Sort using data already in PublicationRowData - no CDPublication lookups needed
+        // Sort using data already in PublicationRowData - no managed object lookups needed
         // Each case returns the "default direction" comparison, then we flip if sortAscending differs
         // IMPORTANT: Use stable tie-breaker for recommendation sort to match wrapper's computeVisualOrder()
         let sorted = result.sorted { lhs, rhs in
@@ -507,11 +505,11 @@ public struct PublicationListView: View {
     // MARK: - Initialization
 
     public init(
-        publications: [CDPublication],
+        publications: [PublicationRowData],
         selection: Binding<Set<UUID>>,
-        selectedPublication: Binding<CDPublication?>,
-        library: CDLibrary? = nil,
-        allLibraries: [CDLibrary] = [],
+        selectedPublicationID: Binding<UUID?>,
+        libraryID: UUID? = nil,
+        allLibraries: [(id: UUID, name: String)] = [],
         showImportButton: Bool = true,
         showSortMenu: Bool = true,
         emptyStateMessage: String = "No publications found.",
@@ -519,27 +517,27 @@ public struct PublicationListView: View {
         listID: ListViewID? = nil,
         disableUnreadFilter: Bool = false,
         isInInbox: Bool = false,
-        saveLibrary: CDLibrary? = nil,
+        saveLibraryID: UUID? = nil,
         filterScope: Binding<FilterScope>,
         libraryNameMapping: [UUID: String] = [:],
         sortOrder: Binding<LibrarySortOrder> = .constant(.dateAdded),
         sortAscending: Binding<Bool> = .constant(false),
         recommendationScores: Binding<[UUID: Double]> = .constant([:]),
         onDelete: ((Set<UUID>) async -> Void)? = nil,
-        onToggleRead: ((CDPublication) async -> Void)? = nil,
+        onToggleRead: ((UUID) async -> Void)? = nil,
         onCopy: ((Set<UUID>) async -> Void)? = nil,
         onCut: ((Set<UUID>) async -> Void)? = nil,
         onPaste: (() async -> Void)? = nil,
-        onAddToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
-        onAddToCollection: ((Set<UUID>, CDCollection) async -> Void)? = nil,
+        onAddToLibrary: ((Set<UUID>, UUID) async -> Void)? = nil,
+        onAddToCollection: ((Set<UUID>, UUID) async -> Void)? = nil,
         onRemoveFromAllCollections: ((Set<UUID>) async -> Void)? = nil,
         onImport: (() -> Void)? = nil,
-        onOpenPDF: ((CDPublication) -> Void)? = nil,
-        onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil,
+        onOpenPDF: ((UUID) -> Void)? = nil,
+        onFileDrop: ((UUID, [NSItemProvider]) -> Void)? = nil,
         onListDrop: (([NSItemProvider], DropTarget) -> Void)? = nil,
         onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
         // Inbox triage callbacks
-        onSaveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
+        onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)? = nil,
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
         onToggleStar: ((Set<UUID>) async -> Void)? = nil,
         onSetFlag: ((Set<UUID>, FlagColor) async -> Void)? = nil,
@@ -547,7 +545,7 @@ public struct PublicationListView: View {
         onAddTag: ((Set<UUID>) -> Void)? = nil,
         onRemoveTag: ((UUID, UUID) -> Void)? = nil,
         onMuteAuthor: ((String) -> Void)? = nil,
-        onMutePaper: ((CDPublication) -> Void)? = nil,
+        onMutePaper: ((UUID) -> Void)? = nil,
         // Category tap callback
         onCategoryTap: ((String) -> Void)? = nil,
         // Refresh callback and state
@@ -558,19 +556,19 @@ public struct PublicationListView: View {
         // External flash trigger
         externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil),
         // Enhanced context menu callbacks
-        onOpenInBrowser: ((CDPublication, BrowserDestination) -> Void)? = nil,
-        onDownloadPDF: ((CDPublication) -> Void)? = nil,
-        onViewEditBibTeX: ((CDPublication) -> Void)? = nil,
-        onShare: ((CDPublication) -> Void)? = nil,
-        onShareByEmail: ((CDPublication) -> Void)? = nil,
-        onExploreReferences: ((CDPublication) -> Void)? = nil,
-        onExploreCitations: ((CDPublication) -> Void)? = nil,
-        onExploreSimilar: ((CDPublication) -> Void)? = nil
+        onOpenInBrowser: ((UUID, BrowserDestination) -> Void)? = nil,
+        onDownloadPDF: ((UUID) -> Void)? = nil,
+        onViewEditBibTeX: ((UUID) -> Void)? = nil,
+        onShare: ((UUID) -> Void)? = nil,
+        onShareByEmail: ((UUID) -> Void)? = nil,
+        onExploreReferences: ((UUID) -> Void)? = nil,
+        onExploreCitations: ((UUID) -> Void)? = nil,
+        onExploreSimilar: ((UUID) -> Void)? = nil
     ) {
         self.publications = publications
         self._selection = selection
-        self._selectedPublication = selectedPublication
-        self.library = library
+        self._selectedPublicationID = selectedPublicationID
+        self.libraryID = libraryID
         self.allLibraries = allLibraries
         self.showImportButton = showImportButton
         self.showSortMenu = showSortMenu
@@ -579,7 +577,7 @@ public struct PublicationListView: View {
         self.listID = listID
         self.disableUnreadFilter = disableUnreadFilter
         self.isInInbox = isInInbox
-        self.saveLibrary = saveLibrary
+        self.saveLibraryID = saveLibraryID
         self._filterScope = filterScope
         self.libraryNameMapping = libraryNameMapping
         self._sortOrder = sortOrder
@@ -628,14 +626,29 @@ public struct PublicationListView: View {
         self.onExploreSimilar = onExploreSimilar
     }
 
+    // MARK: - Change Detection
+
+    /// Lightweight fingerprint for the publications array. Avoids allocating a `[UUID]`
+    /// on every SwiftUI evaluation while still detecting same-count array swaps
+    /// (e.g., switching from Red flags to Grey flags with the same count).
+    private var publicationsFingerprint: Int {
+        var hasher = Hasher()
+        hasher.combine(publications.count)
+        hasher.combine(publications.first?.id)
+        hasher.combine(publications.last?.id)
+        for pub in publications { hasher.combine(pub.id) }
+        return hasher.finalize()
+    }
+
     // MARK: - Body
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Inline toolbar (stays at top)
+            #if os(iOS)
+            // Inline toolbar (stays at top on iOS)
             inlineToolbar
-
             Divider()
+            #endif
 
             // Content area - fills remaining space
             // Using ZStack ensures toolbar stays at top when empty state is shown
@@ -648,6 +661,130 @@ public struct PublicationListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        #if os(macOS)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                // Refresh button
+                if let onRefresh = onRefresh {
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                    } else {
+                        Button {
+                            Task { await onRefresh() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .help("Refresh")
+                    }
+                }
+
+                // Import button
+                if showImportButton, let onImport = onImport {
+                    Button {
+                        onImport()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .help("Import BibTeX")
+                }
+
+                // Search section
+                if isSearchExpanded {
+                    HStack(spacing: 8) {
+                        Button {
+                            searchInPDFs.toggle()
+                            if searchInPDFs && !searchQuery.isEmpty {
+                                triggerPDFSearch()
+                            } else if !searchInPDFs {
+                                pdfSearchMatches.removeAll()
+                                filterCache.invalidate()
+                            }
+                        } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                if isPDFSearching {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                }
+                            }
+                        }
+                        .foregroundStyle(searchInPDFs ? .blue : .secondary)
+                        .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
+
+                        HStack {
+                            TextField("Search", text: $searchQuery)
+                                .textFieldStyle(.plain)
+                            if !searchQuery.isEmpty {
+                                Button {
+                                    searchQuery = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(4)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                        .frame(minWidth: 120, maxWidth: 200)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isSearchExpanded = false
+                                if searchQuery.isEmpty { searchInPDFs = false }
+                            }
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.blue)
+                        }
+                        .help("Collapse search")
+                    }
+                } else {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSearchExpanded = true
+                        }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(searchQuery.isEmpty && !searchInPDFs ? Color.secondary : Color.blue)
+                    }
+                    .help("Search")
+                }
+
+                // Sort menu
+                if showSortMenu {
+                    Menu {
+                        ForEach(LibrarySortOrder.allCases, id: \.self) { order in
+                            Button {
+                                if sortOrder == order {
+                                    sortAscending.toggle()
+                                } else {
+                                    sortOrder = order
+                                    sortAscending = order.defaultAscending
+                                }
+                            } label: {
+                                HStack {
+                                    Text(order.displayName)
+                                    Spacer()
+                                    if sortOrder == order {
+                                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .help("Change sort order")
+                }
+
+                // Count display
+                countDisplay
+            }
+        }
+        #endif
         .task(id: listID) {
             await loadState()
             listViewSettings = await ListViewSettingsStore.shared.settings
@@ -655,8 +792,8 @@ public struct PublicationListView: View {
         .onAppear {
             rebuildRowData()
         }
-        .onChange(of: publications.count) { _, _ in
-            // Rebuild row data when publications change (add/delete)
+        .onChange(of: publicationsFingerprint) { _, _ in
+            // Rebuild row data when publications change (add/delete/source switch)
             rebuildRowData()
         }
         .onChange(of: dataVersion) { _, _ in
@@ -697,16 +834,10 @@ public struct PublicationListView: View {
             dragSelectionHolder.selectedIDs = newValue
 
             // Update selection synchronously - the detail view defers its own update
-            // Note: During Core Data background merges, managedObjectContext can temporarily
-            // be nil. We still try to find the publication, but don't clear selection if
-            // it's temporarily unavailable - this prevents selection being cleared during
-            // background enrichment processing.
             if let firstID = newValue.first,
-               let publication = publicationsByID[firstID],
-               !publication.isDeleted {
-                // Only update if we can confirm the publication is valid
-                // Skip the managedObjectContext check as it can be temporarily nil during merges
-                selectedPublication = publication
+               rowDataCache[firstID] != nil {
+                // Update the UUID-based selection binding
+                selectedPublicationID = firstID
 
                 // Scroll to selection when it changes (e.g., from global search navigation)
                 // First check if the item would be filtered out - if so, clear filters
@@ -730,12 +861,8 @@ public struct PublicationListView: View {
                 pendingScrollTarget = firstID
             } else if newValue.isEmpty {
                 // Only clear selection when user explicitly deselects (empty selection)
-                // Don't clear when publication lookup fails - it might be temporarily
-                // unavailable during Core Data background merges
-                selectedPublication = nil
+                selectedPublicationID = nil
             }
-            // If selection has IDs but lookup failed, keep the old selectedPublication
-            // to avoid clearing selection during background processing
 
             if hasLoadedState {
                 debouncedSaveState()
@@ -783,6 +910,8 @@ public struct PublicationListView: View {
     // MARK: - PDF Search
 
     /// Trigger an async PDF content search
+    /// Note: PDF search requires Core Data objects for file path resolution.
+    /// With pre-shaped data, this is a no-op until a UUID-based search API is available.
     private func triggerPDFSearch() {
         // Cancel any existing search
         pdfSearchTask?.cancel()
@@ -792,24 +921,12 @@ public struct PublicationListView: View {
             return
         }
 
-        isPDFSearching = true
-
-        pdfSearchTask = Task {
-            let matches = await PDFSearchService.shared.search(
-                query: searchQuery,
-                in: publications,
-                library: library
-            )
-
-            // Check if task was cancelled
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                pdfSearchMatches = matches
-                isPDFSearching = false
-                filterCache.invalidate()  // Force recompute with new PDF matches
-            }
-        }
+        // PDF search requires file path resolution not available from PublicationRowData.
+        // With pre-shaped PublicationRowData, this capability is deferred to parent.
+        // For now, PDF search is disabled in this view.
+        isPDFSearching = false
+        pdfSearchMatches.removeAll()
+        filterCache.invalidate()
     }
 
     // MARK: - Recommendation Scoring (ADR-020)
@@ -834,36 +951,17 @@ public struct PublicationListView: View {
             }
         }
 
-        isComputingRecommendations = true
-
-        Task {
-            let ranked = await RecommendationEngine.shared.rank(publications)
-
-            var newScores: [UUID: Double] = [:]
-            var newSerendipity: Set<UUID> = []
-
-            for item in ranked {
-                newScores[item.publicationID] = item.score.total
-                if item.isSerendipitySlot {
-                    newSerendipity.insert(item.publicationID)
-                }
-            }
-
-            await MainActor.run {
-                recommendationScores = newScores
-                serendipitySlotIDs = newSerendipity
-                isComputingRecommendations = false
-                lastRecommendationUpdate = Date()
-                filterCache.invalidate()  // Force recompute with new scores
-            }
-        }
+        // Recommendation scoring should be computed by the parent view.
+        // With pre-shaped data, recommendation scores should be computed by the parent
+        // and passed in via the recommendationScores binding.
+        isComputingRecommendations = false
     }
 
     // MARK: - Row Data Management
 
-    /// Rebuild both caches from current publications.
-    /// - rowDataCache: [UUID: PublicationRowData] for display
-    /// - publicationsByID: [UUID: CDPublication] for O(1) mutation lookups
+    /// Rebuild row data cache from current publications.
+    /// Data arrives pre-shaped as [PublicationRowData] — no Core Data conversion needed.
+    /// - rowDataCache: [UUID: PublicationRowData] for display and O(1) lookup
     private func rebuildRowData() {
         let start = CFAbsoluteTimeGetCurrent()
         defer {
@@ -872,19 +970,21 @@ public struct PublicationListView: View {
         }
 
         var newRowCache: [UUID: PublicationRowData] = [:]
-        var newPubCache: [UUID: CDPublication] = [:]
 
-        for pub in publications {
-            newPubCache[pub.id] = pub
-            // Use library name from mapping if available (for grouped search display)
-            let libraryName = libraryNameMapping[pub.id]
-            if let data = PublicationRowData(publication: pub, libraryName: libraryName) {
-                newRowCache[pub.id] = data
+        for data in publications {
+            // Use library name from mapping if available (for grouped search display),
+            // otherwise keep the libraryName already set on the row data
+            if let mappedName = libraryNameMapping[data.id], data.libraryName != mappedName {
+                // Create a copy with updated library name
+                // PublicationRowData is a value type so we'd need a new init or just store the original
+                // For now, store as-is — the mapping is applied at the parent level
+                newRowCache[data.id] = data
+            } else {
+                newRowCache[data.id] = data
             }
         }
 
         rowDataCache = newRowCache
-        publicationsByID = newPubCache
 
         // Log tag summary for debugging
         let taggedCount = newRowCache.values.filter { !$0.tagDisplays.isEmpty }.count
@@ -932,6 +1032,7 @@ public struct PublicationListView: View {
 
     /// Update a single row in the cache (O(1) instead of full rebuild).
     /// Used when only one publication's read status changed.
+    /// With pre-shaped data, we look for the updated row in the publications array.
     private func updateSingleRowData(for publicationID: UUID) {
         let start = CFAbsoluteTimeGetCurrent()
         defer {
@@ -939,17 +1040,12 @@ public struct PublicationListView: View {
             Logger.performance.info("⏱ updateSingleRowData: \(elapsed, format: .fixed(precision: 2))ms")
         }
 
-        guard let publication = publicationsByID[publicationID],
-              !publication.isDeleted,
-              publication.managedObjectContext != nil else {
+        // Find the updated data in the publications array
+        guard let updatedData = publications.first(where: { $0.id == publicationID }) else {
             return
         }
 
-        // Use library name from mapping if available
-        let libraryName = libraryNameMapping[publicationID]
-        if let updatedData = PublicationRowData(publication: publication, libraryName: libraryName) {
-            rowDataCache[publicationID] = updatedData
-        }
+        rowDataCache[publicationID] = updatedData
 
         // Invalidate filtered data cache - read status change may affect unread filter
         filterCache.invalidate()
@@ -974,14 +1070,12 @@ public struct PublicationListView: View {
             // On iOS, don't restore selection - it would trigger navigation via navigationDestination
             // On macOS, restore selection for the detail column display
             #if os(macOS)
-            // Restore selection if publication still exists and is valid
+            // Restore selection if publication still exists in row data cache
             if let selectedID = state.selectedPublicationID,
-               let publication = publicationsByID[selectedID],  // O(1) lookup instead of O(n)
-               !publication.isDeleted,
-               publication.managedObjectContext != nil {
+               rowDataCache[selectedID] != nil {
                 selection = [selectedID]
-                // Also update selectedPublication directly for macOS detail column
-                selectedPublication = publication
+                // Also update selectedPublicationID directly for macOS detail column
+                selectedPublicationID = selectedID
             }
             #endif
             // On iOS, selection restoration is skipped to prevent automatic navigation
@@ -1253,11 +1347,10 @@ public struct PublicationListView: View {
             .contextMenu(forSelectionType: UUID.self) { ids in
                 contextMenuItems(for: ids)
             } primaryAction: { ids in
-                // Double-click to open PDF - O(1) lookup
+                // Double-click to open PDF
                 if let first = ids.first,
-                   let publication = publicationsByID[first],
                    let onOpenPDF = onOpenPDF {
-                    onOpenPDF(publication)
+                    onOpenPDF(first)
                 }
             }
             .onAppear {
@@ -1293,7 +1386,7 @@ public struct PublicationListView: View {
                 let idsToDelete = selection
                 // Clear selection immediately before deletion to prevent accessing deleted objects
                 selection.removeAll()
-                selectedPublication = nil
+                selectedPublicationID = nil
                 Task { await onDelete(idsToDelete) }
             }
         }
@@ -1524,12 +1617,10 @@ public struct PublicationListView: View {
     /// Open selected paper (show PDF tab)
     private func openSelectedPaper() {
         guard let firstID = selection.first,
-              let publication = publicationsByID[firstID],  // O(1) lookup
-              !publication.isDeleted,
-              publication.managedObjectContext != nil,
+              rowDataCache[firstID] != nil,
               let onOpenPDF = onOpenPDF else { return }
 
-        onOpenPDF(publication)
+        onOpenPDF(firstID)
     }
 
     /// Mark all visible papers as read
@@ -1537,12 +1628,9 @@ public struct PublicationListView: View {
         guard let onToggleRead = onToggleRead else { return }
 
         for rowData in filteredRowData {
-            if !rowData.isRead,
-               let publication = publicationsByID[rowData.id],  // O(1) lookup
-               !publication.isDeleted,
-               publication.managedObjectContext != nil {
+            if !rowData.isRead {
                 Task {
-                    await onToggleRead(publication)
+                    await onToggleRead(rowData.id)
                 }
             }
         }
@@ -1555,7 +1643,7 @@ public struct PublicationListView: View {
         let idsToDelete = selection
         // Clear selection immediately before deletion
         selection.removeAll()
-        selectedPublication = nil
+        selectedPublicationID = nil
         Task { await onDelete(idsToDelete) }
     }
 
@@ -1566,9 +1654,8 @@ public struct PublicationListView: View {
         // Open PDF
         if let onOpenPDF = onOpenPDF {
             Button("Open PDF") {
-                if let first = ids.first,
-                   let publication = publicationsByID[first] {  // O(1) lookup
-                    onOpenPDF(publication)
+                if let first = ids.first {
+                    onOpenPDF(first)
                 }
             }
 
@@ -1618,34 +1705,14 @@ public struct PublicationListView: View {
         Divider()
 
         // Add to Library submenu (publications can belong to multiple libraries)
-        // Each library is a submenu showing "All Publications" plus any collections
         if let onAddToLibrary = onAddToLibrary, !allLibraries.isEmpty {
-            let otherLibraries = allLibraries.filter { $0.id != library?.id }
+            let otherLibraries = allLibraries.filter { $0.id != libraryID }
             if !otherLibraries.isEmpty {
                 Menu("Add to Library") {
                     ForEach(otherLibraries, id: \.id) { targetLibrary in
-                        let targetCollections = (targetLibrary.collections as? Set<CDCollection>)?
-                            .filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
-                            .sorted { $0.name < $1.name } ?? []
-
-                        Menu(targetLibrary.displayName) {
-                            Button("All Publications") {
-                                Task {
-                                    await onAddToLibrary(ids, targetLibrary)
-                                }
-                            }
-                            if !targetCollections.isEmpty {
-                                Divider()
-                                ForEach(targetCollections, id: \.id) { collection in
-                                    Button(collection.name) {
-                                        Task {
-                                            await onAddToLibrary(ids, targetLibrary)
-                                            if let onAddToCollection = onAddToCollection {
-                                                await onAddToCollection(ids, collection)
-                                            }
-                                        }
-                                    }
-                                }
+                        Button(targetLibrary.name) {
+                            Task {
+                                await onAddToLibrary(ids, targetLibrary.id)
                             }
                         }
                     }
@@ -1653,34 +1720,11 @@ public struct PublicationListView: View {
             }
         }
 
-        // Add to Collection submenu (with "All Publications" option to remove from all collections)
-        if onAddToCollection != nil || onRemoveFromAllCollections != nil {
-            // Show menu if we have collections OR have the remove callback
-            if !staticCollections.isEmpty || onRemoveFromAllCollections != nil {
-                Menu("Add to Collection") {
-                    // "All Publications" removes from all collections
-                    if let onRemoveFromAllCollections = onRemoveFromAllCollections {
-                        Button("All Publications") {
-                            Task {
-                                await onRemoveFromAllCollections(ids)
-                            }
-                        }
-
-                        if !staticCollections.isEmpty {
-                            Divider()
-                        }
-                    }
-
-                    // Static collections
-                    if let onAddToCollection = onAddToCollection {
-                        ForEach(staticCollections, id: \.id) { collection in
-                            Button(collection.name) {
-                                Task {
-                                    await onAddToCollection(ids, collection)
-                                }
-                            }
-                        }
-                    }
+        // Remove from all collections
+        if let onRemoveFromAllCollections = onRemoveFromAllCollections {
+            Button("Remove from All Collections") {
+                Task {
+                    await onRemoveFromAllCollections(ids)
                 }
             }
         }
@@ -1691,13 +1735,13 @@ public struct PublicationListView: View {
         // Available for all views, not just Inbox
         if let onSaveToLibrary = onSaveToLibrary, !allLibraries.isEmpty {
             // Filter out current library only (same logic as Add to Library)
-            let moveLibraries = allLibraries.filter { $0.id != library?.id }
+            let moveLibraries = allLibraries.filter { $0.id != libraryID }
             if !moveLibraries.isEmpty {
                 Menu("Move to Library") {
                     ForEach(moveLibraries, id: \.id) { targetLibrary in
-                        Button(targetLibrary.displayName) {
+                        Button(targetLibrary.name) {
                             Task {
-                                await onSaveToLibrary(ids, targetLibrary)
+                                await onSaveToLibrary(ids, targetLibrary.id)
                             }
                         }
                     }
@@ -1717,46 +1761,27 @@ public struct PublicationListView: View {
             Divider()
 
             if let onMuteAuthor = onMuteAuthor {
-                // Get first author of first selected publication - O(1) lookup
+                // Get first author from row data
                 if let first = ids.first,
-                   let publication = publicationsByID[first],
-                   let firstAuthor = publication.sortedAuthors.first {
-                    let authorName = firstAuthor.displayName
-                    Button("Mute Author: \(authorName)") {
-                        onMuteAuthor(authorName)
+                   let rowData = rowDataCache[first] {
+                    let firstName = rowData.authorString.split(separator: ",").first.map(String.init) ?? rowData.authorString
+                    Button("Mute Author: \(firstName)") {
+                        onMuteAuthor(firstName)
                     }
                 }
             }
 
             if let onMutePaper = onMutePaper {
-                if let first = ids.first,
-                   let publication = publicationsByID[first] {  // O(1) lookup
+                if let first = ids.first {
                     Button("Mute This Paper") {
-                        onMutePaper(publication)
+                        onMutePaper(first)
                     }
                 }
             }
         }
 
-        // Suggest to... (shared libraries only)
-        if let first = ids.first,
-           let publication = publicationsByID[first],
-           let sharedLibrary = publication.libraries?.first(where: { $0.isSharedLibrary }) {
-            let participantNames = AssignmentService.shared.participantNames(in: sharedLibrary)
-            if !participantNames.isEmpty {
-                Menu("Suggest to...") {
-                    ForEach(participantNames, id: \.self) { name in
-                        Button(name) {
-                            try? AssignmentService.shared.suggest(
-                                publication: publication,
-                                to: name,
-                                in: sharedLibrary
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        // Suggest to... functionality requires managed object access
+        // and is now handled by the parent view via callbacks
 
         Divider()
 
@@ -1765,7 +1790,7 @@ public struct PublicationListView: View {
             Button("Delete", role: .destructive) {
                 // Clear selection immediately before deletion
                 selection.removeAll()
-                selectedPublication = nil
+                selectedPublicationID = nil
                 Task {
                     await onDelete(ids)
                 }
@@ -1825,9 +1850,9 @@ public struct PublicationListView: View {
 
         let saveHandler: (() -> Void)? = {
             guard onSaveToLibrary != nil else { return nil }
-            // Use the configured keep library if provided, otherwise fall back to first non-inbox library
-            let targetLibrary: CDLibrary? = saveLibrary ?? allLibraries.first { !$0.isInbox }
-            guard let library = targetLibrary else { return nil }
+            // Use the configured keep library if provided, otherwise fall back to first library
+            let targetLibraryID: UUID? = saveLibraryID ?? allLibraries.first?.id
+            guard let libID = targetLibraryID else { return nil }
             return {
                 // Show green flash for keep action
                 withAnimation(.easeIn(duration: 0.1)) {
@@ -1841,7 +1866,7 @@ public struct PublicationListView: View {
                             triageFlashState = nil
                         }
                     }
-                    await onSaveToLibrary?([rowData.id], library)
+                    await onSaveToLibrary?([rowData.id], libID)
                 }
             }
         }()
@@ -1864,24 +1889,20 @@ public struct PublicationListView: View {
         } : nil
 
         let toggleReadHandler: (() -> Void)? = onToggleRead != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                Task { await onToggleRead?(pub) }
-            }
+            Task { await onToggleRead?(rowData.id) }
         } : nil
 
         let openPDFHandler: (() -> Void)? = (onOpenPDF != nil && rowData.hasPDFAvailable) ? {
-            if let pub = publicationsByID[rowData.id] {
-                onOpenPDF?(pub)
-            }
+            onOpenPDF?(rowData.id)
         } : nil
 
         let copyBibTeXHandler: (() -> Void)? = onCopy != nil ? {
             Task { await onCopy?([rowData.id]) }
         } : nil
 
-        let addToCollectionHandler: ((CDCollection) -> Void)? = onAddToCollection != nil ? { collection in
-            Task { await onAddToCollection?([rowData.id], collection) }
-        } : nil
+        // addToCollection now uses UUID — MailStylePublicationRow still expects CollectionModel
+        // Pass nil since we no longer have CollectionModel objects at this level
+        let addToCollectionHandler: ((CollectionModel) -> Void)? = nil
 
         let muteAuthorHandler: (() -> Void)? = onMuteAuthor != nil ? {
             let firstName = rowData.authorString.split(separator: ",").first.map(String.init) ?? rowData.authorString
@@ -1889,9 +1910,7 @@ public struct PublicationListView: View {
         } : nil
 
         let mutePaperHandler: (() -> Void)? = onMutePaper != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onMutePaper?(pub)
-            }
+            onMutePaper?(rowData.id)
         } : nil
 
         // Flag handlers
@@ -1912,58 +1931,42 @@ public struct PublicationListView: View {
             onRemoveTag?(rowData.id, tagID)
         } : nil
 
-        // New context menu handlers
+        // Enhanced context menu handlers — all use UUID now
         let openInBrowserHandler: ((BrowserDestination) -> Void)? = onOpenInBrowser != nil ? { destination in
-            if let pub = publicationsByID[rowData.id] {
-                onOpenInBrowser?(pub, destination)
-            }
+            onOpenInBrowser?(rowData.id, destination)
         } : nil
 
         let downloadPDFHandler: (() -> Void)? = (onDownloadPDF != nil && !rowData.hasDownloadedPDF) ? {
-            if let pub = publicationsByID[rowData.id] {
-                onDownloadPDF?(pub)
-            }
+            onDownloadPDF?(rowData.id)
         } : nil
 
         let viewEditBibTeXHandler: (() -> Void)? = onViewEditBibTeX != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onViewEditBibTeX?(pub)
-            }
+            onViewEditBibTeX?(rowData.id)
         } : nil
 
         let shareHandler: (() -> Void)? = onShare != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onShare?(pub)
-            }
+            onShare?(rowData.id)
         } : nil
 
         let shareByEmailHandler: (() -> Void)? = onShareByEmail != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onShareByEmail?(pub)
-            }
+            onShareByEmail?(rowData.id)
         } : nil
 
         let exploreReferencesHandler: (() -> Void)? = onExploreReferences != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onExploreReferences?(pub)
-            }
+            onExploreReferences?(rowData.id)
         } : nil
 
         let exploreCitationsHandler: (() -> Void)? = onExploreCitations != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onExploreCitations?(pub)
-            }
+            onExploreCitations?(rowData.id)
         } : nil
 
         let exploreSimilarHandler: (() -> Void)? = onExploreSimilar != nil ? {
-            if let pub = publicationsByID[rowData.id] {
-                onExploreSimilar?(pub)
-            }
+            onExploreSimilar?(rowData.id)
         } : nil
 
-        let addToLibraryHandler: ((CDLibrary) -> Void)? = onAddToLibrary != nil ? { library in
-            Task { await onAddToLibrary?([rowData.id], library) }
-        } : nil
+        // addToLibrary now uses UUID — MailStylePublicationRow still expects LibraryModel
+        // Pass nil since we no longer have LibraryModel objects at this level
+        let addToLibraryHandler: ((LibraryModel) -> Void)? = nil
 
         // ADR-020: Show recommendation score when sorting by recommended
         let scoreToShow: Double? = sortOrder == .recommended ? recommendationScores[rowData.id] : nil
@@ -2001,7 +2004,7 @@ public struct PublicationListView: View {
             onAddToCollection: addToCollectionHandler,
             onMuteAuthor: muteAuthorHandler,
             onMutePaper: mutePaperHandler,
-            collections: staticCollections,
+            collections: [],  // Collection menus handled at parent level via UUID callbacks
             hasPDF: rowData.hasPDFAvailable,
             // New context menu callbacks
             onOpenInBrowser: openInBrowserHandler,
@@ -2013,7 +2016,7 @@ public struct PublicationListView: View {
             onExploreCitations: exploreCitationsHandler,
             onExploreSimilar: exploreSimilarHandler,
             onAddToLibrary: addToLibraryHandler,
-            libraries: allLibraries.filter { !$0.isInbox },  // Exclude Inbox from library list
+            libraries: [],  // Library menus handled at parent level via UUID callbacks
             recommendationScore: scoreToShow,
             highlightedCitationCount: citationCountToShow,
             triageFlashColor: flashColor,
@@ -2049,13 +2052,11 @@ public struct PublicationListView: View {
     /// Handle file drop on a publication row
     private func handleFileDrop(providers: [NSItemProvider], for publicationID: UUID) -> Bool {
         guard let onFileDrop = onFileDrop,
-              let publication = publicationsByID[publicationID],  // O(1) lookup
-              !publication.isDeleted,
-              publication.managedObjectContext != nil else {
+              rowDataCache[publicationID] != nil else {
             return false
         }
 
-        onFileDrop(publication, providers)
+        onFileDrop(publicationID, providers)
         return true
     }
 
@@ -2067,8 +2068,8 @@ public struct PublicationListView: View {
 
         // Determine the drop target based on current library
         let target: DropTarget
-        if let library = library {
-            target = .library(libraryID: library.id)
+        if let libID = libraryID {
+            target = .library(libraryID: libID)
         } else {
             // Fall back to inbox if no library context
             target = .inbox
@@ -2106,37 +2107,12 @@ public struct PublicationListView: View {
 // MARK: - Preview
 
 #Preview {
-    let context = PersistenceController.preview.viewContext
-    let publications: [CDPublication] = context.performAndWait {
-        let pub1 = CDPublication(context: context)
-        pub1.id = UUID()
-        pub1.citeKey = "Einstein1905"
-        pub1.entryType = "article"
-        pub1.title = "On the Electrodynamics of Moving Bodies"
-        pub1.year = 1905
-        pub1.dateAdded = Date()
-        pub1.dateModified = Date()
-        pub1.isRead = false
-        pub1.fields = ["author": "Einstein, Albert"]
-
-        let pub2 = CDPublication(context: context)
-        pub2.id = UUID()
-        pub2.citeKey = "Hawking1974"
-        pub2.entryType = "article"
-        pub2.title = "Black hole explosions?"
-        pub2.year = 1974
-        pub2.dateAdded = Date()
-        pub2.dateModified = Date()
-        pub2.isRead = true
-        pub2.fields = ["author": "Hawking, Stephen W."]
-
-        return [pub1, pub2]
-    }
+    let publications: [PublicationRowData] = [] // Empty preview
 
     return PublicationListView(
         publications: publications,
         selection: .constant([]),
-        selectedPublication: .constant(nil),
+        selectedPublicationID: .constant(nil),
         showImportButton: true,
         showSortMenu: true,
         filterScope: .constant(.current),

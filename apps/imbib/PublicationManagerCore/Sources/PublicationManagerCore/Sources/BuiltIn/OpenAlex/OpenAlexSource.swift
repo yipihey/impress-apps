@@ -591,25 +591,22 @@ extension OpenAlexSource: BrowserURLProvider {
     public static var sourceID: String { "openalex" }
 
     /// Build the best URL to open in browser for interactive PDF fetch.
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
-        // Priority 1: Check for OA PDF links from OpenAlex
-        for link in publication.pdfLinks {
-            if link.sourceID == "openalex" && link.type == .preprint {
-                Logger.pdfBrowser.debug("OpenAlex: Using OA PDF: \(link.url.absoluteString)")
-                return link.url
-            }
-        }
-
-        // Priority 2: DOI resolver
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        // Priority 1: DOI resolver
         if let doi = publication.doi, !doi.isEmpty {
             Logger.pdfBrowser.debug("OpenAlex: Using DOI resolver for: \(doi)")
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Priority 3: OpenAlex work page
-        if let openAlexID = publication.openAlexID {
+        // Priority 2: OpenAlex work page
+        if let openAlexID = publication.fields["openalex_id"] {
             Logger.pdfBrowser.debug("OpenAlex: Using work page for: \(openAlexID)")
             return URL(string: "https://openalex.org/works/\(openAlexID)")
+        }
+
+        // Priority 3: URL field
+        if let urlString = publication.url, let url = URL(string: urlString) {
+            return url
         }
 
         return nil

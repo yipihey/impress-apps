@@ -47,16 +47,16 @@ public struct PDFKitViewer: View {
     }
 
     /// Create viewer for a linked file (resolves path relative to library)
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil) {
+    public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil) {
         // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("imbib")
 
-        if let library = library {
+        if let libraryID = libraryID {
             // Primary: container-based path (iCloud-only storage)
-            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
 
             // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
             let legacyURL = appSupport.appendingPathComponent(normalizedPath)
@@ -67,26 +67,8 @@ public struct PDFKitViewer: View {
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 Logger.files.debugCapture("PDFKitViewer using legacy path: \(legacyURL.path)", category: "pdf")
                 self.source = .url(legacyURL)
-            } else if let fileData = linkedFile.fileData {
-                // File not on disk but fileData exists (synced from another device via CloudKit)
-                // Write to disk for this session and future use
-                Logger.files.infoCapture("PDFKitViewer restoring file from CloudKit fileData: \(containerURL.lastPathComponent)", category: "pdf")
-                do {
-                    // Create directory if needed
-                    let directoryURL = containerURL.deletingLastPathComponent()
-                    if !fileManager.fileExists(atPath: directoryURL.path) {
-                        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-                    }
-                    try fileData.write(to: containerURL)
-                    Logger.files.infoCapture("Successfully restored \(fileData.count) bytes to disk", category: "pdf")
-                    self.source = .url(containerURL)
-                } catch {
-                    Logger.files.errorCapture("Failed to write fileData to disk: \(error.localizedDescription)", category: "pdf")
-                    // Fall back to loading from data directly
-                    self.source = .data(fileData)
-                }
             } else {
-                // File not found at either location and no fileData - use container path (will show error)
+                // File not found at either location - use container path (will show error)
                 Logger.files.warningCapture("PDFKitViewer file not found: \(containerURL.path)", category: "pdf")
                 self.source = .url(containerURL)
             }
@@ -99,10 +81,6 @@ public struct PDFKitViewer: View {
                 self.source = .url(defaultURL)
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 self.source = .url(legacyURL)
-            } else if let fileData = linkedFile.fileData {
-                // File not on disk but fileData exists - use data directly
-                Logger.files.infoCapture("PDFKitViewer loading from CloudKit fileData (no library)", category: "pdf")
-                self.source = .data(fileData)
             } else {
                 self.source = .url(defaultURL)
             }
@@ -531,11 +509,11 @@ struct ControlledPDFKitView: NSViewRepresentable {
                 color = .yellow
             }
 
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addHighlightWithPersistence(
-                    to: pdfView, color: color, linkedFile: linkedFile
+                    to: pdfView, color: color, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -543,11 +521,11 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addUnderlineWithPersistence(
-                    to: pdfView, linkedFile: linkedFile
+                    to: pdfView, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -555,11 +533,11 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addStrikethroughWithPersistence(
-                    to: pdfView, linkedFile: linkedFile
+                    to: pdfView, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -878,11 +856,11 @@ struct ControlledPDFKitView: UIViewRepresentable {
                 color = .yellow
             }
 
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addHighlightWithPersistence(
-                    to: pdfView, color: color, linkedFile: linkedFile
+                    to: pdfView, color: color, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -890,11 +868,11 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addUnderlineWithPersistence(
-                    to: pdfView, linkedFile: linkedFile
+                    to: pdfView, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -902,11 +880,11 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFile = notification.userInfo?["linkedFile"] as? CDLinkedFile
+            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addStrikethroughWithPersistence(
-                    to: pdfView, linkedFile: linkedFile
+                    to: pdfView, linkedFileID: linkedFileID
                 )
                 NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
@@ -931,14 +909,14 @@ public struct PDFViewerWithControls: View {
 
     private let source: PDFSource
     private let publicationID: UUID?
-    private let linkedFile: CDLinkedFile?
+    private let linkedFileID: UUID?
 
     /// Whether this viewer is in a detached/separate window (uses separate zoom storage)
     private let isDetachedWindow: Bool
 
     /// Called when a corrupt PDF is detected (HTML content saved as .pdf)
     /// Parent can use this to delete and re-download
-    public var onCorruptPDF: ((CDLinkedFile) -> Void)?
+    public var onCorruptPDF: ((UUID) -> Void)?
 
     @State private var pdfDocument: PDFDocument?
     @State private var error: PDFViewerError?
@@ -997,14 +975,9 @@ public struct PDFViewerWithControls: View {
     // PDF dark mode (from settings)
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
-    /// Whether the user can create annotations (false for read-only shared libraries)
+    /// Whether the user can create annotations (currently always true; shared library checks handled upstream)
     private var canAnnotate: Bool {
-        guard let linkedFile = linkedFile,
-              let publication = linkedFile.publication,
-              let library = publication.libraries?.first(where: { $0.isSharedLibrary }) else {
-            return true
-        }
-        return library.canEditLibrary
+        return true
     }
 
     // Display rotation state (macOS only)
@@ -1026,10 +999,10 @@ public struct PDFViewerWithControls: View {
     // MARK: - Initialization
 
     #if os(iOS)
-    public init(url: URL, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(url: URL, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
-        self.linkedFile = nil
+        self.linkedFileID = nil
         self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = onCorruptPDF
@@ -1038,22 +1011,22 @@ public struct PDFViewerWithControls: View {
     public init(data: Data, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false) {
         self.source = .data(data)
         self.publicationID = publicationID
-        self.linkedFile = nil
+        self.linkedFileID = nil
         self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = nil
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("imbib")
 
-        if let library = library {
+        if let libraryID = libraryID {
             // Primary: container-based path (iCloud-only storage)
-            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
             // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
             let legacyURL = appSupport.appendingPathComponent(normalizedPath)
 
@@ -1079,16 +1052,16 @@ public struct PDFViewerWithControls: View {
             }
         }
         self.publicationID = publicationID
-        self.linkedFile = linkedFile
+        self.linkedFileID = linkedFile.id
         self.isDetachedWindow = isDetachedWindow
         self._isFullscreen = isFullscreen
         self.onCorruptPDF = onCorruptPDF
     }
     #else
-    public init(url: URL, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(url: URL, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
-        self.linkedFile = nil
+        self.linkedFileID = nil
         self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = onCorruptPDF
     }
@@ -1096,21 +1069,21 @@ public struct PDFViewerWithControls: View {
     public init(data: Data, publicationID: UUID? = nil, isDetachedWindow: Bool = false) {
         self.source = .data(data)
         self.publicationID = publicationID
-        self.linkedFile = nil
+        self.linkedFileID = nil
         self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = nil
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+    public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("imbib")
 
-        if let library = library {
+        if let libraryID = libraryID {
             // Primary: container-based path (iCloud-only storage)
-            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
             // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
             let legacyURL = appSupport.appendingPathComponent(normalizedPath)
 
@@ -1136,7 +1109,7 @@ public struct PDFViewerWithControls: View {
             }
         }
         self.publicationID = publicationID
-        self.linkedFile = linkedFile
+        self.linkedFileID = linkedFile.id
         self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = onCorruptPDF
     }
@@ -1574,7 +1547,7 @@ public struct PDFViewerWithControls: View {
     private func highlightSelection() {
         guard let pdfView = pdfViewReference else { return }
         _ = AnnotationService.shared.addHighlightWithPersistence(
-            to: pdfView, color: highlightColor, linkedFile: linkedFile
+            to: pdfView, color: highlightColor, linkedFileID: linkedFileID
         )
         hasUnsavedAnnotations = true
         NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
@@ -1583,7 +1556,7 @@ public struct PDFViewerWithControls: View {
     private func underlineSelection() {
         guard let pdfView = pdfViewReference else { return }
         _ = AnnotationService.shared.addUnderlineWithPersistence(
-            to: pdfView, linkedFile: linkedFile
+            to: pdfView, linkedFileID: linkedFileID
         )
         hasUnsavedAnnotations = true
         NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
@@ -1592,7 +1565,7 @@ public struct PDFViewerWithControls: View {
     private func strikethroughSelection() {
         guard let pdfView = pdfViewReference else { return }
         _ = AnnotationService.shared.addStrikethroughWithPersistence(
-            to: pdfView, linkedFile: linkedFile
+            to: pdfView, linkedFileID: linkedFileID
         )
         hasUnsavedAnnotations = true
         NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
@@ -1611,16 +1584,16 @@ public struct PDFViewerWithControls: View {
             point = CGPoint(x: page.bounds(for: .mediaBox).midX, y: page.bounds(for: .mediaBox).midY)
         }
         _ = AnnotationService.shared.addTextNoteWithPersistence(
-            to: page, at: point, text: "Note", linkedFile: linkedFile, document: document
+            to: page, at: point, text: "Note", linkedFileID: linkedFileID, document: document
         )
         hasUnsavedAnnotations = true
         NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
     }
 
-    /// Apply stored annotations from Core Data to the loaded PDF document
+    /// Apply stored annotations to the loaded PDF document
     private func applyStoredAnnotations() {
-        guard let document = pdfDocument, let linkedFile = linkedFile else { return }
-        AnnotationPersistence.shared.applyAnnotations(from: linkedFile, to: document)
+        guard let document = pdfDocument, let linkedFileID = linkedFileID else { return }
+        AnnotationPersistence.shared.applyAnnotations(from: linkedFileID, to: document)
     }
 
     private func saveAnnotations() {
@@ -2145,9 +2118,9 @@ public struct PDFViewerWithControls: View {
                 self.isLoading = false
             }
             // Trigger callback so parent can delete and re-download
-            if let file = linkedFile {
+            if let fileID = linkedFileID {
                 await MainActor.run {
-                    onCorruptPDF?(file)
+                    onCorruptPDF?(fileID)
                 }
             }
         } catch let err as PDFViewerError {
@@ -2411,17 +2384,12 @@ public struct PDFViewerWithControls: View {
                     Logger.files.infoCapture("Removed old .tmp file", category: "pdf")
                 }
 
-                // Update the CDLinkedFile's relativePath if we fixed the extension
-                if needsExtensionFix, let linkedFile = linkedFile {
-                    let oldPath = linkedFile.relativePath
-                    let newPath = oldPath.replacingOccurrences(of: ".tmp", with: ".pdf")
-                    if oldPath != newPath {
-                        linkedFile.relativePath = newPath
-                        linkedFile.filename = linkedFile.filename.replacingOccurrences(of: ".tmp", with: ".pdf")
-                        linkedFile.fileType = "pdf"
-                        PersistenceController.shared.save()
-                        Logger.files.infoCapture("Updated CDLinkedFile relativePath from .tmp to .pdf", category: "pdf")
-                    }
+                // Update the linked file path in the store if we fixed the extension
+                if needsExtensionFix, let linkedFileID = linkedFileID {
+                    let store = RustStoreAdapter.shared
+                    store.updateField(id: linkedFileID, field: "relative_path", value: url.lastPathComponent.replacingOccurrences(of: ".tmp", with: ".pdf"))
+                    store.updateField(id: linkedFileID, field: "filename", value: url.lastPathComponent.replacingOccurrences(of: ".tmp", with: ".pdf"))
+                    Logger.files.infoCapture("Updated linked file path from .tmp to .pdf", category: "pdf")
                 }
             } catch {
                 Logger.files.errorCapture("Failed to save PDF: \(error)", category: "pdf")

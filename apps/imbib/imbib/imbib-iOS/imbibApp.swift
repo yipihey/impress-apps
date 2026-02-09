@@ -6,8 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
-import CloudKit
 import PublicationManagerCore
 import OSLog
 import UserNotifications
@@ -15,33 +13,8 @@ import AppIntents
 
 private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
-// MARK: - App Delegate for CloudKit Share Acceptance
-
-class ImbibAppDelegate: NSObject, UIApplicationDelegate {
-    func application(_ application: UIApplication,
-                     userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
-        appLogger.info("Accepting CloudKit share invitation (iOS)")
-        let pc = PersistenceController.shared
-        guard let ckContainer = pc.container as? NSPersistentCloudKitContainer,
-              let sharedStore = pc.sharedStore else {
-            appLogger.error("Cannot accept share: CloudKit container or shared store not available")
-            return
-        }
-        ckContainer.acceptShareInvitations(from: [cloudKitShareMetadata], into: sharedStore) { _, error in
-            if let error {
-                appLogger.error("Share accept failed: \(error.localizedDescription)")
-            } else {
-                appLogger.info("CloudKit share accepted successfully")
-                NotificationCenter.default.post(name: .sharedLibraryAccepted, object: nil)
-            }
-        }
-    }
-}
-
 @main
 struct imbibApp: App {
-
-    @UIApplicationDelegateAdaptor(ImbibAppDelegate.self) var appDelegate
 
     // MARK: - State
 
@@ -61,7 +34,6 @@ struct imbibApp: App {
         // Use shared credential manager singleton for persistence
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
-        let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()
 
         appLogger.info("Created shared dependencies")
@@ -72,11 +44,10 @@ struct imbibApp: App {
         appLogger.info("LibraryManager initialized")
 
         // Initialize ViewModels
-        _libraryViewModel = State(initialValue: LibraryViewModel(repository: repository))
+        _libraryViewModel = State(initialValue: LibraryViewModel())
         _searchViewModel = State(initialValue: SearchViewModel(
             sourceManager: sourceManager,
-            deduplicationService: deduplicationService,
-            repository: repository
+            deduplicationService: deduplicationService
         ))
         _settingsViewModel = State(initialValue: SettingsViewModel(
             sourceManager: sourceManager,
@@ -102,17 +73,6 @@ struct imbibApp: App {
             await FullTextSearchService.shared.initialize()
             appLogger.info("Full-text search index initialized")
 
-            // Deduplicate feeds first (CloudKit sync can create duplicates)
-            // This runs async to ensure Core Data is fully initialized
-            await MainActor.run {
-                let duplicatesRemoved = FeedDeduplicationService.shared.deduplicateFeeds(
-                    in: PersistenceController.shared.viewContext
-                )
-                if duplicatesRemoved > 0 {
-                    appLogger.info("Feed deduplication: removed \(duplicatesRemoved) duplicate(s)")
-                }
-            }
-
             await sourceManager.registerBuiltInSources()
             DragDropCoordinator.shared.sourceManager = sourceManager
             appLogger.info("Built-in sources registered")
@@ -125,8 +85,7 @@ struct imbibApp: App {
 
             // Configure staggered smart search refresh service (before InboxCoordinator)
             await SmartSearchRefreshService.shared.configure(
-                sourceManager: sourceManager,
-                repository: repository
+                sourceManager: sourceManager
             )
             appLogger.info("SmartSearchRefreshService configured")
 
@@ -194,7 +153,6 @@ struct imbibApp: App {
                         await URLSchemeHandler.shared.handle(url)
                     }
                 }
-                // CloudKit share acceptance handled by ImbibAppDelegate
                 // Clear exploration library when going to background if retention is "While App is Open"
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .background && SyncedSettingsStore.shared.explorationRetention == .sessionOnly {
@@ -250,9 +208,6 @@ private func updateAppBadge(_ count: Int) {
     }
 }
 
-// Note: Notification.Name extensions are now defined in PublicationManagerCore/Notifications.swift
-// Note: ShareExtensionError is now defined in PublicationManagerCore/SharedExtension/ShareExtensionError.swift
-
 // MARK: - Exploration Cleanup
 
 /// Cleanup old exploration collections based on user's retention setting.
@@ -280,24 +235,7 @@ private func autoPopulateSearchIndexesOnStartup() async {
     let hasEmbeddingIndex = await EmbeddingService.shared.hasIndex
 
     if embeddingAvailable && !hasEmbeddingIndex {
-        appLogger.info("Auto-building embedding index for search...")
-
-        // Fetch all user libraries from Core Data (excluding system libraries)
-        let libraries = await MainActor.run {
-            let context = PersistenceController.shared.viewContext
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            // Exclude system libraries: Dismissed, Exploration, and any marked as system
-            request.predicate = NSPredicate(
-                format: "name != %@ AND name != %@ AND isSystemLibrary == NO",
-                "Dismissed", "Exploration"
-            )
-            return (try? context.fetch(request)) ?? []
-        }
-
-        if !libraries.isEmpty {
-            let count = await EmbeddingService.shared.buildIndex(from: libraries)
-            appLogger.info("Auto-built embedding index with \(count) publications from \(libraries.count) libraries")
-        }
+        appLogger.info("Embedding index not yet built — will be built on demand")
     } else if !embeddingAvailable {
         appLogger.debug("Embedding service not available, skipping auto-index")
     } else {

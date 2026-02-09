@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 import CoreGraphics
 
@@ -25,17 +24,6 @@ public typealias PlatformImage = UIImage
 ///
 /// Uses the Rust pdfium implementation for consistent cross-platform rendering.
 /// Thumbnails are cached on disk for fast retrieval.
-///
-/// ## Usage
-/// ```swift
-/// // Get thumbnail for a PDF
-/// if let image = await ThumbnailService.shared.thumbnail(for: linkedFile, in: library) {
-///     // Use the image
-/// }
-///
-/// // Pre-generate thumbnails on import
-/// await ThumbnailService.shared.generateThumbnail(for: publication, pdfData: data)
-/// ```
 public actor ThumbnailService {
 
     // MARK: - Singleton
@@ -62,6 +50,11 @@ public actor ThumbnailService {
         // Cache directory setup is lazy - happens on first access
     }
 
+    /// Helper to call @MainActor RustStoreAdapter from actor context.
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
+
     // MARK: - Public API
 
     /// Check if the thumbnail service is available.
@@ -81,14 +74,14 @@ public actor ThumbnailService {
     /// Checks cache first, generates if needed.
     ///
     /// - Parameters:
-    ///   - linkedFile: The linked file record
-    ///   - library: The library containing the file
+    ///   - linkedFile: The linked file model
+    ///   - libraryId: The library ID containing the file
     /// - Returns: Thumbnail image, or nil if generation fails
     public func thumbnail(
-        for linkedFile: CDLinkedFile,
-        in library: CDLibrary?
+        for linkedFile: LinkedFileModel,
+        in libraryId: UUID?
     ) async -> PlatformImage? {
-        guard linkedFile.fileType?.lowercased() == "pdf" else {
+        guard linkedFile.isPDF else {
             return nil
         }
 
@@ -107,7 +100,7 @@ public actor ThumbnailService {
 
         // Generate thumbnail
         guard let url = await MainActor.run(body: {
-            AttachmentManager.shared.resolveURL(for: linkedFile, in: library)
+            AttachmentManager.shared.resolveURL(for: linkedFile, in: libraryId)
         }) else {
             Logger.files.warning("Could not resolve URL for linked file: \(linkedFile.id)")
             return nil
@@ -119,30 +112,25 @@ public actor ThumbnailService {
     /// Get a thumbnail for a publication's primary PDF.
     ///
     /// - Parameters:
-    ///   - publication: The publication
-    ///   - library: The library containing the publication
+    ///   - publicationId: The publication ID
+    ///   - libraryId: The library ID containing the publication
     /// - Returns: Thumbnail image, or nil if no PDF or generation fails
     public func thumbnail(
-        for publication: CDPublication,
-        in library: CDLibrary?
+        for publicationId: UUID,
+        in libraryId: UUID?
     ) async -> PlatformImage? {
-        guard let linkedFile = await MainActor.run(body: {
-            publication.primaryLinkedFile
-        }) else {
+        let linkedFiles = await withStore { $0.listLinkedFiles(publicationId: publicationId) }
+
+        guard let primaryPDF = linkedFiles.first(where: { $0.isPDF }) else {
             return nil
         }
 
-        return await thumbnail(for: linkedFile, in: library)
+        return await thumbnail(for: primaryPDF, in: libraryId)
     }
 
     /// Generate and cache a thumbnail from PDF data.
     ///
     /// Call this during PDF import to pre-generate thumbnails.
-    ///
-    /// - Parameters:
-    ///   - pdfData: Raw PDF data
-    ///   - linkedFileId: ID for cache key
-    /// - Returns: Generated thumbnail image
     @discardableResult
     public func generateThumbnail(
         from pdfData: Data,
@@ -256,7 +244,6 @@ public actor ThumbnailService {
             return nil
         }
 
-        // Create CGImage from RGBA data
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
         let expectedSize = height * bytesPerRow
@@ -297,9 +284,7 @@ public actor ThumbnailService {
     }
 
     private func addToMemoryCache(key: String, image: PlatformImage) {
-        // Simple LRU-ish eviction
         if memoryCache.count >= maxMemoryCacheSize {
-            // Remove oldest (first) entry
             if let firstKey = memoryCache.keys.first {
                 memoryCache.removeValue(forKey: firstKey)
             }
@@ -342,14 +327,5 @@ public actor ThumbnailService {
         guard let pngData = image.pngData() else { return }
         try? pngData.write(to: fileURL)
         #endif
-    }
-}
-
-// MARK: - CDPublication Extension
-
-extension CDPublication {
-    /// Get the primary linked file (first PDF).
-    var primaryLinkedFile: CDLinkedFile? {
-        linkedFiles?.first { $0.fileType?.lowercased() == "pdf" }
     }
 }

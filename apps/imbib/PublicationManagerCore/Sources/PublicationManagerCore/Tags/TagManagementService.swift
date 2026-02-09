@@ -2,9 +2,10 @@
 //  TagManagementService.swift
 //  PublicationManagerCore
 //
+//  Service for managing tag hierarchy operations: rename, move, merge, delete.
+//
 
 import Foundation
-import CoreData
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.PublicationManagerCore", category: "tagManagement")
@@ -17,263 +18,164 @@ public final class TagManagementService {
 
     public static let shared = TagManagementService()
 
-    private let persistenceController = PersistenceController.shared
+    private let store: RustStoreAdapter
+
+    private init() {
+        self.store = .shared
+    }
 
     // MARK: - Rename
 
-    /// Rename a tag (leaf only). Updates the tag's name and canonicalPath,
-    /// plus all descendant canonicalPaths.
-    public func renameTag(oldPath: String, newLeafName: String) async throws {
-        let context = persistenceController.viewContext
+    /// Rename a tag (leaf only). Computes the new full path and delegates
+    /// the rename to the store which updates all assignments.
+    public func renameTag(oldPath: String, newLeafName: String) throws {
+        // Compute new path
+        let segments = oldPath.components(separatedBy: "/")
+        var newSegments = segments
+        newSegments[newSegments.count - 1] = newLeafName
+        let newPath = newSegments.joined(separator: "/")
 
-        try await context.perform {
-            // Find the tag to rename
-            let request = NSFetchRequest<CDTag>(entityName: "Tag")
-            request.predicate = NSPredicate(format: "canonicalPath == %@", oldPath)
-            request.fetchLimit = 1
-
-            guard let tag = try context.fetch(request).first else {
-                throw TagManagementError.tagNotFound(oldPath)
-            }
-
-            // Compute new path
-            let segments = oldPath.components(separatedBy: "/")
-            var newSegments = segments
-            newSegments[newSegments.count - 1] = newLeafName
-            let newPath = newSegments.joined(separator: "/")
-
-            // Check for conflict
-            let conflictRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            conflictRequest.predicate = NSPredicate(format: "canonicalPath == %@", newPath)
-            conflictRequest.fetchLimit = 1
-            if let _ = try? context.fetch(conflictRequest).first {
-                throw TagManagementError.pathConflict(newPath)
-            }
-
-            // Update the tag itself
-            tag.name = newLeafName
-            tag.canonicalPath = newPath
-
-            // Update all descendants
-            let descendantRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            descendantRequest.predicate = NSPredicate(format: "canonicalPath BEGINSWITH %@", oldPath + "/")
-            let descendants = (try? context.fetch(descendantRequest)) ?? []
-
-            for descendant in descendants {
-                if let descPath = descendant.canonicalPath {
-                    descendant.canonicalPath = newPath + descPath.dropFirst(oldPath.count)
-                }
-            }
-
-            self.persistenceController.save()
-            logger.info("Renamed tag '\(oldPath)' to '\(newPath)' (updated \(descendants.count) descendants)")
+        // Check for conflict by seeing if any existing tags match the new path
+        let existingTags = store.listTags()
+        if existingTags.contains(where: { $0.path == newPath }) {
+            throw TagManagementError.pathConflict(newPath)
         }
+
+        store.renameTag(oldPath: oldPath, newPath: newPath)
+        logger.info("Renamed tag '\(oldPath)' to '\(newPath)'")
     }
 
     // MARK: - Move
 
-    /// Move a tag to a new parent. Updates canonicalPath for the tag and all descendants.
-    public func moveTag(tagPath: String, newParentPath: String?) async throws {
-        let context = persistenceController.viewContext
-
-        try await context.perform {
-            // Find the tag to move
-            let request = NSFetchRequest<CDTag>(entityName: "Tag")
-            request.predicate = NSPredicate(format: "canonicalPath == %@", tagPath)
-            request.fetchLimit = 1
-
-            guard let tag = try context.fetch(request).first else {
-                throw TagManagementError.tagNotFound(tagPath)
-            }
-
-            let leafName = tag.name
-
-            // Find new parent (if any)
-            var newParentTag: CDTag?
-            if let newParentPath {
-                let parentRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-                parentRequest.predicate = NSPredicate(format: "canonicalPath == %@", newParentPath)
-                parentRequest.fetchLimit = 1
-                newParentTag = try? context.fetch(parentRequest).first
-                if newParentTag == nil {
-                    throw TagManagementError.tagNotFound(newParentPath)
-                }
-            }
-
-            // Compute new path
-            let newPath: String
-            if let newParentPath {
-                newPath = "\(newParentPath)/\(leafName)"
-            } else {
-                newPath = leafName
-            }
-
-            // Check for conflict
-            let conflictRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            conflictRequest.predicate = NSPredicate(format: "canonicalPath == %@", newPath)
-            conflictRequest.fetchLimit = 1
-            if let _ = try? context.fetch(conflictRequest).first {
-                throw TagManagementError.pathConflict(newPath)
-            }
-
-            let oldPath = tagPath
-
-            // Update parent relationship
-            tag.parentTag = newParentTag
-            tag.parentID = newParentTag?.id
-            tag.canonicalPath = newPath
-
-            // Update all descendants
-            let descendantRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            descendantRequest.predicate = NSPredicate(format: "canonicalPath BEGINSWITH %@", oldPath + "/")
-            let descendants = (try? context.fetch(descendantRequest)) ?? []
-
-            for descendant in descendants {
-                if let descPath = descendant.canonicalPath {
-                    descendant.canonicalPath = newPath + descPath.dropFirst(oldPath.count)
-                }
-            }
-
-            self.persistenceController.save()
-            logger.info("Moved tag '\(oldPath)' to '\(newPath)' (updated \(descendants.count) descendants)")
+    /// Move a tag to a new parent. Computes the new path and renames accordingly.
+    public func moveTag(tagPath: String, newParentPath: String?) throws {
+        let segments = tagPath.components(separatedBy: "/")
+        guard let leafName = segments.last else {
+            throw TagManagementError.tagNotFound(tagPath)
         }
+
+        // Verify the tag exists
+        let existingTags = store.listTags()
+        guard existingTags.contains(where: { $0.path == tagPath }) else {
+            throw TagManagementError.tagNotFound(tagPath)
+        }
+
+        // Verify new parent exists (if specified)
+        if let newParentPath {
+            guard existingTags.contains(where: { $0.path == newParentPath }) else {
+                throw TagManagementError.tagNotFound(newParentPath)
+            }
+        }
+
+        // Compute new path
+        let newPath: String
+        if let newParentPath {
+            newPath = "\(newParentPath)/\(leafName)"
+        } else {
+            newPath = leafName
+        }
+
+        // Check for conflict
+        if existingTags.contains(where: { $0.path == newPath }) {
+            throw TagManagementError.pathConflict(newPath)
+        }
+
+        store.renameTag(oldPath: tagPath, newPath: newPath)
+        logger.info("Moved tag '\(tagPath)' to '\(newPath)'")
     }
 
     // MARK: - Merge
 
     /// Merge source tag into target tag. All publications tagged with source
     /// get tagged with target instead, then source is deleted.
-    public func mergeTags(sourcePath: String, targetPath: String) async throws {
-        let context = persistenceController.viewContext
+    ///
+    /// The store handles the re-tagging: we query pubs with source, add target,
+    /// remove source, then delete the source tag definition.
+    public func mergeTags(sourcePath: String, targetPath: String) throws {
+        let existingTags = store.listTagsWithCounts()
 
-        try await context.perform {
-            // Find source tag
-            let sourceRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            sourceRequest.predicate = NSPredicate(format: "canonicalPath == %@", sourcePath)
-            sourceRequest.fetchLimit = 1
-            guard let sourceTag = try context.fetch(sourceRequest).first else {
-                throw TagManagementError.tagNotFound(sourcePath)
-            }
-
-            // Find target tag
-            let targetRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            targetRequest.predicate = NSPredicate(format: "canonicalPath == %@", targetPath)
-            targetRequest.fetchLimit = 1
-            guard let targetTag = try context.fetch(targetRequest).first else {
-                throw TagManagementError.tagNotFound(targetPath)
-            }
-
-            // Retag all publications from source to target
-            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-            pubRequest.predicate = NSPredicate(format: "ANY tags == %@", sourceTag)
-            let publications = (try? context.fetch(pubRequest)) ?? []
-
-            var retagged = 0
-            for publication in publications {
-                let tagSet = publication.mutableSetValue(forKey: "tags")
-                tagSet.remove(sourceTag)
-                if !tagSet.contains(targetTag) {
-                    tagSet.add(targetTag)
-                    retagged += 1
-                }
-            }
-
-            // Update target usage
-            targetTag.useCount += Int32(retagged)
-            targetTag.lastUsedAt = Date()
-
-            // Delete source tag
-            context.delete(sourceTag)
-
-            self.persistenceController.save()
-            logger.info("Merged tag '\(sourcePath)' into '\(targetPath)' (\(retagged) publications retagged)")
+        guard existingTags.contains(where: { $0.path == sourcePath }) else {
+            throw TagManagementError.tagNotFound(sourcePath)
         }
+        guard existingTags.contains(where: { $0.path == targetPath }) else {
+            throw TagManagementError.tagNotFound(targetPath)
+        }
+
+        // Get publications with source tag and re-tag them to target
+        let sourcePubs = store.queryByTag(tagPath: sourcePath)
+        if !sourcePubs.isEmpty {
+            let ids = sourcePubs.map(\.id)
+            store.addTag(ids: ids, tagPath: targetPath)
+            store.removeTag(ids: ids, tagPath: sourcePath)
+        }
+
+        // Delete the source tag definition
+        store.deleteTag(path: sourcePath)
+        logger.info("Merged tag '\(sourcePath)' into '\(targetPath)' (\(sourcePubs.count) publications retagged)")
     }
 
     // MARK: - Delete
 
     /// Delete a tag. Fails if the tag has children or tagged publications.
     /// Use `force: true` to remove from all publications and delete children first.
-    public func deleteTag(path: String, force: Bool = false) async throws {
-        let context = persistenceController.viewContext
-
-        try await context.perform {
-            let request = NSFetchRequest<CDTag>(entityName: "Tag")
-            request.predicate = NSPredicate(format: "canonicalPath == %@", path)
-            request.fetchLimit = 1
-
-            guard let tag = try context.fetch(request).first else {
-                throw TagManagementError.tagNotFound(path)
-            }
-
-            // Check for children
-            let childRequest = NSFetchRequest<CDTag>(entityName: "Tag")
-            childRequest.predicate = NSPredicate(format: "parentTag == %@", tag)
-            let children = (try? context.fetch(childRequest)) ?? []
-
-            if !children.isEmpty && !force {
-                throw TagManagementError.hasChildren(path, count: children.count)
-            }
-
-            // Check for tagged publications
-            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-            pubRequest.predicate = NSPredicate(format: "ANY tags == %@", tag)
-            let publications = (try? context.fetch(pubRequest)) ?? []
-
-            if !publications.isEmpty && !force {
-                throw TagManagementError.hasPublications(path, count: publications.count)
-            }
-
-            if force {
-                // Remove from all publications
-                for publication in publications {
-                    publication.mutableSetValue(forKey: "tags").remove(tag)
-                }
-
-                // Recursively delete children
-                for child in children {
-                    if let childPath = child.canonicalPath {
-                        // Inline recursive delete for children
-                        let grandchildRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-                        grandchildRequest.predicate = NSPredicate(format: "ANY tags == %@", child)
-                        let childPubs = (try? context.fetch(grandchildRequest)) ?? []
-                        for pub in childPubs {
-                            pub.mutableSetValue(forKey: "tags").remove(child)
-                        }
-                        context.delete(child)
-                        logger.debug("Force-deleted child tag '\(childPath)'")
-                    }
-                }
-            }
-
-            context.delete(tag)
-            self.persistenceController.save()
-            logger.info("Deleted tag '\(path)'\(force ? " (forced)" : "")")
+    public func deleteTag(path: String, force: Bool = false) throws {
+        let allTags = store.listTagsWithCounts()
+        guard allTags.contains(where: { $0.path == path }) else {
+            throw TagManagementError.tagNotFound(path)
         }
+
+        // Check for children (tags that start with path + "/")
+        let children = allTags.filter { $0.path.hasPrefix(path + "/") }
+
+        if !children.isEmpty && !force {
+            throw TagManagementError.hasChildren(path, count: children.count)
+        }
+
+        // Check for tagged publications
+        let taggedPubs = store.queryByTag(tagPath: path)
+
+        if !taggedPubs.isEmpty && !force {
+            throw TagManagementError.hasPublications(path, count: taggedPubs.count)
+        }
+
+        if force {
+            // Remove from all publications
+            if !taggedPubs.isEmpty {
+                store.removeTag(ids: taggedPubs.map(\.id), tagPath: path)
+            }
+
+            // Delete children first (deepest first to avoid orphans)
+            let sortedChildren = children.sorted { $0.path > $1.path }
+            for child in sortedChildren {
+                let childPubs = store.queryByTag(tagPath: child.path)
+                if !childPubs.isEmpty {
+                    store.removeTag(ids: childPubs.map(\.id), tagPath: child.path)
+                }
+                store.deleteTag(path: child.path)
+                logger.debug("Force-deleted child tag '\(child.path)'")
+            }
+        }
+
+        store.deleteTag(path: path)
+        logger.info("Deleted tag '\(path)'\(force ? " (forced)" : "")")
     }
 
     // MARK: - Query
 
     /// Get a formatted tree view of all tags with publication counts.
-    public func tagTree() async -> String {
-        let context = persistenceController.viewContext
+    public func tagTree() -> String {
+        let allTags = store.listTagsWithCounts()
 
-        return await context.perform {
-            let request = NSFetchRequest<CDTag>(entityName: "Tag")
-            request.sortDescriptors = [NSSortDescriptor(key: "canonicalPath", ascending: true)]
-            let allTags = (try? context.fetch(request)) ?? []
-
-            var lines: [String] = []
-            for tag in allTags {
-                let depth = (tag.canonicalPath ?? "").components(separatedBy: "/").count - 1
-                let indent = String(repeating: "  ", count: depth)
-                let pubCount = tag.publications?.count ?? 0
-                let countStr = pubCount > 0 ? " (\(pubCount))" : ""
-                lines.append("\(indent)\(tag.name)\(countStr)")
-            }
-
-            return lines.isEmpty ? "(no tags)" : lines.joined(separator: "\n")
+        let sorted = allTags.sorted { $0.path < $1.path }
+        var lines: [String] = []
+        for tag in sorted {
+            let depth = tag.path.components(separatedBy: "/").count - 1
+            let indent = String(repeating: "  ", count: depth)
+            let countStr = tag.publicationCount > 0 ? " (\(tag.publicationCount))" : ""
+            lines.append("\(indent)\(tag.leafName)\(countStr)")
         }
+
+        return lines.isEmpty ? "(no tags)" : lines.joined(separator: "\n")
     }
 }
 

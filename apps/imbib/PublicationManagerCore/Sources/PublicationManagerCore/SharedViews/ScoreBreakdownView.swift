@@ -17,16 +17,19 @@ public struct ScoreBreakdownView: View {
 
     // MARK: - Properties
 
-    let publication: CDPublication
+    let publicationID: UUID
+    let title: String
+    let authorString: String
+    let year: Int32
     @State private var breakdown: ScoreBreakdown?
     @State private var isLoading = true
     @Environment(\.dismiss) private var dismiss
 
     /// Callback when user requests "more like this"
-    public var onMoreLikeThis: ((CDPublication) -> Void)?
+    public var onMoreLikeThis: ((UUID) -> Void)?
 
     /// Callback when user requests "less like this"
-    public var onLessLikeThis: ((CDPublication) -> Void)?
+    public var onLessLikeThis: ((UUID) -> Void)?
 
     /// Callback to open settings
     public var onOpenSettings: (() -> Void)?
@@ -34,12 +37,18 @@ public struct ScoreBreakdownView: View {
     // MARK: - Initialization
 
     public init(
-        publication: CDPublication,
-        onMoreLikeThis: ((CDPublication) -> Void)? = nil,
-        onLessLikeThis: ((CDPublication) -> Void)? = nil,
+        publicationID: UUID,
+        title: String,
+        authorString: String,
+        year: Int32,
+        onMoreLikeThis: ((UUID) -> Void)? = nil,
+        onLessLikeThis: ((UUID) -> Void)? = nil,
         onOpenSettings: (() -> Void)? = nil
     ) {
-        self.publication = publication
+        self.publicationID = publicationID
+        self.title = title
+        self.authorString = authorString
+        self.year = year
         self.onMoreLikeThis = onMoreLikeThis
         self.onLessLikeThis = onLessLikeThis
         self.onOpenSettings = onOpenSettings
@@ -96,17 +105,17 @@ public struct ScoreBreakdownView: View {
 
     private var paperHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(publication.title ?? "Untitled")
+            Text(title.isEmpty ? "Untitled" : title)
                 .font(.headline)
                 .lineLimit(2)
 
-            Text(publication.authorString)
+            Text(authorString)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            if publication.year > 0 {
-                Text(String(publication.year))
+            if year > 0 {
+                Text(String(year))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -191,7 +200,7 @@ public struct ScoreBreakdownView: View {
             HStack(spacing: 16) {
                 if let onMoreLikeThis = onMoreLikeThis {
                     Button {
-                        onMoreLikeThis(publication)
+                        onMoreLikeThis(publicationID)
                         dismiss()
                     } label: {
                         Label("More like this", systemImage: "hand.thumbsup")
@@ -201,7 +210,7 @@ public struct ScoreBreakdownView: View {
 
                 if let onLessLikeThis = onLessLikeThis {
                     Button {
-                        onLessLikeThis(publication)
+                        onLessLikeThis(publicationID)
                         dismiss()
                     } label: {
                         Label("Less like this", systemImage: "hand.thumbsdown")
@@ -227,7 +236,7 @@ public struct ScoreBreakdownView: View {
 
     private func loadBreakdown() async {
         isLoading = true
-        breakdown = await RecommendationEngine.shared.scoreBreakdown(publication)
+        breakdown = await RecommendationEngine.shared.scoreBreakdown(publicationID)
         isLoading = false
     }
 
@@ -321,19 +330,11 @@ public struct SerendipityBadge: View {
 }
 
 #Preview {
-    let context = PersistenceController.preview.viewContext
-    let publication = context.performAndWait {
-        let pub = CDPublication(context: context)
-        pub.id = UUID()
-        pub.title = "On the Electrodynamics of Moving Bodies"
-        pub.citeKey = "Einstein1905"
-        pub.year = 1905
-        pub.fields = ["author": "Einstein, Albert"]
-        return pub
-    }
-
-    return ScoreBreakdownView(
-        publication: publication,
+    ScoreBreakdownView(
+        publicationID: UUID(),
+        title: "On the Electrodynamics of Moving Bodies",
+        authorString: "Einstein, Albert",
+        year: 1905,
         onMoreLikeThis: { _ in },
         onLessLikeThis: { _ in }
     )

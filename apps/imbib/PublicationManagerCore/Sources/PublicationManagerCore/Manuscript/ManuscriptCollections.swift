@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Manuscript Collection Manager (ADR-021)
@@ -24,13 +23,11 @@ public final class ManuscriptCollectionManager {
 
     // MARK: - Properties
 
-    private let persistenceController: PersistenceController
+    private let store = RustStoreAdapter.shared
 
     // MARK: - Initialization
 
-    private init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-    }
+    private init() {}
 
     // MARK: - Collection Definitions
 
@@ -89,50 +86,55 @@ public final class ManuscriptCollectionManager {
 
     // MARK: - Fetch Manuscripts
 
-    /// Fetch all manuscripts from the library
-    public func fetchAllManuscripts(in library: CDLibrary? = nil) -> [CDPublication] {
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-
-        // Manuscripts are identified by having _manuscript_status in rawFields
-        // We use CONTAINS because rawFields is a JSON string
-        var predicates: [NSPredicate] = [
-            NSPredicate(format: "rawFields CONTAINS %@", "\"_manuscript_status\"")
-        ]
-
-        if let library = library {
-            predicates.append(NSPredicate(format: "ANY libraries == %@", library))
+    /// Fetch all manuscripts from the library.
+    /// Manuscripts are identified by having _manuscript_status in their fields.
+    public func fetchAllManuscripts(in libraryID: UUID? = nil) -> [PublicationRowData] {
+        // Search for publications with _manuscript_status field
+        let allPubs: [PublicationRowData]
+        if let libraryID = libraryID {
+            allPubs = store.queryPublications(parentId: libraryID, sort: "modified", ascending: false)
+        } else {
+            // Get all libraries and query each
+            let libraries = store.listLibraries()
+            allPubs = libraries.flatMap { store.queryPublications(parentId: $0.id, sort: "modified", ascending: false) }
         }
 
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "dateModified", ascending: false)
-        ]
-
-        do {
-            return try context.fetch(request)
-        } catch {
-            Logger.library.errorCapture("Failed to fetch manuscripts: \(error.localizedDescription)", category: "manuscript")
-            return []
+        // Filter to manuscripts by checking detail fields
+        return allPubs.filter { pub in
+            guard let detail = store.getPublicationDetail(id: pub.id) else { return false }
+            return detail.fields["_manuscript_status"] != nil
         }
     }
 
     /// Fetch manuscripts by status
     public func fetchManuscripts(
         status: ManuscriptStatus,
-        in library: CDLibrary? = nil
-    ) -> [CDPublication] {
-        fetchAllManuscripts(in: library).filter { $0.manuscriptStatus == status }
+        in libraryID: UUID? = nil
+    ) -> [PublicationRowData] {
+        fetchAllManuscripts(in: libraryID).filter { pub in
+            guard let detail = store.getPublicationDetail(id: pub.id) else { return false }
+            return detail.fields["_manuscript_status"] == status.rawValue
+        }
     }
 
     /// Fetch active manuscripts (drafting, submitted, under review, revision)
-    public func fetchActiveManuscripts(in library: CDLibrary? = nil) -> [CDPublication] {
-        fetchAllManuscripts(in: library).filter { $0.manuscriptStatus?.isActive ?? false }
+    public func fetchActiveManuscripts(in libraryID: UUID? = nil) -> [PublicationRowData] {
+        fetchAllManuscripts(in: libraryID).filter { pub in
+            guard let detail = store.getPublicationDetail(id: pub.id),
+                  let statusStr = detail.fields["_manuscript_status"],
+                  let status = ManuscriptStatus(rawValue: statusStr) else { return false }
+            return status.isActive
+        }
     }
 
     /// Fetch completed manuscripts (accepted, published)
-    public func fetchCompletedManuscripts(in library: CDLibrary? = nil) -> [CDPublication] {
-        fetchAllManuscripts(in: library).filter { $0.manuscriptStatus?.isCompleted ?? false }
+    public func fetchCompletedManuscripts(in libraryID: UUID? = nil) -> [PublicationRowData] {
+        fetchAllManuscripts(in: libraryID).filter { pub in
+            guard let detail = store.getPublicationDetail(id: pub.id),
+                  let statusStr = detail.fields["_manuscript_status"],
+                  let status = ManuscriptStatus(rawValue: statusStr) else { return false }
+            return status.isCompleted
+        }
     }
 
     // MARK: - Manuscript Statistics
@@ -144,93 +146,113 @@ public final class ManuscriptCollectionManager {
         public let completed: Int
         public let byStatus: [ManuscriptStatus: Int]
 
-        public init(manuscripts: [CDPublication]) {
+        @MainActor public init(manuscripts: [PublicationRowData], store: RustStoreAdapter) {
             self.total = manuscripts.count
-            self.active = manuscripts.filter { $0.manuscriptStatus?.isActive ?? false }.count
-            self.completed = manuscripts.filter { $0.manuscriptStatus?.isCompleted ?? false }.count
 
+            var activeCnt = 0
+            var completedCnt = 0
             var statusCounts: [ManuscriptStatus: Int] = [:]
+
             for manuscript in manuscripts {
-                if let status = manuscript.manuscriptStatus {
+                if let detail = store.getPublicationDetail(id: manuscript.id),
+                   let statusStr = detail.fields["_manuscript_status"],
+                   let status = ManuscriptStatus(rawValue: statusStr) {
                     statusCounts[status, default: 0] += 1
+                    if status.isActive { activeCnt += 1 }
+                    if status.isCompleted { completedCnt += 1 }
                 }
             }
+
+            self.active = activeCnt
+            self.completed = completedCnt
             self.byStatus = statusCounts
         }
     }
 
     /// Get manuscript statistics for a library
-    public func getStats(for library: CDLibrary? = nil) -> ManuscriptStats {
-        ManuscriptStats(manuscripts: fetchAllManuscripts(in: library))
+    public func getStats(for libraryID: UUID? = nil) -> ManuscriptStats {
+        ManuscriptStats(manuscripts: fetchAllManuscripts(in: libraryID), store: store)
     }
 
     // MARK: - Citation Intelligence
 
-    /// Find publications cited by this manuscript
-    public func fetchCitedPublications(for manuscript: CDPublication) -> [CDPublication] {
-        let context = persistenceController.viewContext
-        let citedIDs = manuscript.citedPublicationIDs
-
-        guard !citedIDs.isEmpty else { return [] }
-
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id IN %@", citedIDs)
-        request.sortDescriptors = [NSSortDescriptor(key: "dateAdded", ascending: false)]
-
-        do {
-            return try context.fetch(request)
-        } catch {
-            Logger.library.errorCapture("Failed to fetch cited publications: \(error.localizedDescription)", category: "manuscript")
+    /// Parse cited publication IDs from fields dictionary
+    public static func parseCitedIDs(from fields: [String: String]) -> Set<UUID> {
+        guard let idsJSON = fields["_cited_publication_ids"],
+              let data = idsJSON.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data) else {
             return []
         }
+        return Set(ids.compactMap { UUID(uuidString: $0) })
+    }
+
+    /// Encode cited publication IDs to JSON string
+    public static func encodeCitedIDs(_ ids: Set<UUID>) -> String {
+        let strings = ids.map(\.uuidString)
+        guard let data = try? JSONEncoder().encode(strings),
+              let json = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return json
+    }
+
+    /// Find publications cited by this manuscript
+    public func fetchCitedPublications(for manuscriptID: UUID) -> [PublicationRowData] {
+        guard let detail = store.getPublicationDetail(id: manuscriptID) else { return [] }
+        let citedIDs = Self.parseCitedIDs(from: detail.fields)
+        guard !citedIDs.isEmpty else { return [] }
+
+        return citedIDs.compactMap { store.getPublication(id: $0) }
     }
 
     /// Find manuscripts that cite a given publication
-    public func fetchManuscriptsCiting(_ publication: CDPublication) -> [CDPublication] {
+    public func fetchManuscriptsCiting(_ publicationID: UUID) -> [PublicationRowData] {
         let allManuscripts = fetchAllManuscripts()
-        return allManuscripts.filter { $0.cites(publication) }
+        return allManuscripts.filter { manuscript in
+            guard let detail = store.getPublicationDetail(id: manuscript.id) else { return false }
+            let citedIDs = Self.parseCitedIDs(from: detail.fields)
+            return citedIDs.contains(publicationID)
+        }
     }
 
     /// Find publications that are read but never cited in any manuscript
-    public func fetchUncitedPublications(in library: CDLibrary? = nil) -> [CDPublication] {
-        let manuscripts = fetchAllManuscripts(in: library)
-        let allCitedIDs = Set(manuscripts.flatMap { $0.citedPublicationIDs })
+    public func fetchUncitedPublications(in libraryID: UUID? = nil) -> [PublicationRowData] {
+        let manuscripts = fetchAllManuscripts(in: libraryID)
+        let allCitedIDs = Set(manuscripts.flatMap { manuscript -> Set<UUID> in
+            guard let detail = store.getPublicationDetail(id: manuscript.id) else { return [] }
+            return Self.parseCitedIDs(from: detail.fields)
+        })
 
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-
-        var predicates: [NSPredicate] = [
-            // Has been read
-            NSPredicate(format: "isRead == YES"),
-            // Is not a manuscript itself
-            NSPredicate(format: "NOT rawFields CONTAINS %@", "\"_manuscript_status\"")
-        ]
-
-        if let library = library {
-            predicates.append(NSPredicate(format: "ANY libraries == %@", library))
+        // Get read publications that are not manuscripts and not cited
+        let readPubs: [PublicationRowData]
+        if let libraryID = libraryID {
+            readPubs = store.queryPublications(parentId: libraryID, sort: "modified", ascending: false)
+        } else {
+            let libraries = store.listLibraries()
+            readPubs = libraries.flatMap { store.queryPublications(parentId: $0.id, sort: "modified", ascending: false) }
         }
 
-        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-        request.sortDescriptors = [NSSortDescriptor(key: "dateRead", ascending: false)]
-
-        do {
-            let readPubs = try context.fetch(request)
-            // Filter out those that ARE cited
-            return readPubs.filter { !allCitedIDs.contains($0.id) }
-        } catch {
-            Logger.library.errorCapture("Failed to fetch uncited publications: \(error.localizedDescription)", category: "manuscript")
-            return []
+        return readPubs.filter { pub in
+            guard pub.isRead else { return false }
+            // Exclude manuscripts themselves
+            if let detail = store.getPublicationDetail(id: pub.id),
+               detail.fields["_manuscript_status"] != nil {
+                return false
+            }
+            return !allCitedIDs.contains(pub.id)
         }
     }
 
     /// Find publications cited in multiple manuscripts
-    public func fetchMultiplyCitedPublications(in library: CDLibrary? = nil) -> [(publication: CDPublication, citingManuscripts: [CDPublication])] {
-        let manuscripts = fetchAllManuscripts(in: library)
+    public func fetchMultiplyCitedPublications(in libraryID: UUID? = nil) -> [(publication: PublicationRowData, citingManuscripts: [PublicationRowData])] {
+        let manuscripts = fetchAllManuscripts(in: libraryID)
 
         // Build citation count map
-        var citationMap: [UUID: [CDPublication]] = [:]
+        var citationMap: [UUID: [PublicationRowData]] = [:]
         for manuscript in manuscripts {
-            for citedID in manuscript.citedPublicationIDs {
+            guard let detail = store.getPublicationDetail(id: manuscript.id) else { continue }
+            let citedIDs = Self.parseCitedIDs(from: detail.fields)
+            for citedID in citedIDs {
                 citationMap[citedID, default: []].append(manuscript)
             }
         }
@@ -239,61 +261,21 @@ public final class ManuscriptCollectionManager {
         let multiCited = citationMap.filter { $0.value.count > 1 }
 
         // Fetch the publications
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id IN %@", Array(multiCited.keys))
-
-        do {
-            let publications = try context.fetch(request)
-            return publications.compactMap { pub in
-                guard let citing = multiCited[pub.id] else { return nil }
-                return (publication: pub, citingManuscripts: citing)
-            }.sorted { $0.citingManuscripts.count > $1.citingManuscripts.count }
-        } catch {
-            Logger.library.errorCapture("Failed to fetch multiply-cited publications: \(error.localizedDescription)", category: "manuscript")
-            return []
-        }
+        return multiCited.compactMap { id, citing in
+            guard let pub = store.getPublication(id: id) else { return nil }
+            return (publication: pub, citingManuscripts: citing)
+        }.sorted { $0.citingManuscripts.count > $1.citingManuscripts.count }
     }
 }
 
 // MARK: - Manuscript Filtering Extension
 
-public extension Array where Element == CDPublication {
+public extension Array where Element == PublicationRowData {
 
-    /// Filter to only manuscripts
-    var manuscripts: [CDPublication] {
-        filter { $0.isManuscript }
-    }
-
-    /// Filter to active manuscripts
-    var activeManuscripts: [CDPublication] {
-        filter { $0.isActiveManuscript }
-    }
-
-    /// Filter to completed manuscripts
-    var completedManuscripts: [CDPublication] {
-        filter { $0.isCompletedManuscript }
-    }
-
-    /// Filter by manuscript status
-    func manuscripts(with status: ManuscriptStatus) -> [CDPublication] {
-        filter { $0.manuscriptStatus == status }
-    }
-
-    /// Filter by submission venue
-    func manuscripts(venue: String) -> [CDPublication] {
-        filter { $0.submissionVenue?.localizedCaseInsensitiveContains(venue) ?? false }
-    }
-
-    /// Sort by manuscript status (active first, then by status order)
-    func sortedByManuscriptStatus() -> [CDPublication] {
+    /// Sort by date modified (newest first) — used as a generic sort for manuscripts
+    func sortedByManuscriptStatus() -> [PublicationRowData] {
         sorted { lhs, rhs in
-            let lhsOrder = lhs.manuscriptStatus?.sortOrder ?? 999
-            let rhsOrder = rhs.manuscriptStatus?.sortOrder ?? 999
-            if lhsOrder != rhsOrder {
-                return lhsOrder < rhsOrder
-            }
-            return lhs.dateModified > rhs.dateModified
+            lhs.dateModified > rhs.dateModified
         }
     }
 }

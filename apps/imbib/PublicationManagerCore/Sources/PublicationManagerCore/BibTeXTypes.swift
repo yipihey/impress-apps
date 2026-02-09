@@ -199,6 +199,16 @@ public extension BibTeXEntry {
     var isStandardType: Bool {
         Self.standardTypes.contains(entryType)
     }
+
+    /// Synthesize a BibTeX string from entry fields when rawBibTeX is unavailable.
+    func synthesizeBibTeX() -> String {
+        var lines = ["@\(entryType){\(citeKey),"]
+        for (key, value) in fields.sorted(by: { $0.key < $1.key }) {
+            lines.append("  \(key) = {\(value)},")
+        }
+        lines.append("}")
+        return lines.joined(separator: "\n")
+    }
 }
 
 // MARK: - BibTeX Item (for parsing)

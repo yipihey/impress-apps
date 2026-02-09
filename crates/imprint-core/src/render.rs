@@ -374,11 +374,238 @@ pub trait TypstRenderer: Send + Sync {
 #[cfg(feature = "typst-render")]
 mod typst_impl {
     use super::*;
+    use std::borrow::Cow;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::{Arc, RwLock};
+    use typst::diag::{FileError, FileResult};
+    use typst::foundations::Bytes;
+    use typst::syntax::{FileId, Source, VirtualPath};
+    use typst_as_lib::file_resolver::FileResolver;
+    use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine, TypstTemplateCollection};
+
+    /// File ID for the virtual main source file
+    fn main_file_id() -> FileId {
+        FileId::new(None, VirtualPath::new("/main.typ"))
+    }
+
+    /// A file resolver that reads source from shared mutable state.
+    ///
+    /// This allows updating the source text between compilations without
+    /// rebuilding the TypstEngine (and re-scanning fonts).
+    struct MutableSourceResolver {
+        source: Arc<RwLock<Source>>,
+    }
+
+    impl MutableSourceResolver {
+        fn new(initial_source: &str) -> Self {
+            let id = main_file_id();
+            let source = Source::new(id, initial_source.to_string());
+            Self {
+                source: Arc::new(RwLock::new(source)),
+            }
+        }
+
+        fn source_handle(&self) -> Arc<RwLock<Source>> {
+            self.source.clone()
+        }
+    }
+
+    impl FileResolver for MutableSourceResolver {
+        fn resolve_binary(&self, _id: FileId) -> FileResult<Cow<'_, Bytes>> {
+            Err(FileError::NotFound(
+                _id.vpath().as_rootless_path().to_path_buf(),
+            ))
+        }
+
+        fn resolve_source(&self, id: FileId) -> FileResult<Cow<'_, Source>> {
+            if id == main_file_id() {
+                let source = self.source.read().unwrap();
+                Ok(Cow::Owned(source.clone()))
+            } else {
+                Err(FileError::NotFound(
+                    id.vpath().as_rootless_path().to_path_buf(),
+                ))
+            }
+        }
+    }
+
+    /// Persistent Typst renderer that reuses the TypstEngine across compilations.
+    ///
+    /// Fonts are loaded once on first use. comemo caches persist between compiles,
+    /// enabling Typst's built-in incremental compilation (only re-laying-out
+    /// changed content on small edits).
+    #[derive(Default)]
+    pub struct PersistentTypstRenderer {
+        /// The reusable engine (built lazily on first render)
+        engine: Option<TypstEngine<TypstTemplateCollection>>,
+        /// Shared mutable source — updated before each compile
+        source_handle: Option<Arc<RwLock<Source>>>,
+        /// Hash of the last RenderOptions preamble — engine rebuilt if options change
+        last_preamble_hash: Option<u64>,
+    }
+
+    impl PersistentTypstRenderer {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Hash a preamble string for change detection
+        fn hash_preamble(preamble: &str) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            preamble.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        /// Build or rebuild the engine (loads fonts, sets up resolvers)
+        fn ensure_engine(&mut self, preamble: &str, initial_source: &str) {
+            let preamble_hash = Self::hash_preamble(preamble);
+            let needs_rebuild = self.engine.is_none()
+                || self.last_preamble_hash != Some(preamble_hash);
+
+            if needs_rebuild {
+                let t0 = std::time::Instant::now();
+
+                let resolver = MutableSourceResolver::new(initial_source);
+                self.source_handle = Some(resolver.source_handle());
+
+                let mut builder = TypstEngine::builder()
+                    .add_file_resolver(resolver)
+                    .search_fonts_with(
+                        TypstKitFontOptions::default()
+                            .include_system_fonts(true)
+                            .include_embedded_fonts(true),
+                    );
+                // Keep comemo caches for 30 eviction cycles (compiles) to enable
+                // incremental compilation across small edits
+                builder.comemo_evict_max_age(Some(30));
+                let engine = builder.build();
+
+                let elapsed = t0.elapsed();
+                eprintln!(
+                    "[imprint-core] Engine built in {:.1}ms (fonts loaded, preamble_hash={:#x})",
+                    elapsed.as_secs_f64() * 1000.0,
+                    preamble_hash,
+                );
+
+                self.engine = Some(engine);
+                self.last_preamble_hash = Some(preamble_hash);
+            }
+        }
+
+        /// Update the shared source text before compilation.
+        ///
+        /// Uses `Source::replace()` which diffs against the old text and does a minimal
+        /// edit, preserving the Source's internal revision tracking. This is critical for
+        /// comemo memoization — a fresh `Source::new()` would increment the revision and
+        /// invalidate all cached computation, defeating incremental compilation.
+        fn update_source(&self, full_source: &str) {
+            if let Some(handle) = &self.source_handle {
+                let mut guard = handle.write().unwrap();
+                guard.replace(full_source);
+            }
+        }
+
+        /// Compile the current source into a typst PagedDocument.
+        ///
+        /// Shared by both PDF and SVG export paths.
+        fn compile_document(
+            &mut self,
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<(typst::layout::PagedDocument, Vec<String>), RenderError> {
+            let preamble = options.to_typst_preamble();
+            let full_source = format!("{}\n{}", preamble, source);
+
+            self.ensure_engine(&preamble, &full_source);
+            self.update_source(&full_source);
+
+            let engine = self.engine.as_ref().unwrap();
+
+            let t0 = std::time::Instant::now();
+            let compiled: typst::diag::Warned<
+                Result<typst::layout::PagedDocument, typst_as_lib::TypstAsLibError>,
+            > = engine.compile("/main.typ");
+            let compile_elapsed = t0.elapsed();
+
+            // Collect warnings
+            let warnings: Vec<String> = compiled
+                .warnings
+                .iter()
+                .map(|w| format!("{:?}", w))
+                .collect();
+
+            if !warnings.is_empty() {
+                for w in &warnings {
+                    eprintln!("Typst warning: {}", w);
+                }
+            }
+
+            let document = compiled
+                .output
+                .map_err(|e| RenderError::CompilationError(format!("{:?}", e)))?;
+
+            eprintln!(
+                "[imprint-core] Compiled in {:.1}ms ({} pages)",
+                compile_elapsed.as_secs_f64() * 1000.0,
+                document.pages.len(),
+            );
+
+            Ok((document, warnings))
+        }
+
+        /// Render source to PDF
+        pub fn render_pdf(
+            &mut self,
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<RenderOutput, RenderError> {
+            let (document, _warnings) = self.compile_document(source, options)?;
+
+            let t0 = std::time::Instant::now();
+            let pdf_options = typst_pdf::PdfOptions::default();
+            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
+                .map_err(|e| RenderError::PdfError(format!("{:?}", e)))?;
+            let elapsed = t0.elapsed();
+
+            eprintln!(
+                "[imprint-core] PDF generated in {:.1}ms ({} bytes)",
+                elapsed.as_secs_f64() * 1000.0,
+                pdf_bytes.len(),
+            );
+
+            Ok(RenderOutput::Pdf(pdf_bytes))
+        }
+
+        /// Render source to SVG (one string per page)
+        pub fn render_svg(
+            &mut self,
+            source: &str,
+            options: &RenderOptions,
+        ) -> Result<(Vec<String>, Vec<String>, u32), RenderError> {
+            let (document, warnings) = self.compile_document(source, options)?;
+
+            let t0 = std::time::Instant::now();
+            let svgs: Vec<String> = document.pages.iter().map(typst_svg::svg).collect();
+            let elapsed = t0.elapsed();
+
+            eprintln!(
+                "[imprint-core] SVG generated in {:.1}ms ({} pages)",
+                elapsed.as_secs_f64() * 1000.0,
+                svgs.len(),
+            );
+
+            let page_count = document.pages.len() as u32;
+            Ok((svgs, warnings, page_count))
+        }
+    }
 
     /// Default Typst renderer using typst-as-lib
     ///
     /// This renderer provides a production-ready implementation using the
     /// `typst-as-lib` crate which simplifies the Typst World trait implementation.
+    /// NOTE: This is the legacy stateless renderer, kept for backward compatibility.
+    /// The PersistentTypstRenderer (used via thread_local! in lib.rs) is preferred.
     pub struct DefaultTypstRenderer {
         // Configuration is handled per-render via RenderOptions
     }
@@ -402,9 +629,6 @@ mod typst_impl {
             source: &str,
             options: &RenderOptions,
         ) -> Result<RenderOutput, RenderError> {
-            // Wrap the entire render operation in catch_unwind to handle panics gracefully.
-            // Typst can panic during font lookup, layout, or PDF generation on certain documents.
-            // This ensures we return a proper error instead of crashing the app.
             let source_owned = source.to_string();
             let options_clone = options.clone();
 
@@ -437,14 +661,8 @@ mod typst_impl {
             cache: Option<RenderCache>,
         ) -> Result<(RenderOutput, RenderCache), RenderError> {
             let mut cache = cache.unwrap_or_default();
-
-            // For now, we don't do true incremental compilation
-            // The comemo crate provides memoization for Typst internals,
-            // but we'd need more sophisticated caching at this level
             let output = self.render(source, options)?;
-
             cache.update_hash(source);
-
             Ok((output, cache))
         }
 
@@ -465,36 +683,29 @@ mod typst_impl {
         ) -> Result<RenderOutput, RenderError> {
             use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine};
 
-            // Prepend the page setup preamble to the source
             let full_source = format!("{}\n{}", options.to_typst_preamble(), source);
 
-            // Build the Typst engine with the source
-            // Include embedded fonts for math and text rendering
             let engine = TypstEngine::builder()
                 .main_file(full_source.as_str())
                 .search_fonts_with(
                     TypstKitFontOptions::default()
-                        .include_system_fonts(true) // Use system fonts if available
-                        .include_embedded_fonts(true), // Use embedded fonts (Libertinus, New CM, DejaVu)
+                        .include_system_fonts(true)
+                        .include_embedded_fonts(true),
                 )
                 .build();
 
-            // Compile the document - returns Warned<Result<Doc, TypstAsLibError>>
             let compiled = engine.compile();
 
-            // Check for compilation warnings (non-fatal)
             if !compiled.warnings.is_empty() {
                 for warning in &compiled.warnings {
                     eprintln!("Typst warning: {:?}", warning);
                 }
             }
 
-            // Extract the document from the compilation result
             let document = compiled
                 .output
                 .map_err(|e| RenderError::CompilationError(format!("{:?}", e)))?;
 
-            // Generate output based on the requested format
             match options.output_format {
                 OutputFormat::Pdf => {
                     let pdf_options = typst_pdf::PdfOptions::default();
@@ -507,8 +718,6 @@ mod typst_impl {
                     Ok(RenderOutput::Svg(svgs))
                 }
                 OutputFormat::Png { ppi: _ } => {
-                    // PNG rendering requires additional setup with resvg
-                    // For now, render to SVG and note that PNG requires post-processing
                     Err(RenderError::PngError(
                         "PNG rendering requires the typst-render crate with resvg. \
                          Consider rendering to SVG and converting with an image library."
@@ -522,6 +731,9 @@ mod typst_impl {
 
 #[cfg(feature = "typst-render")]
 pub use typst_impl::DefaultTypstRenderer;
+
+#[cfg(feature = "typst-render")]
+pub use typst_impl::PersistentTypstRenderer;
 
 // ============================================================================
 // Stub implementation (when typst-render feature is NOT enabled)

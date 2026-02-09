@@ -7,7 +7,6 @@
 
 import Foundation
 import OSLog
-import CoreData
 
 /// Handles imports from the Safari extension via App Groups.
 ///
@@ -148,15 +147,15 @@ public actor SafariImportHandler {
         logger.info("Creating smart search: \(name) with query: \(query)")
 
         // Get the exploration library
-        let explorationLibrary = await getOrCreateExplorationLibrary()
+        let explorationLibraryModel = await getOrCreateExplorationLibrary()
 
-        // Create the smart search in exploration library
+        // Create the smart search in exploration library via RustStoreAdapter
         let smartSearch = await MainActor.run {
             SmartSearchRepository.shared.create(
                 name: name,
                 query: query,
                 sourceIDs: [sourceID],
-                library: explorationLibrary,
+                libraryID: explorationLibraryModel.id,
                 maxResults: 100
             )
         }
@@ -166,16 +165,19 @@ public actor SafariImportHandler {
         await sourceManager.registerBuiltInSources()
 
         // Auto-execute the search to populate results
+        guard let smartSearch = smartSearch else {
+            logger.warning("Failed to create smart search '\(name)'")
+            return
+        }
         let provider = SmartSearchProvider(
             from: smartSearch,
-            sourceManager: sourceManager,
-            repository: PublicationRepository()
+            sourceManager: sourceManager
         )
 
         do {
             try await provider.refresh()
             await MainActor.run {
-                SmartSearchRepository.shared.markExecuted(smartSearch)
+                SmartSearchRepository.shared.markExecuted(smartSearch.id)
             }
             logger.info("Auto-executed smart search '\(name)' successfully")
         } catch {
@@ -193,7 +195,7 @@ public actor SafariImportHandler {
     }
 
     /// Get or create the exploration library (app-level, not user library)
-    private func getOrCreateExplorationLibrary() async -> CDLibrary {
+    private func getOrCreateExplorationLibrary() async -> LibraryModel {
         return await MainActor.run {
             let manager = LibraryManager()
             return manager.getOrCreateExplorationLibrary()
@@ -357,34 +359,32 @@ public actor SafariImportHandler {
     // MARK: - Publication Creation
 
     private func createPublication(from entry: BibTeXEntry, item: [String: Any]) async throws {
-        let repository = PublicationRepository()
-
-        // Get target library if specified
+        // Get target library if specified, otherwise use default library
         let libraryID = (item["libraryId"] as? String).flatMap { UUID(uuidString: $0) }
-        let library = await findLibrary(id: libraryID)
+        let targetLibraryID: UUID? = await MainActor.run {
+            if let id = libraryID {
+                return RustStoreAdapter.shared.getLibrary(id: id) != nil ? id : nil
+            }
+            return RustStoreAdapter.shared.getDefaultLibrary()?.id
+        }
 
-        // Note: Duplicate detection is handled by the extension via known identifiers cache.
-        // If needed, additional deduplication can be done here using findExistingByIdentifiers.
+        guard let libID = targetLibraryID else {
+            throw SafariImportError.createFailed("No target library available")
+        }
 
-        // Create publication
-        let publication = await repository.create(from: entry, in: library, processLinkedFiles: false)
+        // Build BibTeX string from entry
+        let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+
+        // Import via RustStoreAdapter
+        let importedIDs = await MainActor.run {
+            RustStoreAdapter.shared.importBibTeX(bibtex, libraryId: libID)
+        }
 
         // Update known identifiers cache for future duplicate detection
         updateKnownIdentifiers(from: entry)
 
-        logger.info("Created publication: \(publication.citeKey)")
-    }
-
-    private func findLibrary(id: UUID?) async -> CDLibrary? {
-        guard let id = id else { return nil }
-
-        let context = PersistenceController.shared.viewContext
-        return await MainActor.run {
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
+        let citeKey = entry.citeKey
+        logger.info("Created publication: \(citeKey) (imported \(importedIDs.count) entries)")
     }
 
     // MARK: - Known Identifiers Cache
@@ -416,23 +416,29 @@ public actor SafariImportHandler {
     public func syncKnownIdentifiers() async {
         guard let defaults = defaults else { return }
 
-        let repository = PublicationRepository()
-        let publications = await repository.fetchAll()
+        // Fetch all publications across all libraries via RustStoreAdapter
+        let allLibraries = await MainActor.run { RustStoreAdapter.shared.listLibraries() }
 
         var known: [String: Bool] = [:]
 
-        for pub in publications {
-            if let doi = pub.doi, !doi.isEmpty {
-                known["doi:\(doi.lowercased())"] = true
+        for library in allLibraries {
+            let publications = await MainActor.run {
+                RustStoreAdapter.shared.queryPublications(parentId: library.id)
             }
 
-            if let arxivID = pub.arxivID, !arxivID.isEmpty {
-                let normalized = arxivID.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
-                known["arxiv:\(normalized)"] = true
-            }
+            for pub in publications {
+                if let doi = pub.doi, !doi.isEmpty {
+                    known["doi:\(doi.lowercased())"] = true
+                }
 
-            if let bibcode = pub.bibcode, !bibcode.isEmpty {
-                known["bibcode:\(bibcode)"] = true
+                if let arxivID = pub.arxivID, !arxivID.isEmpty {
+                    let normalized = arxivID.replacingOccurrences(of: "v\\d+$", with: "", options: .regularExpression)
+                    known["arxiv:\(normalized)"] = true
+                }
+
+                if let bibcode = pub.bibcode, !bibcode.isEmpty {
+                    known["bibcode:\(bibcode)"] = true
+                }
             }
         }
 
@@ -448,19 +454,16 @@ public actor SafariImportHandler {
     public func syncAvailableLibraries() async {
         guard let defaults = defaults else { return }
 
-        let context = PersistenceController.shared.viewContext
         let libraries: [[String: String]] = await MainActor.run {
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-
-            guard let results = try? context.fetch(request) else { return [] }
-
-            return results.map { lib in
-                [
-                    "id": lib.id.uuidString,
-                    "name": lib.name
-                ]
-            }
+            let allLibraries = RustStoreAdapter.shared.listLibraries()
+            return allLibraries
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                .map { lib in
+                    [
+                        "id": lib.id.uuidString,
+                        "name": lib.name
+                    ]
+                }
         }
 
         defaults.set(libraries, forKey: Keys.availableLibraries)

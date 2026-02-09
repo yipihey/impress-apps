@@ -11,8 +11,9 @@ import ImpressFTUI
 import QuickLook
 
 /// iOS Info tab showing publication details, abstract, identifiers, and attachments.
+/// Uses RustStoreAdapter for all data access (no Core Data).
 struct IOSInfoTab: View {
-    let publication: CDPublication
+    let publicationID: UUID
     let libraryID: UUID
 
     @Environment(LibraryManager.self) private var libraryManager
@@ -25,6 +26,9 @@ struct IOSInfoTab: View {
     @State private var isDownloadingPDF = false
     @State private var fileToPreview: URL?
     @State private var fileError: String?
+
+    // Publication data loaded from store
+    @State private var publication: PublicationModel?
 
     // State for exploration (references/citations/similar/co-reads/wos-related)
     @State private var isExploringReferences = false
@@ -39,61 +43,56 @@ struct IOSInfoTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Email-style Header (From, Year, Subject, Venue)
-                headerSection
+            if let pub = publication {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Email-style Header (From, Year, Subject, Venue)
+                    headerSection(pub)
 
-                Divider()
-
-                // Explore (References, Citations, Similar, Co-Reads)
-                if canExploreReferences {
-                    exploreSection
-                        .id(enrichmentRefreshID)  // Refresh when enrichment data arrives
                     Divider()
-                }
 
-                // Flag & Tags
-                flagAndTagsSection
-                Divider()
+                    // Explore (References, Citations, Similar, Co-Reads)
+                    if canExploreReferences(pub) {
+                        exploreSection(pub)
+                            .id(enrichmentRefreshID)
+                        Divider()
+                    }
 
-                // Abstract
-                if let abstract = publication.abstract, !abstract.isEmpty {
-                    abstractSection(abstract)
+                    // Flag & Tags
+                    flagAndTagsSection(pub)
                     Divider()
-                }
 
-                // PDF Sources
-                if hasPDFSources {
-                    pdfSourcesSection
+                    // Abstract
+                    if let abstract = pub.abstract, !abstract.isEmpty {
+                        abstractSection(abstract)
+                        Divider()
+                    }
+
+                    // Attachments
+                    attachmentsSection(pub)
                     Divider()
+
+                    // Identifiers (DOI, arXiv, ADS, PubMed)
+                    if hasIdentifiers(pub) {
+                        identifiersSection(pub)
+                        Divider()
+                    }
+
+                    // Record Info
+                    recordInfoSection(pub)
+                        .id(enrichmentRefreshID)
                 }
-
-                // Attachments
-                attachmentsSection
-                Divider()
-
-                // Comments (shared libraries)
-                if publication.libraries?.contains(where: { $0.isSharedLibrary }) == true {
-                    CommentSectionView(publication: publication)
-                    Divider()
-                }
-
-                // Identifiers (DOI, arXiv, ADS, PubMed)
-                if hasIdentifiers {
-                    identifiersSection
-                    Divider()
-                }
-
-                // Record Info
-                recordInfoSection
-                    .id(enrichmentRefreshID)  // Refresh when enrichment data arrives
+                .padding()
+            } else {
+                ContentUnavailableView(
+                    "Loading...",
+                    systemImage: "doc.text"
+                )
             }
-            .padding()
         }
         .sheet(isPresented: $showPDFBrowser) {
             IOSPDFBrowserView(
-                publication: publication,
-                library: libraryManager.find(id: libraryID),
+                publicationID: publicationID,
+                libraryID: libraryID,
                 onPDFSaved: nil
             )
         }
@@ -128,48 +127,51 @@ struct IOSInfoTab: View {
                 Text(error)
             }
         }
-        .task(id: publication.id) {
-            // Auto-enrich on view if needed (for ref/cite counts)
-            if publication.needsEnrichment {
-                await EnrichmentCoordinator.shared.queueForEnrichment(publication, priority: .recentlyViewed)
-            }
+        .task(id: publicationID) {
+            loadPublication()
         }
         .onReceive(NotificationCenter.default.publisher(for: .publicationEnrichmentDidComplete)) { notification in
-            // Refresh view when enrichment data becomes available for this publication
             if let enrichedID = notification.userInfo?["publicationID"] as? UUID,
-               enrichedID == publication.id {
+               enrichedID == publicationID {
+                loadPublication()
                 enrichmentRefreshID = UUID()
             }
         }
     }
 
+    // MARK: - Data Loading
+
+    private func loadPublication() {
+        publication = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
+    }
+
     // MARK: - Sections
 
     /// Email-style header matching macOS InfoTab
-    private var headerSection: some View {
+    private func headerSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // From: Authors (expandable if more than 10) - larger font, scales with user preference
+            // From: Authors
             infoRow("From") {
-                ExpandableAuthorList(authorString: publication.authorString)
+                ExpandableAuthorList(authorString: pub.authorString)
                     .font(.system(size: 22 * fontScale))
             }
 
             // Year
-            if publication.year > 0 {
+            if let year = pub.year, year > 0 {
                 infoRow("Year") {
-                    Text(String(publication.year))
+                    Text(String(year))
                 }
             }
 
-            // Subject: Title - larger font, scales with user preference
+            // Subject: Title
             infoRow("Subject") {
-                Text(publication.title ?? "Untitled")
+                Text(pub.title)
                     .font(.system(size: 22 * fontScale))
                     .textSelection(.enabled)
             }
 
             // Venue
-            if let venue = venueString, !venue.isEmpty {
+            if let venue = venueString(pub), !venue.isEmpty {
                 infoRow("Venue") {
                     Text(JournalMacros.expand(venue))
                         .foregroundStyle(.secondary)
@@ -201,36 +203,34 @@ struct IOSInfoTab: View {
             Text("Abstract")
                 .font(.headline)
 
-            // Base font size is 21 (1.5x larger than body text), scaled by user preference
             MathJaxAbstractView(text: abstract, fontSize: 21 * fontScale, textColor: .secondary)
         }
     }
 
     /// Whether this paper has any identifiers to display
-    private var hasIdentifiers: Bool {
-        publication.doi != nil || publication.arxivID != nil || publication.bibcode != nil || publication.pmid != nil
+    private func hasIdentifiers(_ pub: PublicationModel) -> Bool {
+        pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil || pub.pmid != nil
     }
 
-    private var identifiersSection: some View {
+    private func identifiersSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Identifiers")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
-            // Compact horizontal scroll for identifier links
             ScrollView(.horizontal) {
                 HStack(spacing: 16) {
-                    if let doi = publication.doi {
+                    if let doi = pub.doi {
                         identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
                     }
-                    if let arxivID = publication.arxivID {
+                    if let arxivID = pub.arxivID {
                         identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
                     }
-                    if let bibcode = publication.bibcode {
+                    if let bibcode = pub.bibcode {
                         identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
                     }
-                    if let pmid = publication.pmid {
+                    if let pmid = pub.pmid {
                         identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
                     }
                 }
@@ -260,26 +260,22 @@ struct IOSInfoTab: View {
 
     // MARK: - Explore Section
 
-    /// Whether this paper can be explored via ADS (has bibcode, DOI, or arXiv ID)
-    private var canExploreReferences: Bool {
-        publication.bibcode != nil || publication.doi != nil || publication.arxivID != nil
+    private func canExploreReferences(_ pub: PublicationModel) -> Bool {
+        pub.bibcode != nil || pub.doi != nil || pub.arxivID != nil
     }
 
-    /// Whether any exploration is in progress
     private var isExploring: Bool {
         isExploringReferences || isExploringCitations || isExploringSimilar || isExploringCoReads || isExploringWoSRelated
     }
 
     @ViewBuilder
-    private var flagAndTagsSection: some View {
-        let tags = publication.tags ?? []
-        let sortedTags = tags.sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
-        let hasFlag = publication.flag != nil
-        let hasTags = !sortedTags.isEmpty
+    private func flagAndTagsSection(_ pub: PublicationModel) -> some View {
+        let hasFlag = pub.flag != nil
+        let hasTags = !pub.tags.isEmpty
 
         if hasFlag || hasTags {
             VStack(alignment: .leading, spacing: 8) {
-                if let flag = publication.flag {
+                if let flag = pub.flag {
                     HStack(spacing: 6) {
                         FlagStripe(flag: flag, rowHeight: 16)
                         Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
@@ -290,14 +286,8 @@ struct IOSInfoTab: View {
 
                 if hasTags {
                     FlowLayout(spacing: 4) {
-                        ForEach(sortedTags, id: \.id) { tag in
-                            TagChip(tag: TagDisplayData(
-                                id: tag.id,
-                                path: tag.canonicalPath ?? tag.name,
-                                leaf: tag.leaf,
-                                colorLight: tag.colorLight ?? tag.effectiveLightColor(),
-                                colorDark: tag.colorDark ?? tag.effectiveDarkColor()
-                            ))
+                        ForEach(pub.tags, id: \.id) { tag in
+                            TagChip(tag: tag)
                         }
                     }
                 }
@@ -305,17 +295,15 @@ struct IOSInfoTab: View {
         }
     }
 
-    private var exploreSection: some View {
+    private func exploreSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Explore")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
-            // Single row of buttons using ScrollView for horizontal overflow on smaller screens
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    let refAvail = publication.referencesAvailability()
                     Button {
                         showReferences()
                     } label: {
@@ -323,14 +311,13 @@ struct IOSInfoTab: View {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
-                            Label(referencesButtonLabel, systemImage: "doc.text")
+                            let refCount = pub.referenceCount
+                            Label(refCount > 0 ? "References (\(refCount))" : "References", systemImage: "doc.text")
                         }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(refAvail == .noResults || isExploring)
-                    .accessibilityHint(referencesHelpText(for: refAvail))
+                    .disabled(isExploring)
 
-                    let citeAvail = publication.citationsAvailability()
                     Button {
                         showCitations()
                     } label: {
@@ -338,12 +325,12 @@ struct IOSInfoTab: View {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
-                            Label(citationsButtonLabel, systemImage: "quote.bubble")
+                            let citeCount = pub.citationCount
+                            Label(citeCount > 0 ? "Citations (\(citeCount))" : "Citations", systemImage: "quote.bubble")
                         }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(citeAvail == .noResults || isExploring)
-                    .accessibilityHint(citationsHelpText(for: citeAvail))
+                    .disabled(isExploring)
 
                     Button {
                         showSimilar()
@@ -372,7 +359,7 @@ struct IOSInfoTab: View {
                     .disabled(isExploring)
 
                     // WoS Related (requires DOI)
-                    if publication.doi != nil {
+                    if pub.doi != nil {
                         Button {
                             showWoSRelated()
                         } label: {
@@ -392,129 +379,9 @@ struct IOSInfoTab: View {
         }
     }
 
-    /// Label for the references button, including count if available
-    private var referencesButtonLabel: String {
-        switch publication.referencesAvailability() {
-        case .hasResults(let count): return "References (\(count))"
-        case .noResults: return "References (0)"
-        default: return "References"
-        }
-    }
-
-    /// Label for the citations button, including count if available
-    private var citationsButtonLabel: String {
-        switch publication.citationsAvailability() {
-        case .hasResults(let count): return "Citations (\(count))"
-        case .noResults: return "Citations (0)"
-        default: return "Citations"
-        }
-    }
-
-    /// Help text for references button based on availability
-    private func referencesHelpText(for availability: CDPublication.ExplorationAvailability) -> String {
-        switch availability {
-        case .notEnriched: return "Find papers this paper cites"
-        case .hasResults(let count): return "Show \(count) referenced papers"
-        case .noResults: return "No references available for this paper"
-        case .unavailable: return "No identifiers available for lookup"
-        }
-    }
-
-    /// Help text for citations button based on availability
-    private func citationsHelpText(for availability: CDPublication.ExplorationAvailability) -> String {
-        switch availability {
-        case .notEnriched: return "Find papers that cite this paper"
-        case .hasResults(let count): return "Show \(count) citing papers"
-        case .noResults: return "No citations available for this paper"
-        case .unavailable: return "No identifiers available for lookup"
-        }
-    }
-
-    // MARK: - PDF Sources Section
-
-    private var hasPDFSources: Bool {
-        publication.arxivID != nil || !publication.pdfLinks.isEmpty || publication.doi != nil
-    }
-
-    private var pdfSourcesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("PDF Sources")
-                .font(.headline)
-
-            VStack(spacing: 8) {
-                // arXiv direct PDF
-                if let arxivID = publication.arxivID {
-                    pdfSourceRow(
-                        label: "arXiv",
-                        url: URL(string: "https://arxiv.org/pdf/\(arxivID).pdf"),
-                        icon: "doc.text"
-                    )
-                }
-
-                // PDF links from publication metadata
-                ForEach(Array(publication.pdfLinks.enumerated()), id: \.offset) { index, link in
-                    let sourceName = link.sourceID ?? pdfSourceName(for: link.url)
-                    pdfSourceRow(
-                        label: sourceName,
-                        url: link.url,
-                        icon: "link"
-                    )
-                }
-
-                // DOI resolver fallback (skip if arXiv-only paper or arXiv DOI)
-                if let doi = publication.doi,
-                   publication.arxivID == nil,
-                   !doi.lowercased().contains("arxiv") {
-                    pdfSourceRow(
-                        label: "Publisher (via DOI)",
-                        url: URL(string: "https://doi.org/\(doi)"),
-                        icon: "globe"
-                    )
-                }
-            }
-        }
-    }
-
-    private func pdfSourceRow(label: String, url: URL?, icon: String) -> some View {
-        HStack {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
-
-            Text(label)
-
-            Spacer()
-
-            if let url = url {
-                Button {
-                    downloadPDF(from: url)
-                } label: {
-                    if isDownloadingPDF {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.down.circle")
-                    }
-                }
-                .disabled(isDownloadingPDF)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func pdfSourceName(for url: URL) -> String {
-        let host = url.host ?? ""
-        if host.contains("arxiv.org") { return "arXiv" }
-        if host.contains("adsabs") { return "ADS" }
-        if host.contains("openalex") { return "OpenAlex" }
-        if host.contains("semanticscholar") { return "Semantic Scholar" }
-        if host.contains("doi.org") { return "DOI Resolver" }
-        return host.replacingOccurrences(of: "www.", with: "")
-    }
-
     // MARK: - Attachments Section
 
-    private var attachmentsSection: some View {
+    private func attachmentsSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Attachments")
@@ -531,15 +398,15 @@ struct IOSInfoTab: View {
                 .controlSize(.small)
             }
 
-            if let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
-                ForEach(Array(linkedFiles), id: \.id) { file in
+            if !pub.linkedFiles.isEmpty {
+                ForEach(pub.linkedFiles, id: \.id) { file in
                     attachmentRow(file)
                 }
             } else {
                 Text("No attachments")
                     .foregroundStyle(.secondary)
 
-                if publication.doi != nil || publication.bibcode != nil || publication.arxivID != nil {
+                if pub.doi != nil || pub.bibcode != nil || pub.arxivID != nil {
                     Button {
                         showPDFBrowser = true
                     } label: {
@@ -551,15 +418,15 @@ struct IOSInfoTab: View {
         }
     }
 
-    private func attachmentRow(_ file: CDLinkedFile) -> some View {
+    private func attachmentRow(_ file: LinkedFileModel) -> some View {
         HStack(spacing: 8) {
-            FileTypeIcon(linkedFile: file)
+            Image(systemName: file.isPDF ? "doc.fill" : "doc")
+                .foregroundStyle(.secondary)
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                // Allow file name to scroll horizontally if too long
                 ScrollView(.horizontal) {
-                    Text(file.displayName ?? file.relativePath)
+                    Text(file.filename)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
@@ -585,14 +452,6 @@ struct IOSInfoTab: View {
                 } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    deleteFile(file)
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.secondary)
@@ -603,39 +462,39 @@ struct IOSInfoTab: View {
 
     // MARK: - Record Info Section
 
-    private var recordInfoSection: some View {
+    private func recordInfoSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Record Info")
                 .font(.headline)
 
             recordInfoRow("Cite Key") {
-                Text(publication.citeKey)
+                Text(pub.citeKey)
                     .textSelection(.enabled)
             }
 
             recordInfoRow("Entry Type") {
-                Text(publication.entryType.capitalized)
+                Text(pub.entryType.capitalized)
             }
 
             recordInfoRow("Date Added") {
-                Text(publication.dateAdded.formatted(date: .abbreviated, time: .shortened))
+                Text(pub.dateAdded.formatted(date: .abbreviated, time: .shortened))
             }
 
-            if publication.dateModified != publication.dateAdded {
+            if pub.dateModified != pub.dateAdded {
                 recordInfoRow("Date Modified") {
-                    Text(publication.dateModified.formatted(date: .abbreviated, time: .shortened))
+                    Text(pub.dateModified.formatted(date: .abbreviated, time: .shortened))
                 }
             }
 
             recordInfoRow("Read Status") {
                 HStack {
-                    Image(systemName: publication.isRead ? "checkmark.circle" : "circle")
-                    Text(publication.isRead ? "Read" : "Unread")
+                    Image(systemName: pub.isRead ? "checkmark.circle" : "circle")
+                    Text(pub.isRead ? "Read" : "Unread")
                 }
             }
 
             recordInfoRow("Flag") {
-                if let flag = publication.flag {
+                if let flag = pub.flag {
                     HStack(spacing: 6) {
                         FlagStripe(flag: flag, rowHeight: 16)
                         Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
@@ -646,23 +505,23 @@ struct IOSInfoTab: View {
                 }
             }
 
-
-            if publication.citationCount > 0 {
+            if pub.citationCount > 0 {
                 recordInfoRow("Citations") {
-                    Text("\(publication.citationCount)")
+                    Text("\(pub.citationCount)")
                 }
             }
 
-            if publication.referenceCount > 0 {
+            if pub.referenceCount > 0 {
                 recordInfoRow("References") {
-                    Text("\(publication.referenceCount)")
+                    Text("\(pub.referenceCount)")
                 }
             }
 
             // Libraries this paper belongs to
-            if let libraries = publication.libraries, !libraries.isEmpty {
-                // Use Set to deduplicate display names (handles duplicate inbox libraries)
-                let uniqueNames = Set(libraries.map { $0.displayName }).sorted()
+            if !pub.libraryIDs.isEmpty {
+                let store = RustStoreAdapter.shared
+                let names = pub.libraryIDs.compactMap { store.getLibrary(id: $0)?.name }
+                let uniqueNames = Set(names).sorted()
                 recordInfoRow(uniqueNames.count == 1 ? "Library" : "Libraries") {
                     Text(uniqueNames.joined(separator: ", "))
                         .textSelection(.enabled)
@@ -671,7 +530,6 @@ struct IOSInfoTab: View {
         }
     }
 
-    /// Record info row that wraps long content
     @ViewBuilder
     private func recordInfoRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top) {
@@ -689,91 +547,42 @@ struct IOSInfoTab: View {
 
     // MARK: - Computed Properties
 
-    private var venueString: String? {
-        let fields = publication.fields
-        return fields["journal"] ?? fields["booktitle"] ?? fields["publisher"]
+    private func venueString(_ pub: PublicationModel) -> String? {
+        pub.journal ?? pub.booktitle ?? pub.publisher
     }
 
     // MARK: - Actions
 
-    private func openFile(_ file: CDLinkedFile) {
-        guard let library = libraryManager.find(id: libraryID) else {
+    private func openFile(_ file: LinkedFileModel) {
+        guard let library = libraryManager.find(id: libraryID),
+              let path = file.relativePath else {
             fileError = "Library not found."
             return
         }
 
-        let normalizedPath = file.relativePath.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-
-        // Check container path (iCloud-only storage)
+        let normalizedPath = path.precomposedStringWithCanonicalMapping
         let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) {
+        if FileManager.default.fileExists(atPath: containerURL.path) {
             fileToPreview = containerURL
         } else {
-            fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
+            fileError = "The file \"\(file.filename)\" is no longer available."
         }
     }
 
-    private func shareFile(_ file: CDLinkedFile) {
-        guard let library = libraryManager.find(id: libraryID) else {
+    private func shareFile(_ file: LinkedFileModel) {
+        guard let library = libraryManager.find(id: libraryID),
+              let path = file.relativePath else {
             fileError = "Library not found."
             return
         }
 
-        let normalizedPath = file.relativePath.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-
-        // Check container path (iCloud-only storage)
+        let normalizedPath = path.precomposedStringWithCanonicalMapping
         let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) {
+        if FileManager.default.fileExists(atPath: containerURL.path) {
             fileToShare = containerURL
             showShareSheet = true
         } else {
-            fileError = "The file \"\(file.displayName ?? file.relativePath)\" is no longer available. It may have been moved or deleted, or iCloud may have freed up storage space."
-        }
-    }
-
-    private func deleteFile(_ file: CDLinkedFile) {
-        do {
-            try AttachmentManager.shared.delete(file, in: libraryManager.find(id: libraryID))
-        } catch {
-            print("Failed to delete file: \(error)")
-        }
-    }
-
-    private func downloadPDF(from url: URL) {
-        isDownloadingPDF = true
-
-        Task {
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-
-                // Verify it's a PDF
-                guard data.count >= 4,
-                      data.prefix(4).elementsEqual([0x25, 0x50, 0x44, 0x46]) else {
-                    // Not a PDF - open browser instead
-                    await MainActor.run {
-                        isDownloadingPDF = false
-                        showPDFBrowser = true
-                    }
-                    return
-                }
-
-                try AttachmentManager.shared.importPDF(
-                    data: data,
-                    for: publication,
-                    in: libraryManager.find(id: libraryID)
-                )
-
-                await MainActor.run {
-                    isDownloadingPDF = false
-                }
-            } catch {
-                await MainActor.run {
-                    isDownloadingPDF = false
-                    showPDFBrowser = true
-                }
-            }
+            fileError = "The file \"\(file.filename)\" is no longer available."
         }
     }
 
@@ -787,17 +596,22 @@ struct IOSInfoTab: View {
                 do {
                     let data = try Data(contentsOf: url)
                     let fileExtension = url.pathExtension.isEmpty ? "pdf" : url.pathExtension
-                    try AttachmentManager.shared.importAttachment(
-                        data: data,
-                        for: publication,
-                        in: libraryManager.find(id: libraryID),
-                        fileExtension: fileExtension,
-                        displayName: url.lastPathComponent
-                    )
+                    // Use Rust store to import attachment
+                    // For now, we need to go through library manager for file system operations
+                    if let library = libraryManager.find(id: libraryID) {
+                        try AttachmentManager.shared.importAttachment(
+                            data: data,
+                            publicationID: publicationID,
+                            in: library,
+                            fileExtension: fileExtension,
+                            displayName: url.lastPathComponent
+                        )
+                    }
                 } catch {
                     print("Failed to import file: \(error)")
                 }
             }
+            loadPublication()
         case .failure(let error):
             print("File picker error: \(error)")
         }
@@ -812,145 +626,29 @@ struct IOSInfoTab: View {
 
     // MARK: - Exploration
 
-    /// Show references using ExplorationService
     private func showReferences() {
-        isExploringReferences = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore references - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreReferences(of: publication)
-
-                await MainActor.run {
-                    isExploringReferences = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringReferences = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
+        NotificationCenter.default.post(name: .exploreReferences, object: publicationID)
     }
 
-    /// Show citations using ExplorationService
     private func showCitations() {
-        isExploringCitations = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore citations - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCitations(of: publication)
-
-                await MainActor.run {
-                    isExploringCitations = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringCitations = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
+        NotificationCenter.default.post(name: .exploreCitations, object: publicationID)
     }
 
-    /// Show similar papers using ExplorationService
     private func showSimilar() {
-        isExploringSimilar = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore similar - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreSimilar(of: publication)
-
-                await MainActor.run {
-                    isExploringSimilar = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringSimilar = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
+        NotificationCenter.default.post(name: .exploreSimilar, object: publicationID)
     }
 
-    /// Show co-read papers using ExplorationService
     private func showCoReads() {
-        isExploringCoReads = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore co-reads - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCoReads(of: publication)
-
-                await MainActor.run {
-                    isExploringCoReads = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringCoReads = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
+        NotificationCenter.default.post(name: .exploreCoReads, object: publicationID)
     }
 
-    /// Show WoS related papers using ExplorationService
     private func showWoSRelated() {
-        isExploringWoSRelated = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore WoS related - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreWoSRelated(of: publication)
-
-                await MainActor.run {
-                    isExploringWoSRelated = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringWoSRelated = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
+        NotificationCenter.default.post(name: .exploreWoSRelated, object: publicationID)
     }
 }
 
 // MARK: - Share Sheet
 
-/// UIActivityViewController wrapper for sharing files.
 private struct IOSShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 

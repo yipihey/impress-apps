@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Default Library Set Manager
@@ -26,36 +25,25 @@ public final class DefaultLibrarySetManager {
 
     // MARK: - Dependencies
 
-    private let persistenceController: PersistenceController
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-    }
+    public init() {}
 
     // MARK: - First Launch Detection
 
     /// Check if this is the first launch (no existing libraries).
     public func isFirstLaunch() -> Bool {
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.fetchLimit = 1
-
-        do {
-            let count = try context.count(for: request)
-            return count == 0
-        } catch {
-            Logger.library.errorCapture("Failed to check library count: \(error.localizedDescription)", category: "onboarding")
-            return false
-        }
+        let libraries = store.listLibraries()
+        return libraries.isEmpty
     }
 
     // MARK: - Load Default Set
 
     /// Load and import the default library set.
     ///
-    /// This creates CDLibrary, CDSmartSearch, and CDCollection entities.
+    /// This creates libraries, smart searches, and collections via RustStoreAdapter.
     /// Checks App Support first for user-customized version, falls back to bundled resource.
     public func loadDefaultSet() throws {
         Logger.library.infoCapture("Loading default library set", category: "onboarding")
@@ -97,39 +85,29 @@ public final class DefaultLibrarySetManager {
         Logger.library.infoCapture("Loaded default set v\(defaultSet.version) with \(defaultSet.libraries.count) libraries", category: "onboarding")
 
         // Import the set
-        try importSet(defaultSet)
+        importSet(defaultSet)
     }
 
-    /// Import a DefaultLibrarySet into Core Data.
-    private func importSet(_ set: DefaultLibrarySet) throws {
-        let context = persistenceController.viewContext
-
+    /// Import a DefaultLibrarySet into the Rust store.
+    private func importSet(_ set: DefaultLibrarySet) {
         // Create libraries
-        for (index, defaultLibrary) in set.libraries.enumerated() {
+        for defaultLibrary in set.libraries {
             // Create library
-            let library = CDLibrary(context: context)
-            library.id = UUID()
-            library.name = defaultLibrary.name
-            library.dateCreated = Date()
-            library.isDefault = defaultLibrary.isDefault
-            library.sortOrder = Int16(index)
+            guard let library = store.createLibrary(name: defaultLibrary.name) else {
+                Logger.library.errorCapture("Failed to create library: \(defaultLibrary.name)", category: "onboarding")
+                continue
+            }
+
+            if defaultLibrary.isDefault {
+                store.setLibraryDefault(id: library.id)
+            }
 
             Logger.library.debugCapture("Creating library: \(defaultLibrary.name)", category: "onboarding")
-
-            // Note: smartSearches in libraries are deprecated and ignored
-            // Use top-level inboxFeeds instead
 
             // Create collections
             if let collections = defaultLibrary.collections {
                 for defaultColl in collections {
-                    let collection = CDCollection(context: context)
-                    collection.id = UUID()
-                    collection.name = defaultColl.name
-                    collection.isSmartCollection = false
-                    collection.isSmartSearchResults = false
-                    collection.isSystemCollection = false
-                    collection.library = library
-
+                    _ = store.createCollection(name: defaultColl.name, libraryId: library.id)
                     Logger.library.debugCapture("  Created collection: \(defaultColl.name)", category: "onboarding")
                 }
             }
@@ -137,71 +115,46 @@ public final class DefaultLibrarySetManager {
 
         // Import inbox feeds (these are stored in the Inbox library)
         if let inboxFeeds = set.inboxFeeds, !inboxFeeds.isEmpty {
-            try importInboxFeeds(inboxFeeds, context: context)
+            importInboxFeeds(inboxFeeds)
         }
 
-        // Save
-        persistenceController.save()
         Logger.library.infoCapture("Successfully imported default library set", category: "onboarding")
     }
 
     /// Import inbox feeds into the Inbox library.
-    private func importInboxFeeds(_ feeds: [DefaultInboxFeed], context: NSManagedObjectContext) throws {
+    private func importInboxFeeds(_ feeds: [DefaultInboxFeed]) {
         // Get or create the Inbox library
-        let inboxLibrary = try getOrCreateInboxLibrary(context: context)
+        let inboxLibrary: LibraryModel
+        if let existing = store.getInboxLibrary() {
+            inboxLibrary = existing
+        } else if let created = store.createInboxLibrary(name: "Inbox") {
+            inboxLibrary = created
+        } else {
+            Logger.library.errorCapture("Failed to create Inbox library for feeds", category: "onboarding")
+            return
+        }
 
-        for (index, defaultFeed) in feeds.enumerated() {
-            let smartSearch = CDSmartSearch(context: context)
-            smartSearch.id = UUID()
-            smartSearch.name = defaultFeed.name
-            smartSearch.query = defaultFeed.query
-            smartSearch.sources = defaultFeed.sourceIDs
-            smartSearch.dateCreated = Date()
-            smartSearch.library = inboxLibrary
-            smartSearch.order = Int16(index)
-            smartSearch.feedsToInbox = true
-            smartSearch.autoRefreshEnabled = true
-            smartSearch.refreshIntervalSeconds = Int32(defaultFeed.refreshIntervalSeconds ?? 21600)
-            smartSearch.maxResults = Int16(defaultFeed.maxResults ?? 100)
+        for defaultFeed in feeds {
+            let sourceIdsJson: String?
+            if !defaultFeed.sourceIDs.isEmpty {
+                sourceIdsJson = try? String(data: JSONEncoder().encode(defaultFeed.sourceIDs), encoding: .utf8)
+            } else {
+                sourceIdsJson = nil
+            }
 
-            // Create result collection for the feed
-            // IMPORTANT: The collection must be associated with BOTH the smart search AND the library
-            let resultCollection = CDCollection(context: context)
-            resultCollection.id = UUID()
-            resultCollection.name = defaultFeed.name
-            resultCollection.isSmartSearchResults = true
-            resultCollection.isSmartCollection = false
-            resultCollection.smartSearch = smartSearch
-            resultCollection.library = inboxLibrary  // This line was missing!
-            smartSearch.resultCollection = resultCollection
+            _ = store.createSmartSearch(
+                name: defaultFeed.name,
+                query: defaultFeed.query,
+                libraryId: inboxLibrary.id,
+                sourceIdsJson: sourceIdsJson,
+                maxResults: Int64(defaultFeed.maxResults ?? 100),
+                feedsToInbox: true,
+                autoRefreshEnabled: true,
+                refreshIntervalSeconds: Int64(defaultFeed.refreshIntervalSeconds ?? 21600)
+            )
 
             Logger.library.debugCapture("Created inbox feed: \(defaultFeed.name)", category: "onboarding")
         }
-    }
-
-    /// Get or create the Inbox library.
-    private func getOrCreateInboxLibrary(context: NSManagedObjectContext) throws -> CDLibrary {
-        // Check if Inbox already exists
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isInbox == YES")
-        request.fetchLimit = 1
-
-        if let existing = try context.fetch(request).first {
-            return existing
-        }
-
-        // Create Inbox library
-        let inbox = CDLibrary(context: context)
-        inbox.id = UUID()
-        inbox.name = "Inbox"
-        inbox.dateCreated = Date()
-        inbox.isInbox = true
-        inbox.isDefault = false
-        inbox.sortOrder = -1  // Inbox appears at top
-
-        Logger.library.debugCapture("Created Inbox library for feeds", category: "onboarding")
-
-        return inbox
     }
 
     // MARK: - Load Custom Set
@@ -232,7 +185,7 @@ public final class DefaultLibrarySetManager {
         Logger.library.infoCapture("Loaded custom set v\(customSet.version) with \(customSet.libraries.count) libraries", category: "onboarding")
 
         // Import the set
-        try importSet(customSet)
+        importSet(customSet)
     }
 
     // MARK: - Export Current State (Development Mode)
@@ -243,7 +196,7 @@ public final class DefaultLibrarySetManager {
     public func exportCurrentAsDefaultSet(to url: URL) throws {
         Logger.library.infoCapture("Exporting current state to: \(url.lastPathComponent)", category: "onboarding")
 
-        let defaultSet = try getCurrentAsDefaultSet()
+        let defaultSet = getCurrentAsDefaultSet()
 
         // Encode to JSON
         let encoder = JSONEncoder()
@@ -285,7 +238,7 @@ public final class DefaultLibrarySetManager {
     /// Load DefaultLibrarySet from JSON file for editing.
     ///
     /// Checks App Support first (user's saved edits), falls back to bundled resource.
-    /// This is used by the editor to show what the JSON file contains, not Core Data state.
+    /// This is used by the editor to show what the JSON file contains, not store state.
     public func loadDefaultSetFromJSON() throws -> DefaultLibrarySet {
         let fileManager = FileManager.default
 
@@ -307,17 +260,10 @@ public final class DefaultLibrarySetManager {
         return try JSONDecoder().decode(DefaultLibrarySet.self, from: data)
     }
 
-    /// Save a DefaultLibrarySet to the bundled JSON file location.
-    ///
-    /// Note: This only works during development as the app bundle is read-only
-    /// in production builds.
+    /// Save a DefaultLibrarySet to the App Support JSON file location.
     public func saveToBundledJSON(_ set: DefaultLibrarySet) throws {
-        // Get the source file path (for development, we need to find the original file)
-        // In production, the bundle is read-only, so we use the app support directory
         let fileManager = FileManager.default
 
-        // Try to find the source file in the project directory
-        // This is a development-only feature
         let appSupportURL = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -341,23 +287,8 @@ public final class DefaultLibrarySetManager {
     /// Get the current libraries and inbox feeds as a DefaultLibrarySet object.
     ///
     /// Useful for editing the default set in the UI before saving.
-    public func getCurrentAsDefaultSet() throws -> DefaultLibrarySet {
-        let context = persistenceController.viewContext
-
-        // Fetch all libraries
-        let libraryRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
-        libraryRequest.sortDescriptors = [
-            NSSortDescriptor(key: "sortOrder", ascending: true),
-            NSSortDescriptor(key: "name", ascending: true)
-        ]
-
-        let libraries: [CDLibrary]
-        do {
-            libraries = try context.fetch(libraryRequest)
-        } catch {
-            Logger.library.errorCapture("Failed to fetch libraries: \(error.localizedDescription)", category: "onboarding")
-            throw DefaultLibrarySetError.encodingFailed(error)
-        }
+    public func getCurrentAsDefaultSet() -> DefaultLibrarySet {
+        let libraries = store.listLibraries()
 
         // Build the export structure
         var defaultLibraries: [DefaultLibrary] = []
@@ -366,14 +297,14 @@ public final class DefaultLibrarySetManager {
         for library in libraries {
             // Handle Inbox library - extract feeds
             if library.isInbox {
-                let feeds = (library.smartSearches ?? [])
+                let smartSearches = store.listSmartSearches(libraryId: library.id)
+                let feeds = smartSearches
                     .filter { $0.feedsToInbox }
-                    .sorted { $0.order < $1.order }
                     .map { ss in
                         DefaultInboxFeed(
                             name: ss.name,
                             query: ss.query,
-                            sourceIDs: ss.sources,
+                            sourceIDs: ss.sourceIDs,
                             refreshIntervalSeconds: Int(ss.refreshIntervalSeconds),
                             maxResults: Int(ss.maxResults)
                         )
@@ -382,20 +313,14 @@ public final class DefaultLibrarySetManager {
                 continue
             }
 
-            // Skip system libraries
-            if library.isSystemLibrary {
-                continue
-            }
-
-            // Export user-created collections (not smart search results, not system collections)
-            let collections = (library.collections ?? [])
-                .filter { !$0.isSmartSearchResults && !$0.isSystemCollection }
+            // Export user-created collections
+            let collections = store.listCollections(libraryId: library.id)
                 .map { DefaultCollection(name: $0.name) }
 
             let defaultLibrary = DefaultLibrary(
-                name: library.displayName,
+                name: library.name,
                 isDefault: library.isDefault,
-                smartSearches: nil,  // Libraries no longer have smart searches
+                smartSearches: nil,
                 collections: collections.isEmpty ? nil : collections
             )
 
@@ -413,7 +338,7 @@ public final class DefaultLibrarySetManager {
     ///
     /// Useful for copying to clipboard or displaying in UI.
     public func exportToJSONString() throws -> String {
-        let defaultSet = try getCurrentAsDefaultSet()
+        let defaultSet = getCurrentAsDefaultSet()
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

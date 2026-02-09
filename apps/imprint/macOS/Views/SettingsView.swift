@@ -175,6 +175,8 @@ struct GeneralSettingsView: View {
     @AppStorage("autoSaveInterval") private var autoSaveInterval = 60
     @AppStorage("createBackups") private var createBackups = true
     @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
+    @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
+    @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
 
     var body: some View {
         Form {
@@ -188,9 +190,25 @@ struct GeneralSettingsView: View {
                 Stepper("Auto-save every \(autoSaveInterval) seconds", value: $autoSaveInterval, in: 10...300, step: 10)
             }
 
-            Section("Compilation") {
-                Toggle("Auto-compile on typing pause", isOn: $autoCompileEnabled)
-                    .help("Automatically recompile after 1.5 seconds of inactivity")
+            Section("Live Preview") {
+                Toggle("Live preview", isOn: $autoCompileEnabled)
+                    .help("Automatically recompile as you type")
+
+                if autoCompileEnabled {
+                    Stepper(
+                        "Update delay: \(compileDebounceMs)ms",
+                        value: $compileDebounceMs,
+                        in: 200...2000,
+                        step: 100
+                    )
+                    .help("Milliseconds to wait after typing before recompiling. Lower = more responsive, higher = less CPU usage.")
+                }
+
+                Picker("Preview format", selection: $previewFormat) {
+                    Text("PDF").tag("pdf")
+                    Text("SVG (faster)").tag("svg")
+                }
+                .help("SVG renders individual pages for faster updates on long documents. PDF is used for Direct PDF mode regardless of this setting.")
             }
 
             Section("Backup") {

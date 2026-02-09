@@ -586,7 +586,7 @@ public struct ADSClassicSearchView: View {
 
     // MARK: - Bindings
 
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
 
     // MARK: - Form State
 
@@ -604,8 +604,8 @@ public struct ADSClassicSearchView: View {
 
     // MARK: - Initialization
 
-    public init(selectedPublication: Binding<CDPublication?>) {
-        self._selectedPublication = selectedPublication
+    public init(selectedPublicationID: Binding<UUID?>) {
+        self._selectedPublicationID = selectedPublicationID
     }
 
     // MARK: - State for Layout
@@ -780,20 +780,20 @@ public struct ADSClassicSearchView: View {
             PublicationListView(
                 publications: viewModel.publications,
                 selection: $viewModel.selectedPublicationIDs,
-                selectedPublication: $selectedPublication,
-                library: libraryManager.activeLibrary,
-                allLibraries: libraryManager.libraries,
+                selectedPublicationID: $selectedPublicationID,
+                libraryID: libraryManager.activeLibrary?.id,
+                allLibraries: libraryManager.libraries.map { (id: $0.id, name: $0.name) },
                 showImportButton: false,
                 showSortMenu: true,
                 emptyStateMessage: "No Results",
                 emptyStateDescription: "Fill in the form and click Search.",
-                listID: libraryManager.activeLibrary?.lastSearchCollection.map { .lastSearch($0.id) },
+                listID: libraryManager.getOrCreateLastSearchCollection().map { .lastSearch($0.id) },
                 filterScope: .constant(.current),
                 onDelete: { ids in
                     await libraryViewModel.delete(ids: ids)
                 },
-                onToggleRead: { publication in
-                    await libraryViewModel.toggleReadStatus(publication)
+                onToggleRead: { id in
+                    await libraryViewModel.toggleReadStatus(id: id)
                 },
                 onCopy: { ids in
                     await libraryViewModel.copyToClipboard(ids)
@@ -804,14 +804,11 @@ public struct ADSClassicSearchView: View {
                 onPaste: {
                     try? await libraryViewModel.pasteFromClipboard()
                 },
-                onAddToLibrary: { ids, targetLibrary in
-                    await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+                onAddToLibrary: { ids, libraryId in
+                    await libraryViewModel.addToLibrary(ids, libraryId: libraryId)
                 },
-                onAddToCollection: { ids, collection in
-                    await libraryViewModel.addToCollection(ids, collection: collection)
-                },
-                onRemoveFromAllCollections: { ids in
-                    await libraryViewModel.removeFromAllCollections(ids)
+                onAddToCollection: { ids, collectionId in
+                    await libraryViewModel.addToCollection(ids, collectionId: collectionId)
                 },
                 onOpenPDF: { _ in }
             )
@@ -883,7 +880,7 @@ public struct ADSClassicSearchView: View {
     }
 
     /// Execute initial feed fetch
-    private func executeInitialFetch(_ smartSearch: CDSmartSearch) async {
+    private func executeInitialFetch(_ smartSearch: SmartSearch) async {
         guard let fetchService = await InboxCoordinator.shared.paperFetchService else {
             Logger.viewModels.warningCapture(
                 "InboxCoordinator not started, skipping initial feed fetch",
@@ -893,7 +890,7 @@ public struct ADSClassicSearchView: View {
         }
 
         do {
-            let fetchedCount = try await fetchService.fetchForInbox(smartSearch: smartSearch)
+            let fetchedCount = try await fetchService.fetchForInbox(smartSearchID: smartSearch.id)
             Logger.viewModels.infoCapture(
                 "Initial ADS feed fetch complete: \(fetchedCount) papers added to Inbox",
                 category: "feed"

@@ -7,79 +7,11 @@
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import OSLog
 import ImpressKeyboard
 import ImpressFTUI
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
-
-// MARK: - Publication Source
-
-/// The data source for publications in the unified list view.
-enum PublicationSource: Hashable {
-    case library(CDLibrary)
-    case smartSearch(CDSmartSearch)
-    case lastSearch(CDCollection)  // ADR-016: Ad-hoc search results from "Last Search" collection
-    case collection(CDCollection)  // Regular or smart collection
-    case flagged(String?)           // Flagged publications (nil = any flag, or specific color name)
-
-    var id: UUID {
-        switch self {
-        case .library(let library): return library.id
-        case .smartSearch(let smartSearch): return smartSearch.id
-        case .lastSearch(let collection): return collection.id
-        case .collection(let collection): return collection.id
-        case .flagged(let color):
-            // Use a fixed namespace UUID for flagged virtual sources
-            switch color {
-            case "red":   return UUID(uuidString: "F1A99ED0-0001-4000-8000-000000000000")!
-            case "amber": return UUID(uuidString: "F1A99ED0-0002-4000-8000-000000000000")!
-            case "blue":  return UUID(uuidString: "F1A99ED0-0003-4000-8000-000000000000")!
-            case "gray":  return UUID(uuidString: "F1A99ED0-0004-4000-8000-000000000000")!
-            default:      return UUID(uuidString: "F1A99ED0-0000-4000-8000-000000000000")!
-            }
-        }
-    }
-
-    var isLibrary: Bool {
-        if case .library = self { return true }
-        return false
-    }
-
-    var isSmartSearch: Bool {
-        if case .smartSearch = self { return true }
-        return false
-    }
-
-    var isLastSearch: Bool {
-        if case .lastSearch = self { return true }
-        return false
-    }
-
-    var isCollection: Bool {
-        if case .collection = self { return true }
-        return false
-    }
-
-    var isFlagged: Bool {
-        if case .flagged = self { return true }
-        return false
-    }
-
-    /// Whether the current user can edit content in this source.
-    /// Returns false for read-only shared libraries.
-    var canEdit: Bool {
-        switch self {
-        case .library(let library):
-            return library.canEditLibrary
-        case .collection(let collection):
-            return collection.library?.canEditLibrary ?? true
-        case .smartSearch, .lastSearch, .flagged:
-            return true
-        }
-    }
-}
 
 // MARK: - Filter Mode
 
@@ -88,6 +20,7 @@ enum LibraryFilterMode: String, CaseIterable {
     case all
     case unread
 }
+
 
 // Note: SmartSearchProviderCache is now in PublicationManagerCore
 
@@ -109,7 +42,7 @@ struct UnifiedPublicationListWrapper: View {
     // MARK: - Properties
 
     let source: PublicationSource
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
     /// Multi-selection IDs for bulk operations
     @Binding var selectedPublicationIDs: Set<UUID>
 
@@ -130,7 +63,7 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Unified State
 
-    @State private var publications: [CDPublication] = []
+    @State private var publications: [PublicationRowData] = []
     // selectedPublicationIDs is now a binding: selectedPublicationIDs
     @State private var isLoading = false
     @State private var error: Error?
@@ -203,67 +136,74 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Check if the source (library or smart search) is still valid (not deleted)
     private var isSourceValid: Bool {
-        switch source {
-        case .library(let library):
-            return library.managedObjectContext != nil && !library.isDeleted
-        case .smartSearch(let smartSearch):
-            return smartSearch.managedObjectContext != nil && !smartSearch.isDeleted
-        case .lastSearch(let collection):
-            return collection.managedObjectContext != nil && !collection.isDeleted
-        case .collection(let collection):
-            return collection.managedObjectContext != nil && !collection.isDeleted
-        case .flagged:
-            return true  // Virtual source, always valid
-        }
+        // Domain sources use value-type UUIDs — always valid
+        true
     }
 
     private var navigationTitle: String {
+        let store = RustStoreAdapter.shared
         switch source {
-        case .library(let library):
-            guard library.managedObjectContext != nil else { return "" }
-            return filterMode == .unread ? "Unread" : library.displayName
-        case .smartSearch(let smartSearch):
-            guard smartSearch.managedObjectContext != nil else { return "" }
-            return smartSearch.name
-        case .lastSearch:
-            return "Search Results"
-        case .collection(let collection):
-            guard collection.managedObjectContext != nil else { return "" }
-            return collection.name
+        case .library(let id):
+            return filterMode == .unread ? "Unread" : (store.getLibrary(id: id)?.name ?? "")
+        case .smartSearch(let id):
+            return store.getSmartSearch(id: id)?.name ?? ""
+        case .collection(let id):
+            // TODO: implement collection name lookup via Rust store
+            // For now use listCollections and find matching
+            return "Collection"
         case .flagged(let color):
             if let color { return "\(color.capitalized) Flagged" }
             return "Flagged"
+        case .scixLibrary(let id):
+            return store.getScixLibrary(id: id)?.name ?? "SciX Library"
+        case .unread:
+            return "Unread"
+        case .starred:
+            return "Starred"
+        case .tag(let path):
+            return path.components(separatedBy: "/").last ?? path
+        case .inbox(let id):
+            return store.getLibrary(id: id)?.name ?? "Inbox"
+        case .dismissed:
+            return "Dismissed"
         }
     }
 
-    private var currentLibrary: CDLibrary? {
-        guard isSourceValid else { return nil }
+    private var currentLibraryID: UUID? {
         switch source {
-        case .library(let library):
-            return library
-        case .smartSearch(let smartSearch):
-            return smartSearch.resultCollection?.library ?? smartSearch.library
-        case .lastSearch(let collection):
-            return collection.library ?? collection.owningLibrary
-        case .collection(let collection):
-            return collection.effectiveLibrary
-        case .flagged:
-            return libraryManager.activeLibrary
+        case .library(let id): return id
+        case .inbox(let id): return id
+        case .scixLibrary(let id): return id
+        case .smartSearch(let id):
+            return RustStoreAdapter.shared.getSmartSearch(id: id)?.libraryID
+                ?? RustStoreAdapter.shared.getDefaultLibrary()?.id
+        case .collection, .flagged, .unread, .starred, .tag, .dismissed:
+            return RustStoreAdapter.shared.getDefaultLibrary()?.id
         }
     }
 
     private var listID: ListViewID {
         switch source {
-        case .library(let library):
-            return .library(library.id)
-        case .smartSearch(let smartSearch):
-            return .smartSearch(smartSearch.id)
-        case .lastSearch(let collection):
-            return .lastSearch(collection.id)
-        case .collection(let collection):
-            return .collection(collection.id)
+        case .library(let id):
+            return .library(id)
+        case .smartSearch(let id):
+            return .smartSearch(id)
+        case .collection(let id):
+            return .collection(id)
         case .flagged:
-            return .flagged(source.id)
+            return .flagged(source.viewID)
+        case .scixLibrary(let id):
+            return .scixLibrary(id)
+        case .unread:
+            return .library(source.viewID)
+        case .starred:
+            return .library(source.viewID)
+        case .tag:
+            return .library(source.viewID)
+        case .inbox(let id):
+            return .library(id)
+        case .dismissed:
+            return .library(source.viewID)
         }
     }
 
@@ -271,15 +211,26 @@ struct UnifiedPublicationListWrapper: View {
         switch source {
         case .library:
             return "No Publications"
-        case .smartSearch(let smartSearch):
-            return "No Results for \"\(smartSearch.query)\""
-        case .lastSearch:
-            return "No Results"
+        case .smartSearch(let id):
+            let query = RustStoreAdapter.shared.getSmartSearch(id: id)?.query ?? ""
+            return "No Results for \"\(query)\""
         case .collection:
             return "No Publications"
         case .flagged(let color):
             if let color { return "No \(color.capitalized) Flagged Papers" }
             return "No Flagged Papers"
+        case .scixLibrary:
+            return "No Papers"
+        case .unread:
+            return "No Unread Papers"
+        case .starred:
+            return "No Starred Papers"
+        case .tag(let path):
+            return "No Papers Tagged \"\(path)\""
+        case .inbox:
+            return "Inbox Empty"
+        case .dismissed:
+            return "No Dismissed Papers"
         }
     }
 
@@ -289,12 +240,22 @@ struct UnifiedPublicationListWrapper: View {
             return "Add publications to your library or search online sources."
         case .smartSearch:
             return "Click refresh to search again."
-        case .lastSearch:
-            return "Enter a query to search across multiple sources."
         case .collection:
             return "Drag publications to this collection."
         case .flagged:
             return "Flag papers to see them here."
+        case .scixLibrary:
+            return "This SciX library is empty."
+        case .unread:
+            return "All papers have been read."
+        case .starred:
+            return "Star papers to see them here."
+        case .tag:
+            return "Tag papers to see them here."
+        case .inbox:
+            return "No new papers in your inbox."
+        case .dismissed:
+            return "No dismissed papers."
         }
     }
 
@@ -302,20 +263,12 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Check if we're viewing the Inbox library or an Inbox feed
     private var isInboxView: Bool {
-        guard isSourceValid else { return false }
         switch source {
-        case .library(let library):
-            return library.isInbox
-        case .smartSearch(let smartSearch):
-            // Inbox feeds also support triage shortcuts
-            return smartSearch.feedsToInbox
-        case .lastSearch:
-            // Search results are not inbox - but triage shortcuts (S/T) work everywhere
-            return false
-        case .collection:
-            // Collections are not inbox views
-            return false
-        case .flagged:
+        case .inbox:
+            return true
+        case .smartSearch(let id):
+            return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
+        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed:
             return false
         }
     }
@@ -325,10 +278,7 @@ struct UnifiedPublicationListWrapper: View {
     /// - S key: Save to Save library AND remove from exploration collection
     /// - D key: Remove from collection only (NOT move to Dismissed library)
     private var isExplorationCollection: Bool {
-        guard isSourceValid else { return false }
-        if case .collection(let collection) = source {
-            return collection.library?.isSystemLibrary == true
-        }
+        if case .collection = source { return false } // TODO: check system library via Rust store
         return false
     }
 
@@ -369,14 +319,16 @@ struct UnifiedPublicationListWrapper: View {
     @ViewBuilder
     private var bodyContent: some View {
         contentView
+            #if os(iOS)
             .navigationTitle(navigationTitle)
+            #endif
             .toolbar { toolbarContent }
             .focusable()
             .focused($isListFocused)
             .focusEffectDisabled()
             .onKeyPress { press in handleVimNavigation(press) }
             .onKeyPress(.init("d")) { handleDismissKey() }
-            .task(id: source.id) {
+            .task(id: source.viewID) {
                 filterMode = initialFilterMode
                 filterScope = .current  // Reset scope on navigation
                 unreadFilterSnapshot = nil  // Reset snapshot on navigation
@@ -389,9 +341,18 @@ struct UnifiedPublicationListWrapper: View {
                     refreshPublicationsList()
                 }
 
-                if case .smartSearch(let smartSearch) = source {
-                    await queueBackgroundRefreshIfNeeded(smartSearch)
+                if case .smartSearch(let ssID) = source {
+                    await queueBackgroundRefreshIfNeeded(ssID)
                 }
+            }
+            // Belt-and-suspenders: .task(id:) can miss re-fires inside
+            // AppKit-bridged containers (HSplitView/ZStack). Explicit
+            // .onChange guarantees a refresh when the source changes.
+            .onChange(of: source) { oldSource, newSource in
+                filterMode = initialFilterMode
+                filterScope = .current
+                unreadFilterSnapshot = nil
+                refreshPublicationsList()
             }
             .onAppear {
                 // Give the list focus so keyboard shortcuts work immediately
@@ -446,10 +407,9 @@ struct UnifiedPublicationListWrapper: View {
             ))
             .onReceive(NotificationCenter.default.publisher(for: .lastSearchUpdated)) { _ in
                 // Refresh list when Last Search collection is updated
-                if case .lastSearch = source {
-                    logger.info("Last search updated notification received, refreshing list")
-                    refreshPublicationsList()
-                }
+                // TODO: implement with Rust store — lastSearch is no longer a separate case
+                logger.info("Last search updated notification received, refreshing list")
+                refreshPublicationsList()
             }
             .onReceive(NotificationCenter.default.publisher(for: .pdfImportCompleted)) { notification in
                 // Handle PDF import completion: select imported publications, scroll to them, and show PDF viewer
@@ -464,9 +424,8 @@ struct UnifiedPublicationListWrapper: View {
                 selectedPublicationIDs = Set(importedIDs)
 
                 // Set the first imported publication as the selected publication for detail view
-                if let firstID = importedIDs.first,
-                   let firstPub = publications.first(where: { $0.id == firstID }) {
-                    selectedPublication = firstPub
+                if let firstID = importedIDs.first {
+                    selectedPublicationID = firstID
                 }
 
                 // Show import success toast
@@ -546,40 +505,43 @@ struct UnifiedPublicationListWrapper: View {
                 dropPreviewTargetLibraryID = nil
                 refreshPublicationsList()
             }
-        } else if let library = currentLibrary {
+        } else if let libraryID = currentLibraryID {
             // Fallback: use current library
             DropPreviewSheet(
                 preview: $coordinator.pendingPreview,
-                libraryID: library.id,
-                coordinator: dragDropCoordinator
-            )
-            .onDisappear {
-                refreshPublicationsList()
-            }
-        } else if let firstLibrary = libraryManager.libraries.first(where: { !$0.isInbox && !$0.isSystemLibrary }) {
-            // Fallback: use first user library
-            DropPreviewSheet(
-                preview: $coordinator.pendingPreview,
-                libraryID: firstLibrary.id,
+                libraryID: libraryID,
                 coordinator: dragDropCoordinator
             )
             .onDisappear {
                 refreshPublicationsList()
             }
         } else {
-            // No libraries available
-            VStack {
-                Text("No Library Available")
-                    .font(.headline)
-                Text("Create a library first to import PDFs.")
-                    .foregroundStyle(.secondary)
-                Button("Close") {
-                    showingDropPreview = false
-                    dragDropCoordinator.pendingPreview = nil
+            let libraries = RustStoreAdapter.shared.listLibraries()
+            if let firstLibrary = libraries.first(where: { !$0.isInbox }) {
+                // Fallback: use first user library
+                DropPreviewSheet(
+                    preview: $coordinator.pendingPreview,
+                    libraryID: firstLibrary.id,
+                    coordinator: dragDropCoordinator
+                )
+                .onDisappear {
+                    refreshPublicationsList()
                 }
-                .padding(.top)
+            } else {
+                // No libraries available
+                VStack {
+                    Text("No Library Available")
+                        .font(.headline)
+                    Text("Create a library first to import PDFs.")
+                        .foregroundStyle(.secondary)
+                    Button("Close") {
+                        showingDropPreview = false
+                        dragDropCoordinator.pendingPreview = nil
+                    }
+                    .padding(.top)
+                }
+                .padding()
             }
-            .padding()
         }
     }
 
@@ -646,10 +608,9 @@ struct UnifiedPublicationListWrapper: View {
                 // Tag delete mode overlay
                 if isTagDeleteActive, let pubID = selectedPublicationIDs.first,
                    let pub = publications.first(where: { $0.id == pubID }) {
-                    let rowData = PublicationRowData(publication: pub)
                     TagDeleteMode(
                         isPresented: $isTagDeleteActive,
-                        tags: rowData?.tagDisplays ?? [],
+                        tags: pub.tagDisplays,
                         onRemoveTag: { tagID in
                             handleRemoveTag(pubID: pubID, tagID: tagID)
                         },
@@ -722,16 +683,17 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Whether the current source is editable (false for read-only shared libraries)
     private var sourceCanEdit: Bool {
-        source.canEdit
+        // TODO: implement canEdit check via Rust store (check library permissions)
+        true
     }
 
     private var listView: some View {
         PublicationListView(
             publications: publications,
             selection: $selectedPublicationIDs,
-            selectedPublication: $selectedPublication,
-            library: currentLibrary,
-            allLibraries: libraryManager.libraries,
+            selectedPublicationID: $selectedPublicationID,
+            libraryID: currentLibraryID,
+            allLibraries: RustStoreAdapter.shared.listLibraries().map { ($0.id, $0.name) },
             showImportButton: false,
             showSortMenu: true,
             emptyStateMessage: emptyMessage,
@@ -739,27 +701,27 @@ struct UnifiedPublicationListWrapper: View {
             listID: listID,
             disableUnreadFilter: isInboxView,
             isInInbox: isInboxView,
-            saveLibrary: isInboxView ? libraryManager.getOrCreateSaveLibrary() : nil,
+            saveLibraryID: isInboxView ? libraryManager.getOrCreateSaveLibrary().id : nil,
             filterScope: $filterScope,
             libraryNameMapping: libraryNameMapping,
             sortOrder: $currentSortOrder,
             sortAscending: $currentSortAscending,
             recommendationScores: $recommendationScores,
             onDelete: !sourceCanEdit ? nil : { ids in
-                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
-                // Use isDeleted/isFault check to avoid crash when accessing id on invalid objects
+                // Remove from local state FIRST to prevent rendering deleted objects
                 publications.removeAll { pub in
-                    guard !pub.isDeleted, !pub.isFault else { return true }
-                    return ids.contains(pub.id)
+                    ids.contains(pub.id)
                 }
                 // Clear selection for deleted items
                 selectedPublicationIDs.subtract(ids)
-                // Then delete from Core Data
-                await libraryViewModel.delete(ids: ids)
+                // Then delete from Rust store
+                RustStoreAdapter.shared.deletePublications(ids: Array(ids))
                 refreshPublicationsList()
             },
-            onToggleRead: { publication in
-                await libraryViewModel.toggleReadStatus(publication)
+            onToggleRead: { id in
+                let store = RustStoreAdapter.shared
+                let pub = store.getPublication(id: id)
+                store.setRead(ids: [id], read: !(pub?.isRead ?? false))
                 refreshPublicationsList()
             },
             onCopy: { ids in
@@ -773,28 +735,24 @@ struct UnifiedPublicationListWrapper: View {
                 try? await libraryViewModel.pasteFromClipboard()
                 refreshPublicationsList()
             },
-            onAddToLibrary: { ids, targetLibrary in
-                await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+            onAddToLibrary: { ids, targetLibraryID in
+                // TODO: implement with Rust store — addToLibrary needs UUID-based API
+                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
                 refreshPublicationsList()
             },
-            onAddToCollection: { ids, collection in
-                await libraryViewModel.addToCollection(ids, collection: collection)
+            onAddToCollection: { ids, collectionID in
+                RustStoreAdapter.shared.addToCollection(publicationIds: Array(ids), collectionId: collectionID)
             },
             onRemoveFromAllCollections: !sourceCanEdit ? nil : { ids in
-                await libraryViewModel.removeFromAllCollections(ids)
+                // TODO: implement removeFromAllCollections with Rust store
             },
             onImport: nil,
-            onOpenPDF: { publication in
-                openPDF(for: publication)
+            onOpenPDF: { id in
+                openPDF(for: id)
             },
-            onFileDrop: !sourceCanEdit ? nil : { publication, providers in
+            onFileDrop: !sourceCanEdit ? nil : { id, providers in
+                // TODO: implement file drop with Rust store (FileDropHandler needs UUID-based API)
                 Task {
-                    await dropHandler.handleDrop(
-                        providers: providers,
-                        for: publication,
-                        in: currentLibrary
-                    )
-                    // Refresh to show new attachments (paperclip indicator)
                     refreshPublicationsList()
                 }
             },
@@ -818,9 +776,9 @@ struct UnifiedPublicationListWrapper: View {
                                 logger.info("Setting dropPreviewTargetLibraryID from .collection: \(libraryID)")
                                 dropPreviewTargetLibraryID = libraryID
                             case .inbox, .publication, .newLibraryZone:
-                                logger.info("Fallback - currentLibrary?.id: \(String(describing: currentLibrary?.id))")
+                                logger.info("Fallback - currentLibraryID: \(String(describing: currentLibraryID))")
                                 // Use current library as fallback
-                                dropPreviewTargetLibraryID = currentLibrary?.id
+                                dropPreviewTargetLibraryID = currentLibraryID
                             }
                             logger.info("Setting showingDropPreview = true")
                             showingDropPreview = true
@@ -831,8 +789,8 @@ struct UnifiedPublicationListWrapper: View {
             },
             onDownloadPDFs: onDownloadPDFs,
             // Keep callback - only available in Inbox (implied once in library)
-            onSaveToLibrary: isInboxView ? { ids, targetLibrary in
-                await saveToLibrary(ids: ids, targetLibrary: targetLibrary)
+            onSaveToLibrary: isInboxView ? { ids, targetLibraryID in
+                await saveToLibrary(ids: ids, targetLibraryID: targetLibraryID)
             } : nil,
             // Dismiss callback - available for all views (moves papers to dismissed library)
             onDismiss: { ids in
@@ -856,8 +814,8 @@ struct UnifiedPublicationListWrapper: View {
             onMuteAuthor: isInboxView ? { authorName in
                 muteAuthor(authorName)
             } : nil,
-            onMutePaper: isInboxView ? { publication in
-                mutePaper(publication)
+            onMutePaper: isInboxView ? { id in
+                mutePaper(id)
             } : nil,
             // Refresh callback (shown as small button in list header)
             onRefresh: {
@@ -885,246 +843,27 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Refresh publications from data source (synchronous read)
     private func refreshPublicationsList() {
-        // Handle cross-scope fetching
-        switch filterScope {
-        case .current:
-            refreshCurrentScopePublications()
-        case .allLibraries, .inbox, .everything:
-            publications = fetchPublications(for: filterScope)
-            logger.info("Refreshed \(filterScope.rawValue): \(self.publications.count) items")
+        guard isSourceValid else { return }
+
+        let store = RustStoreAdapter.shared
+        publications = store.queryPublications(for: source)
+
+        // Apply unread filter with Apple Mail behavior
+        if filterMode == .unread {
+            if let snapshot = unreadFilterSnapshot {
+                publications = publications.filter { !$0.isRead || snapshot.contains($0.id) }
+            } else {
+                publications = publications.filter { !$0.isRead }
+            }
         }
 
         // Apply local filter syntax if active
-        if let filter = activeFilter, !filter.isEmpty {
-            publications = LocalFilterService.shared.apply(filter, to: publications)
-        }
-    }
+        // TODO: LocalFilterService.apply needs PublicationRowData overload
+        // if let filter = activeFilter, !filter.isEmpty {
+        //     publications = LocalFilterService.shared.apply(filter, to: publications)
+        // }
 
-    /// Refresh publications for the current source (library or smart search)
-    ///
-    /// Simplified: All papers in a library are in `library.publications`.
-    /// No merge logic needed - smart search results are added to the library relationship.
-    private func refreshCurrentScopePublications() {
-        // Clear library name mapping for current scope (no grouped display)
-        libraryNameMapping = [:]
-
-        guard isSourceValid else {
-            publications = []
-            return
-        }
-        switch source {
-        case .library(let library):
-            // Simple: just use the library's publications relationship
-            // Note: Only filter by isDeleted, not managedObjectContext - during Core Data
-            // background merges, managedObjectContext can temporarily be nil even for valid
-            // objects, which causes list churn and selection loss
-            var result = (library.publications ?? [])
-                .filter { !$0.isDeleted }
-
-            // Apply filter mode with Apple Mail behavior:
-            // Items stay visible after being read if they were visible when filter was applied.
-            // Skip for Inbox - papers should stay visible after being read regardless.
-            if filterMode == .unread && !library.isInbox {
-                if let snapshot = unreadFilterSnapshot {
-                    // Keep items in snapshot visible (Apple Mail behavior)
-                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
-                } else {
-                    // No snapshot - strict filter (fresh application)
-                    result = result.filter { !$0.isRead }
-                }
-            }
-
-            publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed library: \(self.publications.count) items")
-
-        case .smartSearch(let smartSearch):
-            // Show result collection (organizational view within the library)
-            guard let collection = smartSearch.resultCollection else {
-                publications = []
-                return
-            }
-            var result = (collection.publications ?? [])
-                .filter { !$0.isDeleted }
-
-            // Apply filter mode with Apple Mail behavior.
-            // Skip for Inbox feeds - papers should stay visible after being read regardless.
-            if filterMode == .unread && !smartSearch.feedsToInbox {
-                if let snapshot = unreadFilterSnapshot {
-                    // Keep items in snapshot visible (Apple Mail behavior)
-                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
-                } else {
-                    // No snapshot - strict filter (fresh application)
-                    result = result.filter { !$0.isRead }
-                }
-            }
-
-            publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed smart search: \(self.publications.count) items")
-
-        case .lastSearch(let collection):
-            // ADR-016: Show ad-hoc search results from the "Last Search" collection
-            var result = (collection.publications ?? [])
-                .filter { !$0.isDeleted }
-
-            // Apply filter mode if needed
-            if filterMode == .unread {
-                if let snapshot = unreadFilterSnapshot {
-                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
-                } else {
-                    result = result.filter { !$0.isRead }
-                }
-            }
-
-            publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed last search: \(self.publications.count) items")
-
-        case .collection(let collection):
-            // Handle both smart collections and static collections
-            // Use a Task for async smart collection execution
-            Task {
-                var result: [CDPublication]
-                if collection.isSmartCollection {
-                    // Execute predicate for smart collections
-                    result = await libraryViewModel.executeSmartCollection(collection)
-                } else {
-                    // For static collections, include publications from this collection
-                    // AND all descendant subcollections
-                    result = Array(collection.allPublicationsIncludingDescendants)
-                        .filter { !$0.isDeleted }
-                }
-
-                // Apply filter mode with Apple Mail behavior
-                if filterMode == .unread {
-                    if let snapshot = unreadFilterSnapshot {
-                        result = result.filter { !$0.isRead || snapshot.contains($0.id) }
-                    } else {
-                        result = result.filter { !$0.isRead }
-                    }
-                }
-
-                await MainActor.run {
-                    var sorted = result.sorted { $0.dateAdded > $1.dateAdded }
-                    if let filter = activeFilter, !filter.isEmpty {
-                        sorted = LocalFilterService.shared.apply(filter, to: sorted)
-                    }
-                    publications = sorted
-                    logger.info("Refreshed collection: \(self.publications.count) items")
-                }
-            }
-
-        case .flagged(let colorName):
-            // Fetch flagged publications across all libraries
-            let context = PersistenceController.shared.viewContext
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            if let colorName {
-                request.predicate = NSPredicate(format: "flagColor == %@", colorName)
-            } else {
-                request.predicate = NSPredicate(format: "flagColor != nil")
-            }
-            request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
-            var result = (try? context.fetch(request))?.filter { !$0.isDeleted } ?? []
-
-            // Apply filter mode
-            if filterMode == .unread {
-                if let snapshot = unreadFilterSnapshot {
-                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
-                } else {
-                    result = result.filter { !$0.isRead }
-                }
-            }
-
-            publications = result
-            logger.info("Refreshed flagged(\(colorName ?? "any")): \(self.publications.count) items")
-        }
-    }
-
-    /// Fetch publications for a given scope and build library name mapping.
-    ///
-    /// Unified method replaces fetchAllLibrariesPublications, fetchInboxPublications, fetchEverythingPublications.
-    /// - Parameter scope: Which libraries to include
-    /// - Returns: Array of publications sorted by dateAdded (newest first)
-    private func fetchPublications(for scope: FilterScope) -> [CDPublication] {
-        // Determine which libraries to include based on scope
-        let libraries: [CDLibrary] = switch scope {
-        case .current:
-            // For current scope, get from source (handled separately in refreshCurrentScopePublications)
-            if case .library(let lib) = source { [lib] } else { [] }
-        case .allLibraries:
-            libraryManager.libraries.filter { !$0.isInbox }
-        case .inbox:
-            libraryManager.libraries.filter { $0.isInbox }
-        case .everything:
-            libraryManager.libraries
-        }
-
-        // Collect all publications from the selected libraries with library name tracking
-        var allPublications = Set<CDPublication>()
-        var newMapping: [UUID: String] = [:]
-
-        for library in libraries {
-            let pubs = (library.publications ?? [])
-                .filter { !$0.isDeleted }
-            allPublications.formUnion(pubs)
-
-            // Track which library each publication came from (first library wins for duplicates)
-            for pub in pubs {
-                if newMapping[pub.id] == nil {
-                    newMapping[pub.id] = library.displayName
-                }
-            }
-        }
-
-        // For "All Libraries" and "Everything", also include SciX library publications
-        if scope == .allLibraries || scope == .everything {
-            let (scixPublications, scixMapping) = fetchSciXLibraryPublicationsWithMapping()
-            allPublications.formUnion(scixPublications)
-            // Merge SciX mapping (don't overwrite existing entries)
-            for (id, name) in scixMapping where newMapping[id] == nil {
-                newMapping[id] = name
-            }
-        }
-
-        // Update the library name mapping state
-        libraryNameMapping = newMapping
-
-        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
-    }
-
-    /// Fetch all publications from SciX (NASA ADS) online libraries with name mapping.
-    private func fetchSciXLibraryPublicationsWithMapping() -> ([CDPublication], [UUID: String]) {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDSciXLibrary>(entityName: "SciXLibrary")
-
-        do {
-            let scixLibraries = try context.fetch(request)
-            var publications = Set<CDPublication>()
-            var mapping: [UUID: String] = [:]
-
-            for library in scixLibraries {
-                let pubs = (library.publications ?? [])
-                    .filter { !$0.isDeleted }
-                publications.formUnion(pubs)
-
-                // Track which SciX library each publication came from
-                let libraryName = "SciX: \(library.name)"
-                for pub in pubs {
-                    if mapping[pub.id] == nil {
-                        mapping[pub.id] = libraryName
-                    }
-                }
-            }
-
-            return (Array(publications), mapping)
-        } catch {
-            logger.error("Failed to fetch SciX libraries: \(error.localizedDescription)")
-            return ([], [:])
-        }
-    }
-
-    /// Fetch all publications from SciX (NASA ADS) online libraries (legacy, without mapping).
-    private func fetchSciXLibraryPublications() -> [CDPublication] {
-        let (publications, _) = fetchSciXLibraryPublicationsWithMapping()
-        return publications
+        logger.info("Refreshed: \(self.publications.count) items")
     }
 
     /// Refresh from network (async operation with loading state)
@@ -1141,73 +880,64 @@ struct UnifiedPublicationListWrapper: View {
         error = nil
 
         switch source {
-        case .library(let library):
+        case .library(let id):
             // TODO: Future enrichment protocol
             // For now, just refresh the list
-            logger.info("Library refresh requested for: \(library.displayName)")
+            let name = RustStoreAdapter.shared.getLibrary(id: id)?.name ?? "unknown"
+            logger.info("Library refresh requested for: \(name)")
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {
                 refreshPublicationsList()
             }
 
-        case .smartSearch(let smartSearch):
-            logger.info("Smart search refresh requested for: \(smartSearch.name)")
+        case .smartSearch(let id):
+            let ss = RustStoreAdapter.shared.getSmartSearch(id: id)
+            let name = ss?.name ?? "unknown"
+            logger.info("Smart search refresh requested for: \(name)")
 
+            // TODO: implement smart search refresh with Rust store
             // Route group feeds to GroupFeedRefreshService for staggered per-author searches
-            if smartSearch.isGroupFeed {
-                logger.info("Routing group feed '\(smartSearch.name)' to GroupFeedRefreshService")
-                do {
-                    _ = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
-                    await MainActor.run {
-                        refreshPublicationsList()
-                    }
-                    logger.info("Group feed refresh completed for '\(smartSearch.name)'")
-                } catch {
-                    logger.error("Group feed refresh failed: \(error.localizedDescription)")
-                    self.error = error
-                }
-            } else {
-                // Regular smart search - use provider
-                let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
-                    for: smartSearch,
-                    sourceManager: searchViewModel.sourceManager,
-                    repository: libraryViewModel.repository
-                )
-                provider = cachedProvider
-
-                do {
-                    try await cachedProvider.refresh()
-                    await MainActor.run {
-                        SmartSearchRepository.shared.markExecuted(smartSearch)
-                        refreshPublicationsList()
-                    }
-                    logger.info("Smart search refresh completed")
-                } catch {
-                    logger.error("Smart search refresh failed: \(error.localizedDescription)")
-                    self.error = error
-                }
-            }
-
-        case .lastSearch:
-            // For last search, refresh just re-reads the collection
-            // The actual search is triggered from the search form
-            logger.info("Last search refresh requested")
+            // Regular smart search - use provider
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {
                 refreshPublicationsList()
             }
 
-        case .collection(let collection):
-            // For collections, refresh just re-reads the collection
-            logger.info("Collection refresh requested for: \(collection.name)")
+        case .collection(let id):
+            // For collections, refresh just re-reads
+            logger.info("Collection refresh requested for: \(id)")
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {
                 refreshPublicationsList()
+            }
+
+        case .scixLibrary(let id):
+            // Pull latest papers from SciX server, then refresh the list
+            let scix = RustStoreAdapter.shared.getScixLibrary(id: id)
+            let name = scix?.name ?? "unknown"
+            logger.info("SciX library refresh requested for: \(name)")
+            if let remoteID = scix?.remoteID {
+                do {
+                    try await SciXSyncManager.shared.pullLibraryPapers(libraryID: remoteID)
+                    await MainActor.run {
+                        refreshPublicationsList()
+                    }
+                } catch {
+                    logger.error("SciX library refresh failed: \(error.localizedDescription)")
+                    self.error = error
+                }
             }
 
         case .flagged:
-            // For flagged, refresh just re-reads from Core Data
+            // For flagged, refresh just re-reads from store
             logger.info("Flagged refresh requested")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList()
+            }
+
+        case .unread, .starred, .tag, .inbox, .dismissed:
+            logger.info("Virtual source refresh requested")
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {
                 refreshPublicationsList()
@@ -1221,40 +951,31 @@ struct UnifiedPublicationListWrapper: View {
     ///
     /// This does NOT block the UI - cached results are shown immediately while
     /// the refresh happens in the background via SmartSearchRefreshService.
-    private func queueBackgroundRefreshIfNeeded(_ smartSearch: CDSmartSearch) async {
-        // Guard against deleted smart search
-        guard smartSearch.managedObjectContext != nil, !smartSearch.isDeleted else { return }
+    private func queueBackgroundRefreshIfNeeded(_ smartSearchID: UUID) async {
+        let store = RustStoreAdapter.shared
+        guard let ss = store.getSmartSearch(id: smartSearchID) else { return }
 
-        // Get provider to check staleness
-        let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
-            for: smartSearch,
-            sourceManager: searchViewModel.sourceManager,
-            repository: libraryViewModel.repository
-        )
-        provider = cachedProvider
-
-        // Check if refresh is needed (stale or empty)
-        let isStale = await cachedProvider.isStale
+        // TODO: implement full smart search background refresh with Rust store
+        // For now, check if results are empty and log
         let isEmpty = publications.isEmpty
 
-        if isStale || isEmpty {
-            logger.info("Smart search '\(smartSearch.name)' needs refresh (stale: \(isStale), empty: \(isEmpty))")
+        if isEmpty {
+            logger.info("Smart search '\(ss.name)' needs refresh (empty: \(isEmpty))")
 
             // Check if already being refreshed
-            let alreadyRefreshing = await SmartSearchRefreshService.shared.isRefreshing(smartSearch.id)
-            let alreadyQueued = await SmartSearchRefreshService.shared.isQueued(smartSearch.id)
+            let alreadyRefreshing = await SmartSearchRefreshService.shared.isRefreshing(smartSearchID)
+            let alreadyQueued = await SmartSearchRefreshService.shared.isQueued(smartSearchID)
 
             if alreadyRefreshing || alreadyQueued {
-                logger.debug("Smart search '\(smartSearch.name)' already refreshing/queued")
+                logger.debug("Smart search '\(ss.name)' already refreshing/queued")
                 isBackgroundRefreshing = alreadyRefreshing
             } else {
-                // Queue with high priority since it's the currently visible smart search
                 isBackgroundRefreshing = true
-                await SmartSearchRefreshService.shared.queueRefresh(smartSearch, priority: .high)
-                logger.info("Queued high-priority background refresh for '\(smartSearch.name)'")
+                // TODO: queue refresh via Rust store smart search service
+                logger.info("Would queue high-priority background refresh for '\(ss.name)'")
             }
         } else {
-            logger.debug("Smart search '\(smartSearch.name)' is fresh, no refresh needed")
+            logger.debug("Smart search '\(ss.name)' has results, no refresh needed")
         }
     }
 
@@ -1267,12 +988,13 @@ struct UnifiedPublicationListWrapper: View {
     private func toggleReadStatusForSelected() {
         guard !selectedPublicationIDs.isEmpty else { return }
 
-        Task {
-            // Apple Mail behavior: if ANY are unread, mark ALL as read
-            // If ALL are read, mark ALL as unread
-            await libraryViewModel.smartToggleReadStatus(selectedPublicationIDs)
-            refreshPublicationsList()
-        }
+        let store = RustStoreAdapter.shared
+        // Apple Mail behavior: if ANY are unread, mark ALL as read
+        // If ALL are read, mark ALL as unread
+        let ids = Array(selectedPublicationIDs)
+        let anyUnread = publications.filter { selectedPublicationIDs.contains($0.id) }.contains { !$0.isRead }
+        store.setRead(ids: ids, read: anyUnread)
+        refreshPublicationsList()
     }
 
     private func copySelectedPublications() async {
@@ -1479,7 +1201,7 @@ struct UnifiedPublicationListWrapper: View {
                     keyboardTriageFlash = nil
                 }
             }
-            await saveToLibrary(ids: ids, targetLibrary: saveLibrary)
+            await saveToLibrary(ids: ids, targetLibraryID: saveLibrary.id)
         }
     }
 
@@ -1505,14 +1227,9 @@ struct UnifiedPublicationListWrapper: View {
                 }
 
                 // Star the selected publications
-                for id in ids {
-                    if let pub = publications.first(where: { $0.id == id }) {
-                        pub.isStarred = true
-                    }
-                }
-                PersistenceController.shared.save()
+                RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: true)
             }
-            await saveToLibrary(ids: ids, targetLibrary: saveLibrary)
+            await saveToLibrary(ids: ids, targetLibraryID: saveLibrary.id)
         }
     }
 
@@ -1523,21 +1240,7 @@ struct UnifiedPublicationListWrapper: View {
 
         // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
         let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
-        let newStarred = anyUnstarred
-
-        for id in ids {
-            if let pub = publications.first(where: { $0.id == id }) {
-                pub.isStarred = newStarred
-            }
-        }
-        PersistenceController.shared.save()
-        refreshPublicationsList()
-    }
-
-    /// Toggle star for a single publication
-    private func toggleStar(for publication: CDPublication) async {
-        publication.isStarred = !publication.isStarred
-        PersistenceController.shared.save()
+        RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: anyUnstarred)
         refreshPublicationsList()
     }
 
@@ -1547,14 +1250,7 @@ struct UnifiedPublicationListWrapper: View {
 
         // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
         let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
-        let newStarred = anyUnstarred
-
-        for id in ids {
-            if let pub = publications.first(where: { $0.id == id }) {
-                pub.isStarred = newStarred
-            }
-        }
-        PersistenceController.shared.save()
+        RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: anyUnstarred)
         refreshPublicationsList()
     }
 
@@ -1562,12 +1258,7 @@ struct UnifiedPublicationListWrapper: View {
     private func setFlagForIDs(_ ids: Set<UUID>, color: FlagColor) async {
         guard !ids.isEmpty else { return }
 
-        for id in ids {
-            if let pub = publications.first(where: { $0.id == id }) {
-                pub.flag = .simple(color)
-            }
-        }
-        PersistenceController.shared.save()
+        RustStoreAdapter.shared.setFlag(ids: Array(ids), color: color.rawValue)
         listDataVersion += 1
         NotificationCenter.default.post(name: .flagDidChange, object: nil)
         refreshPublicationsList()
@@ -1577,12 +1268,7 @@ struct UnifiedPublicationListWrapper: View {
     private func clearFlagForIDs(_ ids: Set<UUID>) async {
         guard !ids.isEmpty else { return }
 
-        for id in ids {
-            if let pub = publications.first(where: { $0.id == id }) {
-                pub.flag = nil
-            }
-        }
-        PersistenceController.shared.save()
+        RustStoreAdapter.shared.setFlag(ids: Array(ids), color: nil)
         listDataVersion += 1
         NotificationCenter.default.post(name: .flagDidChange, object: nil)
         refreshPublicationsList()
@@ -1598,9 +1284,9 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Handle removing a tag from a publication
     private func handleRemoveTag(pubID: UUID, tagID: UUID) {
-        guard let pub = publications.first(where: { $0.id == pubID }) else { return }
+        // TODO: implement tag removal by tagID with Rust store
+        // The Rust store uses tag paths, not tag UUIDs. Need to look up the tag path from tagID.
         Task {
-            await libraryViewModel.repository.removeTag(tagID, from: pub)
             listDataVersion += 1
             refreshPublicationsList()
         }
@@ -1687,12 +1373,12 @@ struct UnifiedPublicationListWrapper: View {
                     keyboardTriageFlash = nil
                 }
 
-                for id in ids {
-                    if let pub = publications.first(where: { $0.id == id }) {
-                        pub.flag = flag
-                    }
-                }
-                PersistenceController.shared.save()
+                RustStoreAdapter.shared.setFlag(
+                    ids: Array(ids),
+                    color: flag.color.rawValue,
+                    style: flag.style.rawValue,
+                    length: flag.length.rawValue
+                )
                 listDataVersion += 1
                 NotificationCenter.default.post(name: .flagDidChange, object: nil)
                 flagTargetIDs = []
@@ -1739,34 +1425,17 @@ struct UnifiedPublicationListWrapper: View {
         // TagInput dismisses (clearing tagTargetIDs) before the Task body starts,
         // so reading @State inside the Task would see empty IDs.
         let targetIDs = tagTargetIDs
-        let pubs = publications
 
         logInfo("commitTag: captured \(targetIDs.count) targets, resolving '\(path)'", category: "tags")
 
         Task {
             let resolvedPath = TagAliasStore.shared.resolve(path) ?? path
-            let repo = libraryViewModel.repository
 
-            let tag = await repo.findOrCreateTagByPath(resolvedPath)
+            logInfo("commitTag: applying tag '\(resolvedPath)' to \(targetIDs.count) pubs", category: "tags")
 
-            logInfo("commitTag: tag '\(tag.canonicalPath ?? tag.name)' id=\(tag.id), applying to \(targetIDs.count) pubs", category: "tags")
+            RustStoreAdapter.shared.addTag(ids: Array(targetIDs), tagPath: resolvedPath)
 
-            var applied = 0
-            var missed = 0
-            for id in targetIDs {
-                if let pub = pubs.first(where: { $0.id == id }) {
-                    await repo.addTag(tag, to: pub)
-                    applied += 1
-
-                    let tagCount = pub.tags?.count ?? 0
-                    logInfo("commitTag: after addTag, '\(pub.citeKey)' has \(tagCount) tags", category: "tags")
-                } else {
-                    logWarning("commitTag: publication \(id) not found in publications array", category: "tags")
-                    missed += 1
-                }
-            }
-
-            logInfo("commitTag: done — applied=\(applied), missed=\(missed)", category: "tags")
+            logInfo("commitTag: done", category: "tags")
 
             tagAutocomplete?.invalidate()
             tagTargetIDs = []
@@ -1787,14 +1456,9 @@ struct UnifiedPublicationListWrapper: View {
     /// Called synchronously before triage to ensure selection advancement uses the correct order.
     ///
     /// - Returns: Publications sorted according to current sort order and filters
-    private func computeVisualOrder() -> [CDPublication] {
-        // Filter valid publications
-        var result = publications.filter { pub in
-            !pub.isDeleted
-        }
-
+    private func computeVisualOrder() -> [PublicationRowData] {
         // Apply current sort order with stable tie-breaker (dateAdded then id)
-        let sorted = result.sorted { lhs, rhs in
+        let sorted = publications.sorted { lhs, rhs in
             // For recommendation sort, handle tie-breaking specially
             if currentSortOrder == .recommended {
                 let lhsScore = recommendationScores[lhs.id] ?? 0
@@ -1818,13 +1482,13 @@ struct UnifiedPublicationListWrapper: View {
             case .dateModified:
                 lhs.dateModified > rhs.dateModified  // Default descending (newest first)
             case .title:
-                (lhs.title ?? "").localizedCaseInsensitiveCompare(rhs.title ?? "") == .orderedAscending  // Default ascending (A-Z)
+                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending  // Default ascending (A-Z)
             case .year:
                 (lhs.year ?? 0) > (rhs.year ?? 0)  // Default descending (newest first)
             case .citeKey:
                 lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending  // Default ascending (A-Z)
             case .citationCount:
-                (lhs.citationCount ?? 0) > (rhs.citationCount ?? 0)  // Default descending (highest first)
+                lhs.citationCount > rhs.citationCount  // Default descending (highest first)
             case .starred:
                 // Starred first, then by dateAdded as tie-breaker
                 if lhs.isStarred != rhs.isStarred {
@@ -1845,7 +1509,6 @@ struct UnifiedPublicationListWrapper: View {
     /// Dismiss selected publications from inbox (moves to Dismissed library, not delete)
     /// Advances selection to next paper for rapid triage.
     private func dismissSelectedFromInbox() {
-        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
         guard let firstID = selectedPublicationIDs.first else { return }
 
         // Show orange flash for dismiss action
@@ -1856,7 +1519,6 @@ struct UnifiedPublicationListWrapper: View {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
         let currentIDs = selectedPublicationIDs
-        let currentSelection = selectedPublication
 
         Task {
             // Brief delay to show flash
@@ -1866,23 +1528,21 @@ struct UnifiedPublicationListWrapper: View {
                     keyboardTriageFlash = nil
                 }
 
-                // Use computed visual order for proper selection advancement
-                let result = InboxTriageService.shared.dismissFromInbox(
-                    ids: currentIDs,
-                    from: visualOrder,
-                    currentSelection: currentSelection,
-                    dismissedLibrary: dismissedLibrary,
-                    source: triageSource
-                )
+                // Compute next selection before removing
+                let nextID = computeNextSelection(removing: currentIDs, from: visualOrder)
+
+                // Move publications to dismissed library
+                let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
+                RustStoreAdapter.shared.movePublications(ids: Array(currentIDs), toLibraryId: dismissedLibrary.id)
 
                 // Advance to next selection for rapid triage
-                if let nextID = result.nextSelectionID {
+                if let nextID {
                     selectedPublicationIDs = [nextID]
-                    selectedPublication = result.nextPublication
+                    selectedPublicationID = nextID
                 } else {
                     // No more papers - clear selection
                     selectedPublicationIDs.removeAll()
-                    selectedPublication = nil
+                    selectedPublicationID = nil
                 }
 
                 refreshPublicationsList()
@@ -1895,7 +1555,7 @@ struct UnifiedPublicationListWrapper: View {
     /// Save selected publications to Save library AND remove from exploration collection.
     /// Used for exploration collections where S key should both save and remove.
     private func saveSelectedAndRemoveFromExploration() {
-        guard case .collection(let collection) = source else { return }
+        guard case .collection(let collectionID) = source else { return }
         let saveLibrary = libraryManager.getOrCreateSaveLibrary()
         let ids = selectedPublicationIDs
         guard let firstID = ids.first else { return }
@@ -1916,22 +1576,19 @@ struct UnifiedPublicationListWrapper: View {
                     keyboardTriageFlash = nil
                 }
 
+                let store = RustStoreAdapter.shared
                 // Add to Save library and remove from exploration collection
-                let pubs = publications.filter { ids.contains($0.id) }
-                for pub in pubs {
-                    pub.addToLibrary(saveLibrary)
-                    pub.removeFromCollection(collection)
-                }
-                PersistenceController.shared.save()
+                _ = store.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
 
                 // Compute next selection
                 let nextID = computeNextSelection(removing: ids, from: visualOrder)
                 if let nextID {
                     selectedPublicationIDs = [nextID]
-                    selectedPublication = publications.first { $0.id == nextID }
+                    selectedPublicationID = nextID
                 } else {
                     selectedPublicationIDs.removeAll()
-                    selectedPublication = nil
+                    selectedPublicationID = nil
                 }
 
                 refreshPublicationsList()
@@ -1942,7 +1599,7 @@ struct UnifiedPublicationListWrapper: View {
     /// Remove selected publications from exploration collection (without dismissing to Dismissed library).
     /// Used for D key in exploration collections.
     private func removeSelectedFromExploration() {
-        guard case .collection(let collection) = source else { return }
+        guard case .collection(let collectionID) = source else { return }
         let ids = selectedPublicationIDs
         guard let firstID = ids.first else { return }
 
@@ -1963,20 +1620,16 @@ struct UnifiedPublicationListWrapper: View {
                 }
 
                 // Remove from exploration collection (don't move to Dismissed library)
-                let pubs = publications.filter { ids.contains($0.id) }
-                for pub in pubs {
-                    pub.removeFromCollection(collection)
-                }
-                PersistenceController.shared.save()
+                RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
 
                 // Compute next selection
                 let nextID = computeNextSelection(removing: ids, from: visualOrder)
                 if let nextID {
                     selectedPublicationIDs = [nextID]
-                    selectedPublication = publications.first { $0.id == nextID }
+                    selectedPublicationID = nextID
                 } else {
                     selectedPublicationIDs.removeAll()
-                    selectedPublication = nil
+                    selectedPublicationID = nil
                 }
 
                 refreshPublicationsList()
@@ -1985,7 +1638,7 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// Compute the next selection ID after removing the given IDs from the visual order.
-    private func computeNextSelection(removing ids: Set<UUID>, from visualOrder: [CDPublication]) -> UUID? {
+    private func computeNextSelection(removing ids: Set<UUID>, from visualOrder: [PublicationRowData]) -> UUID? {
         // Find the current position of the first selected item
         guard let firstSelectedID = ids.first,
               let currentIndex = visualOrder.firstIndex(where: { $0.id == firstSelectedID }) else {
@@ -2013,89 +1666,51 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Save publications to a target library (adds to target AND removes from current).
     /// Advances selection to next paper for rapid triage.
-    private func saveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+    private func saveToLibrary(ids: Set<UUID>, targetLibraryID: UUID) async {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
-        // Use computed visual order for proper selection advancement
-        let result = InboxTriageService.shared.saveToLibrary(
-            ids: ids,
-            from: visualOrder,
-            currentSelection: selectedPublication,
-            targetLibrary: targetLibrary,
-            source: triageSource
-        )
+        let store = RustStoreAdapter.shared
+        // Move publications to the target library
+        store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+
+        // Compute next selection
+        let nextID = computeNextSelection(removing: ids, from: visualOrder)
 
         // Advance to next selection for rapid triage
-        if let nextID = result.nextSelectionID {
+        if let nextID {
             selectedPublicationIDs = [nextID]
-            selectedPublication = result.nextPublication
+            selectedPublicationID = nextID
         } else {
             // No more papers - clear selection
             selectedPublicationIDs.removeAll()
-            selectedPublication = nil
+            selectedPublicationID = nil
         }
 
         refreshPublicationsList()
-    }
-
-    /// Convert current source to TriageSource for InboxTriageService.
-    private var triageSource: TriageSource {
-        switch source {
-        case .library(let lib):
-            return lib.isInbox ? .inboxLibrary : .regularLibrary(lib)
-        case .smartSearch(let ss) where ss.feedsToInbox:
-            return .inboxFeed(ss)
-        case .smartSearch(let ss):
-            if let lib = ss.library {
-                return .regularLibrary(lib)
-            }
-            return .inboxLibrary
-        case .lastSearch(let collection):
-            // Last search results belong to a regular library
-            if let lib = collection.library ?? collection.owningLibrary {
-                return .regularLibrary(lib)
-            }
-            return .inboxLibrary
-        case .collection(let collection):
-            // Collections belong to a regular library
-            if let lib = collection.effectiveLibrary {
-                return .regularLibrary(lib)
-            }
-            return .inboxLibrary
-        case .flagged:
-            // Flagged is a cross-library virtual source; use active library for triage
-            if let lib = libraryManager.activeLibrary {
-                return .regularLibrary(lib)
-            }
-            return .inboxLibrary
-        }
     }
 
     // MARK: - Inbox Triage Callback Implementations
 
     /// Dismiss publications from inbox (for context menu) - moves to Dismissed library, not delete
     private func dismissFromInbox(ids: Set<UUID>) async {
-        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
-
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
-        let result = InboxTriageService.shared.dismissFromInbox(
-            ids: ids,
-            from: visualOrder,
-            currentSelection: selectedPublication,
-            dismissedLibrary: dismissedLibrary,
-            source: triageSource
-        )
+        // Move to dismissed library
+        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
+        RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
+
+        // Compute next selection
+        let nextID = computeNextSelection(removing: ids, from: visualOrder)
 
         // Advance to next selection for rapid triage
-        if let nextID = result.nextSelectionID {
+        if let nextID {
             selectedPublicationIDs = [nextID]
-            selectedPublication = result.nextPublication
+            selectedPublicationID = nextID
         } else {
             selectedPublicationIDs.removeAll()
-            selectedPublication = nil
+            selectedPublicationID = nil
         }
 
         refreshPublicationsList()
@@ -2103,22 +1718,21 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Mute an author
     private func muteAuthor(_ authorName: String) {
-        let inboxManager = InboxManager.shared
-        inboxManager.mute(type: .author, value: authorName)
+        _ = RustStoreAdapter.shared.createMutedItem(muteType: "author", value: authorName)
         logger.info("Muted author: \(authorName)")
     }
 
     /// Mute a paper (by DOI or bibcode)
-    private func mutePaper(_ publication: CDPublication) {
-        let inboxManager = InboxManager.shared
+    private func mutePaper(_ publicationID: UUID) {
+        let store = RustStoreAdapter.shared
+        guard let pub = store.getPublication(id: publicationID) else { return }
 
-        // Prefer DOI, then bibcode (from original source ID for ADS papers)
-        if let doi = publication.doi, !doi.isEmpty {
-            inboxManager.mute(type: .doi, value: doi)
+        // Prefer DOI, then bibcode
+        if let doi = pub.doi, !doi.isEmpty {
+            _ = store.dismissPaper(doi: doi)
             logger.info("Muted paper by DOI: \(doi)")
-        } else if let bibcode = publication.originalSourceID {
-            // For ADS papers, originalSourceID contains the bibcode
-            inboxManager.mute(type: .bibcode, value: bibcode)
+        } else if let bibcode = pub.bibcode, !bibcode.isEmpty {
+            _ = store.dismissPaper(bibcode: bibcode)
             logger.info("Muted paper by bibcode: \(bibcode)")
         } else {
             logger.warning("Cannot mute paper - no DOI or bibcode available")
@@ -2127,24 +1741,26 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Helpers
 
-    private func openPDF(for publication: CDPublication) {
+    private func openPDF(for publicationID: UUID) {
         // Check user preference for opening PDFs
         let openExternally = UserDefaults.standard.bool(forKey: "openPDFInExternalViewer")
+        let store = RustStoreAdapter.shared
 
         if openExternally {
             // Open in external viewer (Preview, Adobe, etc.)
-            if let linkedFiles = publication.linkedFiles,
-               let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-               let libraryURL = currentLibrary?.folderURL {
-                let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
-                #if os(macOS)
-                NSWorkspace.shared.open(pdfURL)
-                #endif
+            let linkedFiles = store.listLinkedFiles(publicationId: publicationID)
+            if let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+               let libraryID = currentLibraryID,
+               let library = store.getLibrary(id: libraryID) {
+                // TODO: implement library folder URL lookup for PDF opening
+                // For now, just show in built-in tab
+                libraryViewModel.selectedPublications = [publicationID]
+                NotificationCenter.default.post(name: .showPDFTab, object: nil)
             }
         } else {
             // Show in built-in PDF tab
             // First ensure the publication is selected, then switch to PDF tab
-            libraryViewModel.selectedPublications = [publication.id]
+            libraryViewModel.selectedPublications = [publicationID]
             NotificationCenter.default.post(name: .showPDFTab, object: nil)
         }
     }
@@ -2152,29 +1768,7 @@ struct UnifiedPublicationListWrapper: View {
     /// Capture current unread publication IDs for Apple Mail-style snapshot.
     /// Items in the snapshot stay visible even after being marked as read.
     private func captureUnreadSnapshot() -> Set<UUID> {
-        guard isSourceValid else { return [] }
-        switch source {
-        case .library(let library):
-            let unread = (library.publications ?? [])
-                .filter { !$0.isDeleted && !$0.isRead }
-            return Set(unread.map { $0.id })
-        case .smartSearch(let smartSearch):
-            guard let collection = smartSearch.resultCollection else { return [] }
-            let unread = (collection.publications ?? [])
-                .filter { !$0.isDeleted && !$0.isRead }
-            return Set(unread.map { $0.id })
-        case .lastSearch(let collection):
-            let unread = (collection.publications ?? [])
-                .filter { !$0.isDeleted && !$0.isRead }
-            return Set(unread.map { $0.id })
-        case .collection(let collection):
-            let unread = (collection.publications ?? [])
-                .filter { !$0.isDeleted && !$0.isRead }
-            return Set(unread.map { $0.id })
-        case .flagged:
-            // For flagged view, use current publications list for snapshot
-            return Set(publications.filter { !$0.isRead }.map { $0.id })
-        }
+        return Set(publications.filter { !$0.isRead }.map { $0.id })
     }
 }
 
@@ -2216,16 +1810,20 @@ private struct SmartSearchRefreshModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .smartSearchRefreshCompleted)) { notification in
-                if case .smartSearch(let smartSearch) = source,
+                if case .smartSearch(let ssID) = source,
                    let completedID = notification.object as? UUID,
-                   completedID == smartSearch.id {
-                    onRefreshComplete(smartSearch.name)
+                   completedID == ssID {
+                    let name = RustStoreAdapter.shared.getSmartSearch(id: ssID)?.name ?? "unknown"
+                    onRefreshComplete(name)
                 }
             }
     }
 }
 
-/// Handles inbox triage notification subscriptions
+// MARK: - Inbox Triage Modifier
+
+/// Keyboard shortcuts for inbox triage workflow (save/star/dismiss).
+/// Only active when viewing the inbox.
 private struct InboxTriageModifier: ViewModifier {
     let isInboxView: Bool
     let hasSelection: Bool
@@ -2236,52 +1834,25 @@ private struct InboxTriageModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .inboxSave)) { _ in
-                // Save works anywhere (paper discovery in search results, smart searches, etc.)
-                if hasSelection {
-                    onSave()
-                }
+            .onKeyPress(.return) {
+                guard isInboxView && hasSelection else { return .ignored }
+                onSave()
+                return .handled
             }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxSaveAndStar)) { _ in
-                // Save and star works anywhere
-                if hasSelection {
-                    onSaveAndStar()
-                }
+            .onKeyPress(.init("s")) {
+                guard isInboxView && hasSelection else { return .ignored }
+                onSaveAndStar()
+                return .handled
             }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
-                if hasSelection {
-                    onToggleStar()
-                }
+            .onKeyPress(.init("*")) {
+                guard hasSelection else { return .ignored }
+                onToggleStar()
+                return .handled
             }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
-                // Dismiss only works in inbox view (moves to dismissed library)
-                if isInboxView && hasSelection {
-                    onDismiss()
-                }
+            .onKeyPress(.delete) {
+                guard isInboxView && hasSelection else { return .ignored }
+                onDismiss()
+                return .handled
             }
-    }
-}
-
-// MARK: - Preview
-
-#Preview {
-    let libraryManager = LibraryManager(persistenceController: .preview)
-    if let library = libraryManager.libraries.first {
-        NavigationStack {
-            UnifiedPublicationListWrapper(
-                source: .library(library),
-                selectedPublication: .constant(nil),
-                selectedPublicationIDs: .constant([])
-            )
-        }
-        .environment(LibraryViewModel())
-        .environment(SearchViewModel(
-            sourceManager: SourceManager(),
-            deduplicationService: DeduplicationService(),
-            repository: PublicationRepository()
-        ))
-        .environment(libraryManager)
-    } else {
-        Text("No library available in preview")
     }
 }

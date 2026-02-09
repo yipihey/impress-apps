@@ -43,17 +43,6 @@ public enum DetectedImportFormat {
 // MARK: - Unified Import View
 
 /// Unified import dialog that auto-detects format and shows appropriate preview.
-///
-/// Usage:
-/// ```
-/// .sheet(isPresented: $showImport) {
-///     UnifiedImportView(
-///         fileURL: selectedFileURL,
-///         targetLibrary: library,
-///         isPresented: $showImport
-///     )
-/// }
-/// ```
 public struct UnifiedImportView: View {
 
     // MARK: - Environment
@@ -63,7 +52,7 @@ public struct UnifiedImportView: View {
     // MARK: - Properties
 
     public let fileURL: URL?
-    public let targetLibrary: CDLibrary?
+    public let targetLibraryID: UUID?
     @Binding public var isPresented: Bool
 
     @State private var selectedFileURL: URL?
@@ -85,11 +74,11 @@ public struct UnifiedImportView: View {
 
     public init(
         fileURL: URL? = nil,
-        targetLibrary: CDLibrary? = nil,
+        targetLibraryID: UUID? = nil,
         isPresented: Binding<Bool>
     ) {
         self.fileURL = fileURL
-        self.targetLibrary = targetLibrary
+        self.targetLibraryID = targetLibraryID
         self._isPresented = isPresented
         self._selectedFileURL = State(initialValue: fileURL)
     }
@@ -112,7 +101,6 @@ public struct UnifiedImportView: View {
             if let url = fileURL {
                 await parseFile(url)
             } else {
-                // Show file picker
                 showFilePicker()
             }
         }
@@ -190,7 +178,6 @@ public struct UnifiedImportView: View {
     private func formatSpecificView(_ format: DetectedImportFormat) -> some View {
         switch format {
         case .bibtex, .ris:
-            // Use existing ImportPreviewView inline
             bibTexImportView
 
         case .mboxLibrary(let preview):
@@ -216,11 +203,11 @@ public struct UnifiedImportView: View {
             ImportPreviewView(
                 isPresented: $isPresented,
                 fileURL: url,
-                preselectedLibrary: targetLibrary
-            ) { entries, library, newLibraryName, duplicateHandling in
+                preselectedLibraryID: targetLibraryID
+            ) { entries, libraryID, newLibraryName, duplicateHandling in
                 try await performBibTeXImport(
                     entries: entries,
-                    library: library,
+                    libraryID: libraryID,
                     newLibraryName: newLibraryName,
                     duplicateHandling: duplicateHandling
                 )
@@ -264,7 +251,6 @@ public struct UnifiedImportView: View {
 
             Divider()
 
-            // Footer buttons
             HStack {
                 Button("Cancel") {
                     isPresented = false
@@ -318,7 +304,6 @@ public struct UnifiedImportView: View {
             }
         }
         #else
-        // iOS: Would use UIDocumentPickerViewController
         logger.warning("File picker on iOS not yet implemented")
         #endif
     }
@@ -329,7 +314,6 @@ public struct UnifiedImportView: View {
         isLoading = true
         errorMessage = nil
 
-        // Start accessing security-scoped resource
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
             if accessing {
@@ -343,11 +327,9 @@ public struct UnifiedImportView: View {
             switch ext {
             case "bib", "bibtex":
                 detectedFormat = .bibtex
-                // ImportPreviewView handles its own parsing
 
             case "ris":
                 detectedFormat = .ris
-                // ImportPreviewView handles its own parsing
 
             case "mbox":
                 try await parseMbox(url)
@@ -365,10 +347,8 @@ public struct UnifiedImportView: View {
     private func parseMbox(_ url: URL) async throws {
         let content = try String(contentsOf: url, encoding: .utf8)
 
-        // Check if this is an Everything export (v2.0) by looking for the manifest marker
         if content.contains("[imbib Everything Export]") {
-            // Parse as Everything export using EverythingImporter
-            let importer = EverythingImporter(context: PersistenceController.shared.viewContext)
+            let importer = EverythingImporter()
             let preview = try await importer.prepareImport(from: url)
 
             await MainActor.run {
@@ -377,8 +357,7 @@ public struct UnifiedImportView: View {
             return
         }
 
-        // Parse as single-library mbox (v1.0) using MboxImporter
-        let importer = MboxImporter(context: PersistenceController.shared.viewContext)
+        let importer = MboxImporter()
         let preview = try await importer.prepareImport(from: url)
 
         await MainActor.run {
@@ -391,12 +370,10 @@ public struct UnifiedImportView: View {
 
     private func performBibTeXImport(
         entries: [ImportPreviewEntry],
-        library: CDLibrary?,
+        libraryID: UUID?,
         newLibraryName: String?,
         duplicateHandling: DuplicateHandlingMode
     ) async throws -> Int {
-        // Delegate to existing import logic - handled by ImportPreviewView
-        // This is just a placeholder as ImportPreviewView has its own onImport callback
         return entries.count
     }
 
@@ -408,22 +385,23 @@ public struct UnifiedImportView: View {
         isLoading = true
 
         do {
-            // Determine target library
-            let library: CDLibrary?
-            if let target = targetLibrary {
-                library = target
-            } else if let metadataName = preview.libraryMetadata?.name,
-                      let existing = await MainActor.run(body: { libraryManager.libraries.first(where: { $0.displayName == metadataName }) }) {
-                library = existing
+            // Determine target library ID
+            let targetID: UUID?
+            if let id = targetLibraryID {
+                targetID = id
+            } else if let metadataName = preview.libraryMetadata?.name {
+                let existingID = await MainActor.run {
+                    libraryManager.libraries.first { $0.name == metadataName }?.id
+                }
+                targetID = existingID
             } else {
-                // Let importer create new library
-                library = nil
+                targetID = nil
             }
 
-            let importer = MboxImporter(context: PersistenceController.shared.viewContext)
+            let importer = MboxImporter()
             _ = try await importer.executeImport(
                 preview,
-                to: library,
+                to: targetID,
                 selectedPublications: selectedIDs.isEmpty ? nil : selectedIDs,
                 duplicateDecisions: duplicateDecisions
             )
@@ -443,7 +421,7 @@ public struct UnifiedImportView: View {
         isLoading = true
 
         do {
-            let importer = EverythingImporter(context: PersistenceController.shared.viewContext)
+            let importer = EverythingImporter()
             _ = try await importer.executeImport(preview)
 
             await MainActor.run {
@@ -464,7 +442,7 @@ public struct UnifiedImportView: View {
 struct UnifiedImportView_Previews: PreviewProvider {
     static var previews: some View {
         UnifiedImportView(isPresented: .constant(true))
-            .environment(LibraryManager(persistenceController: .preview))
+            .environment(LibraryManager())
     }
 }
 #endif

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 #if canImport(WidgetKit)
 import WidgetKit
@@ -248,22 +247,20 @@ public final class WidgetDataStore {
     }
 }
 
-// MARK: - CDPublication Extension
+// MARK: - PublicationRowData Extension
 
-extension CDPublication {
+extension PublicationRowData {
     /// Convert to a lightweight WidgetPaper for widget display.
     public func toWidgetPaper() -> WidgetPaper {
-        let authorString = sortedAuthors.map { $0.displayName }.joined(separator: " and ")
-
         return WidgetPaper(
             id: id,
             citeKey: citeKey,
-            title: title ?? "Untitled",
+            title: title,
             authors: authorString,
-            year: year > 0 ? Int(year) : nil,
+            year: year,
             isRead: isRead,
             hasPDF: hasPDFAvailable,
-            dateAdded: dateAdded ?? Date()
+            dateAdded: dateAdded
         )
     }
 }

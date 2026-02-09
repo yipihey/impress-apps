@@ -475,7 +475,7 @@ extension WoSSource: BrowserURLProvider {
     public static var sourceID: String { "wos" }
 
     /// Build the best URL to open in browser for WoS record.
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
         // WoS doesn't provide direct PDF access, but we can link to the record
         // which shows all available full text options
 
@@ -484,7 +484,7 @@ extension WoSSource: BrowserURLProvider {
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Try WoS UT from custom fields
+        // Try WoS UT from fields
         if let ut = publication.fields["wos-ut"] {
             return URL(string: "https://www.webofscience.com/wos/woscc/full-record/WOS:\(ut)")
         }

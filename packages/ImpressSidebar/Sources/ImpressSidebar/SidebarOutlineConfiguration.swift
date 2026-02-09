@@ -30,6 +30,10 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     /// The pasteboard type used for drag-drop of node IDs.
     public var pasteboardType: NSPasteboard.PasteboardType
 
+    /// Additional pasteboard types to accept as external drops (e.g., publication IDs).
+    /// These are registered with NSOutlineView and routed to `onExternalDrop`.
+    public var additionalDragTypes: [NSPasteboard.PasteboardType]
+
     /// Called when nodes are reordered among siblings.
     /// Parameters: reordered sibling array, optional parent node (nil = root).
     public var onReorder: (([Node], Node?) -> Void)?
@@ -42,9 +46,6 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     /// Parameters: pasteboard, target node (nil = root). Returns whether drop was handled.
     public var onExternalDrop: ((NSPasteboard, Node?) -> Bool)?
 
-    /// Called when selection changes.
-    public var onSelect: ((UUID?) -> Void)?
-
     /// Called when a node is renamed.
     public var onRename: ((Node, String) -> Void)?
 
@@ -55,30 +56,36 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     /// Parameters: dragged node, target parent (nil = root).
     public var canAcceptDrop: ((Node, Node?) -> Bool)?
 
+    /// Returns whether a node should be rendered as a group item (section header).
+    /// Group items are displayed as bold uppercase text without icon, and are not selectable.
+    public var isGroupItem: ((Node) -> Bool)?
+
     public init(
         rootNodes: [Node],
         childrenOf: @escaping (Node) -> [Node],
         capabilitiesOf: @escaping (Node) -> TreeNodeCapabilities = { _ in .libraryCollection },
         pasteboardType: NSPasteboard.PasteboardType,
+        additionalDragTypes: [NSPasteboard.PasteboardType] = [],
         onReorder: (([Node], Node?) -> Void)? = nil,
         onReparent: ((Node, Node?) -> Void)? = nil,
         onExternalDrop: ((NSPasteboard, Node?) -> Bool)? = nil,
-        onSelect: ((UUID?) -> Void)? = nil,
         onRename: ((Node, String) -> Void)? = nil,
         contextMenu: ((Node) -> NSMenu?)? = nil,
-        canAcceptDrop: ((Node, Node?) -> Bool)? = nil
+        canAcceptDrop: ((Node, Node?) -> Bool)? = nil,
+        isGroupItem: ((Node) -> Bool)? = nil
     ) {
         self.rootNodes = rootNodes
         self.childrenOf = childrenOf
         self.capabilitiesOf = capabilitiesOf
         self.pasteboardType = pasteboardType
+        self.additionalDragTypes = additionalDragTypes
         self.onReorder = onReorder
         self.onReparent = onReparent
         self.onExternalDrop = onExternalDrop
-        self.onSelect = onSelect
         self.onRename = onRename
         self.contextMenu = contextMenu
         self.canAcceptDrop = canAcceptDrop
+        self.isGroupItem = isGroupItem
     }
 }
 #endif

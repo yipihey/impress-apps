@@ -448,7 +448,7 @@ public struct OpenAlexEnhancedSearchFormView: View {
 
     // MARK: - Edit Mode Header
 
-    private func editModeHeader(_ smartSearch: CDSmartSearch) -> some View {
+    private func editModeHeader(_ smartSearch: SmartSearch) -> some View {
         HStack {
             Image(systemName: "pencil.circle.fill")
                 .foregroundStyle(.orange)

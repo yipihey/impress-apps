@@ -20,7 +20,7 @@ public struct ADSPaperSearchView: View {
 
     // MARK: - Bindings
 
-    @Binding var selectedPublication: CDPublication?
+    @Binding var selectedPublicationID: UUID?
 
     // MARK: - Form State
 
@@ -30,8 +30,8 @@ public struct ADSPaperSearchView: View {
 
     // MARK: - Initialization
 
-    public init(selectedPublication: Binding<CDPublication?>) {
-        self._selectedPublication = selectedPublication
+    public init(selectedPublicationID: Binding<UUID?>) {
+        self._selectedPublicationID = selectedPublicationID
     }
 
     // MARK: - State for Layout
@@ -170,20 +170,20 @@ public struct ADSPaperSearchView: View {
             PublicationListView(
                 publications: viewModel.publications,
                 selection: $viewModel.selectedPublicationIDs,
-                selectedPublication: $selectedPublication,
-                library: libraryManager.activeLibrary,
-                allLibraries: libraryManager.libraries,
+                selectedPublicationID: $selectedPublicationID,
+                libraryID: libraryManager.activeLibrary?.id,
+                allLibraries: libraryManager.libraries.map { (id: $0.id, name: $0.name) },
                 showImportButton: false,
                 showSortMenu: false,  // Usually just one result
                 emptyStateMessage: "No Paper Found",
                 emptyStateDescription: "Enter a bibcode, DOI, or arXiv ID.",
-                listID: libraryManager.activeLibrary?.lastSearchCollection.map { .lastSearch($0.id) },
+                listID: libraryManager.getOrCreateLastSearchCollection().map { .lastSearch($0.id) },
                 filterScope: .constant(.current),
                 onDelete: { ids in
                     await libraryViewModel.delete(ids: ids)
                 },
-                onToggleRead: { publication in
-                    await libraryViewModel.toggleReadStatus(publication)
+                onToggleRead: { id in
+                    await libraryViewModel.toggleReadStatus(id: id)
                 },
                 onCopy: { ids in
                     await libraryViewModel.copyToClipboard(ids)
@@ -194,14 +194,11 @@ public struct ADSPaperSearchView: View {
                 onPaste: {
                     try? await libraryViewModel.pasteFromClipboard()
                 },
-                onAddToLibrary: { ids, targetLibrary in
-                    await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+                onAddToLibrary: { ids, libraryId in
+                    await libraryViewModel.addToLibrary(ids, libraryId: libraryId)
                 },
-                onAddToCollection: { ids, collection in
-                    await libraryViewModel.addToCollection(ids, collection: collection)
-                },
-                onRemoveFromAllCollections: { ids in
-                    await libraryViewModel.removeFromAllCollections(ids)
+                onAddToCollection: { ids, collectionId in
+                    await libraryViewModel.addToCollection(ids, collectionId: collectionId)
                 },
                 onOpenPDF: { _ in }
             )

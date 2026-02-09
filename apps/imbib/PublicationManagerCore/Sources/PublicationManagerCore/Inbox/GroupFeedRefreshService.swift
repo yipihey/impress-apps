@@ -2,11 +2,10 @@
 //  GroupFeedRefreshService.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-15.
+//  Service for refreshing group feeds with staggered per-author searches.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Group Feed Refresh Service
@@ -15,12 +14,7 @@ import OSLog
 ///
 /// Group feeds monitor multiple authors within selected arXiv categories.
 /// To avoid rate limiting, searches for each author are staggered with a
-/// configurable delay (default: 20 seconds).
-///
-/// ## Usage
-/// ```swift
-/// let count = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
-/// ```
+/// configurable delay (default: 2 seconds).
 public actor GroupFeedRefreshService {
 
     // MARK: - Singleton
@@ -38,7 +32,12 @@ public actor GroupFeedRefreshService {
     // MARK: - Dependencies
 
     private let arxivSource: ArXivSource
-    private let persistenceController: PersistenceController
+
+    // MARK: - Store Access
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
 
     // MARK: - State
 
@@ -48,11 +47,9 @@ public actor GroupFeedRefreshService {
     // MARK: - Initialization
 
     public init(
-        arxivSource: ArXivSource = ArXivSource(),
-        persistenceController: PersistenceController = .shared
+        arxivSource: ArXivSource = ArXivSource()
     ) {
         self.arxivSource = arxivSource
-        self.persistenceController = persistenceController
     }
 
     // MARK: - State Access
@@ -67,6 +64,7 @@ public actor GroupFeedRefreshService {
     private struct GroupFeedData: Sendable {
         let id: UUID
         let name: String
+        let query: String
         let authors: [String]
         let categories: Set<String>
         let includeCrossListed: Bool
@@ -74,31 +72,28 @@ public actor GroupFeedRefreshService {
 
     // MARK: - Refresh Group Feed
 
-    /// Refresh a group feed by ID, fetching the smart search internally.
-    ///
-    /// This variant is safe to call from non-main-actor contexts as it fetches the
-    /// CDSmartSearch internally on the main actor.
-    ///
-    /// - Parameter smartSearchID: UUID of the group feed smart search
-    /// - Returns: Number of new papers added to Inbox
-    /// - Throws: `GroupFeedError` if the smart search is not found or not a group feed
+    /// Refresh a group feed by ID.
     @discardableResult
     public func refreshGroupFeedByID(_ smartSearchID: UUID) async throws -> Int {
         // Extract all needed data on main actor
-        let feedData: GroupFeedData? = await MainActor.run { () -> GroupFeedData? in
-            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-            request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
-            request.fetchLimit = 1
-            guard let smartSearch = try? persistenceController.viewContext.fetch(request).first,
-                  smartSearch.isGroupFeed else {
-                return nil
-            }
+        let feedData: GroupFeedData? = await withStore { store -> GroupFeedData? in
+            guard let ss = store.getSmartSearch(id: smartSearchID) else { return nil }
+
+            // Parse group feed metadata from query
+            let query = ss.query
+            guard query.hasPrefix("GROUP_FEED|") else { return nil }
+
+            let authors = Self.parseGroupFeedAuthors(query)
+            let categories = Self.parseGroupFeedCategories(query)
+            let includeCrossListed = Self.parseGroupFeedIncludesCrossListed(query)
+
             return GroupFeedData(
-                id: smartSearch.id,
-                name: smartSearch.name ?? "Group Feed",
-                authors: smartSearch.groupFeedAuthors(),
-                categories: smartSearch.groupFeedCategories(),
-                includeCrossListed: smartSearch.groupFeedIncludesCrossListed()
+                id: ss.id,
+                name: ss.name,
+                query: query,
+                authors: authors,
+                categories: categories,
+                includeCrossListed: includeCrossListed
             )
         }
 
@@ -106,147 +101,11 @@ public actor GroupFeedRefreshService {
             throw GroupFeedError.notGroupFeed
         }
 
-        return try await refreshGroupFeedInternal(feedData, smartSearchID: smartSearchID)
-    }
-
-    /// Refresh a group feed by searching for each author with staggered timing.
-    ///
-    /// - Parameter smartSearch: The group feed smart search to refresh
-    /// - Returns: Number of new papers added to Inbox
-    /// - Throws: `GroupFeedError` if the smart search is not a group feed
-    @discardableResult
-    public func refreshGroupFeed(_ smartSearch: CDSmartSearch) async throws -> Int {
-        guard smartSearch.isGroupFeed else {
-            throw GroupFeedError.notGroupFeed
-        }
-
-        let authors = smartSearch.groupFeedAuthors()
-        let categories = smartSearch.groupFeedCategories()
-        let includeCrossListed = smartSearch.groupFeedIncludesCrossListed()
-
-        guard !authors.isEmpty else {
-            throw GroupFeedError.noAuthors
-        }
-
-        guard !categories.isEmpty else {
-            throw GroupFeedError.noCategories
-        }
-
-        Logger.inbox.infoCapture(
-            "Starting group feed refresh: '\(smartSearch.name)' with \(authors.count) authors and \(categories.count) categories",
-            category: "group-feed"
-        )
-
-        _isRefreshing = true
-        currentProgress = GroupFeedProgress(
-            totalAuthors: authors.count,
-            completedAuthors: 0,
-            currentAuthor: nil,
-            totalPapers: 0
-        )
-
-        defer {
-            _isRefreshing = false
-            currentProgress = nil
-        }
-
-        var allResults: [SearchResult] = []
-        var seenIDs: Set<String> = []
-
-        for (index, author) in authors.enumerated() {
-            // Update progress
-            currentProgress = GroupFeedProgress(
-                totalAuthors: authors.count,
-                completedAuthors: index,
-                currentAuthor: author,
-                totalPapers: allResults.count
-            )
-
-            // Stagger requests (skip delay for first author)
-            if index > 0 {
-                Logger.inbox.debugCapture(
-                    "Waiting \(Int(staggerDelaySeconds))s before searching for '\(author)'",
-                    category: "group-feed"
-                )
-                try await Task.sleep(for: .seconds(staggerDelaySeconds))
-            }
-
-            // Build query for this author
-            let query = SearchFormQueryBuilder.buildArXivAuthorCategoryQuery(
-                author: author,
-                categories: categories,
-                includeCrossListed: includeCrossListed
-            )
-
-            Logger.inbox.debugCapture(
-                "Searching for author '\(author)' with query: \(query)",
-                category: "group-feed"
-            )
-
-            do {
-                // Use 90-day window for author searches (authors don't publish frequently)
-                let results = try await arxivSource.search(query: query, maxResults: maxResultsPerAuthor, daysBack: 90)
-
-                // Filter to exact author matches only (arXiv does fuzzy matching by default)
-                let exactMatches = results.filter { result in
-                    authorMatchesExactly(author, in: result.authors)
-                }
-
-                Logger.inbox.debugCapture(
-                    "Found \(results.count) papers for '\(author)', \(exactMatches.count) with exact author match",
-                    category: "group-feed"
-                )
-
-                // Deduplicate within this batch (by arXiv ID or DOI)
-                for result in exactMatches {
-                    let resultID = result.doi ?? result.arxivID ?? result.id
-                    if !seenIDs.contains(resultID) {
-                        seenIDs.insert(resultID)
-                        allResults.append(result)
-                    }
-                }
-            } catch {
-                Logger.inbox.errorCapture(
-                    "Failed to search for author '\(author)': \(error.localizedDescription)",
-                    category: "group-feed"
-                )
-                // Continue with other authors
-            }
-        }
-
-        // Final progress update
-        currentProgress = GroupFeedProgress(
-            totalAuthors: authors.count,
-            completedAuthors: authors.count,
-            currentAuthor: nil,
-            totalPapers: allResults.count
-        )
-
-        Logger.inbox.infoCapture(
-            "Group feed search complete: \(allResults.count) unique papers from \(authors.count) authors",
-            category: "group-feed"
-        )
-
-        // Process results through Inbox pipeline
-        let newCount = await processResultsForInbox(allResults, smartSearch: smartSearch)
-
-        // Update smart search metadata
-        await MainActor.run {
-            smartSearch.dateLastExecuted = Date()
-            smartSearch.lastFetchCount = Int16(newCount)
-            persistenceController.save()
-        }
-
-        Logger.inbox.infoCapture(
-            "Group feed refresh complete: \(newCount) new papers added to Inbox",
-            category: "group-feed"
-        )
-
-        return newCount
+        return try await refreshGroupFeedInternal(feedData)
     }
 
     /// Internal refresh implementation using Sendable data.
-    private func refreshGroupFeedInternal(_ feedData: GroupFeedData, smartSearchID: UUID) async throws -> Int {
+    private func refreshGroupFeedInternal(_ feedData: GroupFeedData) async throws -> Int {
         let authors = feedData.authors
         let categories = feedData.categories
         let includeCrossListed = feedData.includeCrossListed
@@ -281,7 +140,6 @@ public actor GroupFeedRefreshService {
         var seenIDs: Set<String> = []
 
         for (index, author) in authors.enumerated() {
-            // Update progress
             currentProgress = GroupFeedProgress(
                 totalAuthors: authors.count,
                 completedAuthors: index,
@@ -289,7 +147,6 @@ public actor GroupFeedRefreshService {
                 totalPapers: allResults.count
             )
 
-            // Stagger requests (skip delay for first author)
             if index > 0 {
                 Logger.inbox.debugCapture(
                     "Waiting \(Int(staggerDelaySeconds))s before searching for '\(author)'",
@@ -298,7 +155,6 @@ public actor GroupFeedRefreshService {
                 try await Task.sleep(for: .seconds(staggerDelaySeconds))
             }
 
-            // Build query for this author
             let query = SearchFormQueryBuilder.buildArXivAuthorCategoryQuery(
                 author: author,
                 categories: categories,
@@ -311,10 +167,8 @@ public actor GroupFeedRefreshService {
             )
 
             do {
-                // Use 90-day window for author searches (authors don't publish frequently)
                 let results = try await arxivSource.search(query: query, maxResults: maxResultsPerAuthor, daysBack: 90)
 
-                // Filter to exact author matches only (arXiv does fuzzy matching by default)
                 let exactMatches = results.filter { result in
                     authorMatchesExactly(author, in: result.authors)
                 }
@@ -324,7 +178,6 @@ public actor GroupFeedRefreshService {
                     category: "group-feed"
                 )
 
-                // Deduplicate within this batch (by arXiv ID or DOI)
                 for result in exactMatches {
                     let resultID = result.doi ?? result.arxivID ?? result.id
                     if !seenIDs.contains(resultID) {
@@ -337,11 +190,9 @@ public actor GroupFeedRefreshService {
                     "Failed to search for author '\(author)': \(error.localizedDescription)",
                     category: "group-feed"
                 )
-                // Continue with other authors
             }
         }
 
-        // Final progress update
         currentProgress = GroupFeedProgress(
             totalAuthors: authors.count,
             completedAuthors: authors.count,
@@ -355,19 +206,7 @@ public actor GroupFeedRefreshService {
         )
 
         // Process results through Inbox pipeline
-        let newCount = await processResultsForInboxByID(allResults, smartSearchID: smartSearchID)
-
-        // Update smart search metadata on main actor
-        await MainActor.run {
-            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-            request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
-            request.fetchLimit = 1
-            if let smartSearch = try? persistenceController.viewContext.fetch(request).first {
-                smartSearch.dateLastExecuted = Date()
-                smartSearch.lastFetchCount = Int16(newCount)
-                persistenceController.save()
-            }
-        }
+        let newCount = await processResultsForInbox(allResults, smartSearchID: feedData.id)
 
         Logger.inbox.infoCapture(
             "Group feed refresh complete: \(newCount) new papers added to Inbox",
@@ -379,27 +218,16 @@ public actor GroupFeedRefreshService {
 
     // MARK: - Pipeline
 
-    /// Process search results through the Inbox pipeline using smart search ID.
-    private func processResultsForInboxByID(_ results: [SearchResult], smartSearchID: UUID) async -> Int {
+    /// Process search results through the Inbox pipeline.
+    private func processResultsForInbox(_ results: [SearchResult], smartSearchID: UUID) async -> Int {
         guard !results.isEmpty else { return 0 }
 
-        // Get InboxManager on main actor and create repository
         let inboxManager = await MainActor.run { InboxManager.shared }
-        let repository = PublicationRepository()
-
-        // Get the result collection for this smart search
-        let resultCollection: CDCollection? = await MainActor.run {
-            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-            request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
-            request.fetchLimit = 1
-            return try? persistenceController.viewContext.fetch(request).first?.resultCollection
-        }
 
         // Filter results
         var filteredResults: [SearchResult] = []
 
         for result in results {
-            // Check mute filter
             let shouldFilter = await MainActor.run {
                 inboxManager.shouldFilter(result: result)
             }
@@ -409,7 +237,6 @@ public actor GroupFeedRefreshService {
                 continue
             }
 
-            // Check if previously dismissed
             let wasDismissed = await MainActor.run {
                 inboxManager.wasDismissed(result: result)
             }
@@ -427,88 +254,83 @@ public actor GroupFeedRefreshService {
             category: "group-feed"
         )
 
-        // Find existing publications that match these results
-        let existingMap = await repository.findExistingByIdentifiers(filteredResults)
-        let existingPubs = filteredResults.compactMap { existingMap[$0.id] }
-        let newResults = filteredResults.filter { existingMap[$0.id] == nil }
+        // Deduplicate: find existing publications by identifiers
+        var existingPubIDs: [UUID] = []
+        var newResults: [SearchResult] = []
+
+        for result in filteredResults {
+            let existing = await withStore { store -> PublicationRowData? in
+                if let doi = result.doi, !doi.isEmpty,
+                   let pub = store.findByDoi(doi: doi).first {
+                    return pub
+                }
+                if let arxiv = result.arxivID, !arxiv.isEmpty,
+                   let pub = store.findByArxiv(arxivId: arxiv).first {
+                    return pub
+                }
+                return nil
+            }
+            if let existing {
+                existingPubIDs.append(existing.id)
+            } else {
+                newResults.append(result)
+            }
+        }
 
         Logger.inbox.debugCapture(
-            "Found \(existingPubs.count) existing papers, \(newResults.count) new papers",
+            "Found \(existingPubIDs.count) existing papers, \(newResults.count) new papers",
             category: "group-feed"
         )
 
-        // Filter existing papers: skip those already in inbox (no need to re-add) or explicitly dismissed
-        // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
-        // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
-        let existingPubsToAdd = await MainActor.run {
-            let inboxLibrary = InboxManager.shared.inboxLibrary
-            return existingPubs.filter { pub in
-                // Skip if already in inbox (no need to re-add)
-                if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
+        // Filter existing papers: skip those already in inbox or dismissed
+        let existingPubIDsToAdd: [UUID] = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let inboxLib = inboxManager.inboxLibrary
+            return existingPubIDs.filter { pubID in
+                guard let detail = store.getPublicationDetail(id: pubID) else { return false }
+                if let inboxLib, detail.libraryIDs.contains(inboxLib.id) {
                     return false
                 }
-                // Skip if explicitly dismissed
-                if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
+                if inboxManager.wasDismissed(doi: detail.doi, arxivID: detail.arxivID, bibcode: detail.bibcode) {
                     return false
                 }
-                // Paper exists in DB but not in inbox and not dismissed - add to inbox
                 return true
             }
         }
 
-        let skippedCount = existingPubs.count - existingPubsToAdd.count
-        if skippedCount > 0 {
-            Logger.inbox.debugCapture(
-                "Skipped \(skippedCount) papers (already in inbox or dismissed) from group feed refresh",
-                category: "group-feed"
-            )
-        }
-
-        // Add filtered existing publications to the result collection (so they show in the feed view)
-        if !existingPubsToAdd.isEmpty, let collection = resultCollection {
-            await repository.addToCollection(existingPubsToAdd, collection: collection)
-        }
-
-        // Also add to inbox for papers not already there
-        if !existingPubsToAdd.isEmpty {
+        // Add filtered existing publications to inbox
+        if !existingPubIDsToAdd.isEmpty {
             await MainActor.run {
-                for paper in existingPubsToAdd {
-                    inboxManager.addToInbox(paper)
-                }
+                _ = inboxManager.addToInboxBatch(existingPubIDsToAdd)
             }
         }
 
-        // Create new publications and add to both Inbox and result collection
+        // Create new publications and add to Inbox
         var newPaperIDs: [UUID] = []
         if !newResults.isEmpty {
-            // Create publications and add to result collection
-            if let collection = resultCollection {
-                let newPapers = await repository.createFromSearchResults(newResults, collection: collection)
-                newPaperIDs = newPapers.map { $0.id }
+            // Get default library for import
+            let defaultLibraryId = await withStore { store -> UUID? in
+                store.getDefaultLibrary()?.id ?? store.listLibraries().first?.id
+            }
+            guard let libraryId = defaultLibraryId else {
+                Logger.inbox.errorCapture("No library available for import", category: "group-feed")
+                return existingPubIDsToAdd.count
+            }
 
-                // Add to Inbox on main actor
-                await MainActor.run {
-                    for paper in newPapers {
-                        inboxManager.addToInbox(paper)
-                    }
-                }
-            } else {
-                // No result collection - just create publications
-                for result in newResults {
-                    let pub = await repository.createFromSearchResult(result)
-                    newPaperIDs.append(pub.id)
+            for result in newResults {
+                let bibtex = result.toBibTeX()
+                let importedIDs = await withStore { $0.importBibTeX(bibtex, libraryId: libraryId) }
+                newPaperIDs.append(contentsOf: importedIDs)
+            }
 
-                    await MainActor.run {
-                        inboxManager.addToInbox(pub)
-                    }
-                }
+            await MainActor.run {
+                _ = inboxManager.addToInboxBatch(newPaperIDs)
             }
         }
 
         Logger.inbox.debugCapture("Created \(newPaperIDs.count) new papers", category: "group-feed")
 
-        // Immediate ADS enrichment to resolve bibcodes for Similar/Co-read features
-        // Use the ID-based method for thread safety
+        // Immediate ADS enrichment
         if !newPaperIDs.isEmpty {
             let enrichedCount = await EnrichmentCoordinator.shared.enrichBatchByIDs(newPaperIDs)
             Logger.inbox.infoCapture(
@@ -517,172 +339,55 @@ public actor GroupFeedRefreshService {
             )
         }
 
-        // Return total papers in the feed (filtered existing + new)
-        return existingPubsToAdd.count + newPaperIDs.count
+        return existingPubIDsToAdd.count + newPaperIDs.count
     }
 
-    /// Process search results through the Inbox pipeline.
-    private func processResultsForInbox(_ results: [SearchResult], smartSearch: CDSmartSearch) async -> Int {
-        guard !results.isEmpty else { return 0 }
+    // MARK: - Group Feed Query Parsing
 
-        // Get InboxManager on main actor and create repository
-        let inboxManager = await MainActor.run { InboxManager.shared }
-        let repository = PublicationRepository()
-
-        // Get the result collection for this smart search
-        let resultCollection = await MainActor.run { smartSearch.resultCollection }
-
-        // Filter results
-        var filteredResults: [SearchResult] = []
-
-        for result in results {
-            // Check mute filter
-            let shouldFilter = await MainActor.run {
-                inboxManager.shouldFilter(result: result)
-            }
-
-            if shouldFilter {
-                Logger.inbox.debugCapture("Filtered out muted paper: \(result.title)", category: "group-feed")
-                continue
-            }
-
-            // Check if previously dismissed
-            let wasDismissed = await MainActor.run {
-                inboxManager.wasDismissed(result: result)
-            }
-
-            if wasDismissed {
-                Logger.inbox.debugCapture("Skipping previously dismissed paper: \(result.title)", category: "group-feed")
-                continue
-            }
-
-            filteredResults.append(result)
+    /// Parse authors from a GROUP_FEED query string.
+    static func parseGroupFeedAuthors(_ query: String) -> [String] {
+        // GROUP_FEED|authors:Name1,Name2|categories:cat1,cat2|crosslisted:true
+        guard let authorsField = query.components(separatedBy: "|").first(where: { $0.hasPrefix("authors:") }) else {
+            return []
         }
+        let authorsString = String(authorsField.dropFirst("authors:".count))
+        return authorsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
 
-        Logger.inbox.debugCapture(
-            "After filters: \(filteredResults.count) of \(results.count) papers remain",
-            category: "group-feed"
-        )
-
-        // Find existing publications that match these results
-        let existingMap = await repository.findExistingByIdentifiers(filteredResults)
-        let existingPubs = filteredResults.compactMap { existingMap[$0.id] }
-        let newResults = filteredResults.filter { existingMap[$0.id] == nil }
-
-        Logger.inbox.debugCapture(
-            "Found \(existingPubs.count) existing papers, \(newResults.count) new papers",
-            category: "group-feed"
-        )
-
-        // Filter existing papers: skip those already in inbox (no need to re-add) or explicitly dismissed
-        // Papers that exist in DB but aren't in inbox might have been added via other paths (PDF import, etc.)
-        // Need to run filtering on MainActor since wasDismissed is MainActor-isolated
-        let existingPubsToAdd = await MainActor.run {
-            let inboxLibrary = InboxManager.shared.inboxLibrary
-            return existingPubs.filter { pub in
-                // Skip if already in inbox (no need to re-add)
-                if let inboxLib = inboxLibrary, pub.libraries?.contains(inboxLib) == true {
-                    return false
-                }
-                // Skip if explicitly dismissed
-                if inboxManager.wasDismissed(doi: pub.doi, arxivID: pub.arxivID, bibcode: pub.bibcode) {
-                    return false
-                }
-                // Paper exists in DB but not in inbox and not dismissed - add to inbox
-                return true
-            }
+    /// Parse categories from a GROUP_FEED query string.
+    static func parseGroupFeedCategories(_ query: String) -> Set<String> {
+        guard let catField = query.components(separatedBy: "|").first(where: { $0.hasPrefix("categories:") }) else {
+            return []
         }
+        let catString = String(catField.dropFirst("categories:".count))
+        return Set(catString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+    }
 
-        let skippedCount = existingPubs.count - existingPubsToAdd.count
-        if skippedCount > 0 {
-            Logger.inbox.debugCapture(
-                "Skipped \(skippedCount) papers (already in inbox or dismissed) from group feed refresh",
-                category: "group-feed"
-            )
+    /// Parse cross-listed flag from a GROUP_FEED query string.
+    static func parseGroupFeedIncludesCrossListed(_ query: String) -> Bool {
+        guard let field = query.components(separatedBy: "|").first(where: { $0.hasPrefix("crosslisted:") }) else {
+            return true
         }
-
-        // Add filtered existing publications to the result collection (so they show in the feed view)
-        if !existingPubsToAdd.isEmpty, let collection = resultCollection {
-            await repository.addToCollection(existingPubsToAdd, collection: collection)
-        }
-
-        // Also add to inbox for papers not already there
-        if !existingPubsToAdd.isEmpty {
-            await MainActor.run {
-                for paper in existingPubsToAdd {
-                    inboxManager.addToInbox(paper)
-                }
-            }
-        }
-
-        // Create new publications and add to both Inbox and result collection
-        var newPapers: [CDPublication] = []
-        if !newResults.isEmpty {
-            // Create publications and add to result collection
-            if let collection = resultCollection {
-                newPapers = await repository.createFromSearchResults(newResults, collection: collection)
-            } else {
-                // No result collection - just create publications
-                for result in newResults {
-                    let pub = await repository.createFromSearchResult(result)
-                    newPapers.append(pub)
-                }
-            }
-        }
-
-        Logger.inbox.debugCapture("Created \(newPapers.count) new papers", category: "group-feed")
-
-        // Add new papers to Inbox
-        if !newPapers.isEmpty {
-            await MainActor.run {
-                for paper in newPapers {
-                    inboxManager.addToInbox(paper)
-                }
-            }
-
-            // Immediate ADS enrichment to resolve bibcodes for Similar/Co-read features
-            // Extract IDs on main actor for thread safety, then use ID-based API
-            let newPaperIDs = await MainActor.run { newPapers.map { $0.id } }
-            let enrichedCount = await EnrichmentCoordinator.shared.enrichBatchByIDs(newPaperIDs)
-            Logger.inbox.infoCapture(
-                "ADS enrichment: \(enrichedCount)/\(newPapers.count) papers resolved with bibcodes",
-                category: "group-feed"
-            )
-        }
-
-        // Return total papers in the feed (filtered existing + new)
-        return existingPubsToAdd.count + newPapers.count
+        return String(field.dropFirst("crosslisted:".count)).lowercased() == "true"
     }
 
     // MARK: - Author Matching
 
     /// Check if a target author name matches any author in the paper's author list.
-    ///
-    /// This performs exact matching to filter out false positives from arXiv's fuzzy search.
-    /// For example, searching for "Devon Powell" should not match "Samuel Powell".
-    ///
-    /// The matching handles:
-    /// - Case-insensitive comparison
-    /// - Middle initials (e.g., "John H. Wise" matches "John Wise" or "J. H. Wise")
-    /// - Name order variations (e.g., "Powell, Devon" matches "Devon Powell")
     private func authorMatchesExactly(_ targetAuthor: String, in paperAuthors: [String]) -> Bool {
         let targetNormalized = normalizeAuthorName(targetAuthor)
 
         for paperAuthor in paperAuthors {
             let paperNormalized = normalizeAuthorName(paperAuthor)
 
-            // Check for exact match after normalization
             if targetNormalized == paperNormalized {
                 return true
             }
 
-            // Check if all parts of target name appear in paper author
-            // This handles cases like "John Wise" matching "John H. Wise"
             let targetParts = targetNormalized.split(separator: " ").map(String.init)
             let paperParts = paperNormalized.split(separator: " ").map(String.init)
 
-            // All significant parts of target must appear in paper author
-            let significantTargetParts = targetParts.filter { $0.count > 1 }  // Ignore single initials
+            let significantTargetParts = targetParts.filter { $0.count > 1 }
             let allPartsMatch = significantTargetParts.allSatisfy { targetPart in
                 paperParts.contains { paperPart in
                     paperPart == targetPart || paperPart.hasPrefix(targetPart) || targetPart.hasPrefix(paperPart)
@@ -690,7 +395,6 @@ public actor GroupFeedRefreshService {
             }
 
             if allPartsMatch && !significantTargetParts.isEmpty {
-                // Also verify last names match exactly
                 if let targetLast = significantTargetParts.last,
                    let paperLast = paperParts.filter({ $0.count > 1 }).last,
                    targetLast.lowercased() == paperLast.lowercased() {
@@ -703,28 +407,16 @@ public actor GroupFeedRefreshService {
     }
 
     /// Normalize an author name for comparison.
-    ///
-    /// - Converts to lowercase
-    /// - Removes punctuation (periods, commas)
-    /// - Handles "Last, First" format by converting to "First Last"
-    /// - Trims whitespace
     private func normalizeAuthorName(_ name: String) -> String {
         var normalized = name.lowercased()
-
-        // Remove periods and extra whitespace
         normalized = normalized.replacingOccurrences(of: ".", with: "")
         normalized = normalized.replacingOccurrences(of: ",", with: " ")
 
-        // Collapse multiple spaces
         while normalized.contains("  ") {
             normalized = normalized.replacingOccurrences(of: "  ", with: " ")
         }
 
         normalized = normalized.trimmingCharacters(in: .whitespaces)
-
-        // If it looks like "Last First" format (single word, space, rest), leave it
-        // The matching logic handles both orders
-
         return normalized
     }
 }

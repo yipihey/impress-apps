@@ -280,7 +280,7 @@ extension SciXSource: BrowserURLProvider {
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
         // Priority 1: DOI resolver - always redirects to publisher
         if let doi = publication.doi, !doi.isEmpty {
             Logger.pdfBrowser.debug("SciX: Using DOI resolver for: \(doi)")

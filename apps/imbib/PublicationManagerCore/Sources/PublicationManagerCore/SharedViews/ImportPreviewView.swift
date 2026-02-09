@@ -148,8 +148,8 @@ public struct ImportPreviewView: View {
 
     @Binding var isPresented: Bool
     let fileURL: URL
-    /// Callback receives entries, target library (nil means create new), new library name, and duplicate handling mode
-    let onImport: ([ImportPreviewEntry], CDLibrary?, String?, DuplicateHandlingMode) async throws -> Int
+    /// Callback receives entries, target library ID (nil means create new), new library name, and duplicate handling mode
+    let onImport: ([ImportPreviewEntry], UUID?, String?, DuplicateHandlingMode) async throws -> Int
 
     @State private var entries: [ImportPreviewEntry] = []
     @State private var isLoading = true
@@ -166,8 +166,8 @@ public struct ImportPreviewView: View {
     @State private var duplicateHandlingMode: DuplicateHandlingMode = .skipDuplicates
     @State private var duplicateCount: Int = 0
 
-    /// Optional pre-selected library (e.g., when dropping file onto a library)
-    let preselectedLibrary: CDLibrary?
+    /// Optional pre-selected library ID (e.g., when dropping file onto a library)
+    let preselectedLibraryID: UUID?
     /// When true, defaults to "Create new library" instead of first existing library
     let preferCreateNewLibrary: Bool
 
@@ -176,13 +176,13 @@ public struct ImportPreviewView: View {
     public init(
         isPresented: Binding<Bool>,
         fileURL: URL,
-        preselectedLibrary: CDLibrary? = nil,
+        preselectedLibraryID: UUID? = nil,
         preferCreateNewLibrary: Bool = false,
-        onImport: @escaping ([ImportPreviewEntry], CDLibrary?, String?, DuplicateHandlingMode) async throws -> Int
+        onImport: @escaping ([ImportPreviewEntry], UUID?, String?, DuplicateHandlingMode) async throws -> Int
     ) {
         self._isPresented = isPresented
         self.fileURL = fileURL
-        self.preselectedLibrary = preselectedLibrary
+        self.preselectedLibraryID = preselectedLibraryID
         self.preferCreateNewLibrary = preferCreateNewLibrary
         self.onImport = onImport
     }
@@ -199,9 +199,9 @@ public struct ImportPreviewView: View {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    /// Available user libraries (excluding system libraries)
-    private var availableLibraries: [CDLibrary] {
-        libraryManager.libraries.filter { !$0.isSystemLibrary }
+    /// Available user libraries (excluding exploration libraries)
+    private var availableLibraries: [LibraryModel] {
+        libraryManager.libraries.filter { $0.name.lowercased() != "exploration" }
     }
 
     // MARK: - Body
@@ -223,9 +223,9 @@ public struct ImportPreviewView: View {
             newLibraryName = suggestedLibraryName
 
             // Set initial destination based on preselected library or defaults
-            if let preselected = preselectedLibrary {
+            if let preselectedID = preselectedLibraryID {
                 // Use preselected library (e.g., from drag-and-drop on library)
-                selectedDestination = .existingLibrary(preselected.id)
+                selectedDestination = .existingLibrary(preselectedID)
             } else if preferCreateNewLibrary {
                 // Explicitly prefer "Create new library" (e.g., from sidebar-wide drop)
                 selectedDestination = .createNewLibrary
@@ -400,7 +400,7 @@ public struct ImportPreviewView: View {
                 Picker("Destination", selection: $selectedDestination) {
                     // Existing libraries
                     ForEach(availableLibraries) { library in
-                        Label(library.displayName, systemImage: "books.vertical")
+                        Label(library.name, systemImage: "books.vertical")
                             .tag(ImportDestination.existingLibrary(library.id))
                     }
 
@@ -543,22 +543,22 @@ public struct ImportPreviewView: View {
         do {
             let selected = entries.filter(\.isSelected)
 
-            // Determine target library
-            let targetLibrary: CDLibrary?
+            // Determine target library ID
+            let targetLibraryID: UUID?
             let newLibraryNameToCreate: String?
 
             switch selectedDestination {
             case .existingLibrary(let libraryID):
-                targetLibrary = availableLibraries.first { $0.id == libraryID }
+                targetLibraryID = libraryID
                 newLibraryNameToCreate = nil
             case .createNewLibrary:
-                targetLibrary = nil
+                targetLibraryID = nil
                 newLibraryNameToCreate = newLibraryName.trimmingCharacters(in: .whitespaces).isEmpty
                     ? suggestedLibraryName
                     : newLibraryName.trimmingCharacters(in: .whitespaces)
             }
 
-            let count = try await onImport(selected, targetLibrary, newLibraryNameToCreate, duplicateHandlingMode)
+            let count = try await onImport(selected, targetLibraryID, newLibraryNameToCreate, duplicateHandlingMode)
             importResult = count
 
             // Close after short delay
@@ -575,8 +575,8 @@ public struct ImportPreviewView: View {
     /// Check for duplicates against the target library
     @MainActor
     private func checkForDuplicates() async {
-        // Get the target library for duplicate checking
-        guard let targetLibrary = targetLibraryForDuplicateCheck else {
+        // Get the target library ID for duplicate checking
+        guard let targetLibraryID = targetLibraryIDForDuplicateCheck else {
             // No library to check against (creating new library) - clear duplicate flags
             for i in entries.indices {
                 entries[i].isDuplicate = false
@@ -587,8 +587,8 @@ public struct ImportPreviewView: View {
             return
         }
 
-        // Get all publications in the target library
-        let publications = targetLibrary.publications ?? []
+        // Get all publications in the target library via RustStoreAdapter
+        let publications = RustStoreAdapter.shared.queryPublications(parentId: targetLibraryID)
 
         var foundDuplicates = 0
 
@@ -636,8 +636,7 @@ public struct ImportPreviewView: View {
                 let normalizedTitle = normalizeTitle(entry.title)
                 if normalizedTitle.count > 10 { // Only check titles with sufficient length
                     if let match = publications.first(where: {
-                        guard let pubTitle = $0.title else { return false }
-                        let normalizedPubTitle = normalizeTitle(pubTitle)
+                        let normalizedPubTitle = normalizeTitle($0.title)
                         return normalizedPubTitle == normalizedTitle
                     }) {
                         isDuplicate = true
@@ -661,11 +660,11 @@ public struct ImportPreviewView: View {
         duplicateCount = foundDuplicates
     }
 
-    /// Get the target library for duplicate checking (nil if creating new)
-    private var targetLibraryForDuplicateCheck: CDLibrary? {
+    /// Get the target library ID for duplicate checking (nil if creating new)
+    private var targetLibraryIDForDuplicateCheck: UUID? {
         switch selectedDestination {
         case .existingLibrary(let libraryID):
-            return availableLibraries.first { $0.id == libraryID }
+            return libraryID
         case .createNewLibrary:
             return nil
         }
@@ -851,5 +850,5 @@ struct ImportPreviewDetail: View {
         try? await Task.sleep(for: .seconds(1))
         return entries.count
     }
-    .environment(LibraryManager(persistenceController: .preview))
+    .environment(LibraryManager())
 }

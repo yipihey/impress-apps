@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Citation Graph Types
@@ -93,17 +92,13 @@ public final class CitationGraphService {
 
     public static let shared = CitationGraphService()
 
-    private let persistenceController: PersistenceController
-
     /// Whether a graph build is in progress
     public private(set) var isBuilding = false
 
     /// Progress (0.0 to 1.0) of the current build
     public private(set) var progress: Double = 0
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-    }
+    public init() {}
 
     // MARK: - Graph Building
 
@@ -114,9 +109,9 @@ public final class CitationGraphService {
     /// library) to it. Papers cited by multiple library papers but not in the
     /// library appear as "suggested papers".
     ///
-    /// - Parameter library: The library to build the graph for
+    /// - Parameter libraryId: The library ID to build the graph for
     /// - Returns: The citation graph
-    public func buildGraph(for library: CDLibrary) async -> CitationGraph {
+    public func buildGraph(for libraryId: UUID) async -> CitationGraph {
         guard !isBuilding else { return CitationGraph() }
         isBuilding = true
         progress = 0
@@ -125,46 +120,51 @@ public final class CitationGraphService {
             progress = 1.0
         }
 
-        let publications = Array(library.publications ?? [])
-        guard !publications.isEmpty else { return CitationGraph() }
+        let store = RustStoreAdapter.shared
+        let pubRows = store.queryPublications(parentId: libraryId, sort: "dateAdded", ascending: false)
+        guard !pubRows.isEmpty else { return CitationGraph() }
 
-        Logger.viewModels.info("CitationGraphService: building graph for \(publications.count) publications")
+        Logger.viewModels.info("CitationGraphService: building graph for \(pubRows.count) publications")
 
         var graph = CitationGraph()
 
         // Build lookup of library papers by identifier
-        var doiLookup: [String: CDPublication] = [:]
-        var openAlexLookup: [String: CDPublication] = [:]
+        // We need full detail for enrichment data
+        var doiLookup: [String: PublicationModel] = [:]
+        var openAlexLookup: [String: PublicationModel] = [:]
+        var details: [PublicationModel] = []
 
-        for pub in publications {
-            let nodeID = nodeIdentifier(for: pub)
+        for row in pubRows {
+            guard let detail = store.getPublicationDetail(id: row.id) else { continue }
+            details.append(detail)
+            let nodeID = nodeIdentifier(for: detail)
 
             // Add library paper as node
             graph.nodes[nodeID] = CitationNode(
                 id: nodeID,
-                title: pub.title ?? "Untitled",
-                authors: pub.sortedAuthors.map(\.familyName),
-                year: pub.year > 0 ? Int(pub.year) : nil,
-                citeKey: pub.citeKey,
+                title: detail.title,
+                authors: detail.authors.map(\.familyName),
+                year: detail.year,
+                citeKey: detail.citeKey,
                 isInLibrary: true
             )
 
-            if let doi = pub.doi?.lowercased() {
-                doiLookup[doi] = pub
+            if let doi = detail.doi?.lowercased() {
+                doiLookup[doi] = detail
             }
-            if let oaID = pub.openAlexID {
-                openAlexLookup[oaID] = pub
+            if let oaID = detail.fields["_openalex_id"], !oaID.isEmpty {
+                openAlexLookup[oaID] = detail
             }
         }
 
         // Process enrichment data for each publication
-        let total = Double(publications.count)
-        for (index, pub) in publications.enumerated() {
+        let total = Double(details.count)
+        for (index, detail) in details.enumerated() {
             progress = Double(index) / total
-            let sourceID = nodeIdentifier(for: pub)
+            let sourceID = nodeIdentifier(for: detail)
 
             // Check stored enrichment for references
-            if let refsJSON = pub.fields["_enrichment_references"],
+            if let refsJSON = detail.fields["_enrichment_references"],
                let refs = decodeStubs(refsJSON) {
                 for ref in refs {
                     addEdge(
@@ -177,7 +177,7 @@ public final class CitationGraphService {
             }
 
             // Check stored enrichment for citations (papers that cite this one)
-            if let citesJSON = pub.fields["_enrichment_citations"],
+            if let citesJSON = detail.fields["_enrichment_citations"],
                let cites = decodeStubs(citesJSON) {
                 for cite in cites {
                     addCitationEdge(
@@ -188,15 +188,13 @@ public final class CitationGraphService {
                 }
             }
 
-            // Also use referenceCount/citationCount from enrichment
-            // and referencedWorks from OpenAlex (stored as comma-separated IDs)
-            if let refWorksStr = pub.fields["_openalex_referenced_works"] {
+            // Also use referencedWorks from OpenAlex (stored as comma-separated IDs)
+            if let refWorksStr = detail.fields["_openalex_referenced_works"] {
                 let refWorkIDs = refWorksStr.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
                 for refID in refWorkIDs {
                     guard !refID.isEmpty else { continue }
-                    // Check if this referenced work is in our library
-                    if let refPub = openAlexLookup[refID] {
-                        let targetID = nodeIdentifier(for: refPub)
+                    if let refDetail = openAlexLookup[refID] {
+                        let targetID = nodeIdentifier(for: refDetail)
                         let edge = CitationEdge(sourceID: sourceID, targetID: targetID)
                         if graph.edges.insert(edge).inserted {
                             graph.nodes[sourceID]?.connectionCount += 1
@@ -216,12 +214,12 @@ public final class CitationGraphService {
 
     // MARK: - Helpers
 
-    /// Get a stable identifier for a publication (prefer DOI).
-    private func nodeIdentifier(for pub: CDPublication) -> String {
+    /// Get a stable identifier for a publication model (prefer DOI).
+    private func nodeIdentifier(for pub: PublicationModel) -> String {
         if let doi = pub.doi?.lowercased(), !doi.isEmpty {
             return "doi:\(doi)"
         }
-        if let oaID = pub.openAlexID, !oaID.isEmpty {
+        if let oaID = pub.fields["_openalex_id"], !oaID.isEmpty {
             return "oa:\(oaID)"
         }
         if let arxiv = pub.arxivID, !arxiv.isEmpty {
@@ -257,7 +255,7 @@ public final class CitationGraphService {
     private func addEdge(
         from sourceID: String,
         to stub: PaperStub,
-        doiLookup: [String: CDPublication],
+        doiLookup: [String: PublicationModel],
         graph: inout CitationGraph
     ) {
         let targetID: String

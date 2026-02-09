@@ -9,17 +9,16 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 import OSLog
-import CoreData
 
 // MARK: - Drag Drop Coordinator
 
 /// Central coordinator for all drag-and-drop operations.
 ///
 /// Routes drops to the appropriate handler based on content type and target:
-/// - PDF files → PDFImportHandler (creates publications)
-/// - .bib/.ris files → BibDropHandler (batch import)
-/// - Publication UUIDs → move/copy between libraries/collections
-/// - Other files → FileDropHandler (attach to publications)
+/// - PDF files -> PDFImportHandler (creates publications)
+/// - .bib/.ris files -> BibDropHandler (batch import)
+/// - Publication UUIDs -> move/copy between libraries/collections
+/// - Other files -> FileDropHandler (attach to publications)
 @MainActor
 @Observable
 public final class DragDropCoordinator {
@@ -50,6 +49,10 @@ public final class DragDropCoordinator {
 
     /// Source manager for URL-based paper imports
     public var sourceManager: SourceManager?
+
+    // MARK: - Store
+
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - Initialization
 
@@ -108,7 +111,6 @@ public final class DragDropCoordinator {
         // Check if target accepts this category
         switch (category, target) {
         case (.publicationTransfer, .library), (.publicationTransfer, .collection):
-            // Publication transfers to libraries/collections are valid
             let count = counts[.publicationTransfer] ?? 0
             return DropValidation(
                 isValid: true,
@@ -119,7 +121,6 @@ public final class DragDropCoordinator {
             )
 
         case (.pdf, .library), (.pdf, .collection), (.pdf, .inbox):
-            // PDFs can create new publications in libraries/collections
             let count = counts[.pdf] ?? 0
             return DropValidation(
                 isValid: true,
@@ -130,7 +131,6 @@ public final class DragDropCoordinator {
             )
 
         case (.pdf, .publication):
-            // PDFs can be attached to existing publications
             return DropValidation(
                 isValid: true,
                 category: category,
@@ -140,7 +140,6 @@ public final class DragDropCoordinator {
             )
 
         case (.bibtex, .library), (.bibtex, .collection), (.bibtex, .inbox):
-            // BibTeX files can be imported to libraries
             let count = counts[.bibtex] ?? 0
             return DropValidation(
                 isValid: true,
@@ -151,7 +150,6 @@ public final class DragDropCoordinator {
             )
 
         case (.ris, .library), (.ris, .collection), (.ris, .inbox):
-            // RIS files can be imported to libraries
             let count = counts[.ris] ?? 0
             return DropValidation(
                 isValid: true,
@@ -171,7 +169,6 @@ public final class DragDropCoordinator {
             )
 
         case (.attachment, .publication):
-            // Generic files can be attached to publications
             let total = counts.values.reduce(0, +)
             return DropValidation(
                 isValid: true,
@@ -182,7 +179,6 @@ public final class DragDropCoordinator {
             )
 
         case (_, .newLibraryZone):
-            // Files can create a new library
             if category == .pdf || category == .bibtex || category == .ris {
                 return DropValidation(
                     isValid: true,
@@ -202,11 +198,6 @@ public final class DragDropCoordinator {
     // MARK: - Drop Handling
 
     /// Perform a drop operation from SwiftUI DropInfo.
-    ///
-    /// - Parameters:
-    ///   - info: Drop info from SwiftUI
-    ///   - target: The drop target
-    /// - Returns: Result of the drop operation
     @discardableResult
     public func performDrop(_ info: SwiftUI.DropInfo, target: DropTarget) async -> DropResult {
         let dragDropInfo = DragDropInfo(providers: Array(info.itemProviders(for: Self.acceptedTypes)))
@@ -214,11 +205,6 @@ public final class DragDropCoordinator {
     }
 
     /// Perform a drop operation from DragDropInfo.
-    ///
-    /// - Parameters:
-    ///   - info: DragDrop info with providers
-    ///   - target: The drop target
-    /// - Returns: Result of the drop operation
     @discardableResult
     public func performDrop(_ info: DragDropInfo, target: DropTarget) async -> DropResult {
         Logger.files.infoCapture("Performing drop on target: \(String(describing: target))", category: "files")
@@ -237,19 +223,14 @@ public final class DragDropCoordinator {
             switch category {
             case .publicationTransfer:
                 return try await handlePublicationTransfer(info: info, target: target)
-
             case .pdf:
                 return try await handlePDFDrop(info: info, target: target)
-
             case .bibtex, .ris:
                 return try await handleBibDrop(info: info, target: target)
-
             case .urlImport:
                 return try await handleURLDrop(info: info, target: target)
-
             case .attachment:
                 return try await handleAttachmentDrop(info: info, target: target)
-
             case .unknown:
                 Logger.files.warningCapture("Unknown drop category", category: "files")
                 return .failure(error: DragDropError.unsupportedContent)
@@ -267,19 +248,15 @@ public final class DragDropCoordinator {
     private func categorizeDropInfo(_ info: DragDropInfo) -> DroppedFileCategory {
         let providers = info.providers
 
-        // Check for publication transfer first
         if providers.contains(where: { $0.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) }) {
             return .publicationTransfer
         }
 
-        // Check file types
         for provider in providers {
-            // Check for PDF
             if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
                 return .pdf
             }
 
-            // Check for BibTeX/RIS by suggested filename
             if let filename = provider.suggestedName?.lowercased() {
                 if filename.hasSuffix(".bib") || filename.hasSuffix(".bibtex") {
                     return .bibtex
@@ -289,7 +266,6 @@ public final class DragDropCoordinator {
                 }
             }
 
-            // UTI-based fallback for BibTeX/RIS (suggestedName may be absent)
             if provider.hasItemConformingToTypeIdentifier("org.tug.tex.bibtex") {
                 return .bibtex
             }
@@ -297,21 +273,16 @@ public final class DragDropCoordinator {
                 return .ris
             }
 
-            // Check for web URL drops (from browser address bar)
-            // Must have .url but NOT .fileURL — file URLs are local files
             if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) &&
                !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 return .urlImport
             }
 
-            // Check file URL type
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                // Will need to check actual file to determine type
-                return .unknown  // Will be refined when URL is loaded
+                return .unknown
             }
         }
 
-        // Default to attachment
         if !providers.isEmpty {
             return .attachment
         }
@@ -370,11 +341,12 @@ public final class DragDropCoordinator {
 
         switch target {
         case .library(let libraryID):
-            await addPublicationsToLibrary(uuids, libraryID: libraryID)
+            store.movePublications(ids: uuids, toLibraryId: libraryID)
             return .success(message: "Added \(uuids.count) publication(s) to library")
 
-        case .collection(let collectionID, _):
-            await addPublicationsToCollection(uuids, collectionID: collectionID)
+        case .collection(let collectionID, let libraryID):
+            store.movePublications(ids: uuids, toLibraryId: libraryID)
+            store.addToCollection(publicationIds: uuids, collectionId: collectionID)
             return .success(message: "Added \(uuids.count) publication(s) to collection")
 
         default:
@@ -392,24 +364,18 @@ public final class DragDropCoordinator {
 
         switch target {
         case .publication(let publicationID, let libraryID):
-            // Attach PDF to existing publication
             return try await attachFilesToPublication(urls, publicationID: publicationID, libraryID: libraryID)
 
         case .library(let libraryID), .collection(_, let libraryID):
-            // Create new publications from PDFs
             let previews = await pdfImportHandler.preparePDFImport(urls: urls, target: target)
-
             if previews.isEmpty {
                 throw DragDropError.noFilesFound
             }
-
-            // Show preview for user confirmation
             pendingPreview = .pdfImport(previews)
             return .needsConfirmation
 
         case .inbox:
-            // Import to inbox library
-            guard let inboxLibrary = InboxManager.shared.inboxLibrary else {
+            guard let inboxLibrary = store.getInboxLibrary() else {
                 throw DragDropError.noInboxLibrary
             }
             let previews = await pdfImportHandler.preparePDFImport(urls: urls, target: .library(libraryID: inboxLibrary.id))
@@ -420,7 +386,6 @@ public final class DragDropCoordinator {
             return .needsConfirmation
 
         case .newLibraryZone:
-            // Create new library and import
             throw DragDropError.notImplemented("New library from PDF drop")
         }
     }
@@ -434,8 +399,6 @@ public final class DragDropCoordinator {
         }
 
         let preview = try await bibDropHandler.prepareBibImport(url: url, target: target)
-
-        // Show preview for user confirmation
         pendingPreview = .bibImport(preview)
         return .needsConfirmation
     }
@@ -478,7 +441,6 @@ public final class DragDropCoordinator {
             throw DragDropError.urlImportFailed("Search sources not available")
         }
 
-        // Search for the paper using the identified source
         let options = SearchOptions(maxResults: 1, sourceIDs: parsed.sourceIDs)
         let results = try await sourceManager.search(query: parsed.query, options: options)
 
@@ -487,46 +449,38 @@ public final class DragDropCoordinator {
         }
 
         // Determine the target library
-        let context = PersistenceController.shared.viewContext
-        var library: CDLibrary?
-
+        let libraryID: UUID?
         switch target {
-        case .library(let libraryID):
-            library = await context.perform {
-                let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-                request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-                request.fetchLimit = 1
-                return try? context.fetch(request).first
-            }
-        case .collection(_, let libraryID):
-            library = await context.perform {
-                let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-                request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-                request.fetchLimit = 1
-                return try? context.fetch(request).first
-            }
+        case .library(let id):
+            libraryID = id
+        case .collection(_, let id):
+            libraryID = id
         case .inbox:
-            library = InboxManager.shared.inboxLibrary
+            libraryID = store.getInboxLibrary()?.id
         default:
-            break
+            libraryID = nil
         }
 
-        // Create publication from search result
-        let repository = PublicationRepository()
-        let publication = await repository.createFromSearchResult(result, in: library)
+        // Import using BibTeX from search result
+        let bibtex = result.toBibTeX()
+        var importedIDs: [UUID] = []
+        if let libID = libraryID {
+            importedIDs = store.importBibTeX(bibtex, libraryId: libID)
+        }
 
         // If target is a collection, also add to that collection
-        if case .collection(let collectionID, _) = target {
-            await addPublicationsToCollection([publication.id], collectionID: collectionID)
+        if case .collection(let collectionID, _) = target, !importedIDs.isEmpty {
+            store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
         }
 
-        Logger.files.infoCapture("URL import: created publication '\(result.title)' (id: \(publication.id))", category: "files")
+        let pubID = importedIDs.first ?? UUID()
+        Logger.files.infoCapture("URL import: created publication '\(result.title)' (id: \(pubID))", category: "files")
 
-        // Post notification on main thread to trigger auto-selection in list
-        await MainActor.run {
+        // Post notification for auto-selection in list
+        if !importedIDs.isEmpty {
             NotificationCenter.default.post(
                 name: .pdfImportCompleted,
-                object: [publication.id]
+                object: importedIDs
             )
         }
 
@@ -560,7 +514,6 @@ public final class DragDropCoordinator {
 
     /// Parse an academic paper URL into a search query and source IDs.
     private func parsePaperURL(_ url: URL) -> ParsedPaperURL? {
-        // arXiv
         if let arxiv = ArXivURLParser.parse(url) {
             switch arxiv {
             case .paper(let arxivID), .pdf(let arxivID):
@@ -570,21 +523,18 @@ public final class DragDropCoordinator {
             }
         }
 
-        // ADS
         if let ads = ADSURLParser.parse(url) {
             if case .paper(let bibcode) = ads {
                 return ParsedPaperURL(query: "bibcode:\(bibcode)", sourceIDs: ["ads"])
             }
         }
 
-        // SciX
         if let scix = SciXURLParser.parse(url) {
             if case .paper(let bibcode) = scix {
                 return ParsedPaperURL(query: "bibcode:\(bibcode)", sourceIDs: ["scix"])
             }
         }
 
-        // DOI URL (doi.org or dx.doi.org)
         if let host = url.host?.lowercased(),
            host == "doi.org" || host == "dx.doi.org" {
             let doi = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -599,7 +549,6 @@ public final class DragDropCoordinator {
     // MARK: - Confirmation Actions
 
     /// Confirm and execute a pending PDF import.
-    /// - Returns: Array of created/affected publication UUIDs
     @discardableResult
     public func confirmPDFImport(_ previews: [PDFImportPreview], to libraryID: UUID) async throws -> [UUID] {
         isProcessing = true
@@ -616,7 +565,6 @@ public final class DragDropCoordinator {
             }
         }
 
-        // Post notification with imported publication IDs for UI to respond
         if !importedIDs.isEmpty {
             NotificationCenter.default.post(
                 name: .pdfImportCompleted,
@@ -646,17 +594,6 @@ public final class DragDropCoordinator {
     // MARK: - Metadata Lookup
 
     /// Look up metadata from online sources using provided identifiers or title/author.
-    ///
-    /// This is used by the import preview to allow users to re-lookup metadata
-    /// after correcting extracted values.
-    ///
-    /// - Parameters:
-    ///   - doi: DOI to look up
-    ///   - arxivID: arXiv ID to look up
-    ///   - title: Title for title-based search
-    ///   - authors: Authors for title-based search
-    ///   - year: Year for title-based search
-    /// - Returns: Enriched metadata if found, nil otherwise
     public func lookupMetadata(
         doi: String?,
         arxivID: String?,
@@ -666,33 +603,26 @@ public final class DragDropCoordinator {
     ) async throws -> EnrichedMetadata? {
         Logger.files.info("Manual lookup requested - DOI: \(doi ?? "none"), arXiv: \(arxivID ?? "none"), title: \(title ?? "none")")
 
-        // 1. Try DOI lookup first (most reliable)
         if let doi, !doi.isEmpty {
             if let enriched = await pdfImportHandler.enrichFromCrossrefDOI(doi) {
                 return enriched
             }
         }
 
-        // 2. Try arXiv lookup
         if let arxivID, !arxivID.isEmpty {
             if let enriched = await pdfImportHandler.enrichFromArXiv(arxivID) {
                 return enriched
             }
         }
 
-        // 3. Try ADS search by title/author/year
         if let title, !title.isEmpty {
             if let enriched = await pdfImportHandler.enrichFromADSSearch(
-                title: title,
-                authors: authors,
-                year: year,
-                abstract: nil
+                title: title, authors: authors, year: year, abstract: nil
             ) {
                 return enriched
             }
         }
 
-        // 4. Try Crossref title search as fallback
         if let title, !title.isEmpty {
             if let enriched = await pdfImportHandler.enrichFromTitleSearch(title, authors: authors) {
                 return enriched
@@ -705,7 +635,6 @@ public final class DragDropCoordinator {
     // MARK: - Helper Methods
 
     /// Extract publication UUIDs from a provider.
-    /// Supports both JSON array format (multi-selection) and single UUID string (legacy).
     private func extractPublicationIDs(from provider: NSItemProvider) async -> [UUID] {
         guard provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) else {
             return []
@@ -718,20 +647,17 @@ public final class DragDropCoordinator {
                     return
                 }
 
-                // Try to decode as JSON array of UUID strings first (multi-selection)
                 if let uuidStrings = try? JSONDecoder().decode([String].self, from: data) {
                     let uuids = uuidStrings.compactMap { UUID(uuidString: $0) }
                     continuation.resume(returning: uuids)
                     return
                 }
 
-                // Fallback: try single UUID (legacy Codable format)
                 if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
                     continuation.resume(returning: [uuid])
                     return
                 }
 
-                // Fallback: try single UUID string (legacy string format)
                 if let idString = String(data: data, encoding: .utf8),
                    let uuid = UUID(uuidString: idString) {
                     continuation.resume(returning: [uuid])
@@ -745,12 +671,10 @@ public final class DragDropCoordinator {
 
     /// Extract file URLs from drop info.
     private func extractFileURLs(from info: DragDropInfo, matching extensions: [String]?) async -> [URL] {
-        let providers = info.providers
         var urls: [URL] = []
 
-        for provider in providers {
+        for provider in info.providers {
             if let url = await extractURL(from: provider) {
-                // Filter by extension if specified
                 if let extensions {
                     let ext = url.pathExtension.lowercased()
                     if extensions.contains(ext) {
@@ -767,8 +691,6 @@ public final class DragDropCoordinator {
 
     /// Extract a URL from a provider.
     private func extractURL(from provider: NSItemProvider) async -> URL? {
-        // Try BibTeX/RIS UTIs first — loadFileRepresentation with the specific UTI
-        // preserves the correct extension, unlike generic fileURL which may lose it
         let bibtexUTI = "org.tug.tex.bibtex"
         let risUTI = "com.clarivate.ris"
 
@@ -780,14 +702,12 @@ public final class DragDropCoordinator {
             }
         }
 
-        // Try file URL
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             if let url = await loadFileFromProvider(provider, typeIdentifier: UTType.fileURL.identifier) {
                 return url
             }
         }
 
-        // Try PDF type
         if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
             if let url = await loadFileFromProvider(provider, typeIdentifier: UTType.pdf.identifier) {
                 return url
@@ -806,7 +726,6 @@ public final class DragDropCoordinator {
                     return
                 }
 
-                // Copy to temp since the provided URL is temporary
                 let tempDir = FileManager.default.temporaryDirectory
                 let tempURL = tempDir.appendingPathComponent(url.lastPathComponent)
 
@@ -821,98 +740,19 @@ public final class DragDropCoordinator {
         }
     }
 
-    /// Add publications to a library.
-    private func addPublicationsToLibrary(_ uuids: [UUID], libraryID: UUID) async {
-        let context = PersistenceController.shared.viewContext
-
-        await context.perform {
-            // Fetch library
-            let libraryRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
-            libraryRequest.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-            libraryRequest.fetchLimit = 1
-
-            guard let library = try? context.fetch(libraryRequest).first else {
-                return
-            }
-
-            // Batch fetch all publications at once
-            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-            pubRequest.predicate = NSPredicate(format: "id IN %@", uuids)
-
-            guard let publications = try? context.fetch(pubRequest) else { return }
-
-            for publication in publications {
-                publication.addToLibrary(library)
-            }
-
-            try? context.save()
-        }
-    }
-
-    /// Add publications to a collection.
-    private func addPublicationsToCollection(_ uuids: [UUID], collectionID: UUID) async {
-        let context = PersistenceController.shared.viewContext
-
-        await context.perform {
-            // Fetch collection
-            let collectionRequest = NSFetchRequest<CDCollection>(entityName: "Collection")
-            collectionRequest.predicate = NSPredicate(format: "id == %@", collectionID as CVarArg)
-            collectionRequest.fetchLimit = 1
-
-            guard let collection = try? context.fetch(collectionRequest).first else {
-                return
-            }
-
-            // Batch fetch all publications at once
-            let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-            pubRequest.predicate = NSPredicate(format: "id IN %@", uuids)
-
-            guard let publications = try? context.fetch(pubRequest) else { return }
-
-            var pubs = collection.publications ?? []
-            let collectionLibrary = collection.effectiveLibrary
-
-            for publication in publications {
-                pubs.insert(publication)
-                if let library = collectionLibrary {
-                    publication.addToLibrary(library)
-                }
-            }
-            collection.publications = pubs
-
-            try? context.save()
-        }
-    }
-
     /// Attach files to an existing publication.
     private func attachFilesToPublication(_ urls: [URL], publicationID: UUID, libraryID: UUID?) async throws -> DropResult {
-        let context = PersistenceController.shared.viewContext
-
-        // Fetch publication and library
-        let pubRequest = NSFetchRequest<CDPublication>(entityName: "Publication")
-        pubRequest.predicate = NSPredicate(format: "id == %@", publicationID as CVarArg)
-        pubRequest.fetchLimit = 1
-
-        guard let publication = try? context.fetch(pubRequest).first else {
+        guard store.getPublication(id: publicationID) != nil else {
             throw DragDropError.publicationNotFound
         }
 
-        var library: CDLibrary?
-        if let libraryID {
-            let libRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
-            libRequest.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-            libRequest.fetchLimit = 1
-            library = try? context.fetch(libRequest).first
-        }
-
-        // Import files
         var imported = 0
         for url in urls {
             do {
-                _ = try fileDropHandler.attachmentManager.importAttachment(
+                _ = try AttachmentManager.shared.importAttachment(
                     from: url,
-                    for: publication,
-                    in: library
+                    for: publicationID,
+                    in: libraryID
                 )
                 imported += 1
             } catch {

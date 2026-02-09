@@ -2,11 +2,10 @@
 //  PaperFetchService.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
+//  Unified pipeline for fetching papers from any source and routing to Inbox.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Paper Fetch Service
@@ -16,7 +15,6 @@ import OSLog
 /// This service provides a single entry point for all paper fetching that feeds the Inbox:
 /// - Smart searches with `feedsToInbox: true`
 /// - Ad-hoc searches via "Send to Inbox" action
-/// - Future: Recommender systems, author following
 ///
 /// The pipeline:
 /// 1. Execute search query (via SourceManager)
@@ -28,8 +26,12 @@ public actor PaperFetchService {
     // MARK: - Dependencies
 
     private let sourceManager: SourceManager
-    private let repository: PublicationRepository
-    private let persistenceController: PersistenceController
+
+    // MARK: - Store Access
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
 
     // MARK: - State
 
@@ -40,13 +42,9 @@ public actor PaperFetchService {
     // MARK: - Initialization
 
     public init(
-        sourceManager: SourceManager,
-        repository: PublicationRepository,
-        persistenceController: PersistenceController = .shared
+        sourceManager: SourceManager
     ) {
         self.sourceManager = sourceManager
-        self.repository = repository
-        self.persistenceController = persistenceController
     }
 
     // MARK: - State Access
@@ -61,52 +59,46 @@ public actor PaperFetchService {
     // MARK: - Fetch for Inbox
 
     /// Fetch papers from a smart search and add them to the Inbox.
-    ///
-    /// This is the main entry point for Inbox-feeding smart searches.
-    /// - Returns: Number of new papers added to Inbox
     @discardableResult
-    public func fetchForInbox(smartSearch: CDSmartSearch) async throws -> Int {
-        guard smartSearch.feedsToInbox else {
+    public func fetchForInbox(smartSearchID: UUID) async throws -> Int {
+        let searchData = await withStore { store -> (query: String, name: String, feedsToInbox: Bool, maxResults: Int, sources: [String])? in
+            guard let ss = store.getSmartSearch(id: smartSearchID) else { return nil }
+            return (ss.query, ss.name, ss.feedsToInbox, ss.maxResults, ss.sourceIDs)
+        }
+
+        guard let data = searchData else { return 0 }
+
+        guard data.feedsToInbox else {
             Logger.inbox.warningCapture(
-                "Smart search '\(smartSearch.name)' does not feed to Inbox",
+                "Smart search '\(data.name)' does not feed to Inbox",
                 category: "inbox"
             )
             return 0
         }
 
         Logger.inbox.infoCapture(
-            "Fetching for Inbox: '\(smartSearch.name)' query: \(smartSearch.query)",
+            "Fetching for Inbox: '\(data.name)' query: \(data.query)",
             category: "inbox"
         )
 
         _isLoading = true
         defer { _isLoading = false }
 
-        // Build search options
         let options = SearchOptions(
-            maxResults: Int(smartSearch.maxResults),
-            sourceIDs: smartSearch.sources.isEmpty ? nil : smartSearch.sources
+            maxResults: data.maxResults,
+            sourceIDs: data.sources.isEmpty ? nil : data.sources
         )
 
-        // Execute search
-        let results = try await sourceManager.search(query: smartSearch.query, options: options)
+        let results = try await sourceManager.search(query: data.query, options: options)
         Logger.inbox.debugCapture("Search returned \(results.count) results", category: "fetch")
 
-        // Process results through pipeline
         let newCount = await processResultsForInbox(results)
-
-        // Update smart search metadata
-        await MainActor.run {
-            smartSearch.dateLastExecuted = Date()
-            smartSearch.lastFetchCount = Int16(newCount)
-            persistenceController.save()
-        }
 
         lastFetchDate = Date()
         lastFetchCount = newCount
 
         Logger.inbox.infoCapture(
-            "Inbox fetch complete: \(newCount) new papers from '\(smartSearch.name)'",
+            "Inbox fetch complete: \(newCount) new papers from '\(data.name)'",
             category: "inbox"
         )
 
@@ -114,9 +106,6 @@ public actor PaperFetchService {
     }
 
     /// Fetch papers from an ad-hoc search and add them to the Inbox.
-    ///
-    /// Used for the "Send to Inbox" action in search results.
-    /// - Returns: Number of new papers added to Inbox
     @discardableResult
     public func fetchForInbox(
         query: String,
@@ -145,9 +134,6 @@ public actor PaperFetchService {
     }
 
     /// Send specific search results to the Inbox.
-    ///
-    /// Used when user selects papers from search results and clicks "Send to Inbox".
-    /// - Returns: Number of new papers added to Inbox
     @discardableResult
     public func sendToInbox(results: [SearchResult]) async -> Int {
         Logger.inbox.infoCapture("Sending \(results.count) results to Inbox", category: "fetch")
@@ -157,8 +143,6 @@ public actor PaperFetchService {
     // MARK: - Refresh All Inbox Feeds
 
     /// Refresh all smart searches that feed to the Inbox.
-    ///
-    /// - Returns: Total number of new papers added
     @discardableResult
     public func refreshAllInboxFeeds() async throws -> Int {
         Logger.inbox.infoCapture("Refreshing all Inbox feeds", category: "fetch")
@@ -166,33 +150,22 @@ public actor PaperFetchService {
         _isLoading = true
         defer { _isLoading = false }
 
-        // Fetch all smart searches with feedsToInbox enabled
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-
-        let smartSearches: [CDSmartSearch]
-        do {
-            smartSearches = try await MainActor.run {
-                try persistenceController.viewContext.fetch(request)
-            }
-        } catch {
-            Logger.inbox.errorCapture("Failed to fetch Inbox feeds: \(error)", category: "fetch")
-            throw error
+        let inboxFeeds = await withStore { store -> [SmartSearch] in
+            store.listSmartSearches().filter { $0.feedsToInbox }
         }
 
-        Logger.inbox.debugCapture("Found \(smartSearches.count) Inbox feeds to refresh", category: "fetch")
+        Logger.inbox.debugCapture("Found \(inboxFeeds.count) Inbox feeds to refresh", category: "fetch")
 
         var totalNew = 0
-        for smartSearch in smartSearches {
+        for feed in inboxFeeds {
             do {
-                let count = try await fetchForInbox(smartSearch: smartSearch)
+                let count = try await fetchForInbox(smartSearchID: feed.id)
                 totalNew += count
             } catch {
                 Logger.inbox.errorCapture(
-                    "Failed to refresh feed '\(smartSearch.name)': \(error)",
+                    "Failed to refresh feed '\(feed.name)': \(error)",
                     category: "inbox"
                 )
-                // Continue with other feeds
             }
         }
 
@@ -203,19 +176,9 @@ public actor PaperFetchService {
     // MARK: - Pipeline
 
     /// Process search results through the Inbox pipeline.
-    ///
-    /// Pipeline:
-    /// 1. Apply mute filters
-    /// 2. Deduplicate against ALL libraries (using batch identifier cache for ~350x speedup)
-    /// 3. Create new papers and add to Inbox
-    ///
-    /// ## Performance
-    /// Uses `IdentifierCache` for O(1) deduplication lookups instead of per-paper
-    /// database queries. For 500 papers this reduces time from ~35s to ~100ms.
     private func processResultsForInbox(_ results: [SearchResult]) async -> Int {
         guard !results.isEmpty else { return 0 }
 
-        // Get InboxManager on main actor
         let inboxManager = await MainActor.run { InboxManager.shared }
 
         // Filter results
@@ -224,7 +187,6 @@ public actor PaperFetchService {
         var dismissedCount = 0
 
         for result in results {
-            // Check mute filter using SearchResult overload
             let shouldFilter = await MainActor.run {
                 inboxManager.shouldFilter(result: result)
             }
@@ -235,7 +197,6 @@ public actor PaperFetchService {
                 continue
             }
 
-            // Check if previously dismissed
             let wasDismissed = await MainActor.run {
                 inboxManager.wasDismissed(result: result)
             }
@@ -251,56 +212,52 @@ public actor PaperFetchService {
 
         Logger.inbox.debugCapture(
             "After filters: \(filteredResults.count) of \(results.count) papers remain (muted: \(mutedCount), dismissed: \(dismissedCount))",
-            category: "inbox"
+            category: "fetch"
         )
 
-        // Load identifier cache for O(1) deduplication (5 batch queries instead of 5×N queries)
-        let identifierCache = IdentifierCache(persistenceController: persistenceController)
+        // Load identifier cache for O(1) deduplication
+        let identifierCache = IdentifierCache()
         await identifierCache.loadFromDatabase()
 
         // Deduplicate against ALL libraries using O(1) hash lookups
-        var newPapers: [CDPublication] = []
+        var newPaperIDs: [UUID] = []
+
+        // Get default library for import
+        let defaultLibraryId = await withStore { store -> UUID? in
+            store.getDefaultLibrary()?.id ?? store.listLibraries().first?.id
+        }
+
+        guard let libraryId = defaultLibraryId else {
+            Logger.inbox.errorCapture("No library available for import", category: "fetch")
+            return 0
+        }
 
         for result in filteredResults {
-            // O(1) check if paper exists anywhere (cross-library dedup)
             let exists = await identifierCache.exists(result)
             if exists {
                 Logger.inbox.debugCapture("Paper already exists: \(result.title)", category: "fetch")
                 continue
             }
 
-            // Create new publication
-            let publication = await repository.createFromSearchResult(result)
-            newPapers.append(publication)
+            // Create new publication via RustStoreAdapter
+            let bibtex = result.toBibTeX()
+            let importedIDs = await withStore { $0.importBibTeX(bibtex, libraryId: libraryId) }
+            newPaperIDs.append(contentsOf: importedIDs)
 
             // Update cache to prevent duplicates within this batch
-            // THREAD SAFETY: Extract identifiers on main actor before passing to cache actor
-            let identifiers = await MainActor.run {
-                (publication.doi, publication.arxivIDNormalized,
-                 publication.bibcodeNormalized, publication.semanticScholarID,
-                 publication.openAlexID)
-            }
-            await identifierCache.add(
-                doi: identifiers.0,
-                arxivID: identifiers.1,
-                bibcode: identifiers.2,
-                semanticScholarID: identifiers.3,
-                openAlexID: identifiers.4
-            )
+            await identifierCache.addFromResult(result)
         }
 
-        Logger.inbox.debugCapture("Created \(newPapers.count) new papers for Inbox", category: "fetch")
+        Logger.inbox.debugCapture("Created \(newPaperIDs.count) new papers for Inbox", category: "fetch")
 
         // Add all new papers to Inbox
-        if !newPapers.isEmpty {
+        if !newPaperIDs.isEmpty {
             await MainActor.run {
-                for paper in newPapers {
-                    inboxManager.addToInbox(paper)
-                }
+                _ = inboxManager.addToInboxBatch(newPaperIDs)
             }
         }
 
-        return newPapers.count
+        return newPaperIDs.count
     }
 }
 

@@ -2,7 +2,7 @@
 //  TreeNodeAdapters.swift
 //  PublicationManagerCore
 //
-//  Adapters that wrap Core Data models to conform to SidebarTreeNode protocol.
+//  Adapters that wrap domain models to conform to SidebarTreeNode protocol.
 //
 
 import Foundation
@@ -10,23 +10,23 @@ import ImpressSidebar
 
 // MARK: - Collection Node Adapter
 
-/// Adapter that wraps CDCollection to conform to SidebarTreeNode.
+/// Adapter that wraps CollectionModel to conform to SidebarTreeNode.
 ///
 /// This enables GenericTreeRow to render collections without modifying the
-/// Core Data model. Different contexts can use different icon logic.
+/// domain model. Different contexts can use different icon logic.
 @MainActor
 public struct CollectionNodeAdapter: SidebarTreeNode {
-    public let collection: CDCollection
+    public let collection: CollectionModel
 
     /// All collections in the tree (for sibling calculations)
-    public let allCollections: [CDCollection]
+    public let allCollections: [CollectionModel]
 
     /// Optional custom icon name (defaults to folder-based icon)
     public let customIconName: String?
 
     public init(
-        collection: CDCollection,
-        allCollections: [CDCollection] = [],
+        collection: CollectionModel,
+        allCollections: [CollectionModel] = [],
         customIconName: String? = nil
     ) {
         self.collection = collection
@@ -42,26 +42,46 @@ public struct CollectionNodeAdapter: SidebarTreeNode {
         if let custom = customIconName {
             return custom
         }
-        return collection.isSmartCollection ? "folder.badge.gearshape" : "folder"
+        return collection.isSmart ? "folder.badge.gearshape" : "folder"
     }
 
     public var displayCount: Int? {
-        let count = collection.matchingPublicationCount
+        let count = collection.publicationCount
         return count > 0 ? count : nil
     }
 
-    public var treeDepth: Int { collection.depth }
+    public var treeDepth: Int {
+        // Calculate depth from parent chain
+        var depth = 0
+        var current = collection.parentID
+        while let parentID = current {
+            depth += 1
+            current = allCollections.first(where: { $0.id == parentID })?.parentID
+        }
+        return depth
+    }
 
-    public var hasTreeChildren: Bool { collection.hasChildren }
+    public var hasTreeChildren: Bool {
+        allCollections.contains { $0.parentID == collection.id }
+    }
 
-    public var parentID: UUID? { collection.parentCollection?.id }
+    public var parentID: UUID? { collection.parentID }
 
     public var childIDs: [UUID] {
-        collection.sortedChildren.map { $0.id }
+        allCollections
+            .filter { $0.parentID == collection.id }
+            .sorted(by: { $0.sortOrder < $1.sortOrder })
+            .map(\.id)
     }
 
     public var ancestorIDs: [UUID] {
-        collection.ancestors.map { $0.id }
+        var ancestors: [UUID] = []
+        var current = collection.parentID
+        while let parentID = current {
+            ancestors.append(parentID)
+            current = allCollections.first(where: { $0.id == parentID })?.parentID
+        }
+        return ancestors
     }
 }
 
@@ -73,10 +93,10 @@ public struct CollectionNodeAdapter: SidebarTreeNode {
 /// (Refs:, Cites:, Similar:, Co-Reads:, Search:).
 @MainActor
 public struct ExplorationCollectionAdapter: SidebarTreeNode {
-    public let collection: CDCollection
-    public let allCollections: [CDCollection]
+    public let collection: CollectionModel
+    public let allCollections: [CollectionModel]
 
-    public init(collection: CDCollection, allCollections: [CDCollection] = []) {
+    public init(collection: CollectionModel, allCollections: [CollectionModel] = []) {
         self.collection = collection
         self.allCollections = allCollections
     }
@@ -96,33 +116,52 @@ public struct ExplorationCollectionAdapter: SidebarTreeNode {
     }
 
     public var displayCount: Int? {
-        let count = collection.matchingPublicationCount
+        let count = collection.publicationCount
         return count > 0 ? count : nil
     }
 
-    public var treeDepth: Int { collection.depth }
+    public var treeDepth: Int {
+        var depth = 0
+        var current = collection.parentID
+        while let parentID = current {
+            depth += 1
+            current = allCollections.first(where: { $0.id == parentID })?.parentID
+        }
+        return depth
+    }
 
-    public var hasTreeChildren: Bool { collection.hasChildren }
+    public var hasTreeChildren: Bool {
+        allCollections.contains { $0.parentID == collection.id }
+    }
 
-    public var parentID: UUID? { collection.parentCollection?.id }
+    public var parentID: UUID? { collection.parentID }
 
     public var childIDs: [UUID] {
-        collection.sortedChildren.map { $0.id }
+        allCollections
+            .filter { $0.parentID == collection.id }
+            .sorted(by: { $0.sortOrder < $1.sortOrder })
+            .map(\.id)
     }
 
     public var ancestorIDs: [UUID] {
-        collection.ancestors.map { $0.id }
+        var ancestors: [UUID] = []
+        var current = collection.parentID
+        while let parentID = current {
+            ancestors.append(parentID)
+            current = allCollections.first(where: { $0.id == parentID })?.parentID
+        }
+        return ancestors
     }
 }
 
 // MARK: - Smart Search Adapter
 
-/// Adapter for CDSmartSearch (inbox feeds, saved searches).
+/// Adapter for SmartSearch (inbox feeds, saved searches).
 @MainActor
 public struct SmartSearchNodeAdapter: SidebarTreeNode {
-    public let smartSearch: CDSmartSearch
+    public let smartSearch: SmartSearch
 
-    public init(smartSearch: CDSmartSearch) {
+    public init(smartSearch: SmartSearch) {
         self.smartSearch = smartSearch
     }
 
@@ -132,9 +171,6 @@ public struct SmartSearchNodeAdapter: SidebarTreeNode {
 
     public var iconName: String {
         // Use type-specific icons based on search characteristics
-        if smartSearch.isGroupFeed {
-            return "person.3.fill"
-        }
         if smartSearch.feedsToInbox {
             return "antenna.radiowaves.left.and.right"
         }
@@ -143,7 +179,7 @@ public struct SmartSearchNodeAdapter: SidebarTreeNode {
 
     public var displayCount: Int? {
         // Smart searches show lastFetchCount if non-zero
-        let count = Int(smartSearch.lastFetchCount)
+        let count = smartSearch.lastFetchCount
         return count > 0 ? count : nil
     }
 
@@ -160,32 +196,31 @@ public struct SmartSearchNodeAdapter: SidebarTreeNode {
 
 // MARK: - Library Node Adapter
 
-/// Adapter for CDLibrary (library headers in sidebar).
+/// Adapter for LibraryModel (library headers in sidebar).
 @MainActor
 public struct LibraryNodeAdapter: SidebarTreeNode {
-    public let library: CDLibrary
+    public let library: LibraryModel
 
     /// Whether this library header has child content (collections, smart searches)
     public let hasChildren: Bool
 
-    public init(library: CDLibrary, hasChildren: Bool = false) {
+    public init(library: LibraryModel, hasChildren: Bool = false) {
         self.library = library
         self.hasChildren = hasChildren
     }
 
     public var id: UUID { library.id }
 
-    public var displayName: String { library.displayName }
+    public var displayName: String { library.name }
 
     public var iconName: String {
         if library.isInbox { return "tray" }
-        if library.isSystemLibrary { return "book.closed" }
-        if library.isDismissedLibrary { return "archivebox" }
+        if library.isDefault { return "book.closed" }
         return "books.vertical"
     }
 
     public var displayCount: Int? {
-        let count = library.publications?.count ?? 0
+        let count = library.publicationCount
         return count > 0 ? count : nil
     }
 
@@ -202,23 +237,23 @@ public struct LibraryNodeAdapter: SidebarTreeNode {
 
 // MARK: - SciX Library Adapter
 
-/// Adapter for CDSciXLibrary (NASA ADS/SciX online libraries).
+/// Adapter for SciXLibrary (NASA ADS/SciX online libraries).
 @MainActor
 public struct SciXLibraryNodeAdapter: SidebarTreeNode {
-    public let scixLibrary: CDSciXLibrary
+    public let scixLibrary: SciXLibrary
 
-    public init(scixLibrary: CDSciXLibrary) {
+    public init(scixLibrary: SciXLibrary) {
         self.scixLibrary = scixLibrary
     }
 
     public var id: UUID { scixLibrary.id }
 
-    public var displayName: String { scixLibrary.name ?? "SciX Library" }
+    public var displayName: String { scixLibrary.name }
 
     public var iconName: String { "cloud" }
 
     public var displayCount: Int? {
-        let count = scixLibrary.publications?.count ?? 0
+        let count = scixLibrary.publicationCount
         return count > 0 ? count : nil
     }
 
@@ -235,8 +270,8 @@ public struct SciXLibraryNodeAdapter: SidebarTreeNode {
 
 // MARK: - Tree Building Helpers
 
-/// Extension providing helper methods for building adapter arrays from Core Data.
-public extension Array where Element == CDCollection {
+/// Extension providing helper methods for building adapter arrays from domain models.
+public extension Array where Element == CollectionModel {
     /// Convert to CollectionNodeAdapters for library collections.
     @MainActor
     func asCollectionAdapters() -> [CollectionNodeAdapter] {

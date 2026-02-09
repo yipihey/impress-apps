@@ -239,6 +239,17 @@ public struct RenderOutput {
     public var isSuccess: Bool { errors.isEmpty }
 }
 
+/// SVG render output — one SVG string per page
+public struct SVGRenderOutput {
+    public var svgPages: [String]
+    public var pageCount: Int
+    public var warnings: [String]
+    public var errors: [String]
+    public var sourceMapEntries: [SourceMapEntry]
+
+    public var isSuccess: Bool { errors.isEmpty }
+}
+
 // MARK: - Source Map Types (ADR-004)
 
 /// A source map entry linking source positions to rendered positions
@@ -485,6 +496,58 @@ public actor TypstRenderer {
         // Use real Typst renderer via Rust FFI
         log("[ImprintCore] Using Rust Typst renderer")
         return try await renderWithRust(source, options: options)
+    }
+
+    /// Render Typst source to SVG (one SVG string per page)
+    ///
+    /// Uses the persistent Rust renderer for incremental compilation.
+    /// Returns per-page SVG strings for faster preview updates on long documents.
+    public func renderSVG(_ source: String, options: RenderOptions = RenderOptions()) async throws -> SVGRenderOutput {
+        log("[ImprintCore] renderSVG called with source length: \(source.count)")
+
+        let ffiPageSize: ImprintRustCore.FfiPageSize
+        switch options.pageSize {
+        case .a4: ffiPageSize = .a4
+        case .letter: ffiPageSize = .letter
+        case .a5: ffiPageSize = .a5
+        }
+
+        let compileOptions = ImprintRustCore.CompileOptions(
+            pageSize: ffiPageSize,
+            fontSize: 11.0,
+            marginTop: 72.0,
+            marginRight: 72.0,
+            marginBottom: 72.0,
+            marginLeft: 72.0
+        )
+
+        let result = await Task.detached(priority: .userInitiated) {
+            return ImprintRustCore.compileTypstToSvg(source: source, options: compileOptions)
+        }.value
+
+        log("[ImprintCore] SVG compilation complete. Error: \(result.error ?? "none"), Pages: \(result.svgPages.count)")
+
+        let sourceMapEntries = Self.generateSourceMapEntries(source: source, options: options)
+
+        if let error = result.error {
+            log("[ImprintCore] SVG compilation error: \(error)")
+            return SVGRenderOutput(
+                svgPages: [],
+                pageCount: 0,
+                warnings: result.warnings,
+                errors: [error],
+                sourceMapEntries: []
+            )
+        }
+
+        log("[ImprintCore] SVG generated successfully, \(result.svgPages.count) pages")
+        return SVGRenderOutput(
+            svgPages: result.svgPages,
+            pageCount: Int(result.pageCount),
+            warnings: result.warnings,
+            errors: [],
+            sourceMapEntries: sourceMapEntries
+        )
     }
 
     private func log(_ message: String) {

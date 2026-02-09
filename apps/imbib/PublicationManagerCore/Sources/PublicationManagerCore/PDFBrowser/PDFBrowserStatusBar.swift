@@ -266,7 +266,7 @@ struct PDFBrowserStatusBar_Previews: PreviewProvider {
         VStack {
             Text("PDFBrowserStatusBar Preview")
                 .font(.headline)
-            Text("(Requires mock CDPublication)")
+            Text("(Requires mock data)")
                 .foregroundStyle(.secondary)
         }
         .frame(width: 600, height: 100)

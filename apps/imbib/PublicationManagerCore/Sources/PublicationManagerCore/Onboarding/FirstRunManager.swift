@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Reset Result
@@ -51,13 +50,11 @@ public final class FirstRunManager {
 
     // MARK: - Dependencies
 
-    private let persistenceController: PersistenceController
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - Initialization
 
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-    }
+    public init() {}
 
     // MARK: - First Run Detection
 
@@ -67,17 +64,8 @@ public final class FirstRunManager {
     /// - Fresh install
     /// - After a reset to first-run state
     public var isFirstRun: Bool {
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.fetchLimit = 1
-
-        do {
-            let count = try context.count(for: request)
-            return count == 0
-        } catch {
-            Logger.library.errorCapture("Failed to check library count: \(error.localizedDescription)", category: "firstrun")
-            return false
-        }
+        let libraries = store.listLibraries()
+        return libraries.isEmpty
     }
 
     // MARK: - Reset to First Run
@@ -86,10 +74,10 @@ public final class FirstRunManager {
     ///
     /// This method:
     /// 1. Purges CloudKit zone (removes all synced data from iCloud)
-    /// 2. Deletes all Core Data entities (publications, libraries, collections, etc.)
-    /// 3. Clears UserDefaults (AppStateStore, ListViewStateStore, ReadingPositionStore, etc.)
-    /// 4. Deletes Papers folder contents
-    /// 5. Invalidates singleton caches (InboxManager, etc.)
+    /// 2. Clears UserDefaults (AppStateStore, ListViewStateStore, ReadingPositionStore, etc.)
+    /// 3. Deletes Papers folder contents
+    /// 4. Invalidates singleton caches (InboxManager, etc.)
+    /// 5. Sets pending reset flag for store file deletion on next launch
     /// 6. Preserves Keychain API keys (intentionally kept for re-testing with same credentials)
     ///
     /// After calling this, the app will behave as if freshly installed on next launch.
@@ -138,9 +126,8 @@ public final class FirstRunManager {
         // 6. Invalidate singleton caches
         invalidateSingletonCaches()
 
-        // Note: We do NOT delete Core Data entities here - the running container would
-        // just sync them back from CloudKit. Instead, the pendingReset flag ensures
-        // store files are deleted on next launch BEFORE the container loads.
+        // Note: We do NOT delete Rust store data here - the pendingReset flag ensures
+        // store files are deleted on next launch BEFORE the store loads.
 
         Logger.library.infoCapture("Reset phase 1 complete - app must restart to finish", category: "firstrun")
 
@@ -153,7 +140,7 @@ public final class FirstRunManager {
 
     /// Invalidate cached state in singleton managers and notify others.
     ///
-    /// This prevents stale Core Data references from causing issues
+    /// This prevents stale references from causing issues
     /// when the app re-initializes after reset.
     private func invalidateSingletonCaches() {
         // Clear InboxManager singleton cache
@@ -163,51 +150,6 @@ public final class FirstRunManager {
         NotificationCenter.default.post(name: .appDidResetToFirstRun, object: nil)
 
         Logger.library.debugCapture("Invalidated singleton caches and posted reset notification", category: "firstrun")
-    }
-
-    // MARK: - Core Data Deletion
-
-    /// Delete all Core Data entities.
-    private func deleteAllCoreDataEntities() async throws {
-        let context = persistenceController.viewContext
-
-        // Entity names to delete (in dependency order to avoid constraint violations)
-        let entityNames = [
-            "Annotation",
-            "LinkedFile",
-            "PublicationAuthor",
-            "Publication",
-            "SmartSearch",
-            "Collection",
-            "Library",
-            "Author",
-            "Tag",
-            "AttachmentTag",
-            "MutedItem",
-            "DismissedPaper",
-            "SciXPendingChange",
-            "SciXLibrary",
-        ]
-
-        for entityName in entityNames {
-            let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
-            fetchRequest.includesPropertyValues = false
-
-            do {
-                let objects = try context.fetch(fetchRequest)
-                for object in objects {
-                    context.delete(object)
-                }
-                Logger.library.debugCapture("Deleted \(objects.count) \(entityName) entities", category: "firstrun")
-            } catch {
-                Logger.library.errorCapture("Failed to delete \(entityName) entities: \(error.localizedDescription)", category: "firstrun")
-                // Continue with other entities even if one fails
-            }
-        }
-
-        // Save the context
-        persistenceController.save()
-        Logger.library.infoCapture("Deleted all Core Data entities", category: "firstrun")
     }
 
     // MARK: - UserDefaults Clearing
@@ -301,14 +243,11 @@ public final class FirstRunManager {
 
 public enum FirstRunError: LocalizedError {
     case resetFailed(Error)
-    case coreDataDeletionFailed(Error)
 
     public var errorDescription: String? {
         switch self {
         case .resetFailed(let error):
             return "Failed to reset to first-run state: \(error.localizedDescription)"
-        case .coreDataDeletionFailed(let error):
-            return "Failed to delete Core Data entities: \(error.localizedDescription)"
         }
     }
 }
@@ -318,6 +257,6 @@ public enum FirstRunError: LocalizedError {
 public extension Notification.Name {
     /// Posted when the app has been reset to first-run state.
     ///
-    /// Observers should invalidate any cached Core Data references.
+    /// Observers should invalidate any cached references.
     static let appDidResetToFirstRun = Notification.Name("appDidResetToFirstRun")
 }

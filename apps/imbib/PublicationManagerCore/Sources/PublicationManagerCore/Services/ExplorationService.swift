@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Exploration Service
@@ -14,15 +13,14 @@ import OSLog
 /// Service for exploring paper references and citations.
 ///
 /// Creates collections in the Exploration library when exploring a paper's
-/// references or citations. Papers are imported as CDPublication entities,
+/// references or citations. Papers are imported as publications via BibTeX,
 /// enabling full list view, info tab, and PDF download functionality.
 ///
 /// ## Usage
 ///
 /// ```swift
-/// let collection = try await ExplorationService.shared.exploreReferences(
-///     of: publication,
-///     parentCollection: existingCollection
+/// let collectionID = try await ExplorationService.shared.exploreReferences(
+///     of: publicationID
 /// )
 /// ```
 @MainActor
@@ -34,9 +32,9 @@ public final class ExplorationService {
 
     // MARK: - Dependencies
 
-    private let persistenceController: PersistenceController
     private var libraryManager: LibraryManager
     private var enrichmentService: EnrichmentService?
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     // MARK: - State
 
@@ -46,20 +44,16 @@ public final class ExplorationService {
     /// Current error if exploration failed
     public private(set) var error: Error?
 
-    /// Current exploration context - the collection the user is currently viewing.
+    /// Current exploration context -- the collection the user is currently viewing.
     /// When set, new explorations will be created as children of this collection.
-    public var currentExplorationContext: CDCollection?
+    public var currentExplorationCollectionID: UUID?
 
     // MARK: - Initialization
 
     public init(
-        persistenceController: PersistenceController = .shared,
         libraryManager: LibraryManager? = nil
     ) {
-        self.persistenceController = persistenceController
-        // LibraryManager needs to be injected later via setLibraryManager
-        // since it may not be available during initialization
-        self.libraryManager = libraryManager ?? LibraryManager(persistenceController: persistenceController)
+        self.libraryManager = libraryManager ?? LibraryManager()
     }
 
     /// Set the enrichment service (called from coordinator after environment setup)
@@ -80,22 +74,25 @@ public final class ExplorationService {
     /// in the Exploration library containing them.
     ///
     /// - Parameters:
-    ///   - publication: The publication to explore references for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
-    ///                       If nil, uses `currentExplorationContext` if set.
-    /// - Returns: The created collection containing referenced papers
+    ///   - publicationID: The UUID of the publication to explore references for
+    ///   - parentCollectionID: Optional parent collection for drill-down hierarchy.
+    ///                         If nil, uses `currentExplorationCollectionID` if set.
+    /// - Returns: The UUID of the created collection containing referenced papers
     /// - Throws: ExplorationError if exploration fails
+    @discardableResult
     public func exploreReferences(
-        of publication: CDPublication,
-        parentCollection: CDCollection? = nil
-    ) async throws -> CDCollection {
-        // Use explicit parent, or fall back to current context
-        let effectiveParent = parentCollection ?? currentExplorationContext
-        Logger.viewModels.info("ExplorationService: exploring references of \(publication.citeKey)")
+        of publicationID: UUID,
+        parentCollectionID: UUID? = nil
+    ) async throws -> UUID {
+        let effectiveParentID = parentCollectionID ?? currentExplorationCollectionID
+        guard let pub = store.getPublicationDetail(id: publicationID) else {
+            throw ExplorationError.noIdentifiers
+        }
+
+        Logger.viewModels.info("ExplorationService: exploring references of \(pub.citeKey)")
 
         isExploring = true
         error = nil
-
         defer { isExploring = false }
 
         guard let service = enrichmentService else {
@@ -104,15 +101,13 @@ public final class ExplorationService {
             throw err
         }
 
-        // Get identifiers for enrichment
-        let identifiers = publication.allIdentifiers
+        let identifiers = pub.allIdentifiers
         guard !identifiers.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Fetch enrichment data (which includes references)
         let result = try await service.enrichNow(identifiers: identifiers)
 
         guard let references = result.data.references, !references.isEmpty else {
@@ -121,56 +116,36 @@ public final class ExplorationService {
             throw err
         }
 
-        // Create collection name
-        let collectionName = formatCollectionName("Refs", publication: publication)
+        let collectionName = formatCollectionName("Refs", pub: pub)
 
-        // Create collection and import papers
-        let collection = try await createExplorationCollection(
+        let collectionID = try createExplorationCollection(
             name: collectionName,
             papers: references,
-            parentCollection: effectiveParent
+            parentCollectionID: effectiveParentID
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(references.count) papers, parent=\(effectiveParent?.name ?? "none")")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(references.count) papers")
 
-        // Post notification for sidebar navigation with first publication for auto-selection
-        let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
-        NotificationCenter.default.post(
-            name: .navigateToCollection,
-            object: nil,
-            userInfo: [
-                "collection": collection,
-                "firstPublicationID": firstPubID as Any
-            ]
-        )
+        postNavigationNotification(collectionID: collectionID)
 
-        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
-
-        return collection
+        return collectionID
     }
 
     /// Explore citations of a publication.
-    ///
-    /// Fetches the papers that cite this publication and creates a collection
-    /// in the Exploration library containing them.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to explore citations for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
-    ///                       If nil, uses `currentExplorationContext` if set.
-    /// - Returns: The created collection containing citing papers
-    /// - Throws: ExplorationError if exploration fails
+    @discardableResult
     public func exploreCitations(
-        of publication: CDPublication,
-        parentCollection: CDCollection? = nil
-    ) async throws -> CDCollection {
-        // Use explicit parent, or fall back to current context
-        let effectiveParent = parentCollection ?? currentExplorationContext
-        Logger.viewModels.info("ExplorationService: exploring citations of \(publication.citeKey)")
+        of publicationID: UUID,
+        parentCollectionID: UUID? = nil
+    ) async throws -> UUID {
+        let effectiveParentID = parentCollectionID ?? currentExplorationCollectionID
+        guard let pub = store.getPublicationDetail(id: publicationID) else {
+            throw ExplorationError.noIdentifiers
+        }
+
+        Logger.viewModels.info("ExplorationService: exploring citations of \(pub.citeKey)")
 
         isExploring = true
         error = nil
-
         defer { isExploring = false }
 
         guard let service = enrichmentService else {
@@ -179,15 +154,13 @@ public final class ExplorationService {
             throw err
         }
 
-        // Get identifiers for enrichment
-        let identifiers = publication.allIdentifiers
+        let identifiers = pub.allIdentifiers
         guard !identifiers.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Fetch enrichment data (which includes citations)
         let result = try await service.enrichNow(identifiers: identifiers)
 
         guard let citations = result.data.citations, !citations.isEmpty else {
@@ -196,87 +169,62 @@ public final class ExplorationService {
             throw err
         }
 
-        // Create collection name
-        let collectionName = formatCollectionName("Cites", publication: publication)
+        let collectionName = formatCollectionName("Cites", pub: pub)
 
-        // Create collection and import papers
-        let collection = try await createExplorationCollection(
+        let collectionID = try createExplorationCollection(
             name: collectionName,
             papers: citations,
-            parentCollection: effectiveParent
+            parentCollectionID: effectiveParentID
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(citations.count) papers, parent=\(effectiveParent?.name ?? "none")")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(citations.count) papers")
 
-        // Post notification for sidebar navigation with first publication for auto-selection
-        let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
-        NotificationCenter.default.post(
-            name: .navigateToCollection,
-            object: nil,
-            userInfo: [
-                "collection": collection,
-                "firstPublicationID": firstPubID as Any
-            ]
-        )
+        postNavigationNotification(collectionID: collectionID)
 
-        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
-
-        return collection
+        return collectionID
     }
 
     /// Explore papers similar to a publication (by content).
-    ///
-    /// Fetches papers with similar content using ADS `similar()` operator
-    /// and creates a collection in the Exploration library containing them.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to find similar papers for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
-    ///                       If nil, uses `currentExplorationContext` if set.
-    /// - Returns: The created collection containing similar papers
-    /// - Throws: ExplorationError if exploration fails
+    @discardableResult
     public func exploreSimilar(
-        of publication: CDPublication,
-        parentCollection: CDCollection? = nil
-    ) async throws -> CDCollection {
-        // Use explicit parent, or fall back to current context
-        let effectiveParent = parentCollection ?? currentExplorationContext
-        Logger.viewModels.info("ExplorationService: exploring similar papers for \(publication.citeKey)")
+        of publicationID: UUID,
+        parentCollectionID: UUID? = nil
+    ) async throws -> UUID {
+        let effectiveParentID = parentCollectionID ?? currentExplorationCollectionID
+        guard let pub = store.getPublicationDetail(id: publicationID) else {
+            throw ExplorationError.noIdentifiers
+        }
+
+        Logger.viewModels.info("ExplorationService: exploring similar papers for \(pub.citeKey)")
 
         isExploring = true
         error = nil
-
         defer { isExploring = false }
 
-        // Use enrichment service to resolve bibcode (same as references/citations)
         guard let service = enrichmentService else {
             let err = ExplorationError.notConfigured
             error = err
             throw err
         }
 
-        // Get identifiers for enrichment
-        let identifiers = publication.allIdentifiers
+        let identifiers = pub.allIdentifiers
         guard !identifiers.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Enrich to get resolved bibcode
         let result = try await service.enrichNow(identifiers: identifiers)
 
-        // Get bibcode from enrichment result or publication
         guard let bibcode = result.resolvedIdentifiers[.bibcode]
-                ?? publication.bibcode
-                ?? publication.fields["bibcode"],
+                ?? pub.bibcode
+                ?? pub.fields["bibcode"],
               !bibcode.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Fetch similar papers via ADS
         let adsSource = ADSSource()
         let similar = try await adsSource.fetchSimilar(bibcode: bibcode)
         guard !similar.isEmpty else {
@@ -285,62 +233,43 @@ public final class ExplorationService {
             throw err
         }
 
-        let collectionName = formatCollectionName("Similar", publication: publication)
-        let collection = try await createExplorationCollection(
+        let collectionName = formatCollectionName("Similar", pub: pub)
+        let collectionID = try createExplorationCollection(
             name: collectionName,
             papers: similar,
-            parentCollection: effectiveParent
+            parentCollectionID: effectiveParentID
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(similar.count) papers, parent=\(effectiveParent?.name ?? "none")")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(similar.count) papers")
 
-        // Post notification for sidebar navigation with first publication for auto-selection
-        let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
-        NotificationCenter.default.post(
-            name: .navigateToCollection,
-            object: nil,
-            userInfo: [
-                "collection": collection,
-                "firstPublicationID": firstPubID as Any
-            ]
-        )
-        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+        postNavigationNotification(collectionID: collectionID)
 
-        return collection
+        return collectionID
     }
 
-    /// Explore papers related to this publication via Web of Science co-citation analysis.
-    ///
-    /// Fetches papers related through shared citations using WoS `related` endpoint
-    /// and creates a collection in the Exploration library containing them.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to find related papers for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
-    ///                       If nil, uses `currentExplorationContext` if set.
-    /// - Returns: The created collection containing related papers
-    /// - Throws: ExplorationError if exploration fails
+    /// Explore papers related via Web of Science co-citation analysis.
+    @discardableResult
     public func exploreWoSRelated(
-        of publication: CDPublication,
-        parentCollection: CDCollection? = nil
-    ) async throws -> CDCollection {
-        // Use explicit parent, or fall back to current context
-        let effectiveParent = parentCollection ?? currentExplorationContext
-        Logger.viewModels.info("ExplorationService: exploring WoS related records for \(publication.citeKey)")
+        of publicationID: UUID,
+        parentCollectionID: UUID? = nil
+    ) async throws -> UUID {
+        let effectiveParentID = parentCollectionID ?? currentExplorationCollectionID
+        guard let pub = store.getPublicationDetail(id: publicationID) else {
+            throw ExplorationError.noIdentifiers
+        }
+
+        Logger.viewModels.info("ExplorationService: exploring WoS related records for \(pub.citeKey)")
 
         isExploring = true
         error = nil
-
         defer { isExploring = false }
 
-        // Get DOI for WoS lookup
-        guard let doi = publication.doi, !doi.isEmpty else {
+        guard let doi = pub.doi, !doi.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Fetch related records via WoS
         let wosSource = WoSSource()
         let related = try await wosSource.fetchRelatedRecords(doi: doi)
 
@@ -350,84 +279,62 @@ public final class ExplorationService {
             throw err
         }
 
-        let collectionName = formatCollectionName("WoS Related", publication: publication)
-        let collection = try await createExplorationCollection(
+        let collectionName = formatCollectionName("WoS Related", pub: pub)
+        let collectionID = try createExplorationCollection(
             name: collectionName,
             papers: related,
-            parentCollection: effectiveParent,
+            parentCollectionID: effectiveParentID,
             enrichmentSource: "wos"
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(related.count) papers, parent=\(effectiveParent?.name ?? "none")")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(related.count) papers")
 
-        // Post notification for sidebar navigation with first publication for auto-selection
-        let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
-        NotificationCenter.default.post(
-            name: .navigateToCollection,
-            object: nil,
-            userInfo: [
-                "collection": collection,
-                "firstPublicationID": firstPubID as Any
-            ]
-        )
-        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+        postNavigationNotification(collectionID: collectionID)
 
-        return collection
+        return collectionID
     }
 
     /// Explore papers frequently co-read with this publication.
-    ///
-    /// Fetches papers that readers commonly view together using ADS `trending()` operator
-    /// and creates a collection in the Exploration library containing them.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to find co-reads for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
-    ///                       If nil, uses `currentExplorationContext` if set.
-    /// - Returns: The created collection containing co-read papers
-    /// - Throws: ExplorationError if exploration fails
+    @discardableResult
     public func exploreCoReads(
-        of publication: CDPublication,
-        parentCollection: CDCollection? = nil
-    ) async throws -> CDCollection {
-        // Use explicit parent, or fall back to current context
-        let effectiveParent = parentCollection ?? currentExplorationContext
-        Logger.viewModels.info("ExplorationService: exploring co-reads for \(publication.citeKey)")
+        of publicationID: UUID,
+        parentCollectionID: UUID? = nil
+    ) async throws -> UUID {
+        let effectiveParentID = parentCollectionID ?? currentExplorationCollectionID
+        guard let pub = store.getPublicationDetail(id: publicationID) else {
+            throw ExplorationError.noIdentifiers
+        }
+
+        Logger.viewModels.info("ExplorationService: exploring co-reads for \(pub.citeKey)")
 
         isExploring = true
         error = nil
-
         defer { isExploring = false }
 
-        // Use enrichment service to resolve bibcode (same as references/citations)
         guard let service = enrichmentService else {
             let err = ExplorationError.notConfigured
             error = err
             throw err
         }
 
-        // Get identifiers for enrichment
-        let identifiers = publication.allIdentifiers
+        let identifiers = pub.allIdentifiers
         guard !identifiers.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Enrich to get resolved bibcode
         let result = try await service.enrichNow(identifiers: identifiers)
 
-        // Get bibcode from enrichment result or publication
         guard let bibcode = result.resolvedIdentifiers[.bibcode]
-                ?? publication.bibcode
-                ?? publication.fields["bibcode"],
+                ?? pub.bibcode
+                ?? pub.fields["bibcode"],
               !bibcode.isEmpty else {
             let err = ExplorationError.noIdentifiers
             error = err
             throw err
         }
 
-        // Fetch co-reads via ADS
         let adsSource = ADSSource()
         let coReads = try await adsSource.fetchCoReads(bibcode: bibcode)
         guard !coReads.isEmpty else {
@@ -436,172 +343,104 @@ public final class ExplorationService {
             throw err
         }
 
-        let collectionName = formatCollectionName("Co-Reads", publication: publication)
-        let collection = try await createExplorationCollection(
+        let collectionName = formatCollectionName("Co-Reads", pub: pub)
+        let collectionID = try createExplorationCollection(
             name: collectionName,
             papers: coReads,
-            parentCollection: effectiveParent
+            parentCollectionID: effectiveParentID
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(coReads.count) papers, parent=\(effectiveParent?.name ?? "none")")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(coReads.count) papers")
 
-        // Post notification for sidebar navigation with first publication for auto-selection
-        let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
-        NotificationCenter.default.post(
-            name: .navigateToCollection,
-            object: nil,
-            userInfo: [
-                "collection": collection,
-                "firstPublicationID": firstPubID as Any
-            ]
-        )
-        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+        postNavigationNotification(collectionID: collectionID)
 
-        return collection
+        return collectionID
     }
 
     // MARK: - Private Helpers
 
-    /// Fetch similar papers via ADS, resolving bibcode first if needed
-    private func fetchSimilarViaADS(identifiers: [IdentifierType: String]) async throws -> [PaperStub] {
-        let adsSource = ADSSource()
-        // First resolve bibcode
-        let resolved = try await adsSource.resolveIdentifier(from: identifiers)
-        guard let bibcodeQuery = resolved[IdentifierType.bibcode] else {
-            throw ExplorationError.noIdentifiers
-        }
-
-        // Fetch similar using resolved bibcode query
-        return try await adsSource.fetchSimilar(bibcode: bibcodeQuery)
-    }
-
-    /// Fetch co-reads via ADS, resolving bibcode first if needed
-    private func fetchCoReadsViaADS(identifiers: [IdentifierType: String]) async throws -> [PaperStub] {
-        let adsSource = ADSSource()
-        // First resolve bibcode
-        let resolved = try await adsSource.resolveIdentifier(from: identifiers)
-        guard let bibcodeQuery = resolved[IdentifierType.bibcode] else {
-            throw ExplorationError.noIdentifiers
-        }
-
-        // Fetch co-reads using resolved bibcode query
-        return try await adsSource.fetchCoReads(bibcode: bibcodeQuery)
-    }
-
     /// Format a collection name from a publication
-    private func formatCollectionName(_ prefix: String, publication: CDPublication) -> String {
-        let firstAuthor = publication.sortedAuthors.first?.familyName
-            ?? publication.authorString.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
+    private func formatCollectionName(_ prefix: String, pub: PublicationModel) -> String {
+        let firstAuthor = pub.authors.first?.familyName
+            ?? pub.authorString.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
             ?? "Unknown"
 
-        if publication.year > 0 {
-            return "\(prefix): \(firstAuthor) (\(publication.year))"
+        if let year = pub.year, year > 0 {
+            return "\(prefix): \(firstAuthor) (\(year))"
         } else {
             return "\(prefix): \(firstAuthor)"
         }
     }
 
-    /// Create an exploration collection and import papers into it
+    /// Create an exploration collection and import papers into it via BibTeX.
     private func createExplorationCollection(
         name: String,
         papers: [PaperStub],
-        parentCollection: CDCollection?,
+        parentCollectionID: UUID?,
         enrichmentSource: String = "ads"
-    ) async throws -> CDCollection {
-        let context = persistenceController.viewContext
-
+    ) throws -> UUID {
         // Get or create exploration library
-        let library = libraryManager.getOrCreateExplorationLibrary()
+        let explorationModel = libraryManager.getOrCreateExplorationLibrary()
 
         // Create collection
-        let collection = CDCollection(context: context)
-        collection.id = UUID()
-        collection.name = name
-        collection.isSystemCollection = false
-        collection.isSmartCollection = false
-        collection.isSmartSearchResults = false
-        collection.library = library
-        collection.parentCollection = parentCollection
-        collection.dateCreated = Date()
-
-        // Import papers - they already have citation/reference counts from the source
-        for stub in papers {
-            let publication = createPublication(from: stub, context: context, enrichmentSource: enrichmentSource)
-            publication.addToCollection(collection)
-            publication.addToLibrary(library)
+        guard let collection = store.createCollection(
+            name: name,
+            libraryId: explorationModel.id
+        ) else {
+            throw ExplorationError.notConfigured
         }
 
-        persistenceController.save()
+        // Import papers as BibTeX entries
+        var importedIDs: [UUID] = []
+        for stub in papers {
+            let bibtex = buildBibTeX(from: stub, enrichmentSource: enrichmentSource)
+            let ids = store.importBibTeX(bibtex, libraryId: explorationModel.id)
+            importedIDs.append(contentsOf: ids)
+        }
 
-        // Note: No enrichment queueing needed - papers from exploration already have
-        // citation counts and reference counts from the source
+        // Add all imported publications to the collection
+        if !importedIDs.isEmpty {
+            store.addToCollection(publicationIds: importedIDs, collectionId: collection.id)
+        }
 
-        return collection
+        return collection.id
     }
 
-    /// Create a CDPublication from a PaperStub
-    private func createPublication(from stub: PaperStub, context: NSManagedObjectContext, enrichmentSource: String = "ads") -> CDPublication {
-        let pub = CDPublication(context: context)
-        pub.id = UUID()
-        pub.citeKey = generateCiteKey(from: stub)
-        pub.entryType = "article"
-        pub.title = stub.title
-        pub.year = Int16(stub.year ?? 0)
-        pub.dateAdded = Date()
-        pub.dateModified = Date()
+    /// Build a BibTeX entry string from a PaperStub.
+    private func buildBibTeX(from stub: PaperStub, enrichmentSource: String) -> String {
+        let citeKey = generateCiteKey(from: stub)
+        var fields: [String] = []
 
-        // Store abstract if available
-        if let abstract = stub.abstract {
-            pub.abstract = abstract
-        }
+        fields.append("  title = {\(stub.title)}")
 
-        // Store identifiers in fields
-        var fields: [String: String] = [:]
-
-        // Store authors only if non-empty
         if !stub.authors.isEmpty {
-            fields["author"] = stub.authors.joined(separator: " and ")
+            fields.append("  author = {\(stub.authors.joined(separator: " and "))}")
         }
-
+        if let year = stub.year {
+            fields.append("  year = {\(year)}")
+        }
         if let venue = stub.venue {
-            fields["journal"] = venue
+            fields.append("  journal = {\(venue)}")
         }
         if let doi = stub.doi {
-            pub.doi = doi
-            fields["doi"] = doi
+            fields.append("  doi = {\(doi)}")
         }
         if let arxiv = stub.arxivID {
-            fields["eprint"] = arxiv
+            fields.append("  eprint = {\(arxiv)}")
+        }
+        if let abstract = stub.abstract {
+            let escaped = abstract.replacingOccurrences(of: "{", with: "\\{").replacingOccurrences(of: "}", with: "\\}")
+            fields.append("  abstract = {\(escaped)}")
         }
 
-        // Store bibcode (stub.id may be the ADS bibcode or WoS UT)
-        // This enables further enrichment and lookups
+        // Store source-specific identifier
         if enrichmentSource == "ads" {
-            fields["bibcode"] = stub.id
+            fields.append("  bibcode = {\(stub.id)}")
         } else if enrichmentSource == "wos" {
-            fields["wos-ut"] = stub.id
+            fields.append("  wos-ut = {\(stub.id)}")
         }
 
-        pub.fields = fields
-
-        // Store citation count if available
-        if let count = stub.citationCount {
-            pub.citationCount = Int32(count)
-        }
-
-        // Store reference count if available
-        if let count = stub.referenceCount {
-            pub.referenceCount = Int32(count)
-        }
-
-        // Mark as enriched since we have counts from the source
-        // This prevents unnecessary re-enrichment
-        if stub.citationCount != nil || stub.referenceCount != nil {
-            pub.enrichmentDate = Date()
-            pub.enrichmentSource = enrichmentSource
-        }
-
-        return pub
+        return "@article{\(citeKey),\n\(fields.joined(separator: ",\n"))\n}"
     }
 
     /// Generate a cite key from a PaperStub
@@ -621,6 +460,24 @@ public final class ExplorationService {
             ?? ""
 
         return "\(firstAuthor)\(year)\(titleWord)"
+    }
+
+    /// Post navigation notification for sidebar.
+    private func postNavigationNotification(collectionID: UUID) {
+        // Get first publication in the collection for auto-selection
+        let members = store.listCollectionMembers(collectionId: collectionID, limit: 1)
+        let firstPubID = members.first?.id
+
+        NotificationCenter.default.post(
+            name: .navigateToCollection,
+            object: nil,
+            userInfo: [
+                "collectionID": collectionID,
+                "firstPublicationID": firstPubID as Any
+            ]
+        )
+
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
     }
 }
 
@@ -655,29 +512,5 @@ public enum ExplorationError: LocalizedError {
         case .enrichmentFailed(let error):
             return "Failed to fetch data: \(error.localizedDescription)"
         }
-    }
-}
-
-// MARK: - CDPublication Extension
-
-extension CDPublication {
-    /// Get all identifiers for this publication
-    public var allIdentifiers: [IdentifierType: String] {
-        var identifiers: [IdentifierType: String] = [:]
-
-        if let doi = doi, !doi.isEmpty {
-            identifiers[.doi] = doi
-        }
-        if let arxiv = arxivID, !arxiv.isEmpty {
-            identifiers[.arxiv] = arxiv
-        }
-        if let bibcode = bibcode, !bibcode.isEmpty {
-            identifiers[.bibcode] = bibcode
-        }
-        if let pmid = pmid, !pmid.isEmpty {
-            identifiers[.pmid] = pmid
-        }
-
-        return identifiers
     }
 }

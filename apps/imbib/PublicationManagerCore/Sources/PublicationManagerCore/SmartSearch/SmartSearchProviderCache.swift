@@ -2,19 +2,17 @@
 //  SmartSearchProviderCache.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-07.
+//  Caches SmartSearchProvider instances to avoid re-fetching when switching views.
 //
 
 import Foundation
-import CoreData
 
 // MARK: - Smart Search Provider Cache
 
 /// Caches SmartSearchProvider instances to avoid re-fetching when switching between views.
 ///
 /// This cache is actor-isolated for thread safety and stores providers keyed by
-/// the smart search UUID. When a smart search is edited, call `invalidate` to
-/// clear the cached provider.
+/// the smart search UUID.
 public actor SmartSearchProviderCache {
     public static let shared = SmartSearchProviderCache()
 
@@ -24,17 +22,15 @@ public actor SmartSearchProviderCache {
 
     /// Get an existing provider or create a new one for the smart search.
     public func getOrCreate(
-        for smartSearch: CDSmartSearch,
-        sourceManager: SourceManager,
-        repository: PublicationRepository
+        for smartSearch: SmartSearch,
+        sourceManager: SourceManager
     ) -> SmartSearchProvider {
         if let existing = providers[smartSearch.id] {
             return existing
         }
         let provider = SmartSearchProvider(
             from: smartSearch,
-            sourceManager: sourceManager,
-            repository: repository
+            sourceManager: sourceManager
         )
         providers[smartSearch.id] = provider
         return provider
@@ -52,42 +48,28 @@ public actor SmartSearchProviderCache {
 
     /// Get or create a provider by smart search ID.
     ///
-    /// This variant fetches the CDSmartSearch internally on the main actor, making it safe
-    /// to call from non-main-actor contexts. Returns nil if the smart search doesn't exist.
-    ///
-    /// - Parameters:
-    ///   - smartSearchID: UUID of the smart search
-    ///   - sourceManager: Source manager for searches
-    ///   - repository: Publication repository for persistence
-    /// - Returns: Provider or nil if smart search not found
+    /// This variant fetches the SmartSearch from the store internally,
+    /// making it safe to call from non-main-actor contexts.
     public func getOrCreateByID(
         smartSearchID: UUID,
-        sourceManager: SourceManager,
-        repository: PublicationRepository
+        sourceManager: SourceManager
     ) async -> SmartSearchProvider? {
         // Check cache first
         if let existing = providers[smartSearchID] {
             return existing
         }
 
-        // Fetch smart search on main actor and create provider
-        let smartSearch: CDSmartSearch? = await MainActor.run {
-            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-            request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
-            request.fetchLimit = 1
-            return try? PersistenceController.shared.viewContext.fetch(request).first
+        // Fetch smart search from store
+        let smartSearch: SmartSearch? = await MainActor.run {
+            RustStoreAdapter.shared.getSmartSearch(id: smartSearchID)
         }
 
         guard let smartSearch else { return nil }
 
-        // Create provider on main actor (since CDSmartSearch is accessed)
-        let provider = await MainActor.run {
-            SmartSearchProvider(
-                from: smartSearch,
-                sourceManager: sourceManager,
-                repository: repository
-            )
-        }
+        let provider = SmartSearchProvider(
+            from: smartSearch,
+            sourceManager: sourceManager
+        )
 
         providers[smartSearchID] = provider
         return provider

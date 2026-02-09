@@ -101,7 +101,7 @@ public final class TemplateEngine {
     // MARK: - Export
 
     /// Export publications using a template.
-    public func export(_ publications: [CDPublication], using template: ExportTemplate) -> String {
+    public func export(_ publications: [PublicationModel], using template: ExportTemplate) -> String {
         var result = ""
 
         // Header
@@ -124,16 +124,23 @@ public final class TemplateEngine {
     }
 
     /// Export publications using a built-in format.
-    public func export(_ publications: [CDPublication], format: ExportFormat) -> String {
-        // Use proper exporters for BibTeX and RIS instead of templates
+    @MainActor
+    public func export(_ publications: [PublicationModel], format: ExportFormat) -> String {
         switch format {
         case .bibtex:
-            let entries = publications.map { $0.toBibTeXEntry() }
-            return BibTeXExporter().export(entries)
+            // Use Rust store for BibTeX export (canonical format)
+            return RustStoreAdapter.shared.exportBibTeX(ids: publications.map(\.id))
 
         case .ris:
-            let bibtexEntries = publications.map { $0.toBibTeXEntry() }
-            let risEntries = RISBibTeXConverter.toRIS(bibtexEntries)
+            // Export BibTeX from Rust store, parse, then convert to RIS
+            let bibtex = RustStoreAdapter.shared.exportBibTeX(ids: publications.map(\.id))
+            let parser = BibTeXParser()
+            let items = (try? parser.parse(bibtex)) ?? []
+            let entries = items.compactMap { item -> BibTeXEntry? in
+                if case .entry(let entry) = item { return entry }
+                return nil
+            }
+            let risEntries = RISBibTeXConverter.toRIS(entries)
             return RISExporter().export(risEntries)
 
         default:
@@ -145,14 +152,14 @@ public final class TemplateEngine {
 
     // MARK: - Template Processing
 
-    private func processTemplate(_ template: String, for publication: CDPublication) -> String {
+    private func processTemplate(_ template: String, for publication: PublicationModel) -> String {
         var result = template
 
         // Basic fields
         result = result.replacingOccurrences(of: "{{citeKey}}", with: publication.citeKey)
-        result = result.replacingOccurrences(of: "{{title}}", with: publication.title ?? "")
+        result = result.replacingOccurrences(of: "{{title}}", with: publication.title)
         result = result.replacingOccurrences(of: "{{authors}}", with: publication.authorString)
-        result = result.replacingOccurrences(of: "{{year}}", with: publication.year > 0 ? String(publication.year) : "")
+        result = result.replacingOccurrences(of: "{{year}}", with: publication.year.map(String.init) ?? "")
         result = result.replacingOccurrences(of: "{{entryType}}", with: publication.entryType)
 
         // Optional fields
@@ -198,12 +205,12 @@ public final class TemplateEngine {
 
     // MARK: - Helper Methods
 
-    private func firstAuthor(_ pub: CDPublication) -> String {
+    private func firstAuthor(_ pub: PublicationModel) -> String {
         let authors = pub.authorString.components(separatedBy: " and ")
         return authors.first?.trimmingCharacters(in: .whitespaces) ?? ""
     }
 
-    private func firstAuthorLastName(_ pub: CDPublication) -> String {
+    private func firstAuthorLastName(_ pub: PublicationModel) -> String {
         let first = firstAuthor(pub)
         // Handle "Last, First" format
         if first.contains(",") {
@@ -213,7 +220,7 @@ public final class TemplateEngine {
         return first.components(separatedBy: " ").last ?? ""
     }
 
-    private func authorList(_ pub: CDPublication) -> String {
+    private func authorList(_ pub: PublicationModel) -> String {
         let authors = pub.authorString.components(separatedBy: " and ")
         if authors.count <= 2 {
             return authors.joined(separator: " and ")
@@ -221,7 +228,7 @@ public final class TemplateEngine {
         return "\(authors.first ?? "") et al."
     }
 
-    private func venue(_ pub: CDPublication) -> String {
+    private func venue(_ pub: PublicationModel) -> String {
         if let journal = pub.fields["journal"], !journal.isEmpty {
             return journal
         }
@@ -231,7 +238,7 @@ public final class TemplateEngine {
         return ""
     }
 
-    private func doiURL(_ pub: CDPublication) -> String {
+    private func doiURL(_ pub: PublicationModel) -> String {
         guard let doi = pub.doi, !doi.isEmpty else { return "" }
         return "https://doi.org/\(doi)"
     }

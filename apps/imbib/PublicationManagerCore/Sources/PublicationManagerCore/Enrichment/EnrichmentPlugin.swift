@@ -180,9 +180,9 @@ public extension Dictionary where Key == IdentifierType, Value == String {
     }
 }
 
-// MARK: - CDPublication Extension
+// MARK: - PublicationModel Extension
 
-public extension CDPublication {
+public extension PublicationModel {
 
     /// Extract identifiers from this publication for enrichment.
     ///
@@ -194,28 +194,14 @@ public extension CDPublication {
             result[.doi] = doi
         }
 
-        // Use centralized IdentifierExtractor for consistent field extraction
-        let allFields = fields
-
-        if let arxiv = IdentifierExtractor.arxivID(from: allFields) {
+        if let arxiv = arxivID, !arxiv.isEmpty {
             result[.arxiv] = arxiv
         }
-        if let bibcodeValue = IdentifierExtractor.bibcode(from: allFields) {
+        if let bibcodeValue = bibcode, !bibcodeValue.isEmpty {
             result[.bibcode] = bibcodeValue
         }
-        if let pmid = IdentifierExtractor.pmid(from: allFields) {
-            result[.pmid] = pmid
-        }
-        if let pmcid = IdentifierExtractor.pmcid(from: allFields) {
-            result[.pmcid] = pmcid
-        }
-
-        // Also check stored identifier fields
-        if let ssID = semanticScholarID, !ssID.isEmpty {
-            result[.semanticScholar] = ssID
-        }
-        if let oaID = openAlexID, !oaID.isEmpty {
-            result[.openAlex] = oaID
+        if let pmidValue = pmid, !pmidValue.isEmpty {
+            result[.pmid] = pmidValue
         }
 
         return result
@@ -224,5 +210,10 @@ public extension CDPublication {
     /// Whether this publication has any identifiers suitable for enrichment
     var hasEnrichmentIdentifiers: Bool {
         !enrichmentIdentifiers.isEmpty
+    }
+
+    /// Get all identifiers for this publication
+    var allIdentifiers: [IdentifierType: String] {
+        enrichmentIdentifiers
     }
 }

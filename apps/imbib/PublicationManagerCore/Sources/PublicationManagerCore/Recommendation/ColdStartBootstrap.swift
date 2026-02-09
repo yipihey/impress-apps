@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Cold Start Bootstrap (ADR-020)
@@ -15,7 +14,7 @@ import OSLog
 ///
 /// Used when the user has no training history but has library content.
 /// Bootstrap sources:
-/// 1. Library papers (≥20): Extract author/venue/topic frequencies
+/// 1. Library papers (>=20): Extract author/venue/topic frequencies
 /// 2. Smart searches: Use query terms as topic indicators
 /// 3. Muted items: Use as negative preferences
 /// 4. Starred papers: Extract strong positive signals
@@ -25,50 +24,49 @@ public struct ColdStartBootstrap {
     /// Minimum papers needed for meaningful bootstrap
     private static let minimumPapersForBootstrap = 20
 
-    /// Bootstrap a profile from existing library data.
+    /// Bootstrap a profile from existing library publications.
     ///
     /// - Parameters:
-    ///   - profile: The profile to populate
-    ///   - library: The library to extract preferences from
-    public static func bootstrap(
-        profile: CDRecommendationProfile,
-        from library: CDLibrary
-    ) {
-        guard let publications = library.publications,
-              publications.count >= minimumPapersForBootstrap else {
-            Logger.recommendation.info("Not enough papers for bootstrap (\(library.publications?.count ?? 0) < \(minimumPapersForBootstrap))")
-            return
+    ///   - publications: The publications to extract preferences from
+    /// - Returns: A populated RecommendationProfile, or nil if not enough data
+    @MainActor
+    public static func bootstrap(from publications: [PublicationRowData]) -> RecommendationProfile? {
+        guard publications.count >= minimumPapersForBootstrap else {
+            Logger.recommendation.info("Not enough papers for bootstrap (\(publications.count) < \(minimumPapersForBootstrap))")
+            return nil
         }
 
         Logger.recommendation.info("Bootstrapping profile from \(publications.count) papers")
 
-        // Extract author frequencies
         var authorCounts: [String: Int] = [:]
         var venueCounts: [String: Int] = [:]
         var topicCounts: [String: Int] = [:]
 
         for pub in publications {
-            // Count authors
-            for author in pub.sortedAuthors {
-                let key = author.familyName.lowercased()
-                authorCounts[key, default: 0] += 1
+            // Count authors (parse from authorString)
+            for name in pub.authorString.components(separatedBy: ",") {
+                let familyName = name.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ").first ?? ""
+                if !familyName.isEmpty {
+                    authorCounts[familyName.lowercased(), default: 0] += 1
+                }
             }
 
             // Count venues
-            if let journal = pub.fields["journal"]?.lowercased() {
-                venueCounts[journal, default: 0] += 1
+            if let venue = pub.venue?.lowercased() {
+                venueCounts[venue, default: 0] += 1
             }
 
             // Count title keywords as topics
-            let keywords = extractKeywords(from: pub.title ?? "")
+            let keywords = extractKeywords(from: pub.title)
             for keyword in keywords {
                 topicCounts[keyword, default: 0] += 1
             }
 
             // Count arXiv categories
-            if let categories = pub.fields["primaryclass"] ?? pub.fields["categories"] {
-                for category in categories.lowercased().split(separator: " ").map(String.init) {
-                    topicCounts[category, default: 0] += 1
+            if let category = pub.primaryCategory {
+                for cat in category.lowercased().split(separator: " ").map(String.init) {
+                    topicCounts[cat, default: 0] += 1
                 }
             }
         }
@@ -78,9 +76,8 @@ public struct ColdStartBootstrap {
         // Convert counts to affinities (normalized log frequency)
         var authorAffinities: [String: Double] = [:]
         for (author, count) in authorCounts {
-            // Log frequency normalized by total papers
             let frequency = Double(count) / totalPubs
-            authorAffinities[author] = log(1 + frequency * 100)  // Scale up for visibility
+            authorAffinities[author] = log(1 + frequency * 100)
         }
 
         var venueAffinities: [String: Double] = [:]
@@ -92,7 +89,7 @@ public struct ColdStartBootstrap {
         var topicAffinities: [String: Double] = [:]
         for (topic, count) in topicCounts {
             let frequency = Double(count) / totalPubs
-            topicAffinities[topic] = log(1 + frequency * 50)  // Topics get smaller boost
+            topicAffinities[topic] = log(1 + frequency * 50)
         }
 
         // Boost starred papers' authors
@@ -106,12 +103,9 @@ public struct ColdStartBootstrap {
         )
 
         // Extract signals from smart searches
-        extractSmartSearchSignals(
-            library: library,
-            topicAffinities: &topicAffinities
-        )
+        extractSmartSearchSignals(topicAffinities: &topicAffinities)
 
-        // Set the profile affinities
+        var profile = RecommendationProfile()
         profile.authorAffinities = authorAffinities
         profile.venueAffinities = venueAffinities
         profile.topicAffinities = topicAffinities
@@ -123,44 +117,27 @@ public struct ColdStartBootstrap {
             - \(venueAffinities.count) venue affinities
             - \(topicAffinities.count) topic affinities
             """)
-    }
 
-    /// Bootstrap from multiple libraries (for global profile).
-    public static func bootstrapGlobal(
-        profile: CDRecommendationProfile,
-        from libraries: [CDLibrary]
-    ) {
-        var allPubs: [CDPublication] = []
-        for library in libraries where !library.isInbox && !library.isDismissedLibrary {
-            if let pubs = library.publications {
-                allPubs.append(contentsOf: pubs)
-            }
-        }
-
-        guard allPubs.count >= minimumPapersForBootstrap else {
-            Logger.recommendation.info("Not enough total papers for global bootstrap (\(allPubs.count))")
-            return
-        }
-
-        // Use the first regular library as the source
-        if let primaryLibrary = libraries.first(where: { !$0.isInbox && !$0.isSystemLibrary }) {
-            bootstrap(profile: profile, from: primaryLibrary)
-        }
+        return profile
     }
 
     // MARK: - Helpers
 
     private static func boostStarredPapers(
-        publications: Set<CDPublication>,
+        publications: [PublicationRowData],
         authorAffinities: inout [String: Double]
     ) {
         let starred = publications.filter { $0.isStarred }
         let boostFactor = 2.0
 
         for pub in starred {
-            for author in pub.sortedAuthors {
-                let key = author.familyName.lowercased()
-                authorAffinities[key] = (authorAffinities[key] ?? 0) * boostFactor
+            for name in pub.authorString.components(separatedBy: ",") {
+                let familyName = name.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ").first ?? ""
+                if !familyName.isEmpty {
+                    let key = familyName.lowercased()
+                    authorAffinities[key] = (authorAffinities[key] ?? 0) * boostFactor
+                }
             }
         }
 
@@ -169,25 +146,24 @@ public struct ColdStartBootstrap {
         }
     }
 
+    @MainActor
     private static func applyMutedItems(
         authorAffinities: inout [String: Double],
         topicAffinities: inout [String: Double],
         venueAffinities: inout [String: Double]
     ) {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDMutedItem>(entityName: "MutedItem")
-
-        guard let mutedItems = try? context.fetch(request) else { return }
+        let store = RustStoreAdapter.shared
+        let mutedItems = store.listMutedItems()
 
         for item in mutedItems {
             let key = item.value.lowercased()
 
             switch item.muteType {
-            case .author:
-                authorAffinities[key] = -2.0  // Strong negative
-            case .venue:
+            case "author":
+                authorAffinities[key] = -2.0
+            case "venue":
                 venueAffinities[key] = -2.0
-            case .arxivCategory:
+            case "arxivCategory":
                 topicAffinities[key] = -1.5
             default:
                 break
@@ -199,17 +175,16 @@ public struct ColdStartBootstrap {
         }
     }
 
+    @MainActor
     private static func extractSmartSearchSignals(
-        library: CDLibrary,
         topicAffinities: inout [String: Double]
     ) {
-        guard let smartSearches = library.smartSearches else { return }
+        let store = RustStoreAdapter.shared
+        let smartSearches = store.listSmartSearches()
 
         for search in smartSearches {
-            // Extract keywords from search query
             let keywords = extractKeywords(from: search.query)
             for keyword in keywords {
-                // Saved searches indicate topic interest
                 topicAffinities[keyword] = (topicAffinities[keyword] ?? 0) + 0.5
             }
         }
@@ -250,39 +225,40 @@ public actor BootstrapCoordinator {
         hasBootstrapped = true
 
         await MainActor.run {
-            let context = PersistenceController.shared.viewContext
+            let store = RustStoreAdapter.shared
 
             // Check if global profile exists and has data
-            let request = NSFetchRequest<CDRecommendationProfile>(entityName: "RecommendationProfile")
-            request.predicate = NSPredicate(format: "library == nil")
-            request.fetchLimit = 1
-
-            let profile: CDRecommendationProfile
-            if let existing = try? context.fetch(request).first {
-                // Check if it's a cold start
-                if !existing.isColdStart {
-                    Logger.recommendation.debug("Profile already has data, skipping bootstrap")
-                    return
-                }
-                profile = existing
-            } else {
-                // Create new profile
-                profile = CDRecommendationProfile(context: context)
-                profile.id = UUID()
-                profile.lastUpdated = Date()
-            }
-
-            // Fetch all libraries
-            let libraryRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
-            guard let libraries = try? context.fetch(libraryRequest),
-                  !libraries.isEmpty else {
-                Logger.recommendation.debug("No libraries found for bootstrap")
+            guard let defaultLibrary = store.getDefaultLibrary() else {
+                Logger.recommendation.debug("No default library found for bootstrap")
                 return
             }
 
-            // Bootstrap from libraries
-            ColdStartBootstrap.bootstrapGlobal(profile: profile, from: libraries)
-            PersistenceController.shared.save()
+            if let existingJSON = store.getRecommendationProfile(libraryId: defaultLibrary.id),
+               let existing = RecommendationProfile.fromJSON(existingJSON),
+               !existing.isColdStart {
+                Logger.recommendation.debug("Profile already has data, skipping bootstrap")
+                return
+            }
+
+            // Get publications for bootstrap
+            let publications = store.queryPublications(parentId: defaultLibrary.id)
+
+            guard let profile = ColdStartBootstrap.bootstrap(from: publications) else {
+                Logger.recommendation.debug("Not enough data for bootstrap")
+                return
+            }
+
+            // Save profile
+            let authorJSON = (try? JSONEncoder().encode(profile.authorAffinities)).flatMap { String(data: $0, encoding: .utf8) }
+            let venueJSON = (try? JSONEncoder().encode(profile.venueAffinities)).flatMap { String(data: $0, encoding: .utf8) }
+            let topicJSON = (try? JSONEncoder().encode(profile.topicAffinities)).flatMap { String(data: $0, encoding: .utf8) }
+
+            store.createOrUpdateRecommendationProfile(
+                libraryId: defaultLibrary.id,
+                topicAffinitiesJson: topicJSON,
+                authorAffinitiesJson: authorJSON,
+                venueAffinitiesJson: venueJSON
+            )
         }
     }
 }

@@ -76,7 +76,7 @@ struct LibraryPickerView: View {
     private func createNewLibrary() {
         guard !newLibraryName.isEmpty else { return }
 
-        let library = libraryManager.createLibrary(name: newLibraryName)
+        guard let library = libraryManager.createLibrary(name: newLibraryName) else { return }
         libraryManager.setActive(library)
         newLibraryName = ""
         dismiss()
@@ -86,14 +86,14 @@ struct LibraryPickerView: View {
 // MARK: - Library Row
 
 struct LibraryRowView: View {
-    let library: CDLibrary
+    let library: LibraryModel
     let isActive: Bool
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(library.displayName)
+                    Text(library.name)
                         .font(.headline)
                     if library.isDefault {
                         Text("Default")
@@ -103,12 +103,6 @@ struct LibraryRowView: View {
                             .background(.secondary.opacity(0.2))
                             .clipShape(Capsule())
                     }
-                }
-
-                if let path = library.bibFilePath {
-                    Text(URL(fileURLWithPath: path).lastPathComponent)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 

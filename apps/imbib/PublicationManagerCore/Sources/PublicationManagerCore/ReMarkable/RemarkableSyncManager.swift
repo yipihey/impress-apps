@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableSync")
@@ -52,6 +51,7 @@ public final class RemarkableSyncManager {
 
     private let backendManager = RemarkableBackendManager.shared
     private let settings = RemarkableSettingsStore.shared
+    private let store = RustStoreAdapter.shared
     private var syncTask: Task<Void, Never>?
 
     // MARK: - Initialization
@@ -71,24 +71,41 @@ public final class RemarkableSyncManager {
     /// Upload a publication's PDF to reMarkable.
     ///
     /// - Parameters:
-    ///   - publication: The publication to upload
-    ///   - linkedFile: The PDF file to upload
+    ///   - publicationID: The publication ID to upload
+    ///   - linkedFile: The PDF linked file model
     ///   - folderID: Optional folder ID on reMarkable
-    /// - Returns: The created RemarkableDocument record
+    /// - Returns: The remarkableDocumentID string
     @discardableResult
     public func uploadPublication(
-        _ publication: CDPublication,
-        linkedFile: CDLinkedFile,
+        _ publicationID: UUID,
+        linkedFile: LinkedFileModel,
         folderID: String? = nil
-    ) async throws -> CDRemarkableDocument {
+    ) async throws -> String {
         let backend = try backendManager.requireActiveBackend()
 
-        // Get PDF data
-        guard let library = publication.libraries?.first as? CDLibrary else {
+        guard let pub = store.getPublication(id: publicationID) else {
             throw RemarkableError.noPDFAvailable
         }
 
-        let pdfURL = library.containerURL.appendingPathComponent(linkedFile.relativePath)
+        // Get PDF data from linked file path
+        let libraries = store.listLibraries()
+        guard let library = libraries.first(where: { lib in
+            let pubs = store.queryPublications(parentId: lib.id, sort: "created", ascending: false)
+            return pubs.contains(where: { $0.id == publicationID })
+        }) else {
+            throw RemarkableError.noPDFAvailable
+        }
+
+        // Resolve PDF path
+        guard let relativePath = linkedFile.relativePath else {
+            throw RemarkableError.noPDFAvailable
+        }
+
+        // Build URL from library container + relative path
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let libraryDir = appSupport.appendingPathComponent("com.impress.imbib/libraries/\(library.id.uuidString)")
+        let pdfURL = libraryDir.appendingPathComponent(relativePath)
+
         guard FileManager.default.fileExists(atPath: pdfURL.path) else {
             throw RemarkableError.noPDFAvailable
         }
@@ -96,49 +113,41 @@ public final class RemarkableSyncManager {
         let pdfData = try Data(contentsOf: pdfURL)
 
         // Determine filename
-        let filename = linkedFile.displayName ?? linkedFile.filename
+        let filename = linkedFile.filename
 
         // Upload to reMarkable
         syncState = .syncing(progress: 0.3, message: "Uploading \(filename)...")
 
         let remarkableID = try await backend.uploadDocument(pdfData, filename: filename, parentFolder: folderID)
 
-        // Create tracking record in Core Data
-        let context = PersistenceController.shared.viewContext
-        let remarkableDoc = CDRemarkableDocument(context: context)
-        remarkableDoc.id = UUID()
-        remarkableDoc.remarkableDocumentID = remarkableID
-        remarkableDoc.remarkableFolderID = folderID
-        remarkableDoc.remarkableVersion = 1
-        remarkableDoc.dateUploaded = Date()
-        remarkableDoc.syncState = "synced"
-        remarkableDoc.publication = publication
-        remarkableDoc.linkedFile = linkedFile
-
-        // Calculate file hash for change detection
-        remarkableDoc.localFileHash = pdfData.sha256Hex
-
-        try context.save()
+        // Store the remarkable document info in the publication's fields
+        store.updateField(id: publicationID, field: "_remarkable_doc_id", value: remarkableID)
+        store.updateField(id: publicationID, field: "_remarkable_folder_id", value: folderID)
+        store.updateField(id: publicationID, field: "_remarkable_sync_state", value: "synced")
+        store.updateField(id: publicationID, field: "_remarkable_date_uploaded", value: ISO8601DateFormatter().string(from: Date()))
 
         syncState = .idle
         lastSyncDate = Date()
 
-        logger.info("Uploaded publication \(publication.citeKey) to reMarkable: \(remarkableID)")
+        logger.info("Uploaded publication \(pub.citeKey) to reMarkable: \(remarkableID)")
 
-        return remarkableDoc
+        return remarkableID
     }
 
-    /// Import annotations from reMarkable for a document.
+    /// Import annotations from reMarkable for a publication.
     ///
-    /// - Parameter remarkableDoc: The reMarkable document to import from
+    /// - Parameter publicationID: The publication to import annotations for
     /// - Returns: Number of annotations imported
     @discardableResult
-    public func importAnnotations(for remarkableDoc: CDRemarkableDocument) async throws -> Int {
+    public func importAnnotations(for publicationID: UUID) async throws -> Int {
         let backend = try backendManager.requireActiveBackend()
 
-        let docID = remarkableDoc.remarkableDocumentID
-        guard !docID.isEmpty else {
-            throw RemarkableError.downloadFailed("No document ID")
+        guard let detail = store.getPublicationDetail(id: publicationID) else {
+            throw RemarkableError.downloadFailed("Publication not found")
+        }
+
+        guard let docID = detail.fields["_remarkable_doc_id"], !docID.isEmpty else {
+            throw RemarkableError.downloadFailed("No reMarkable document ID")
         }
 
         syncState = .syncing(progress: 0.5, message: "Downloading annotations...")
@@ -153,34 +162,37 @@ public final class RemarkableSyncManager {
 
         syncState = .syncing(progress: 0.7, message: "Converting annotations...")
 
-        // Convert and store annotations
-        let context = PersistenceController.shared.viewContext
+        // Find the linked PDF file for this publication
+        let linkedFiles = store.listLinkedFiles(publicationId: publicationID)
+        guard let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
+            syncState = .idle
+            return 0
+        }
+
+        // Convert and store annotations via RustStoreAdapter
         var importedCount = 0
 
         for raw in rawAnnotations {
-            let annotation = CDRemarkableAnnotation(context: context)
-            annotation.id = UUID()
-            annotation.pageNumber = Int32(raw.pageNumber)
-            annotation.annotationType = raw.type.rawValue
-            annotation.layerName = raw.layerName
+            // Serialize CGRect to JSON string
+            let boundsRect = raw.bounds
+            let boundsString = "{\"x\":\(boundsRect.origin.x),\"y\":\(boundsRect.origin.y),\"width\":\(boundsRect.width),\"height\":\(boundsRect.height)}"
 
-            // Store bounds as JSON
-            annotation.bounds = raw.bounds
-
-            annotation.strokeDataCompressed = raw.strokeData
-            annotation.color = raw.color
-            annotation.dateImported = Date()
-            annotation.remarkableVersion = remarkableDoc.remarkableVersion
-            annotation.remarkableDocument = remarkableDoc
-
+            let _ = store.createAnnotation(
+                linkedFileId: pdfFile.id,
+                annotationType: raw.type.rawValue,
+                pageNumber: Int64(raw.pageNumber),
+                boundsJson: boundsString,
+                color: raw.color,
+                contents: nil,
+                selectedText: nil
+            )
             importedCount += 1
         }
 
-        remarkableDoc.annotationCount = Int32(importedCount)
-        remarkableDoc.lastSyncDate = Date()
-        remarkableDoc.syncState = "synced"
-
-        try context.save()
+        // Update sync state in publication fields
+        store.updateField(id: publicationID, field: "_remarkable_sync_state", value: "synced")
+        store.updateField(id: publicationID, field: "_remarkable_last_sync", value: ISO8601DateFormatter().string(from: Date()))
+        store.updateField(id: publicationID, field: "_remarkable_annotation_count", value: String(importedCount))
 
         syncState = .idle
         lastSyncDate = Date()
@@ -188,7 +200,7 @@ public final class RemarkableSyncManager {
         // Post notification
         NotificationCenter.default.post(
             name: .remarkableAnnotationsImported,
-            object: remarkableDoc,
+            object: publicationID,
             userInfo: ["count": importedCount]
         )
 
@@ -210,34 +222,44 @@ public final class RemarkableSyncManager {
             do {
                 syncState = .syncing(progress: 0, message: "Starting sync...")
 
-                // Find documents needing sync
-                let context = PersistenceController.shared.viewContext
-                let request = NSFetchRequest<CDRemarkableDocument>(entityName: "RemarkableDocument")
-                request.predicate = NSPredicate(format: "syncState == %@ OR syncState == %@", "pending", "conflict")
+                // Find documents needing sync by searching all publications
+                let libraries = store.listLibraries()
+                var pendingPubs: [(UUID, String)] = [] // (publicationID, remarkableDocID)
 
-                let pendingDocs = try context.fetch(request)
-                pendingCount = pendingDocs.count
+                for library in libraries {
+                    let pubs = store.queryPublications(parentId: library.id, sort: "modified", ascending: false)
+                    for pub in pubs {
+                        guard let detail = store.getPublicationDetail(id: pub.id) else { continue }
+                        let syncStateStr = detail.fields["_remarkable_sync_state"]
+                        if syncStateStr == "pending" || syncStateStr == "conflict" {
+                            if let docID = detail.fields["_remarkable_doc_id"] {
+                                pendingPubs.append((pub.id, docID))
+                            }
+                        }
+                    }
+                }
 
-                guard !pendingDocs.isEmpty else {
+                pendingCount = pendingPubs.count
+
+                guard !pendingPubs.isEmpty else {
                     syncState = .idle
                     return
                 }
 
                 // Process each document
-                for (index, doc) in pendingDocs.enumerated() {
-                    let progress = Double(index) / Double(pendingDocs.count)
-                    syncState = .syncing(progress: progress, message: "Syncing \(index + 1) of \(pendingDocs.count)...")
+                for (index, (pubID, _)) in pendingPubs.enumerated() {
+                    let progress = Double(index) / Double(pendingPubs.count)
+                    syncState = .syncing(progress: progress, message: "Syncing \(index + 1) of \(pendingPubs.count)...")
 
                     do {
-                        _ = try await importAnnotations(for: doc)
+                        _ = try await importAnnotations(for: pubID)
                     } catch {
-                        logger.error("Failed to sync document \(doc.remarkableDocumentID ?? "unknown"): \(error)")
-                        doc.syncState = "error"
-                        doc.syncError = error.localizedDescription
+                        logger.error("Failed to sync publication \(pubID): \(error)")
+                        store.updateField(id: pubID, field: "_remarkable_sync_state", value: "error")
+                        store.updateField(id: pubID, field: "_remarkable_sync_error", value: error.localizedDescription)
                     }
                 }
 
-                try context.save()
                 syncState = .idle
                 lastSyncDate = Date()
 
@@ -260,30 +282,29 @@ public final class RemarkableSyncManager {
         // Get list of documents from reMarkable
         let remoteDocuments = try await backend.listDocuments()
 
-        // Get tracked documents from Core Data
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDRemarkableDocument>(entityName: "RemarkableDocument")
-        let trackedDocs = try context.fetch(request)
-
+        // Get tracked documents from all libraries
+        let libraries = store.listLibraries()
         var pendingUpdates = 0
 
-        // Check for version changes
-        for tracked in trackedDocs {
-            let remoteID = tracked.remarkableDocumentID
-            guard !remoteID.isEmpty else { continue }
+        for library in libraries {
+            let pubs = store.queryPublications(parentId: library.id, sort: "modified", ascending: false)
+            for pub in pubs {
+                guard let detail = store.getPublicationDetail(id: pub.id) else { continue }
+                guard let remoteID = detail.fields["_remarkable_doc_id"], !remoteID.isEmpty else { continue }
+                let trackedVersion = Int(detail.fields["_remarkable_version"] ?? "0") ?? 0
 
-            if let remote = remoteDocuments.first(where: { $0.id == remoteID }) {
-                if remote.version > Int(tracked.remarkableVersion) {
-                    // Remote has newer version
-                    tracked.syncState = "pending"
-                    pendingUpdates += 1
-                    logger.debug("Document \(remoteID) has updates (v\(tracked.remarkableVersion) -> v\(remote.version))")
+                if let remote = remoteDocuments.first(where: { $0.id == remoteID }) {
+                    if remote.version > trackedVersion {
+                        // Remote has newer version
+                        store.updateField(id: pub.id, field: "_remarkable_sync_state", value: "pending")
+                        pendingUpdates += 1
+                        logger.debug("Document \(remoteID) has updates (v\(trackedVersion) -> v\(remote.version))")
+                    }
                 }
             }
         }
 
         if pendingUpdates > 0 {
-            try context.save()
             pendingCount = pendingUpdates
         }
 
@@ -299,13 +320,13 @@ public final class RemarkableSyncManager {
         syncState = .idle
     }
 
-    /// Get documents tracked for a publication.
-    public func remarkableDocuments(for publication: CDPublication) -> [CDRemarkableDocument] {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDRemarkableDocument>(entityName: "RemarkableDocument")
-        request.predicate = NSPredicate(format: "publication == %@", publication)
-
-        return (try? context.fetch(request)) ?? []
+    /// Get reMarkable document info for a publication.
+    public func remarkableDocumentInfo(for publicationID: UUID) -> (docID: String, syncState: String, annotationCount: Int)? {
+        guard let detail = store.getPublicationDetail(id: publicationID) else { return nil }
+        guard let docID = detail.fields["_remarkable_doc_id"], !docID.isEmpty else { return nil }
+        let syncStateStr = detail.fields["_remarkable_sync_state"] ?? "unknown"
+        let annotationCount = Int(detail.fields["_remarkable_annotation_count"] ?? "0") ?? 0
+        return (docID: docID, syncState: syncStateStr, annotationCount: annotationCount)
     }
 
     /// Get or create the imbib folder on reMarkable.

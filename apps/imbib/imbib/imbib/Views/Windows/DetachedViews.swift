@@ -34,7 +34,7 @@ struct DetachedPDFView: View {
             if let linked = linkedFile {
                 PDFViewerWithControls(
                     linkedFile: linked,
-                    library: library,
+                    libraryID: library?.id,
                     publicationID: publication.id,
                     isDetachedWindow: true,
                     onCorruptPDF: { _ in }
@@ -232,7 +232,7 @@ struct DetachedPDFView: View {
                 throw PDFDownloadError.noActiveLibrary
             }
 
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication, in: lib)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: lib.id)
             detachedPDFLogger.info("[DetachedPDF] PDF imported successfully")
 
             // Clean up temp file

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreData
 import PDFKit
 import OSLog
 
@@ -81,34 +80,41 @@ public actor PDFSearchService {
     /// Search for text within PDFs in a library
     /// - Parameters:
     ///   - query: The search query
-    ///   - publications: Publications to search (must have linked PDFs)
-    ///   - library: The library containing the PDFs
+    ///   - publicationIds: Publication IDs to search (must have linked PDFs)
+    ///   - libraryId: The library ID containing the PDFs
     /// - Returns: Publication IDs that match the search
     public func search(
         query: String,
-        in publications: [CDPublication],
-        library: CDLibrary?
+        in publicationIds: [UUID],
+        libraryId: UUID?
     ) async -> Set<UUID> {
         guard !query.isEmpty else { return [] }
 
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        // THREAD SAFETY: Extract all needed Core Data properties on main actor FIRST
-        // CDPublication, CDLinkedFile, and CDLibrary are bound to the main actor context,
-        // so we cannot access their properties directly from this actor's thread.
+        // Get linked files for each publication from the store
         let extractedData: [(publicationID: UUID, relativePath: String)] = await MainActor.run {
-            publications.compactMap { publication -> (UUID, String)? in
-                guard let linkedFiles = publication.linkedFiles,
-                      let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
+            let store = RustStoreAdapter.shared
+            return publicationIds.compactMap { pubId -> (UUID, String)? in
+                let linkedFiles = store.listLinkedFiles(publicationId: pubId)
+                guard let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+                      let path = pdfFile.relativePath else {
                     return nil
                 }
-                return (publication.id, pdfFile.relativePath)
+                return (pubId, path)
             }
         }
 
-        // Extract library container URL on main actor (only once)
+        // Get library container URL from store
         let containerURL: URL? = await MainActor.run {
-            library?.containerURL
+            guard let libId = libraryId,
+                  let library = RustStoreAdapter.shared.getLibrary(id: libId) else {
+                return nil
+            }
+            // Build container URL from library
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("imbib")
+            return appSupport.appendingPathComponent(library.name, isDirectory: true)
         }
 
         // Resolve PDF URLs using extracted Sendable values (nonisolated, safe on any thread)
@@ -134,16 +140,24 @@ public actor PDFSearchService {
     }
 
     /// Quick check if a single PDF contains the query
-    public func contains(query: String, in publication: CDPublication, library: CDLibrary?) async -> Bool {
+    public func contains(query: String, publicationId: UUID, libraryId: UUID?) async -> Bool {
         guard !query.isEmpty else { return false }
 
-        // THREAD SAFETY: Extract Core Data properties on main actor before processing
+        // Get linked files from the store
         let (relativePath, containerURL): (String?, URL?) = await MainActor.run {
-            guard let linkedFiles = publication.linkedFiles,
-                  let pdfFile = linkedFiles.first(where: { $0.isPDF }) else {
+            let store = RustStoreAdapter.shared
+            let linkedFiles = store.listLinkedFiles(publicationId: publicationId)
+            guard let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+                  let path = pdfFile.relativePath else {
                 return (nil, nil)
             }
-            return (pdfFile.relativePath, library?.containerURL)
+            var contURL: URL? = nil
+            if let libId = libraryId, let library = store.getLibrary(id: libId) {
+                let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("imbib")
+                contURL = appSupport.appendingPathComponent(library.name, isDirectory: true)
+            }
+            return (path, contURL)
         }
 
         guard let relativePath = relativePath,
@@ -157,7 +171,7 @@ public actor PDFSearchService {
 
     /// Resolve PDF URL from pre-extracted values (nonisolated for thread safety).
     /// - Parameters:
-    ///   - relativePath: The relative path from CDLinkedFile.relativePath
+    ///   - relativePath: The relative path from the linked file
     ///   - containerURL: The library container URL (nil for default library)
     /// - Returns: The resolved PDF URL if found
     nonisolated private func resolvePDFURL(relativePath: String, containerURL: URL?) -> URL? {

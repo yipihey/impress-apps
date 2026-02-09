@@ -18,10 +18,10 @@ public final class SciXLibraryViewModel {
     // MARK: - Published State
 
     /// All cached SciX libraries
-    public private(set) var libraries: [CDSciXLibrary] = []
+    public private(set) var libraries: [SciXLibrary] = []
 
     /// Currently selected library (for detail view)
-    public var selectedLibrary: CDSciXLibrary?
+    public var selectedLibrary: SciXLibrary?
 
     /// Whether a sync operation is in progress
     public private(set) var isLoading = false
@@ -31,9 +31,6 @@ public final class SciXLibraryViewModel {
 
     /// Show push confirmation sheet
     public var showPushConfirmation = false
-
-    /// Pending changes for confirmation (populated before push)
-    public private(set) var pendingPushChanges: [CDSciXPendingChange] = []
 
     /// Result of last push (for displaying success/failure)
     public private(set) var lastPushResult: SciXPushResult?
@@ -83,13 +80,12 @@ public final class SciXLibraryViewModel {
     }
 
     /// Refresh papers for a specific library
-    public func refreshLibraryPapers(_ library: CDSciXLibrary) async {
+    public func refreshLibraryPapers(_ library: SciXLibrary) async {
         isLoading = true
         lastError = nil
 
         do {
             try await syncManager.pullLibraryPapers(libraryID: library.remoteID)
-            // Repository updates are automatic via Core Data
             Logger.scix.info("Refreshed papers for \(library.name)")
         } catch let error as SciXLibraryError {
             lastError = error
@@ -105,7 +101,7 @@ public final class SciXLibraryViewModel {
     // MARK: - Library Selection
 
     /// Select a library and optionally load its papers
-    public func selectLibrary(_ library: CDSciXLibrary?, loadPapers: Bool = true) async {
+    public func selectLibrary(_ library: SciXLibrary?, loadPapers: Bool = true) async {
         selectedLibrary = library
 
         guard let library = library, loadPapers else { return }
@@ -169,64 +165,66 @@ public final class SciXLibraryViewModel {
 
     // MARK: - Add/Remove Papers
 
-    /// Add papers to a library
-    public func addPapers(_ publications: [CDPublication], to library: CDSciXLibrary) {
-        repository.addPublications(publications, to: library)
+    /// Add papers to a library by publication IDs
+    public func addPapers(_ publicationIDs: [UUID], to library: SciXLibrary) {
+        repository.addPublications(publicationIDs, to: library.id)
         libraries = repository.libraries
     }
 
-    /// Remove papers from a library
-    public func removePapers(_ publications: [CDPublication], from library: CDSciXLibrary) {
-        repository.removePublications(publications, from: library)
+    /// Remove papers from a library by publication IDs
+    public func removePapers(_ publicationIDs: [UUID], from library: SciXLibrary) {
+        repository.removePublications(publicationIDs, from: library.id)
         libraries = repository.libraries
     }
 
     // MARK: - Update Metadata
 
-    /// Update library metadata
+    /// Update library metadata directly via RustStoreAdapter
     public func updateMetadata(
-        library: CDSciXLibrary,
+        library: SciXLibrary,
         name: String? = nil,
         description: String? = nil,
         isPublic: Bool? = nil
     ) {
-        repository.queueMetadataUpdate(
-            library: library,
-            name: name,
-            description: description,
-            isPublic: isPublic
-        )
+        let store = RustStoreAdapter.shared
+        if let name = name {
+            store.updateField(id: library.id, field: "name", value: name)
+        }
+        if let description = description {
+            store.updateField(id: library.id, field: "description", value: description)
+        }
+        if let isPublic = isPublic {
+            store.updateBoolField(id: library.id, field: "isPublic", value: isPublic)
+        }
         libraries = repository.libraries
     }
 
     // MARK: - Push/Sync
 
-    /// Prepare pending changes for push confirmation
-    public func preparePush(for library: CDSciXLibrary) async {
+    /// Prepare pending changes for push confirmation.
+    /// With the Rust store, push is simplified -- no pending change queue.
+    public func preparePush(for library: SciXLibrary) async {
         isLoading = true
-
-        pendingPushChanges = await syncManager.preparePush(for: library)
 
         // Check for conflicts
         do {
-            conflicts = try await syncManager.detectConflicts(for: library)
+            conflicts = try await syncManager.detectConflicts(for: library.id)
         } catch {
             conflicts = []
             Logger.scix.error("Conflict detection failed: \(error)")
         }
 
         isLoading = false
-        showPushConfirmation = !pendingPushChanges.isEmpty
+        showPushConfirmation = !conflicts.isEmpty
     }
 
     /// Confirm and execute push
-    public func confirmPush(for library: CDSciXLibrary) async {
+    public func confirmPush(for library: SciXLibrary) async {
         isLoading = true
         showPushConfirmation = false
 
         do {
-            lastPushResult = try await syncManager.pushPendingChanges(for: library)
-            pendingPushChanges = []
+            lastPushResult = try await syncManager.pushPendingChanges(for: library.id)
             conflicts = []
             libraries = repository.libraries
 
@@ -245,22 +243,15 @@ public final class SciXLibraryViewModel {
     /// Cancel push and discard pending changes
     public func cancelPush() {
         showPushConfirmation = false
-        pendingPushChanges = []
         conflicts = []
-    }
-
-    /// Discard a specific pending change
-    public func discardChange(_ change: CDSciXPendingChange) {
-        repository.discardChange(change)
-        pendingPushChanges = pendingPushChanges.filter { $0.id != change.id }
     }
 
     // MARK: - Delete Library
 
     /// Delete a library (local cache and optionally remote)
-    public func deleteLibrary(_ library: CDSciXLibrary, deleteRemote: Bool = false) async throws {
+    public func deleteLibrary(_ library: SciXLibrary, deleteRemote: Bool = false) async throws {
         if deleteRemote {
-            guard library.permissionLevelEnum == .owner else {
+            guard SciXPermissionLevel(rawValue: library.permissionLevel) == .owner else {
                 throw SciXLibraryError.forbidden
             }
 
@@ -284,14 +275,14 @@ public final class SciXLibraryViewModel {
             selectedLibrary = nil
         }
 
-        repository.deleteLibrary(library)
+        repository.deleteLibrary(id: library.id)
         libraries = repository.libraries
     }
 
     // MARK: - Permissions
 
     /// Fetch permissions for a library
-    public func fetchPermissions(for library: CDSciXLibrary) async throws -> [SciXPermission] {
+    public func fetchPermissions(for library: SciXLibrary) async throws -> [SciXPermission] {
         isLoading = true
         defer { isLoading = false }
 
@@ -308,11 +299,13 @@ public final class SciXLibraryViewModel {
 
     /// Set permission for a user on a library
     public func setPermission(
-        for library: CDSciXLibrary,
+        for library: SciXLibrary,
         email: String,
-        level: CDSciXLibrary.PermissionLevel
+        level: SciXPermissionLevel
     ) async throws {
-        guard library.canManagePermissions else {
+        let canManage = SciXPermissionLevel(rawValue: library.permissionLevel) == .owner ||
+                        SciXPermissionLevel(rawValue: library.permissionLevel) == .admin
+        guard canManage else {
             throw SciXLibraryError.forbidden
         }
 
@@ -332,8 +325,8 @@ public final class SciXLibraryViewModel {
     }
 
     /// Transfer library ownership
-    public func transferOwnership(for library: CDSciXLibrary, toEmail: String) async throws {
-        guard library.permissionLevelEnum == .owner else {
+    public func transferOwnership(for library: SciXLibrary, toEmail: String) async throws {
+        guard SciXPermissionLevel(rawValue: library.permissionLevel) == .owner else {
             throw SciXLibraryError.forbidden
         }
 
@@ -357,13 +350,14 @@ public final class SciXLibraryViewModel {
     // MARK: - Helpers
 
     /// Whether there are any pending changes across all libraries
+    /// With Rust store, pending changes are not tracked per-library.
     public var hasAnyPendingChanges: Bool {
-        libraries.contains { $0.hasPendingChanges }
+        false
     }
 
     /// Count of libraries with pending changes
     public var pendingChangesCount: Int {
-        libraries.filter { $0.hasPendingChanges }.count
+        0
     }
 
     /// Clear error state

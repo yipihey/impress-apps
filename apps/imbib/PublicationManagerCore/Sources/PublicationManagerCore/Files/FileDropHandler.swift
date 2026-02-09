@@ -2,8 +2,6 @@
 //  FileDropHandler.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-06.
-//
 
 import Foundation
 import UniformTypeIdentifiers
@@ -28,23 +26,17 @@ public final class FileDropHandler {
 
     /// UTTypes accepted for file drops.
     public static let acceptedTypes: [UTType] = [
-        .fileURL,           // File URLs
-        .item,              // Generic items (covers most file types)
-        .data,              // Raw data
-        .pdf,               // PDFs explicitly
-        .image,             // Images
-        .plainText,         // Text files
-        .sourceCode,        // Source code
-        .archive,           // Archives (.zip, .tar.gz, etc.)
+        .pdf,
+        .image,
+        .fileURL,
+        .data
     ]
 
-    // MARK: - Properties
+    // MARK: - State
 
-    /// The attachment manager used for importing files.
-    /// Internal access for use by DragDropCoordinator.
-    let attachmentManager: AttachmentManager
+    private let attachmentManager: AttachmentManager
 
-    /// Import progress (current, total)
+    /// Progress of multi-file import (current, total)
     public var importProgress: (current: Int, total: Int)?
 
     /// Whether import is in progress
@@ -65,11 +57,7 @@ public final class FileDropHandler {
     // MARK: - Drop Handling
 
     /// Validate whether a drop can be accepted.
-    ///
-    /// - Parameter info: Drop info from SwiftUI
-    /// - Returns: Whether the drop is acceptable
     public func validateDrop(info: DropInfo) -> Bool {
-        // Accept if any of our types are present
         for type in Self.acceptedTypes {
             if info.hasItemsConforming(to: [type]) {
                 return true
@@ -79,47 +67,34 @@ public final class FileDropHandler {
     }
 
     /// Handle a drop operation by extracting URLs and importing files.
-    ///
-    /// - Parameters:
-    ///   - info: Drop info from SwiftUI
-    ///   - publication: The publication to attach files to
-    ///   - library: The library containing the publication
-    /// - Returns: Whether the drop was handled
     @discardableResult
     public func handleDrop(
         info: DropInfo,
-        for publication: CDPublication,
-        in library: CDLibrary?
+        for publicationId: UUID,
+        in libraryId: UUID?
     ) -> Bool {
-        Logger.files.infoCapture("Handling file drop for \(publication.citeKey)", category: "files")
+        Logger.files.infoCapture("Handling file drop for \(publicationId)", category: "files")
 
-        // Extract file URLs from providers
         let providers = info.itemProviders(for: Self.acceptedTypes)
         guard !providers.isEmpty else {
             Logger.files.warningCapture("No valid items in drop", category: "files")
             return false
         }
 
-        // Start async import
         Task {
-            await importFromProviders(providers, for: publication, in: library)
+            await importFromProviders(providers, for: publicationId, in: libraryId)
         }
 
         return true
     }
 
     /// Handle drop from NSItemProviders directly (for programmatic use).
-    ///
-    /// - Parameters:
-    ///   - providers: Array of item providers
-    ///   - publication: The publication to attach files to
-    ///   - library: The library containing the publication
     public func handleDrop(
         providers: [NSItemProvider],
-        for publication: CDPublication,
-        in library: CDLibrary?
+        for publicationId: UUID,
+        in libraryId: UUID?
     ) async {
-        await importFromProviders(providers, for: publication, in: library)
+        await importFromProviders(providers, for: publicationId, in: libraryId)
     }
 
     // MARK: - Import Logic
@@ -127,13 +102,12 @@ public final class FileDropHandler {
     /// Extract URLs and import files from NSItemProviders.
     private func importFromProviders(
         _ providers: [NSItemProvider],
-        for publication: CDPublication,
-        in library: CDLibrary?
+        for publicationId: UUID,
+        in libraryId: UUID?
     ) async {
         isImporting = true
         lastError = nil
 
-        // Collect all URLs from providers
         var urls: [URL] = []
 
         for provider in providers {
@@ -150,15 +124,14 @@ public final class FileDropHandler {
 
         Logger.files.infoCapture("Importing \(urls.count) files from drop", category: "files")
 
-        // Import files with duplicate checking
-        await importURLsWithDuplicateCheck(urls, for: publication, in: library)
+        await importURLsWithDuplicateCheck(urls, for: publicationId, in: libraryId)
     }
 
     /// Import URLs with duplicate checking for each file.
     private func importURLsWithDuplicateCheck(
         _ urls: [URL],
-        for publication: CDPublication,
-        in library: CDLibrary?
+        for publicationId: UUID,
+        in libraryId: UUID?
     ) async {
         importProgress = (current: 0, total: urls.count)
 
@@ -166,15 +139,14 @@ public final class FileDropHandler {
             importProgress = (current: index + 1, total: urls.count)
 
             // Check for duplicate
-            if let result = attachmentManager.checkForDuplicate(sourceURL: url, in: publication) {
+            if let result = attachmentManager.checkForDuplicate(sourceURL: url, in: publicationId) {
                 switch result {
                 case .noDuplicate(let hash):
-                    // Import with precomputed hash
                     do {
                         let _ = try attachmentManager.importAttachment(
                             from: url,
-                            for: publication,
-                            in: library,
+                            for: publicationId,
+                            in: libraryId,
                             precomputedHash: hash
                         )
                         Logger.files.infoCapture("Imported: \(url.lastPathComponent)", category: "files")
@@ -184,27 +156,24 @@ public final class FileDropHandler {
                     }
 
                 case .duplicate(let existingFile, let hash):
-                    // Pause and ask user
                     let remaining = Array(urls.dropFirst(index + 1))
                     pendingDuplicate = PendingDuplicateInfo(
                         sourceURL: url,
-                        existingFilename: existingFile.effectiveDisplayName,
+                        existingFilename: existingFile.filename,
                         precomputedHash: hash,
-                        publication: publication,
-                        library: library,
+                        publicationId: publicationId,
+                        libraryId: libraryId,
                         remainingURLs: remaining
                     )
                     Logger.files.infoCapture("Duplicate found, waiting for user decision: \(url.lastPathComponent)", category: "files")
-                    // Stop processing - will resume after user decision
                     return
                 }
             } else {
-                // Could not check (error getting file info) - import anyway
                 do {
                     let _ = try attachmentManager.importAttachment(
                         from: url,
-                        for: publication,
-                        in: library
+                        for: publicationId,
+                        in: libraryId
                     )
                 } catch {
                     Logger.files.errorCapture("Import failed: \(error.localizedDescription)", category: "files")
@@ -212,7 +181,6 @@ public final class FileDropHandler {
                 }
             }
 
-            // Clean up this URL
             url.stopAccessingSecurityScopedResource()
         }
 
@@ -220,26 +188,23 @@ public final class FileDropHandler {
         isImporting = false
         importProgress = nil
         Logger.files.infoCapture("Drop import completed", category: "files")
-        NotificationCenter.default.post(name: .attachmentDidChange, object: publication.objectID)
+        NotificationCenter.default.post(name: .attachmentDidChange, object: publicationId)
     }
 
     // MARK: - Duplicate Resolution
 
     /// Resolve a pending duplicate file.
-    ///
-    /// - Parameter proceed: If true, import the file anyway. If false, skip it.
     public func resolveDuplicate(proceed: Bool) {
         guard let pending = pendingDuplicate else { return }
         pendingDuplicate = nil
 
         Task {
             if proceed {
-                // Import with pre-computed hash
                 do {
                     let _ = try attachmentManager.importAttachment(
                         from: pending.sourceURL,
-                        for: pending.publication,
-                        in: pending.library,
+                        for: pending.publicationId,
+                        in: pending.libraryId,
                         precomputedHash: pending.precomputedHash
                     )
                     Logger.files.infoCapture("User chose to import duplicate: \(pending.sourceURL.lastPathComponent)", category: "files")
@@ -251,29 +216,25 @@ public final class FileDropHandler {
                 Logger.files.infoCapture("User skipped duplicate: \(pending.sourceURL.lastPathComponent)", category: "files")
             }
 
-            // Clean up this URL
             pending.sourceURL.stopAccessingSecurityScopedResource()
 
-            // Continue with remaining files
             if !pending.remainingURLs.isEmpty {
                 await importURLsWithDuplicateCheck(
                     pending.remainingURLs,
-                    for: pending.publication,
-                    in: pending.library
+                    for: pending.publicationId,
+                    in: pending.libraryId
                 )
             } else {
-                // All done
                 isImporting = false
                 importProgress = nil
                 Logger.files.infoCapture("Drop import completed", category: "files")
-                NotificationCenter.default.post(name: .attachmentDidChange, object: pending.publication.objectID)
+                NotificationCenter.default.post(name: .attachmentDidChange, object: pending.publicationId)
             }
         }
     }
 
     /// Extract a file URL from an NSItemProvider.
     private func extractURL(from provider: NSItemProvider) async -> URL? {
-        // Try file URL first (most common)
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             do {
                 let url = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
@@ -281,12 +242,10 @@ public final class FileDropHandler {
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else if let url = url {
-                            // Copy to temp location since the provided URL is temporary
                             let tempDir = FileManager.default.temporaryDirectory
                             let tempURL = tempDir.appendingPathComponent(url.lastPathComponent)
 
                             do {
-                                // Remove existing if any
                                 try? FileManager.default.removeItem(at: tempURL)
                                 try FileManager.default.copyItem(at: url, to: tempURL)
                                 continuation.resume(returning: tempURL)
@@ -304,7 +263,6 @@ public final class FileDropHandler {
             }
         }
 
-        // Try item identifier for other types
         for type in [UTType.pdf, UTType.image, UTType.data] {
             if provider.hasItemConformingToTypeIdentifier(type.identifier) {
                 if let url = await extractItem(from: provider, type: type) {
@@ -331,10 +289,7 @@ public final class FileDropHandler {
                 }
             }
 
-            // Determine extension
             let ext = type.preferredFilenameExtension ?? "dat"
-
-            // Save to temp file
             let tempDir = FileManager.default.temporaryDirectory
             let tempURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
             try data.write(to: tempURL)
@@ -366,11 +321,11 @@ public struct PendingDuplicateInfo: Identifiable, Equatable {
     /// Pre-computed SHA256 hash (reuse for import if user proceeds)
     public let precomputedHash: String
 
-    /// Publication to attach to
-    public let publication: CDPublication
+    /// Publication ID to attach to
+    public let publicationId: UUID
 
-    /// Library containing the publication
-    public let library: CDLibrary?
+    /// Library ID containing the publication
+    public let libraryId: UUID?
 
     /// Remaining URLs to import after this one is resolved
     public let remainingURLs: [URL]
@@ -378,97 +333,14 @@ public struct PendingDuplicateInfo: Identifiable, Equatable {
 
 // MARK: - File Drop Error
 
-/// Errors that can occur during file drop handling.
 public enum FileDropError: LocalizedError {
     case noURL
     case noData
-    case securityAccess
-    case importFailed(Error)
 
     public var errorDescription: String? {
         switch self {
-        case .noURL:
-            return "Could not extract file URL from dropped item"
-        case .noData:
-            return "Could not extract data from dropped item"
-        case .securityAccess:
-            return "Could not access dropped file due to security restrictions"
-        case .importFailed(let error):
-            return "Import failed: \(error.localizedDescription)"
+        case .noURL: return "Could not extract file URL from drop"
+        case .noData: return "Could not extract file data from drop"
         }
-    }
-}
-
-// MARK: - SwiftUI Drop Delegate
-
-/// A SwiftUI DropDelegate for file drops on publications.
-public struct FileDropDelegate: DropDelegate {
-
-    let handler: FileDropHandler
-    let publication: CDPublication
-    let library: CDLibrary?
-
-    /// Called when files are hovered over the drop target.
-    public var onTargeted: ((Bool) -> Void)?
-
-    public init(
-        handler: FileDropHandler,
-        publication: CDPublication,
-        library: CDLibrary?,
-        onTargeted: ((Bool) -> Void)? = nil
-    ) {
-        self.handler = handler
-        self.publication = publication
-        self.library = library
-        self.onTargeted = onTargeted
-    }
-
-    public func validateDrop(info: DropInfo) -> Bool {
-        handler.validateDrop(info: info)
-    }
-
-    public func dropEntered(info: DropInfo) {
-        onTargeted?(true)
-    }
-
-    public func dropExited(info: DropInfo) {
-        onTargeted?(false)
-    }
-
-    public func performDrop(info: DropInfo) -> Bool {
-        onTargeted?(false)
-        return handler.handleDrop(info: info, for: publication, in: library)
-    }
-}
-
-// MARK: - View Extension
-
-public extension View {
-
-    /// Add a file drop target for a publication.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to attach dropped files to
-    ///   - library: The library containing the publication
-    ///   - handler: The FileDropHandler to use
-    ///   - isTargeted: Binding to track when files are hovering
-    /// - Returns: Modified view with drop handling
-    func fileDropTarget(
-        for publication: CDPublication,
-        in library: CDLibrary?,
-        handler: FileDropHandler,
-        isTargeted: Binding<Bool>? = nil
-    ) -> some View {
-        self.onDrop(
-            of: FileDropHandler.acceptedTypes,
-            delegate: FileDropDelegate(
-                handler: handler,
-                publication: publication,
-                library: library,
-                onTargeted: { targeted in
-                    isTargeted?.wrappedValue = targeted
-                }
-            )
-        )
     }
 }

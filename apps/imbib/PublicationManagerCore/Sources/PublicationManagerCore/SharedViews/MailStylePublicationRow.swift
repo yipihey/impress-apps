@@ -181,7 +181,7 @@ public struct MailStylePublicationRow: View, Equatable {
     public var onCopyBibTeX: (() -> Void)?
 
     /// Action when adding to a collection is requested
-    public var onAddToCollection: ((CDCollection) -> Void)?
+    public var onAddToCollection: ((CollectionModel) -> Void)?
 
     /// Action when muting author is requested
     public var onMuteAuthor: (() -> Void)?
@@ -190,7 +190,7 @@ public struct MailStylePublicationRow: View, Equatable {
     public var onMutePaper: (() -> Void)?
 
     /// Available collections for "Add to Collection" menu
-    public var collections: [CDCollection] = []
+    public var collections: [CollectionModel] = []
 
     /// Whether the publication has an attached PDF
     public var hasPDF: Bool = false
@@ -222,10 +222,10 @@ public struct MailStylePublicationRow: View, Equatable {
     public var onExploreSimilar: (() -> Void)?
 
     /// Action when adding to a library is requested
-    public var onAddToLibrary: ((CDLibrary) -> Void)?
+    public var onAddToLibrary: ((LibraryModel) -> Void)?
 
     /// Available libraries for "Add to Library" menu
-    public var libraries: [CDLibrary] = []
+    public var libraries: [LibraryModel] = []
 
     /// Action when Send to E-Ink Device is requested
     public var onSendToEInkDevice: (() -> Void)?
@@ -292,10 +292,10 @@ public struct MailStylePublicationRow: View, Equatable {
         onOpenPDF: (() -> Void)? = nil,
         onCopyCiteKey: (() -> Void)? = nil,
         onCopyBibTeX: (() -> Void)? = nil,
-        onAddToCollection: ((CDCollection) -> Void)? = nil,
+        onAddToCollection: ((CollectionModel) -> Void)? = nil,
         onMuteAuthor: (() -> Void)? = nil,
         onMutePaper: (() -> Void)? = nil,
-        collections: [CDCollection] = [],
+        collections: [CollectionModel] = [],
         hasPDF: Bool = false,
         // New context menu actions
         onOpenInBrowser: ((BrowserDestination) -> Void)? = nil,
@@ -306,8 +306,8 @@ public struct MailStylePublicationRow: View, Equatable {
         onExploreReferences: (() -> Void)? = nil,
         onExploreCitations: (() -> Void)? = nil,
         onExploreSimilar: (() -> Void)? = nil,
-        onAddToLibrary: ((CDLibrary) -> Void)? = nil,
-        libraries: [CDLibrary] = [],
+        onAddToLibrary: ((LibraryModel) -> Void)? = nil,
+        libraries: [LibraryModel] = [],
         recommendationScore: Double? = nil,
         highlightedCitationCount: Int? = nil,
         triageFlashColor: Color? = nil,
@@ -833,7 +833,7 @@ public struct MailStylePublicationRow: View, Equatable {
                     Button {
                         onAddToLibrary(library)
                     } label: {
-                        Label(library.displayName, systemImage: "books.vertical")
+                        Label(library.name, systemImage: "books.vertical")
                     }
                 }
             } label: {
@@ -1040,59 +1040,3 @@ public struct MailStylePublicationRow: View, Equatable {
     }
 }
 
-// MARK: - PublicationRowData Extension for Preview
-
-extension PublicationRowData {
-    /// Convenience initializer for previews and testing
-    init(
-        id: UUID,
-        citeKey: String,
-        title: String,
-        authorString: String,
-        year: Int?,
-        abstract: String?,
-        isRead: Bool,
-        isStarred: Bool = false,
-        flag: PublicationFlag? = nil,
-        hasDownloadedPDF: Bool = false,
-        hasOtherAttachments: Bool = false,
-        citationCount: Int,
-        referenceCount: Int = 0,
-        doi: String?,
-        arxivID: String? = nil,
-        bibcode: String? = nil,
-        venue: String? = nil,
-        note: String? = nil,
-        dateAdded: Date = Date(),
-        dateModified: Date = Date(),
-        primaryCategory: String? = nil,
-        categories: [String] = [],
-        tagDisplays: [TagDisplayData] = [],
-        libraryName: String? = nil
-    ) {
-        self.id = id
-        self.citeKey = citeKey
-        self.title = title
-        self.authorString = authorString
-        self.year = year
-        self.abstract = abstract
-        self.isRead = isRead
-        self.isStarred = isStarred
-        self.flag = flag
-        self.hasDownloadedPDF = hasDownloadedPDF
-        self.hasOtherAttachments = hasOtherAttachments
-        self.citationCount = citationCount
-        self.referenceCount = referenceCount
-        self.doi = doi
-        self.arxivID = arxivID
-        self.bibcode = bibcode
-        self.venue = venue
-        self.note = note
-        self.dateAdded = dateAdded
-        self.dateModified = dateModified
-        self.primaryCategory = primaryCategory
-        self.categories = categories
-        self.tagDisplays = tagDisplays
-        self.libraryName = libraryName
-    }
-}

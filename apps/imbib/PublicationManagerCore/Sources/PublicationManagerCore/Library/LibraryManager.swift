@@ -2,11 +2,10 @@
 //  LibraryManager.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-04.
+//  Manages multiple publication libraries via the Rust store.
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 #if os(iOS)
@@ -19,51 +18,97 @@ import IOKit
 
 /// Manages multiple publication libraries.
 ///
-/// Each library represents a separate .bib file and associated PDF collection.
-/// Libraries can be opened, closed, and switched between. The active library
-/// determines which publications and smart searches are shown.
+/// Each library represents a separate bibliography collection.
+/// Libraries can be created, deleted, and switched between.
 @MainActor
 @Observable
 public final class LibraryManager {
 
     // MARK: - Published State
 
-    /// All known libraries (excludes system libraries like Exploration and shared libraries)
-    public private(set) var libraries: [CDLibrary] = []
+    /// All user libraries
+    public private(set) var libraries: [LibraryModel] = []
 
-    /// Shared libraries received from other users (lives in shared store, not owned by current user)
-    public private(set) var sharedWithMeLibraries: [CDLibrary] = []
+    /// ID of the currently active library
+    public var activeLibraryID: UUID? {
+        didSet {
+            if let id = activeLibraryID {
+                UserDefaults.standard.set(id.uuidString, forKey: "activeLibraryID")
+            }
+        }
+    }
 
-    /// Libraries I own that are shared with others (lives in shared store, I am the owner)
-    public private(set) var mySharedLibraries: [CDLibrary] = []
+    /// Currently active library (computed from ID)
+    public var activeLibrary: LibraryModel? {
+        guard let id = activeLibraryID else { return nil }
+        return libraries.first { $0.id == id }
+    }
 
-    /// Currently active library
-    public private(set) var activeLibrary: CDLibrary?
+    /// Recently opened libraries
+    public var recentLibraries: [LibraryModel] {
+        let recentIDs = UserDefaults.standard.stringArray(forKey: "recentLibraryIDs") ?? []
+        return recentIDs.compactMap { idStr in
+            guard let uuid = UUID(uuidString: idStr) else { return nil }
+            return libraries.first { $0.id == uuid }
+        }.prefix(5).map { $0 }
+    }
 
-    /// The Exploration system library (for references/citations exploration)
-    public private(set) var explorationLibrary: CDLibrary?
+    // MARK: - Special Libraries
 
-    /// Recently opened libraries (for menu)
-    public var recentLibraries: [CDLibrary] {
-        libraries
-            .filter { $0.dateLastOpened != nil }
-            .sorted { ($0.dateLastOpened ?? .distantPast) > ($1.dateLastOpened ?? .distantPast) }
-            .prefix(5)
-            .map { $0 }
+    /// ID of the Save library for Inbox triage
+    private var saveLibraryID: UUID? {
+        get {
+            guard let str = UserDefaults.standard.string(forKey: "saveLibraryID") else { return nil }
+            return UUID(uuidString: str)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.uuidString, forKey: "saveLibraryID")
+        }
+    }
+
+    /// ID of the Dismissed library for Inbox triage
+    private var dismissedLibraryID: UUID? {
+        get {
+            guard let str = UserDefaults.standard.string(forKey: "dismissedLibraryID") else { return nil }
+            return UUID(uuidString: str)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.uuidString, forKey: "dismissedLibraryID")
+        }
+    }
+
+    /// ID of the Exploration system library
+    private var explorationLibraryID: UUID? {
+        get {
+            guard let str = UserDefaults.standard.string(forKey: "explorationLibraryID") else { return nil }
+            return UUID(uuidString: str)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.uuidString, forKey: "explorationLibraryID")
+        }
+    }
+
+    /// The Save library
+    public var saveLibrary: LibraryModel? {
+        guard let id = saveLibraryID else { return nil }
+        return libraries.first { $0.id == id }
+    }
+
+    /// The Dismissed library
+    public var dismissedLibrary: LibraryModel? {
+        guard let id = dismissedLibraryID else { return nil }
+        return libraries.first { $0.id == id }
+    }
+
+    /// The Exploration system library
+    public var explorationLibrary: LibraryModel? {
+        guard let id = explorationLibraryID else { return nil }
+        return libraries.first { $0.id == id }
     }
 
     // MARK: - Dependencies
 
-    private let persistenceController: PersistenceController
-
-    /// Observer for CloudKit remote change notifications
-    private var cloudKitObserver: (any NSObjectProtocol)?
-
-    /// Debounce task for CloudKit change handling
-    private var debounceTask: Task<Void, Never>?
-
-    /// Last time we reloaded libraries (for debouncing)
-    private var lastReloadTime: Date = .distantPast
+    private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
     /// Track previous library count to avoid redundant logging
     private var previousLibraryCount: Int = -1
@@ -73,17 +118,7 @@ public final class LibraryManager {
 
     // MARK: - Initialization
 
-    /// Observer for reset notifications
-    private var resetObserver: (any NSObjectProtocol)?
-
-    /// Observer for exploration sync setting changes
-    private var explorationSettingObserver: (any NSObjectProtocol)?
-
-    public init(persistenceController: PersistenceController = .shared) {
-        self.persistenceController = persistenceController
-        setupCloudKitObserver()
-        setupResetObserver()
-        setupExplorationSettingObserver()
+    public init() {
         loadLibraries()
 
         // Load default library set if none exist (first run)
@@ -91,645 +126,374 @@ public final class LibraryManager {
             Logger.library.infoCapture("No libraries found, loading default set", category: "library")
             do {
                 try DefaultLibrarySetManager.shared.loadDefaultSet()
-                loadLibraries()  // Reload after import
+                loadLibraries()
             } catch {
-                // Fallback: create empty library if default set fails
                 Logger.library.warningCapture("Failed to load default set, creating fallback library: \(error.localizedDescription)", category: "library")
                 _ = createLibrary(name: "My Library")
             }
         }
-    }
 
-    // MARK: - CloudKit Sync
+        // Restore active library from UserDefaults
+        if let savedID = UserDefaults.standard.string(forKey: "activeLibraryID"),
+           let uuid = UUID(uuidString: savedID),
+           libraries.contains(where: { $0.id == uuid }) {
+            activeLibraryID = uuid
+        }
 
-    /// Set up observer for CloudKit remote changes
-    private func setupCloudKitObserver() {
-        cloudKitObserver = NotificationCenter.default.addObserver(
-            forName: .cloudKitDataDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.scheduleReload()
+        // Fallback: use default or first library
+        if activeLibraryID == nil {
+            activeLibraryID = libraries.first(where: { $0.isDefault })?.id ?? libraries.first?.id
+            if let active = activeLibrary {
+                Logger.library.infoCapture("Set active library: \(active.name)", category: "library")
             }
         }
     }
 
-    /// Set up observer for reset notifications
-    private func setupResetObserver() {
-        resetObserver = NotificationCenter.default.addObserver(
-            forName: .appDidResetToFirstRun,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.invalidateCaches()
-            }
-        }
-    }
-
-    /// Set up observer for exploration sync setting changes
-    private func setupExplorationSettingObserver() {
-        explorationSettingObserver = NotificationCenter.default.addObserver(
-            forName: .explorationSyncSettingChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                guard let self = self,
-                      let userInfo = notification.userInfo,
-                      let isLocalOnly = userInfo["isLocalOnly"] as? Bool else { return }
-
-                self.updateExplorationLibrarySyncSetting(isLocalOnly: isLocalOnly)
-            }
-        }
-    }
-
-    /// Update the exploration library's sync setting
-    private func updateExplorationLibrarySyncSetting(isLocalOnly: Bool) {
-        guard let library = explorationLibrary else { return }
-
-        Logger.library.infoCapture("Updating Exploration library sync setting: isLocalOnly=\(isLocalOnly)", category: "library")
-
-        library.isLocalOnly = isLocalOnly
-        library.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
-
-        persistenceController.save()
-    }
-
-    /// Schedule a reload with debouncing (max once per 0.5 seconds)
-    private func scheduleReload() {
-        // Cancel any pending reload
-        debounceTask?.cancel()
-
-        // If we reloaded recently, debounce
-        let timeSinceLastReload = Date().timeIntervalSince(lastReloadTime)
-        if timeSinceLastReload < 0.5 {
-            debounceTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                self.loadLibraries()
-                self.lastReloadTime = Date()
-                // Run deduplication after CloudKit sync to merge any duplicates
-                await self.runDeduplication()
-            }
-        } else {
-            // Reload immediately
-            loadLibraries()
-            lastReloadTime = Date()
-            // Run deduplication after CloudKit sync
-            Task { @MainActor in
-                await self.runDeduplication()
-            }
-        }
+    /// Legacy initializer for compatibility — ignores persistenceController.
+    public convenience init(persistenceController: Any) {
+        self.init()
     }
 
     // MARK: - Library Loading
 
-    /// Load all libraries from Core Data
+    /// Load all libraries from the Rust store
     public func loadLibraries() {
-        // Prevent re-entrant reloads
         guard !isReloading else { return }
         isReloading = true
         defer { isReloading = false }
 
-        // Clean up local-only libraries that synced from other devices
-        cleanupForeignLocalOnlyLibraries()
+        libraries = store.listLibraries()
 
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "sortOrder", ascending: true),
-            NSSortDescriptor(key: "name", ascending: true)
-        ]
-
-        do {
-            let allLibraries = try persistenceController.viewContext.fetch(request)
-
-            // Categorize libraries: private, shared-owned, shared-received
-            var privateLibs: [CDLibrary] = []
-            var sharedOwned: [CDLibrary] = []
-            var sharedReceived: [CDLibrary] = []
-
-            for library in allLibraries {
-                // Skip system libraries and foreign local-only libraries
-                if library.isSystemLibrary { continue }
-                if library.isLocalOnly && library.deviceIdentifier != Self.currentDeviceIdentifier { continue }
-
-                if persistenceController.isShared(library) {
-                    #if canImport(CloudKit)
-                    if library.isShareOwner {
-                        sharedOwned.append(library)
-                    } else {
-                        sharedReceived.append(library)
-                    }
-                    #else
-                    sharedReceived.append(library)
-                    #endif
-                } else {
-                    privateLibs.append(library)
-                }
-            }
-
-            libraries = privateLibs
-            mySharedLibraries = sharedOwned
-            sharedWithMeLibraries = sharedReceived
-
-            // Find exploration library (syncs across devices now)
-            // Prefer canonical ID, fallback to any exploration library
-            explorationLibrary = allLibraries.first {
-                $0.isSystemLibrary &&
-                $0.name == "Exploration" &&
-                $0.id == CDLibrary.canonicalExplorationLibraryID
-            } ?? allLibraries.first {
-                $0.isSystemLibrary && $0.name == "Exploration"
-            }
-
-            // Only log when count changes to reduce noise
-            let totalCount = libraries.count + sharedWithMeLibraries.count + mySharedLibraries.count
-            if totalCount != previousLibraryCount {
-                Logger.library.infoCapture("Libraries: \(libraries.count) private, \(mySharedLibraries.count) shared-owned, \(sharedWithMeLibraries.count) shared-received (was \(previousLibraryCount) total)", category: "library")
-                previousLibraryCount = totalCount
-            }
-
-            // Set active to default library if not set
-            if activeLibrary == nil {
-                activeLibrary = libraries.first { $0.isDefault } ?? libraries.first
-                if let active = activeLibrary {
-                    Logger.library.infoCapture("Set active library: \(active.displayName)", category: "library")
-                }
-            }
-        } catch {
-            Logger.library.errorCapture("Failed to load libraries: \(error.localizedDescription)", category: "library")
-            libraries = []
-            sharedWithMeLibraries = []
-            mySharedLibraries = []
+        let count = libraries.count
+        if count != previousLibraryCount {
+            Logger.library.infoCapture("Libraries: \(count)", category: "library")
+            previousLibraryCount = count
         }
     }
 
     /// Invalidate all cached state after a reset.
-    ///
-    /// Call this after `FirstRunManager.resetToFirstRun()` to clear stale references
-    /// before the app restarts or re-initializes.
     public func invalidateCaches() {
         Logger.library.infoCapture("Invalidating LibraryManager caches", category: "library")
         libraries = []
-        sharedWithMeLibraries = []
-        mySharedLibraries = []
-        activeLibrary = nil
-        explorationLibrary = nil
+        activeLibraryID = nil
         previousLibraryCount = -1
     }
 
     // MARK: - Library Management
 
-    /// Create a new library with iCloud storage.
-    ///
-    /// Libraries are stored in the app container and synced via CloudKit.
-    /// This eliminates sandbox complexity from user-selected folders.
-    ///
-    /// **Canonical Default Library:**
-    /// The first library created (the default library) uses a well-known UUID
-    /// (`CDLibrary.canonicalDefaultLibraryID`) to ensure it syncs correctly across
-    /// devices instead of creating duplicates.
-    ///
-    /// - Parameter name: Display name for the library
-    /// - Returns: The created CDLibrary entity
+    /// Create a new library.
     @discardableResult
-    public func createLibrary(name: String) -> CDLibrary {
+    public func createLibrary(name: String) -> LibraryModel? {
         Logger.library.infoCapture("Creating library: \(name)", category: "library")
 
-        let context = persistenceController.viewContext
-        let isFirstLibrary = libraries.isEmpty
-
-        let library = CDLibrary(context: context)
-
-        // Use canonical ID for the first (default) library to prevent duplicates across devices
-        if isFirstLibrary {
-            library.id = CDLibrary.canonicalDefaultLibraryID
-            Logger.library.infoCapture("Using canonical default library ID for first library", category: "library")
-        } else {
-            library.id = UUID()
+        guard let library = store.createLibrary(name: name) else {
+            Logger.library.errorCapture("Failed to create library: \(name)", category: "library")
+            return nil
         }
 
-        library.name = name
-        library.dateCreated = Date()
-        library.isDefault = isFirstLibrary
-
-        // Create the Papers directory in the app container
-        let papersURL = library.papersContainerURL
-        do {
-            try FileManager.default.createDirectory(at: papersURL, withIntermediateDirectories: true)
-            Logger.library.debugCapture("Created Papers directory: \(papersURL.path)", category: "library")
-        } catch {
-            Logger.library.warningCapture("Failed to create Papers directory: \(error.localizedDescription)", category: "library")
+        // Set as default if first library
+        if libraries.isEmpty {
+            store.setLibraryDefault(id: library.id)
         }
 
-        persistenceController.save()
         loadLibraries()
-
         Logger.library.infoCapture("Created library '\(name)' with ID: \(library.id)", category: "library")
         return library
     }
 
-    /// Legacy method for backward compatibility.
-    @available(*, deprecated, message: "Use createLibrary(name:) instead - local folder storage is no longer supported")
-    @discardableResult
-    public func createLibrary(
-        name: String,
-        bibFileURL: URL?,
-        papersDirectoryURL: URL?
-    ) -> CDLibrary {
-        // Ignore file URLs and just create a container-based library
-        return createLibrary(name: name)
+    /// Set the active library by ID
+    public func setActive(id: UUID) {
+        guard let library = libraries.first(where: { $0.id == id }) else { return }
+        Logger.library.infoCapture("Switching to library: \(library.name)", category: "library")
+
+        activeLibraryID = id
+
+        // Track in recent list
+        var recents = UserDefaults.standard.stringArray(forKey: "recentLibraryIDs") ?? []
+        recents.removeAll { $0 == id.uuidString }
+        recents.insert(id.uuidString, at: 0)
+        if recents.count > 10 { recents = Array(recents.prefix(10)) }
+        UserDefaults.standard.set(recents, forKey: "recentLibraryIDs")
+
+        NotificationCenter.default.post(name: .activeLibraryChanged, object: id)
     }
 
     /// Set the active library
-    public func setActive(_ library: CDLibrary) {
-        Logger.library.infoCapture("Switching to library: \(library.displayName)", category: "library")
-
-        library.dateLastOpened = Date()
-        activeLibrary = library
-        persistenceController.save()
-
-        // Post notification for UI updates
-        NotificationCenter.default.post(name: .activeLibraryChanged, object: library)
+    public func setActive(_ library: LibraryModel) {
+        setActive(id: library.id)
     }
 
     /// Close a library (remove from list but don't delete data)
-    public func closeLibrary(_ library: CDLibrary) {
-        Logger.library.infoCapture("Closing library: \(library.displayName)", category: "library")
+    public func closeLibrary(id: UUID) {
+        Logger.library.infoCapture("Closing library: \(id)", category: "library")
 
-        if activeLibrary?.id == library.id {
-            // Switch to another library
-            activeLibrary = libraries.first { $0.id != library.id }
-            if let newActive = activeLibrary {
-                Logger.library.debugCapture("Switched to library: \(newActive.displayName)", category: "library")
-            }
+        if activeLibraryID == id {
+            activeLibraryID = libraries.first { $0.id != id }?.id
         }
 
-        persistenceController.viewContext.delete(library)
-        persistenceController.save()
+        store.deleteLibrary(id: id)
         loadLibraries()
     }
 
     /// Delete a library and optionally its files.
-    ///
-    /// With iCloud-only storage, files are stored in the app container under
-    /// `Libraries/{UUID}/`. Setting `deleteFiles: true` removes this directory.
-    public func deleteLibrary(_ library: CDLibrary, deleteFiles: Bool = false) throws {
-        Logger.library.warningCapture("Deleting library: \(library.displayName), deleteFiles: \(deleteFiles)", category: "library")
+    public func deleteLibrary(id: UUID, deleteFiles: Bool = false) throws {
+        Logger.library.warningCapture("Deleting library: \(id), deleteFiles: \(deleteFiles)", category: "library")
 
         if deleteFiles {
-            // Delete the library's container directory (includes Papers/)
-            let containerURL = library.containerURL
+            let containerURL = Self.containerURL(for: id)
             if FileManager.default.fileExists(atPath: containerURL.path) {
                 try? FileManager.default.removeItem(at: containerURL)
                 Logger.library.debugCapture("Deleted library container: \(containerURL.path)", category: "library")
             }
         }
 
-        closeLibrary(library)
+        closeLibrary(id: id)
     }
 
     /// Set a library as the default
-    public func setDefault(_ library: CDLibrary) {
-        Logger.library.infoCapture("Setting default library: \(library.displayName)", category: "library")
+    public func setDefault(id: UUID) {
+        Logger.library.infoCapture("Setting default library: \(id)", category: "library")
+        store.setLibraryDefault(id: id)
+        loadLibraries()
+    }
 
-        // Clear existing default
-        for lib in libraries {
-            lib.isDefault = (lib.id == library.id)
-        }
-        persistenceController.save()
+    /// Set a library as the default
+    public func setDefault(_ library: LibraryModel) {
+        setDefault(id: library.id)
     }
 
     /// Rename a library
-    public func rename(_ library: CDLibrary, to name: String) {
-        Logger.library.infoCapture("Renaming library '\(library.displayName)' to '\(name)'", category: "library")
-        library.name = name
-        persistenceController.save()
+    public func rename(id: UUID, to name: String) {
+        Logger.library.infoCapture("Renaming library to '\(name)'", category: "library")
+        store.updateField(id: id, field: "name", value: name)
+        loadLibraries()
     }
 
-    /// Reorder libraries (for drag-and-drop in sidebar)
+    /// Reorder libraries
     public func moveLibraries(from indices: IndexSet, to destination: Int) {
         Logger.library.infoCapture("Moving libraries from \(indices) to \(destination)", category: "library")
-
         var reordered = libraries
         reordered.move(fromOffsets: indices, toOffset: destination)
-
-        // Update sortOrder for all libraries
         for (index, library) in reordered.enumerated() {
-            library.sortOrder = Int16(index)
+            store.updateIntField(id: library.id, field: "sort_order", value: Int64(index))
         }
-
         libraries = reordered
-        persistenceController.save()
     }
 
     // MARK: - Library Lookup
 
     /// Find a library by ID
-    public func find(id: UUID) -> CDLibrary? {
-        libraries.first { $0.id == id }
+    public func find(id: UUID) -> LibraryModel? {
+        libraries.first { $0.id == id } ?? store.getLibrary(id: id)
     }
 
     /// Get the default library, creating one if needed
-    public func getOrCreateDefaultLibrary() -> CDLibrary {
+    public func getOrCreateDefaultLibrary() -> LibraryModel {
         if let defaultLib = libraries.first(where: { $0.isDefault }) {
             return defaultLib
         }
-
         if let firstLib = libraries.first {
-            firstLib.isDefault = true
-            persistenceController.save()
+            store.setLibraryDefault(id: firstLib.id)
+            loadLibraries()
             return firstLib
         }
-
-        // Create a default library
-        return createLibrary(name: "My Library")
+        return createLibrary(name: "My Library")!
     }
 
     // MARK: - Save Library (Inbox Triage)
 
     /// Get or create the Save library for Inbox triage.
-    ///
-    /// The Save library is used by the "S" keyboard shortcut in the Inbox.
-    /// If a user-configured save library is set in preferences, that library is used.
-    /// Otherwise, if no save library exists, one is created automatically on first use.
     @discardableResult
-    public func getOrCreateSaveLibrary() -> CDLibrary {
-        // Check if user has configured a specific save library (synced across devices)
+    public func getOrCreateSaveLibrary() -> LibraryModel {
+        // Check user-configured save library
         if let configuredID = SyncedSettingsStore.shared.string(forKey: .inboxSaveLibraryID),
            let uuid = UUID(uuidString: configuredID),
-           let configuredLibrary = libraries.first(where: { $0.id == uuid && !$0.isDeleted }) {
-            Logger.library.debugCapture("Using user-configured save library: \(configuredLibrary.displayName)", category: "library")
-            return configuredLibrary
+           let lib = libraries.first(where: { $0.id == uuid }) {
+            return lib
         }
 
-        // Return existing save library if available (validate it's not deleted)
-        if let saveLib = libraries.first(where: { $0.isSaveLibrary && !$0.isDeleted }) {
-            return saveLib
-        }
-
-        // Query database directly to avoid stale cache issues
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isSaveLibrary == YES")
-        request.fetchLimit = 1
-
-        if let existingSave = try? context.fetch(request).first {
-            Logger.library.debugCapture("Found existing Save library in database", category: "library")
-            loadLibraries()  // Refresh cache
-            return existingSave
+        // Return cached save library
+        if let lib = saveLibrary {
+            return lib
         }
 
         // Create new Save library
         Logger.library.infoCapture("Creating Save library for Inbox triage", category: "library")
-
-        let library = CDLibrary(context: context)
-        library.id = UUID()
-        library.name = "Save"
-        library.isSaveLibrary = true
-        library.isDefault = false
-        library.dateCreated = Date()
-        library.sortOrder = Int16(libraries.count)  // After existing libraries
-
-        persistenceController.save()
+        guard let lib = store.createLibrary(name: "Save") else {
+            return getOrCreateDefaultLibrary()
+        }
+        saveLibraryID = lib.id
         loadLibraries()
-
-        Logger.library.infoCapture("Created Save library with ID: \(library.id)", category: "library")
-        return library
-    }
-
-    /// Get the Save library (for UI display purposes)
-    public var saveLibrary: CDLibrary? {
-        libraries.first { $0.isSaveLibrary }
+        return lib
     }
 
     // MARK: - Dismissed Library (Inbox Triage)
 
     /// Get or create the Dismissed library for Inbox triage.
-    ///
-    /// The Dismissed library is used by the "D" keyboard shortcut in the Inbox.
-    /// Papers moved here are considered "dismissed" but not deleted.
-    /// If no dismissed library exists, one is created automatically on first use.
     @discardableResult
-    public func getOrCreateDismissedLibrary() -> CDLibrary {
-        // Return existing dismissed library if available
-        if let dismissedLib = dismissedLibrary {
-            return dismissedLib
+    public func getOrCreateDismissedLibrary() -> LibraryModel {
+        if let lib = dismissedLibrary {
+            return lib
         }
 
-        // Create new Dismissed library
         Logger.library.infoCapture("Creating Dismissed library for Inbox triage", category: "library")
-
-        let context = persistenceController.viewContext
-        let library = CDLibrary(context: context)
-        library.id = UUID()
-        library.name = "Dismissed"
-        library.isDismissedLibrary = true
-        library.isDefault = false
-        library.dateCreated = Date()
-        library.sortOrder = Int16.max - 1  // Near the bottom (before Exploration)
-
-        persistenceController.save()
+        guard let lib = store.createLibrary(name: "Dismissed") else {
+            return getOrCreateDefaultLibrary()
+        }
+        dismissedLibraryID = lib.id
         loadLibraries()
-
-        Logger.library.infoCapture("Created Dismissed library with ID: \(library.id)", category: "library")
-        return library
+        return lib
     }
 
-    /// Get the Dismissed library (for UI display purposes)
-    public var dismissedLibrary: CDLibrary? {
-        libraries.first { $0.isDismissedLibrary }
-    }
-
-    /// Empty the Dismissed library (permanently delete all papers)
+    /// Empty the Dismissed library
     public func emptyDismissedLibrary() {
-        guard let dismissed = dismissedLibrary else { return }
-
+        guard let id = dismissedLibraryID else { return }
         Logger.library.warningCapture("Emptying Dismissed library", category: "library")
 
-        let context = persistenceController.viewContext
-
-        // Delete all publications that are ONLY in the Dismissed library
-        if let publications = dismissed.publications {
-            for pub in publications {
-                let otherLibraries = (pub.libraries ?? []).filter { !$0.isDismissedLibrary }
-                if otherLibraries.isEmpty {
-                    // Paper is only in Dismissed - delete it
-                    context.delete(pub)
-                } else {
-                    // Paper is in other libraries - just remove from Dismissed
-                    pub.removeFromLibrary(dismissed)
-                }
-            }
+        let pubs = store.queryPublications(parentId: id, sort: "created", ascending: false, limit: nil, offset: nil)
+        if !pubs.isEmpty {
+            store.deletePublications(ids: pubs.map(\.id))
         }
-
-        persistenceController.save()
         loadLibraries()
     }
 
-    // MARK: - Last Search Collection (ADR-016)
+    // MARK: - Last Search Collection
 
     /// Get or create the "Last Search" collection for the active library.
-    ///
-    /// This is a system collection that holds ad-hoc search results. Each library
-    /// has its own "Last Search" collection. Results are replaced on each new search.
-    public func getOrCreateLastSearchCollection() -> CDCollection? {
-        guard let library = activeLibrary else {
+    public func getOrCreateLastSearchCollection() -> CollectionModel? {
+        guard let libID = activeLibraryID else {
             Logger.library.warningCapture("No active library for Last Search collection", category: "library")
             return nil
         }
 
-        // Return existing collection if available
-        if let collection = library.lastSearchCollection {
-            return collection
+        let collections = store.listCollections(libraryId: libID)
+        if let existing = collections.first(where: { $0.name == "Last Search" }) {
+            return existing
         }
 
-        // Create new Last Search collection
-        Logger.library.infoCapture("Creating Last Search collection for: \(library.displayName)", category: "library")
-
-        let context = persistenceController.viewContext
-        let collection = CDCollection(context: context)
-        collection.id = UUID()
-        collection.name = "Last Search"
-        collection.isSystemCollection = true
-        collection.isSmartSearchResults = false
-        collection.isSmartCollection = false
-        collection.owningLibrary = library
-        library.lastSearchCollection = collection
-
-        persistenceController.save()
-
-        return collection
+        Logger.library.infoCapture("Creating Last Search collection", category: "library")
+        return store.createCollection(name: "Last Search", libraryId: libID, isSmart: false)
     }
 
-    /// Clear the Last Search collection (remove papers only in this collection)
+    /// Clear the Last Search collection
     public func clearLastSearchCollection() {
-        guard let collection = activeLibrary?.lastSearchCollection else { return }
+        guard let libID = activeLibraryID else { return }
+
+        let collections = store.listCollections(libraryId: libID)
+        guard let collection = collections.first(where: { $0.name == "Last Search" }) else { return }
 
         Logger.library.debugCapture("Clearing Last Search collection", category: "library")
 
-        let context = persistenceController.viewContext
-
-        // Get publications only in this collection
-        guard let publications = collection.publications else { return }
-
-        for pub in publications {
-            // Check if this paper is ONLY in Last Search (not in other collections/smart searches)
-            let otherCollections = (pub.collections ?? []).filter { $0.id != collection.id }
-            if otherCollections.isEmpty {
-                // Paper is only in Last Search - delete it
-                context.delete(pub)
-            }
+        let members = store.listCollectionMembers(collectionId: collection.id, sort: "created", ascending: false, limit: nil, offset: nil)
+        if !members.isEmpty {
+            store.removeFromCollection(publicationIds: members.map(\.id), collectionId: collection.id)
         }
-
-        // Clear the collection's publication set
-        collection.publications = []
-        persistenceController.save()
     }
 
     // MARK: - Exploration Library
 
     /// Get or create the Exploration system library.
-    ///
-    /// This is a system library that holds exploration results (references/citations).
-    /// Collections in this library are created when exploring a paper's references or citations.
-    ///
-    /// **Sync behavior** is controlled by `ExplorationSettingsStore.shared.isLocalOnly`:
-    /// - When true (default): Library is local-only, not synced via CloudKit
-    /// - When false: Library syncs across devices via CloudKit
     @discardableResult
-    public func getOrCreateExplorationLibrary() -> CDLibrary {
-        let isLocalOnly = ExplorationSettingsStore.shared.isLocalOnly
-
-        // Validate cached reference is still valid
-        if let lib = explorationLibrary, !lib.isDeleted, lib.managedObjectContext != nil {
-            // Ensure sync setting is current
-            if lib.isLocalOnly != isLocalOnly {
-                lib.isLocalOnly = isLocalOnly
-                lib.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
-                persistenceController.save()
-            }
+    public func getOrCreateExplorationLibrary() -> LibraryModel {
+        if let lib = explorationLibrary {
             return lib
         }
 
-        // Clear invalid cached reference
-        explorationLibrary = nil
-
-        // Check for existing exploration library - prefer one with canonical ID
-        let context = persistenceController.viewContext
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "isSystemLibrary == YES AND name == %@", "Exploration")
-
-        do {
-            let allExplorations = try context.fetch(request)
-
-            if !allExplorations.isEmpty {
-                // Prefer exploration with canonical ID, or migrate the oldest to canonical
-                let canonical = allExplorations.first { $0.id == CDLibrary.canonicalExplorationLibraryID }
-                let existing = canonical ?? allExplorations.sorted { $0.dateCreated < $1.dateCreated }.first!
-
-                // Migrate to canonical ID if needed
-                var needsSave = false
-                if existing.id != CDLibrary.canonicalExplorationLibraryID {
-                    Logger.library.infoCapture("Migrating Exploration library to canonical ID", category: "library")
-                    existing.id = CDLibrary.canonicalExplorationLibraryID
-                    needsSave = true
-                }
-
-                // Apply current sync setting
-                if existing.isLocalOnly != isLocalOnly {
-                    existing.isLocalOnly = isLocalOnly
-                    existing.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
-                    needsSave = true
-                }
-
-                if needsSave {
-                    persistenceController.save()
-                }
-
-                Logger.library.infoCapture("Found existing Exploration library (isLocalOnly: \(existing.isLocalOnly))", category: "library")
-                explorationLibrary = existing
-                return existing
-            }
-        } catch {
-            Logger.library.errorCapture("Failed to fetch Exploration library: \(error.localizedDescription)", category: "library")
+        // Look for existing by name
+        if let existing = libraries.first(where: { $0.name == "Exploration" }) {
+            explorationLibraryID = existing.id
+            return existing
         }
 
-        // Create new Exploration library with canonical ID
-        Logger.library.infoCapture("Creating Exploration system library (isLocalOnly: \(isLocalOnly))", category: "library")
+        Logger.library.infoCapture("Creating Exploration system library", category: "library")
+        guard let lib = store.createLibrary(name: "Exploration") else {
+            return getOrCreateDefaultLibrary()
+        }
+        explorationLibraryID = lib.id
+        loadLibraries()
+        return lib
+    }
 
-        let library = CDLibrary(context: context)
-        library.id = CDLibrary.canonicalExplorationLibraryID  // Use canonical ID
-        library.name = "Exploration"
-        library.isSystemLibrary = true
-        library.isDefault = false
-        library.dateCreated = Date()
-        library.sortOrder = Int16.max  // Always at the end
-        library.isLocalOnly = isLocalOnly
-        library.deviceIdentifier = isLocalOnly ? Self.currentDeviceIdentifier : nil
+    /// Clear all collections in the Exploration library
+    public func clearExplorationLibrary() {
+        guard let libID = explorationLibraryID else { return }
+        Logger.library.infoCapture("Clearing Exploration library", category: "library")
 
-        persistenceController.save()
+        let collections = store.listCollections(libraryId: libID)
+        for collection in collections {
+            let members = store.listCollectionMembers(collectionId: collection.id, sort: "created", ascending: false, limit: nil, offset: nil)
+            if !members.isEmpty {
+                store.deletePublications(ids: members.map(\.id))
+            }
+            store.deleteItem(id: collection.id)
+        }
+    }
 
-        Logger.library.infoCapture("Created Exploration library with canonical ID: \(library.id)", category: "library")
-        explorationLibrary = library
-        return library
+    /// Delete exploration collections older than specified days.
+    public func cleanupExplorationCollections(olderThanDays days: Int?) {
+        guard let days = days else { return }
+        guard let libID = explorationLibraryID else { return }
+
+        if days == 0 {
+            clearExplorationLibrary()
+            return
+        }
+
+        // Without dateCreated on CollectionModel, clean up all exploration collections
+        // when any cleanup is requested (date-based filtering not available yet)
+        let collections = store.listCollections(libraryId: libID)
+        if !collections.isEmpty {
+            for collection in collections {
+                deleteExplorationCollection(id: collection.id)
+            }
+            Logger.library.infoCapture("Cleaned up \(collections.count) exploration collection(s)", category: "library")
+        }
+    }
+
+    /// Delete a specific exploration collection
+    public func deleteExplorationCollection(id: UUID) {
+        Logger.library.infoCapture("Deleting exploration collection: \(id)", category: "library")
+        let members = store.listCollectionMembers(collectionId: id, sort: "created", ascending: false, limit: nil, offset: nil)
+        if !members.isEmpty {
+            store.deletePublications(ids: members.map(\.id))
+        }
+        store.deleteItem(id: id)
+    }
+
+    // MARK: - BibTeX Export
+
+    /// Export a library to BibTeX format.
+    public func exportToBibTeX(libraryId: UUID, to url: URL) throws {
+        Logger.library.infoCapture("Exporting library to BibTeX", category: "library")
+        let content = store.exportAllBibTeX(libraryId: libraryId)
+        guard !content.isEmpty else {
+            throw LibraryError.notFound(libraryId)
+        }
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        Logger.library.infoCapture("Exported to: \(url.lastPathComponent)", category: "library")
+    }
+
+    // MARK: - Container URLs
+
+    /// Container URL for a library's files.
+    public static func containerURL(for libraryId: UUID) -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("imbib/Libraries/\(libraryId.uuidString)", isDirectory: true)
+    }
+
+    /// Papers container URL for a library.
+    public static func papersContainerURL(for libraryId: UUID) -> URL {
+        containerURL(for: libraryId).appendingPathComponent("Papers", isDirectory: true)
     }
 
     /// Unique identifier for the current device.
-    ///
-    /// Used to distinguish local-only libraries (like Exploration) from those
-    /// that may have synced from other devices via CloudKit.
-    private static var currentDeviceIdentifier: String {
+    public static var currentDeviceIdentifier: String {
         #if os(iOS)
-        // Use vendor identifier on iOS (persists across app reinstalls for same vendor)
         if let vendorID = UIDevice.current.identifierForVendor?.uuidString {
             return vendorID
         }
         return UIDevice.current.name
         #else
-        // Use hardware UUID on macOS
         if let uuid = getMacHardwareUUID() {
             return uuid
         }
@@ -738,7 +502,6 @@ public final class LibraryManager {
     }
 
     #if os(macOS)
-    /// Get the hardware UUID on macOS.
     private static func getMacHardwareUUID() -> String? {
         let platformExpert = IOServiceGetMatchingService(
             kIOMainPortDefault,
@@ -758,218 +521,6 @@ public final class LibraryManager {
         return serialNumberAsCFString
     }
     #endif
-
-    // MARK: - Local-Only Cleanup
-
-    /// Clean up local-only libraries that synced from other devices.
-    ///
-    /// When CloudKit syncs, local-only libraries (like Exploration) from other devices
-    /// may appear in the local database. This method deletes them since they're not
-    /// relevant to the current device.
-    ///
-    /// Call this on app launch and after CloudKit sync notifications.
-    public func cleanupForeignLocalOnlyLibraries() {
-        let context = persistenceController.viewContext
-
-        // Find local-only libraries that don't belong to this device
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(
-            format: "isLocalOnly == YES AND deviceIdentifier != %@",
-            Self.currentDeviceIdentifier
-        )
-
-        do {
-            let foreignLibraries = try context.fetch(request)
-
-            if foreignLibraries.isEmpty {
-                return
-            }
-
-            Logger.library.infoCapture(
-                "Cleaning up \(foreignLibraries.count) local-only libraries from other devices",
-                category: "library"
-            )
-
-            for library in foreignLibraries {
-                // Delete all associated data
-                deleteLibraryContents(library)
-                context.delete(library)
-            }
-
-            persistenceController.save()
-        } catch {
-            Logger.library.errorCapture(
-                "Failed to cleanup foreign local-only libraries: \(error.localizedDescription)",
-                category: "library"
-            )
-        }
-    }
-
-    /// Delete all contents of a library (collections, smart searches, publications).
-    private func deleteLibraryContents(_ library: CDLibrary) {
-        let context = persistenceController.viewContext
-
-        // Delete smart searches
-        if let smartSearches = library.smartSearches {
-            for search in smartSearches {
-                if let collection = search.resultCollection {
-                    context.delete(collection)
-                }
-                context.delete(search)
-            }
-        }
-
-        // Delete collections and orphaned publications
-        if let collections = library.collections {
-            for collection in collections {
-                if let publications = collection.publications {
-                    for pub in publications {
-                        // Only delete if not in any other library
-                        let otherLibraries = (pub.libraries ?? []).filter { $0.id != library.id }
-                        if otherLibraries.isEmpty {
-                            context.delete(pub)
-                        }
-                    }
-                }
-                context.delete(collection)
-            }
-        }
-
-        // Delete any remaining publications only in this library
-        if let publications = library.publications {
-            for pub in publications {
-                let otherLibraries = (pub.libraries ?? []).filter { $0.id != library.id }
-                if otherLibraries.isEmpty {
-                    context.delete(pub)
-                }
-            }
-        }
-    }
-
-    /// Delete all collections in the Exploration library
-    public func clearExplorationLibrary() {
-        guard let library = explorationLibrary else { return }
-
-        Logger.library.infoCapture("Clearing Exploration library", category: "library")
-
-        let context = persistenceController.viewContext
-
-        // Delete all collections and their papers
-        if let collections = library.collections {
-            for collection in collections {
-                // Delete papers that are only in exploration collections
-                if let publications = collection.publications {
-                    for pub in publications {
-                        let otherCollections = (pub.collections ?? []).filter {
-                            $0.library?.isSystemLibrary != true
-                        }
-                        if otherCollections.isEmpty {
-                            context.delete(pub)
-                        }
-                    }
-                }
-                context.delete(collection)
-            }
-        }
-
-        persistenceController.save()
-    }
-
-    /// Delete exploration collections older than specified days.
-    ///
-    /// - Parameter days: Number of days. If `nil`, keeps all (forever). If `0`, deletes all (session only).
-    public func cleanupExplorationCollections(olderThanDays days: Int?) {
-        guard let days = days else { return }  // nil = forever, keep all
-        guard let library = explorationLibrary else { return }
-
-        if days == 0 {
-            // Session only - clear everything
-            clearExplorationLibrary()
-            return
-        }
-
-        let cutoffDate = Date().addingTimeInterval(-TimeInterval(days) * 86400)
-        var deletedCount = 0
-
-        if let collections = library.collections {
-            for collection in collections where collection.parentCollection == nil {
-                // Only check root collections - children inherit parent's date
-                if let created = collection.dateCreated, created < cutoffDate {
-                    deleteExplorationCollection(collection)
-                    deletedCount += 1
-                }
-            }
-        }
-
-        if deletedCount > 0 {
-            Logger.library.infoCapture("Cleaned up \(deletedCount) old exploration collection(s)", category: "library")
-            persistenceController.save()
-        }
-    }
-
-    /// Delete a specific exploration collection
-    public func deleteExplorationCollection(_ collection: CDCollection) {
-        guard collection.library?.isSystemLibrary == true else {
-            Logger.library.warningCapture("Attempted to delete non-exploration collection", category: "library")
-            return
-        }
-
-        Logger.library.infoCapture("Deleting exploration collection: \(collection.name)", category: "library")
-
-        let context = persistenceController.viewContext
-
-        // Delete papers that are only in this exploration collection
-        if let publications = collection.publications {
-            for pub in publications {
-                let otherCollections = (pub.collections ?? []).filter { $0.id != collection.id }
-                if otherCollections.isEmpty {
-                    context.delete(pub)
-                }
-            }
-        }
-
-        // Delete child collections recursively
-        if let children = collection.childCollections {
-            for child in children {
-                deleteExplorationCollection(child)
-            }
-        }
-
-        context.delete(collection)
-        persistenceController.save()
-    }
-
-    // MARK: - BibTeX Export
-
-    /// Export a library to BibTeX format.
-    ///
-    /// Exports all publications in the library to a .bib file at the specified URL.
-    /// This allows users to share their library with BibDesk and other tools.
-    ///
-    /// - Parameters:
-    ///   - library: The library to export
-    ///   - url: The destination URL for the .bib file
-    /// - Throws: `LibraryError.notFound` if library has no publications, or file system errors
-    public func exportToBibTeX(_ library: CDLibrary, to url: URL) throws {
-        Logger.library.infoCapture("Exporting library '\(library.displayName)' to BibTeX", category: "library")
-
-        guard let publications = library.publications, !publications.isEmpty else {
-            Logger.library.warningCapture("No publications to export", category: "library")
-            throw LibraryError.notFound(library.id)
-        }
-
-        // Convert to BibTeX entries
-        let entries = publications.map { $0.toBibTeXEntry() }
-
-        // Export using BibTeXExporter
-        let exporter = BibTeXExporter()
-        let content = exporter.export(entries)
-
-        // Write to file
-        try content.write(to: url, atomically: true, encoding: .utf8)
-
-        Logger.library.infoCapture("Exported \(entries.count) entries to: \(url.lastPathComponent)", category: "library")
-    }
 }
 
 // MARK: - Library Error
@@ -997,69 +548,7 @@ public extension Notification.Name {
     static let activeLibraryChanged = Notification.Name("activeLibraryChanged")
 }
 
-// MARK: - Library Definition (Sendable snapshot)
+// MARK: - Library Definition (Sendable snapshot — alias for LibraryModel)
 
-/// A Sendable snapshot of a library for use in async contexts
-public struct LibraryDefinition: Sendable, Identifiable, Hashable {
-    public let id: UUID
-    public let name: String
-    public let bibFilePath: String?
-    public let papersDirectoryPath: String?
-    public let dateCreated: Date
-    public let dateLastOpened: Date?
-    public let isDefault: Bool
-
-    public init(from entity: CDLibrary) {
-        self.id = entity.id
-        self.name = entity.displayName
-        self.bibFilePath = entity.bibFilePath
-        self.papersDirectoryPath = entity.papersDirectoryPath
-        self.dateCreated = entity.dateCreated
-        self.dateLastOpened = entity.dateLastOpened
-        self.isDefault = entity.isDefault
-    }
-}
-
-// MARK: - Deduplication Integration
-
-public extension LibraryManager {
-
-    /// Run library deduplication after loading libraries.
-    ///
-    /// Call this during app startup or after CloudKit sync notifications
-    /// to merge any duplicate libraries that may have been created across devices.
-    ///
-    /// **When to call:**
-    /// - After `loadLibraries()` on app startup
-    /// - After CloudKit remote change notifications (debounced)
-    ///
-    /// **What it does:**
-    /// - Finds libraries with the same canonical ID (the default library)
-    /// - Finds libraries with the same name created within 24 hours
-    /// - Merges duplicates into the oldest library
-    /// - Reloads the library list if merges occurred
-    func runDeduplication() async {
-        let service = LibraryDeduplicationService(persistenceController: persistenceController)
-        let results = await service.deduplicateLibraries()
-
-        if !results.isEmpty {
-            // Reload libraries to reflect merged state
-            loadLibraries()
-
-            for result in results {
-                Logger.library.infoCapture("Library merge: \(result.summary)", category: "library")
-            }
-        }
-
-        // Also deduplicate tags (same canonicalPath, different UUIDs from sync)
-        let tagService = TagDeduplicationService(persistenceController: persistenceController)
-        let tagResults = await tagService.deduplicateTags()
-
-        for result in tagResults {
-            Logger.library.infoCapture(
-                "Tag merge: '\(result.canonicalPath)' — \(result.duplicatesMerged) dups, \(result.publicationsRetagged) re-tagged",
-                category: "library"
-            )
-        }
-    }
-}
+/// A Sendable snapshot of a library for use in async contexts.
+public typealias LibraryDefinition = LibraryModel

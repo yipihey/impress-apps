@@ -19,7 +19,7 @@ import OSLog
 /// extension ADSSource: BrowserURLProvider {
 ///     public static var sourceID: String { "ads" }
 ///
-///     public static func browserPDFURL(for publication: CDPublication) -> URL? {
+///     public static func browserPDFURL(for publication: PublicationModel) -> URL? {
 ///         guard let bibcode = publication.bibcode else { return nil }
 ///         return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")
 ///     }
@@ -36,7 +36,7 @@ public protocol BrowserURLProvider {
     ///
     /// - Parameter publication: The publication to find a PDF for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
-    static func browserPDFURL(for publication: CDPublication) -> URL?
+    static func browserPDFURL(for publication: PublicationModel) -> URL?
 }
 
 /// Registry of BrowserURLProvider implementations.
@@ -110,13 +110,12 @@ public actor BrowserURLProviderRegistry {
     ///
     /// Tries registered providers in priority order, then falls back to:
     /// 1. DOI resolver
-    /// 2. Publisher PDF link from pdfLinks
-    /// 3. Any PDF link from pdfLinks
+    /// 2. Any PDF-related URL from fields
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if none found
-    public func browserURL(for publication: CDPublication) -> URL? {
-        Logger.pdfBrowser.debug("Looking for browser URL for: \(publication.title ?? "Unknown")")
+    public func browserURL(for publication: PublicationModel) -> URL? {
+        Logger.pdfBrowser.debug("Looking for browser URL for: \(publication.title)")
 
         // Try registered providers in priority order
         for sourceID in priorityOrder {
@@ -145,16 +144,10 @@ public actor BrowserURLProviderRegistry {
             return url
         }
 
-        // Fallback 2: Publisher PDF link
-        if let publisherLink = publication.pdfLinks.first(where: { $0.type == .publisher }) {
-            Logger.pdfBrowser.info("Using publisher PDF link fallback: \(publisherLink.url.absoluteString)")
-            return publisherLink.url
-        }
-
-        // Fallback 3: Any PDF link
-        if let anyLink = publication.pdfLinks.first {
-            Logger.pdfBrowser.info("Using any PDF link fallback: \(anyLink.url.absoluteString)")
-            return anyLink.url
+        // Fallback 2: URL field
+        if let urlString = publication.url, let url = URL(string: urlString) {
+            Logger.pdfBrowser.info("Using URL field fallback: \(url.absoluteString)")
+            return url
         }
 
         Logger.pdfBrowser.warning("No browser URL found for publication")
@@ -167,7 +160,7 @@ public actor BrowserURLProviderRegistry {
     ///   - sourceID: The source to use (e.g., "ads")
     ///   - publication: The publication to find a PDF URL for
     /// - Returns: A URL from that specific source, or nil
-    public func browserURL(from sourceID: String, for publication: CDPublication) -> URL? {
+    public func browserURL(from sourceID: String, for publication: PublicationModel) -> URL? {
         guard let provider = providers[sourceID] else {
             Logger.pdfBrowser.warning("Source not registered: \(sourceID)")
             return nil
@@ -179,22 +172,22 @@ public actor BrowserURLProviderRegistry {
 
 // MARK: - Default Providers
 
-/// Default fallback provider that uses DOI and pdfLinks.
+/// Default fallback provider that uses DOI and URL fields.
 ///
 /// This is automatically used as a fallback, but can also be
 /// registered explicitly if needed.
 public struct DefaultBrowserURLProvider: BrowserURLProvider {
     public static var sourceID: String { "default" }
 
-    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
         // Try DOI first
         if let doi = publication.doi {
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Try publisher PDF link
-        if let publisherLink = publication.pdfLinks.first(where: { $0.type == .publisher }) {
-            return publisherLink.url
+        // Try URL field
+        if let urlString = publication.url, let url = URL(string: urlString) {
+            return url
         }
 
         return nil

@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CoreData
 import CoreGraphics
 import OSLog
 
@@ -126,49 +125,43 @@ public struct AnnotationConverter {
         )
     }
 
-    /// Convert reMarkable raw annotation to imbib CDAnnotation.
+    /// Convert reMarkable raw annotation to imbib AnnotationModel via RustStoreAdapter.
     ///
     /// - Parameters:
     ///   - raw: Raw annotation from reMarkable
-    ///   - linkedFile: The PDF linked file
-    ///   - context: Core Data context
-    /// - Returns: Created CDAnnotation, or nil if conversion failed
+    ///   - linkedFileId: The linked file ID
+    /// - Returns: Created AnnotationModel, or nil if conversion failed
+    @MainActor
     public static func convertToImbibAnnotation(
         raw: RemarkableRawAnnotation,
-        linkedFile: CDLinkedFile,
-        context: NSManagedObjectContext
-    ) -> CDAnnotation? {
-        let annotation = CDAnnotation(context: context)
-        annotation.id = UUID()
-        annotation.pageNumber = Int32(raw.pageNumber)
-        annotation.dateCreated = Date()
-        annotation.dateModified = Date()
+        linkedFileId: UUID
+    ) -> AnnotationModel? {
+        let store = RustStoreAdapter.shared
 
-        // Set bounds
-        annotation.bounds = raw.bounds
-
-        // Set type based on reMarkable annotation type
+        // Map reMarkable type to imbib annotation type
+        let annotationType: String
         switch raw.type {
         case .highlight:
-            annotation.annotationType = CDAnnotation.AnnotationType.highlight.rawValue
+            annotationType = "highlight"
         case .ink:
-            annotation.annotationType = CDAnnotation.AnnotationType.ink.rawValue
+            annotationType = "ink"
         case .text:
-            annotation.annotationType = CDAnnotation.AnnotationType.note.rawValue
+            annotationType = "note"
         }
 
-        // Set color
-        if let color = raw.color {
-            annotation.color = color
-        }
+        // Serialize CGRect to JSON string
+        let boundsRect = raw.bounds
+        let boundsString = "{\"x\":\(boundsRect.origin.x),\"y\":\(boundsRect.origin.y),\"width\":\(boundsRect.width),\"height\":\(boundsRect.height)}"
 
-        // Link to file
-        annotation.linkedFile = linkedFile
-
-        // Set author
-        annotation.author = "reMarkable"
-
-        return annotation
+        return store.createAnnotation(
+            linkedFileId: linkedFileId,
+            annotationType: annotationType,
+            pageNumber: Int64(raw.pageNumber),
+            boundsJson: boundsString,
+            color: raw.color,
+            contents: nil,
+            selectedText: nil
+        )
     }
 
     #if canImport(PDFKit)

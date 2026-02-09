@@ -208,7 +208,7 @@ struct NotesTab: View {
         if let linked = linkedFile {
             PDFViewerWithControls(
                 linkedFile: linked,
-                library: libraryManager.activeLibrary,
+                libraryID: libraryManager.activeLibrary?.id,
                 publicationID: publication.id,
                 onCorruptPDF: { _ in }
             )
@@ -348,7 +348,7 @@ struct NotesTab: View {
             }
 
             Logger.files.infoCapture("[NotesTab] Importing PDF via PDFManager...", category: "pdf")
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication, in: library)
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: library.id)
             Logger.files.infoCapture("[NotesTab] PDF import SUCCESS", category: "pdf")
 
             // Refresh linkedFile
@@ -863,7 +863,7 @@ struct NotesPanel: View {
             let serialized = NotesParser.serialize(notes, fields: settings.fields)
 
             // Save to single "note" field
-            await viewModel.updateField(targetPublication, field: "note", value: serialized)
+            await viewModel.updateField(id: targetPublication.id, field: "note", value: serialized)
         }
     }
 }

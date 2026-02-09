@@ -55,30 +55,30 @@ public final class RecommendationSortProvider {
 
     // MARK: - Sorting
 
-    /// Sort publications by recommendation score.
+    /// Sort publication IDs by recommendation score.
     ///
     /// - Parameters:
-    ///   - publications: Publications to sort
+    ///   - publicationIDs: Publication IDs to sort
     ///   - ascending: If true, lowest scores first (unusual but supported)
-    /// - Returns: Sorted publications
+    /// - Returns: Sorted publication IDs
     public func sort(
-        _ publications: [CDPublication],
+        _ publicationIDs: [UUID],
         ascending: Bool = false
-    ) async -> [CDPublication] {
+    ) async -> [UUID] {
         // Check if we need to recompute
         let needsRecompute = cachedRanking.isEmpty ||
-            !isCacheValid(for: publications) ||
+            !isCacheValid(for: publicationIDs) ||
             lastRankingDate == nil ||
             Date().timeIntervalSince(lastRankingDate!) > cacheValiditySeconds
 
         if needsRecompute {
-            await computeRanking(for: publications)
+            await computeRanking(for: publicationIDs)
         }
 
         // Sort using cached scores
-        return publications.sorted { pub1, pub2 in
-            let score1 = cachedRanking[pub1.id] ?? 0
-            let score2 = cachedRanking[pub2.id] ?? 0
+        return publicationIDs.sorted { id1, id2 in
+            let score1 = cachedRanking[id1] ?? 0
+            let score2 = cachedRanking[id2] ?? 0
 
             if ascending {
                 return score1 < score2
@@ -101,9 +101,9 @@ public final class RecommendationSortProvider {
     }
 
     /// Force recompute ranking for publications.
-    public func refresh(for publications: [CDPublication]) async {
+    public func refresh(for publicationIDs: [UUID]) async {
         invalidateCache()
-        await computeRanking(for: publications)
+        await computeRanking(for: publicationIDs)
     }
 
     // MARK: - Cache Management
@@ -120,18 +120,18 @@ public final class RecommendationSortProvider {
 
     // MARK: - Private Methods
 
-    private func isCacheValid(for publications: [CDPublication]) -> Bool {
+    private func isCacheValid(for publicationIDs: [UUID]) -> Bool {
         // Cache is valid if we have scores for all publications
-        let publicationIDs = Set(publications.map(\.id))
+        let idSet = Set(publicationIDs)
         let cachedIDs = Set(cachedRanking.keys)
-        return publicationIDs.isSubset(of: cachedIDs)
+        return idSet.isSubset(of: cachedIDs)
     }
 
-    private func computeRanking(for publications: [CDPublication]) async {
+    private func computeRanking(for publicationIDs: [UUID]) async {
         // Cancel any existing ranking task
         rankingTask?.cancel()
 
-        guard !publications.isEmpty else {
+        guard !publicationIDs.isEmpty else {
             cachedRanking.removeAll()
             serendipitySlotIDs.removeAll()
             return
@@ -141,7 +141,7 @@ public final class RecommendationSortProvider {
         defer { isRanking = false }
 
         // Get ranking from engine
-        let ranked = await RecommendationEngine.shared.rank(publications)
+        let ranked = await RecommendationEngine.shared.rank(publicationIDs)
 
         // Update cache
         var newRanking: [UUID: Double] = [:]
@@ -158,7 +158,7 @@ public final class RecommendationSortProvider {
         serendipitySlotIDs = newSerendipitySlots
         lastRankingDate = Date()
 
-        Logger.recommendation.info("Computed recommendation ranking for \(publications.count) publications")
+        Logger.recommendation.info("Computed recommendation ranking for \(publicationIDs.count) publications")
     }
 }
 

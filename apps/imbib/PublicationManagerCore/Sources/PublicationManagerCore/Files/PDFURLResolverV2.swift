@@ -18,27 +18,7 @@ import OSLog
 /// - Parallel proxy testing
 /// - Rich access status reporting
 ///
-/// ## Resolution Order
-///
-/// 1. arXiv (if preprint priority or arXiv-only paper)
-/// 2. OpenAlex OA locations (cached)
-/// 2b. Landing page scraping (when OpenAlex has only landing page URL)
-/// 3. Publisher rules + validation
-/// 4. arXiv fallback
-/// 5. ADS scan fallback
-/// 6. Browser fallback with clear status
-///
-/// ## Usage
-///
-/// ```swift
-/// let status = await PDFURLResolverV2.resolve(for: publication)
-/// switch status {
-/// case .available(let source):
-///     // Download PDF from source.url
-/// case .captchaBlocked(let publisher, let browserURL):
-///     // Show message and offer to open browser
-/// }
-/// ```
+/// Works with PublicationModel (domain type).
 public actor PDFURLResolverV2 {
 
     // MARK: - Singleton
@@ -68,16 +48,8 @@ public actor PDFURLResolverV2 {
     // MARK: - Resolution
 
     /// Resolve PDF access status for a publication.
-    ///
-    /// This is the main entry point for PDF resolution. It returns rich status
-    /// information that can be used by the UI to show appropriate messages and actions.
-    ///
-    /// - Parameters:
-    ///   - publication: The publication to resolve PDF for
-    ///   - settings: PDF settings (priority, proxy configuration)
-    /// - Returns: PDF access status with URL or fallback information
     public func resolve(
-        for publication: CDPublication,
+        for publication: PublicationModel,
         settings: PDFSettings
     ) async -> PDFAccessStatus {
         Logger.files.infoCapture(
@@ -85,7 +57,7 @@ public actor PDFURLResolverV2 {
             category: "pdf"
         )
 
-        // 1. Check for arXiv (always accessible, no validation needed)
+        // 1. Check for arXiv
         if settings.sourcePriority == .preprint || isArXivOnlyPaper(publication) {
             if let arxivURL = arxivPDFURL(for: publication) {
                 Logger.files.infoCapture("[PDFURLResolverV2] Using arXiv: \(arxivURL.absoluteString)", category: "pdf")
@@ -93,7 +65,7 @@ public actor PDFURLResolverV2 {
             }
         }
 
-        // 2. Try OpenAlex OA locations (cached, pre-validated by OpenAlex)
+        // 2. Try OpenAlex OA locations
         if let doi = publication.doi, !doi.isEmpty {
             if let oaLocation = await openAlexService.fetchBestOALocation(doi: doi) {
                 Logger.files.infoCapture(
@@ -107,16 +79,13 @@ public actor PDFURLResolverV2 {
                 ))
             }
 
-            // 2b. Try landing page scraping when OpenAlex didn't have direct PDF
-            // Only try if publisher supports landing page scraping
+            // 2b. Try landing page scraping
             let rule = await publisherRegistry.rule(forDOI: doi)
             if rule?.supportsLandingPageScraping ?? true {
                 let landingPageStatus = await resolveLandingPagePDF(doi: doi, settings: settings)
                 if landingPageStatus.isAccessible {
                     return landingPageStatus
                 }
-                // If landing page returned blocking status, save it for potential return
-                // but continue trying other methods first
             }
         }
 
@@ -127,13 +96,16 @@ public actor PDFURLResolverV2 {
                 return publisherStatus
             }
 
-            // If publisher returned a blocking status (CAPTCHA, paywall), return it
             if publisherStatus.requiresUserAction {
+                if let adsScanURL = adsScanURL(for: publication) {
+                    Logger.files.infoCapture("[PDFURLResolverV2] Publisher blocked, using ADS scan: \(adsScanURL.absoluteString)", category: "pdf")
+                    return .available(source: ResolvedPDFSource(type: .adsScan, url: adsScanURL, name: "ADS Scan"))
+                }
                 return publisherStatus
             }
         }
 
-        // 4. arXiv fallback (if publisher priority was set but failed)
+        // 4. arXiv fallback
         if settings.sourcePriority == .publisher {
             if let arxivURL = arxivPDFURL(for: publication) {
                 Logger.files.infoCapture(
@@ -156,19 +128,14 @@ public actor PDFURLResolverV2 {
     }
 
     /// Convenience method that uses current settings.
-    public func resolve(for publication: CDPublication) async -> PDFAccessStatus {
+    public func resolve(for publication: PublicationModel) async -> PDFAccessStatus {
         let settings = await PDFSettingsStore.shared.settings
         return await resolve(for: publication, settings: settings)
     }
 
     // MARK: - Landing Page Resolution
 
-    /// Resolve PDF URL by scraping publisher landing pages.
-    ///
-    /// This method fetches the landing page HTML, extracts PDF links using
-    /// publisher-specific parsers, and validates the discovered URLs.
     private func resolveLandingPagePDF(doi: String, settings: PDFSettings) async -> PDFAccessStatus {
-        // Get landing page URL from OpenAlex
         guard let landingPageURL = await openAlexService.fetchLandingPageURL(doi: doi) else {
             return .unavailable(reason: .noPDFFound)
         }
@@ -178,11 +145,9 @@ public actor PDFURLResolverV2 {
             category: "pdf"
         )
 
-        // Get publisher info
         let rule = await publisherRegistry.rule(forDOI: doi)
         let publisherName = rule?.name ?? "Publisher"
 
-        // Try without proxy first
         let directResult = await landingPageResolver.resolve(
             landingPageURL: landingPageURL,
             useProxy: false
@@ -191,7 +156,6 @@ public actor PDFURLResolverV2 {
         switch directResult.status {
         case .found:
             if let pdfURL = directResult.pdfURL {
-                // Validate the discovered PDF URL
                 let validationResult = await validator.validate(url: pdfURL)
                 if validationResult.isSuccess {
                     Logger.files.infoCapture(
@@ -207,7 +171,6 @@ public actor PDFURLResolverV2 {
             }
 
         case .requiresAuthentication:
-            // Try with proxy if configured
             if settings.proxyEnabled, !settings.libraryProxyURL.isEmpty {
                 let proxyResult = await landingPageResolver.resolve(
                     landingPageURL: landingPageURL,
@@ -216,7 +179,6 @@ public actor PDFURLResolverV2 {
                 )
 
                 if proxyResult.status == .found, let pdfURL = proxyResult.pdfURL {
-                    // Apply proxy to the PDF URL as well
                     let proxiedPDFURL = applyProxy(to: pdfURL, settings: settings)
                     let validationResult = await validator.validate(url: proxiedPDFURL)
                     if validationResult.isSuccess {
@@ -232,12 +194,10 @@ public actor PDFURLResolverV2 {
                     }
                 }
 
-                // Proxy didn't help, return paywall status
                 let browserURL = applyProxy(to: landingPageURL, settings: settings)
                 return .paywalled(publisher: publisherName, browserURL: browserURL)
             }
 
-            // No proxy configured
             return .paywalled(publisher: publisherName, browserURL: landingPageURL)
 
         case .captchaBlocked:
@@ -247,12 +207,10 @@ public actor PDFURLResolverV2 {
             return .captchaBlocked(publisher: publisherName, browserURL: browserURL)
 
         case .rateLimited:
-            // Don't fail the whole resolution, just skip landing page method
             Logger.files.info("[PDFURLResolverV2] Rate limited on landing page, skipping")
             break
 
         case .notFound, .fetchFailed:
-            // No PDF found on landing page, continue with other methods
             break
         }
 
@@ -262,19 +220,15 @@ public actor PDFURLResolverV2 {
     // MARK: - Publisher Resolution
 
     private func resolvePublisherPDF(doi: String, settings: PDFSettings) async -> PDFAccessStatus {
-        // Get publisher rule
         let rule = await publisherRegistry.rule(forDOI: doi)
         let publisherName = rule?.name ?? "Publisher"
 
-        // Check if we should prefer OpenAlex (already tried above, so skip)
         if rule?.preferOpenAlex == true {
-            // Construct browser URL for fallback
             if let browserURL = URL(string: "https://doi.org/\(doi)") {
                 let proxiedURL = settings.proxyEnabled && rule?.requiresProxy == true
                     ? applyProxy(to: browserURL, settings: settings)
                     : browserURL
 
-                // High CAPTCHA risk publishers go straight to browser fallback
                 if rule?.captchaRisk == .high {
                     return .captchaBlocked(publisher: publisherName, browserURL: proxiedURL)
                 }
@@ -282,16 +236,13 @@ public actor PDFURLResolverV2 {
             return .unavailable(reason: .noPDFFound)
         }
 
-        // Construct PDF URL from rule
         guard let pdfURL = rule?.constructPDFURL(doi: doi) ?? constructFallbackPDFURL(doi: doi) else {
             return .unavailable(reason: .noPDFFound)
         }
 
-        // Validate the URL
         let needsProxy = rule?.requiresProxy ?? true
 
         if needsProxy && settings.proxyEnabled {
-            // Try with proxy
             let proxiedURL = applyProxy(to: pdfURL, settings: settings)
             let result = await validator.validate(url: proxiedURL)
 
@@ -310,7 +261,6 @@ public actor PDFURLResolverV2 {
                 return .paywalled(publisher: publisherName, browserURL: proxiedBrowserURL)
 
             case .requiresAuthentication:
-                // Proxy might not be working, return browser fallback
                 let browserURL = URL(string: "https://doi.org/\(doi)")!
                 let proxiedBrowserURL = applyProxy(to: browserURL, settings: settings)
                 return .paywalled(publisher: publisherName, browserURL: proxiedBrowserURL)
@@ -320,7 +270,6 @@ public actor PDFURLResolverV2 {
             }
         }
 
-        // Try direct access (for open access publishers or when proxy not configured)
         let directResult = await validator.validate(url: pdfURL)
 
         switch directResult {
@@ -350,41 +299,32 @@ public actor PDFURLResolverV2 {
 
     // MARK: - URL Helpers
 
-    private func arxivPDFURL(for publication: CDPublication) -> URL? {
-        // Try arxivID field first
+    private func arxivPDFURL(for publication: PublicationModel) -> URL? {
         if let arxivID = publication.arxivID, !arxivID.isEmpty {
             return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
         }
 
-        // Try extracting from arXiv DOI
         if let doi = publication.doi, let arxivID = extractArXivIDFromDOI(doi) {
             return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
-        }
-
-        // Check pdfLinks for arXiv
-        if let arxivLink = publication.pdfLinks.first(where: {
-            $0.url.host?.contains("arxiv.org") == true && $0.type == .preprint
-        }) {
-            return arxivLink.url
         }
 
         return nil
     }
 
-    private func adsScanURL(for publication: CDPublication) -> URL? {
-        publication.pdfLinks.first(where: { $0.type == .adsScan })?.url
+    private func adsScanURL(for publication: PublicationModel) -> URL? {
+        if let bibcode = publication.bibcode, !bibcode.isEmpty {
+            return URL(string: "https://articles.adsabs.harvard.edu/pdf/\(bibcode)")
+        }
+        return nil
     }
 
-    private func isArXivOnlyPaper(_ publication: CDPublication) -> Bool {
-        // Paper has arXiv but no publisher DOI
+    private func isArXivOnlyPaper(_ publication: PublicationModel) -> Bool {
         guard publication.arxivID != nil else { return false }
 
         if let doi = publication.doi {
-            // If DOI is an arXiv DOI, this is arXiv-only
             return isArXivDOI(doi)
         }
 
-        // No DOI at all means arXiv-only
         return true
     }
 
@@ -399,8 +339,6 @@ public actor PDFURLResolverV2 {
     }
 
     private func constructFallbackPDFURL(doi: String) -> URL? {
-        // Fallback URL construction for unknown publishers
-        // This is less reliable but provides a last resort
         nil
     }
 
@@ -435,7 +373,6 @@ actor URLValidatorService {
     }
 
     func validate(url: URL) async -> URLValidationResult {
-        // Try HEAD request first
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 15
@@ -466,7 +403,6 @@ actor URLValidatorService {
             if contentType.contains("text/html") {
                 return .htmlContent(url: url, title: nil)
             }
-            // Unknown content type - might be PDF
             return .validPDF(url: url, contentLength: contentLength > 0 ? contentLength : nil)
 
         case 401, 403:

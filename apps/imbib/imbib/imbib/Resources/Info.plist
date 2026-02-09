@@ -65,6 +65,18 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
+			<string>imbib Sidebar Section ID</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.imbib.sidebar-section-id</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
 			<string>Impress Paper Reference</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.impress.paper-reference</string>

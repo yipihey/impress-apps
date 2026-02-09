@@ -177,6 +177,45 @@ This three-point trace makes async timing bugs immediately visible (as seen abov
 
 Use `mutableSetValue(forKey:)` for to-many relationship mutations, not direct property assignment. See [imbib CLAUDE.md](apps/imbib/CLAUDE.md) for details.
 
+### macOS Toolbar & Split View Layout
+
+These rules apply to any impress app using `NavigationSplitView` with an inner `HSplitView` (e.g., imbib's list + detail split). The macOS toolbar system has undocumented limitations that cause hours of debugging.
+
+**Toolbar item placement does NOT work as expected inside NavigationSplitView detail with HSplitView:**
+
+| Placement | Expected | Actual |
+|-----------|----------|--------|
+| `.primaryAction` | Trailing edge | Clusters left, right after `.navigation` items |
+| `.principal` | Center of detail column | Centers over full content area (at HSplitView divider) |
+| `Spacer()` / `.frame(maxWidth: .infinity)` inside `ToolbarItem` | Expands item | Ignored — macOS toolbar sizes items to natural content |
+| `.safeAreaInset(edge: .top)` on detail pane | Inline toolbar | Creates SECOND strip below window toolbar (double height) |
+| Inline VStack toolbar in pane content | Toolbar in pane | Items render below window toolbar, wastes vertical space |
+
+**The proven pattern (used in imbib, adopt in other apps):**
+
+1. **Accept left-aligned toolbar items.** Put all toolbar items in `.toolbar { ToolbarItem(placement: .primaryAction) { } }`. They will cluster on the left. Don't fight this.
+2. **Extend the detail pane upward.** Apply `.ignoresSafeArea(.container, edges: .top)` on the detail pane's container. This makes detail content fill the empty toolbar space above it, eliminating the dead gap.
+3. **Add scroll clearance in detail content.** Each detail tab's first content element gets `.padding(.top, 40)` so content starts below the toolbar icons but can be scrolled up into that space.
+
+```swift
+// PATTERN: HSplitView detail pane in SectionContentView
+HSplitView {
+    ZStack { listPane }
+        .frame(minWidth: 200, idealWidth: 300)
+
+    ZStack { detailView }
+        .frame(minWidth: 300)
+        .ignoresSafeArea(.container, edges: .top)  // ← reclaim toolbar space
+}
+.toolbar {
+    ToolbarItem(placement: .primaryAction) {
+        // detail items — will be on the left, that's OK
+    }
+}
+```
+
+**Do not** attempt to right-align, center, or reposition toolbar items within this layout. Every approach was tried and either failed silently or looked worse.
+
 ## Observability & Debugging
 
 ### Always Verify with Logs
@@ -195,17 +234,6 @@ logInfo("message", category: "tags")                        // global convenienc
 // Performance timing
 measureTime("rebuild row data", count: rows.count) { ... }
 ```
-### Rule: use qmd MCP tools before reading files
-Before reading files or exploring directories, use the qmd MCP tools to search for information in local project documentation.
-Available MCP tools (via the `qmd` server):
-- **search** — fast keyword search (BM25). Use for quick lookups with specific terms.
-- **query** — hybrid search with query expansion + LLM reranking. Use for complex or conceptual questions.
-- **vsearch** — semantic vector search. Use when keywords aren't enough and you need conceptual similarity.
-- **get** — retrieve a specific document by path or docid from search results.
-- **multi_get** — retrieve multiple documents by glob pattern.
-- **status** — check index health and collection info.
-Use `search` for quick lookups and `query` for complex questions.
-Fall back to Read/Glob only if qmd doesn't return enough results.
 
 ### Live Log Access
 

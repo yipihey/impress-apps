@@ -6,47 +6,47 @@
 //
 
 import SwiftUI
-import CoreData
 
 // MARK: - Annotation List View
 
 /// Displays a list of annotations for a PDF file
 public struct AnnotationListView: View {
-    let linkedFile: CDLinkedFile
-    let onSelect: ((CDAnnotation, Int) -> Void)?  // (annotation, pageIndex) -> navigate to page
+    let linkedFileID: UUID
+    let onSelect: ((AnnotationModel, Int) -> Void)?  // (annotation, pageIndex) -> navigate to page
 
-    @Environment(\.managedObjectContext) private var viewContext
-
-    @State private var selectedAnnotation: CDAnnotation?
+    @State private var annotations: [AnnotationModel] = []
+    @State private var selectedAnnotationID: UUID?
     @State private var showDeleteConfirmation = false
-    @State private var annotationToDelete: CDAnnotation?
+    @State private var annotationToDeleteID: UUID?
+
+    private let store = RustStoreAdapter.shared
 
     public init(
-        linkedFile: CDLinkedFile,
-        onSelect: ((CDAnnotation, Int) -> Void)? = nil
+        linkedFileID: UUID,
+        onSelect: ((AnnotationModel, Int) -> Void)? = nil
     ) {
-        self.linkedFile = linkedFile
+        self.linkedFileID = linkedFileID
         self.onSelect = onSelect
     }
 
     public var body: some View {
         Group {
-            if linkedFile.hasAnnotations {
-                List(linkedFile.sortedAnnotations, selection: $selectedAnnotation) { annotation in
+            if !annotations.isEmpty {
+                List(annotations, selection: $selectedAnnotationID) { annotation in
                     AnnotationRow(annotation: annotation)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selectedAnnotation = annotation
-                            onSelect?(annotation, Int(annotation.pageNumber))
+                            selectedAnnotationID = annotation.id
+                            onSelect?(annotation, annotation.pageNumber)
                         }
                         .contextMenu {
                             Button {
-                                onSelect?(annotation, Int(annotation.pageNumber))
+                                onSelect?(annotation, annotation.pageNumber)
                             } label: {
                                 Label("Go to Page", systemImage: "arrow.right.circle")
                             }
 
-                            if annotation.hasContent {
+                            if annotation.contents != nil || annotation.selectedText != nil {
                                 Button {
                                     copyAnnotationText(annotation)
                                 } label: {
@@ -57,7 +57,7 @@ public struct AnnotationListView: View {
                             Divider()
 
                             Button(role: .destructive) {
-                                annotationToDelete = annotation
+                                annotationToDeleteID = annotation.id
                                 showDeleteConfirmation = true
                             } label: {
                                 Label("Delete", systemImage: "trash")
@@ -73,25 +73,33 @@ public struct AnnotationListView: View {
                 )
             }
         }
+        .onAppear {
+            loadAnnotations()
+        }
         .confirmationDialog(
             "Delete Annotation?",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let annotation = annotationToDelete {
-                    deleteAnnotation(annotation)
+                if let annotationID = annotationToDeleteID {
+                    deleteAnnotation(annotationID)
                 }
             }
             Button("Cancel", role: .cancel) {
-                annotationToDelete = nil
+                annotationToDeleteID = nil
             }
         } message: {
             Text("This action cannot be undone.")
         }
     }
 
-    private func copyAnnotationText(_ annotation: CDAnnotation) {
+    private func loadAnnotations() {
+        annotations = store.listAnnotations(linkedFileId: linkedFileID)
+            .sorted { $0.pageNumber < $1.pageNumber }
+    }
+
+    private func copyAnnotationText(_ annotation: AnnotationModel) {
         let text = annotation.contents ?? annotation.selectedText ?? ""
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -101,18 +109,17 @@ public struct AnnotationListView: View {
         #endif
     }
 
-    private func deleteAnnotation(_ annotation: CDAnnotation) {
-        Task { @MainActor in
-            try? AnnotationPersistence.shared.delete(annotation)
-            annotationToDelete = nil
-        }
+    private func deleteAnnotation(_ annotationID: UUID) {
+        store.deleteItem(id: annotationID)
+        annotationToDeleteID = nil
+        loadAnnotations()
     }
 }
 
 // MARK: - Annotation Row
 
 struct AnnotationRow: View {
-    @ObservedObject var annotation: CDAnnotation
+    let annotation: AnnotationModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -124,7 +131,7 @@ struct AnnotationRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 // Preview text
-                Text(annotation.previewText)
+                Text(previewText)
                     .font(.subheadline)
                     .lineLimit(2)
 
@@ -134,10 +141,10 @@ struct AnnotationRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    if let author = annotation.author {
+                    if let author = annotation.authorName {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color(AnnotationPersistence.shared.authorColor(for: author).platformColor))
+                                .fill(Color.blue.opacity(0.5))
                                 .frame(width: 8, height: 8)
                             Text(author)
                                 .font(.caption)
@@ -157,11 +164,24 @@ struct AnnotationRow: View {
         .padding(.vertical, 4)
     }
 
+    private var previewText: String {
+        annotation.selectedText ?? annotation.contents ?? annotation.annotationType.capitalized
+    }
+
     @ViewBuilder
     private var annotationIcon: some View {
-        if let type = annotation.typeEnum {
-            Image(systemName: type.icon)
-        } else {
+        switch annotation.annotationType {
+        case "highlight":
+            Image(systemName: "highlighter")
+        case "underline":
+            Image(systemName: "underline")
+        case "strikethrough":
+            Image(systemName: "strikethrough")
+        case "note", "freeText", "text":
+            Image(systemName: "text.bubble")
+        case "ink":
+            Image(systemName: "pencil.tip")
+        default:
             Image(systemName: "highlighter")
         }
     }
@@ -178,21 +198,27 @@ struct AnnotationRow: View {
 
 /// Shows annotation count and types summary
 public struct AnnotationSummary: View {
-    let linkedFile: CDLinkedFile
+    let linkedFileID: UUID
+    @State private var annotationCount: Int = 0
 
-    public init(linkedFile: CDLinkedFile) {
-        self.linkedFile = linkedFile
+    private let store = RustStoreAdapter.shared
+
+    public init(linkedFileID: UUID) {
+        self.linkedFileID = linkedFileID
     }
 
     public var body: some View {
-        if linkedFile.hasAnnotations {
+        if annotationCount > 0 {
             HStack(spacing: 8) {
                 Image(systemName: "highlighter")
                     .foregroundStyle(.yellow)
 
-                Text("\(linkedFile.annotationCount) annotation\(linkedFile.annotationCount == 1 ? "" : "s")")
+                Text("\(annotationCount) annotation\(annotationCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            .onAppear {
+                annotationCount = store.countAnnotations(linkedFileId: linkedFileID)
             }
         }
     }
@@ -227,26 +253,29 @@ public struct AnnotationBadge: View {
 
 /// Search through annotations
 public struct AnnotationSearchView: View {
-    let linkedFile: CDLinkedFile
-    let onSelect: ((CDAnnotation, Int) -> Void)?
+    let linkedFileID: UUID
+    let onSelect: ((AnnotationModel, Int) -> Void)?
 
     @State private var searchText = ""
+    @State private var annotations: [AnnotationModel] = []
+
+    private let store = RustStoreAdapter.shared
 
     public init(
-        linkedFile: CDLinkedFile,
-        onSelect: ((CDAnnotation, Int) -> Void)? = nil
+        linkedFileID: UUID,
+        onSelect: ((AnnotationModel, Int) -> Void)? = nil
     ) {
-        self.linkedFile = linkedFile
+        self.linkedFileID = linkedFileID
         self.onSelect = onSelect
     }
 
-    private var filteredAnnotations: [CDAnnotation] {
+    private var filteredAnnotations: [AnnotationModel] {
         if searchText.isEmpty {
-            return linkedFile.sortedAnnotations
+            return annotations
         }
 
         let query = searchText.lowercased()
-        return linkedFile.sortedAnnotations.filter { annotation in
+        return annotations.filter { annotation in
             (annotation.contents?.lowercased().contains(query) ?? false) ||
             (annotation.selectedText?.lowercased().contains(query) ?? false)
         }
@@ -289,11 +318,15 @@ public struct AnnotationSearchView: View {
                     AnnotationRow(annotation: annotation)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            onSelect?(annotation, Int(annotation.pageNumber))
+                            onSelect?(annotation, annotation.pageNumber)
                         }
                 }
                 .listStyle(.plain)
             }
+        }
+        .onAppear {
+            annotations = store.listAnnotations(linkedFileId: linkedFileID)
+                .sorted { $0.pageNumber < $1.pageNumber }
         }
     }
 }

@@ -9,6 +9,7 @@ import SwiftUI
 import PublicationManagerCore
 
 /// A modal sheet for viewing and editing a publication's BibTeX entry on iOS.
+/// Uses RustStoreAdapter for all data access (no Core Data).
 struct IOSBibTeXEditorSheet: View {
 
     // MARK: - Environment
@@ -17,8 +18,8 @@ struct IOSBibTeXEditorSheet: View {
 
     // MARK: - Properties
 
-    /// The publication to edit
-    let publication: CDPublication
+    /// The publication ID to edit
+    let publicationID: UUID
 
     /// Callback when BibTeX is saved
     var onSave: ((String) -> Void)?
@@ -29,34 +30,12 @@ struct IOSBibTeXEditorSheet: View {
     @State private var isEditing: Bool = false
     @State private var validationError: String?
     @State private var showingDiscardAlert: Bool = false
+    @State private var originalBibTeX: String = ""
 
     // MARK: - Computed
 
     private var hasChanges: Bool {
         bibtexText != originalBibTeX
-    }
-
-    private var originalBibTeX: String {
-        if let raw = publication.rawBibTeX, !raw.isEmpty {
-            return raw
-        }
-        // Generate BibTeX entry from LocalPaper wrapper
-        if let libraryID = publication.libraries?.first?.id,
-           let paper = LocalPaper(publication: publication, libraryID: libraryID) {
-            let entry = BibTeXExporter.generateEntry(from: paper)
-            return BibTeXExporter().export(entry)
-        }
-        // Fallback: construct minimal BibTeX manually
-        let title = publication.title ?? "Untitled"
-        let authors = publication.sortedAuthors.map { $0.bibtexName }.joined(separator: " and ")
-        let year = publication.year > 0 ? String(publication.year) : ""
-        return """
-        @article{\(publication.citeKey),
-            title = {\(title)},
-            author = {\(authors)},
-            year = {\(year)}
-        }
-        """
     }
 
     // MARK: - Body
@@ -149,15 +128,23 @@ struct IOSBibTeXEditorSheet: View {
                 Text("You have unsaved changes that will be lost.")
             }
             .onAppear {
-                bibtexText = originalBibTeX
+                loadBibTeX()
             }
         }
+    }
+
+    // MARK: - Data Loading
+
+    private func loadBibTeX() {
+        let store = RustStoreAdapter.shared
+        let bibtex = store.exportBibTeX(ids: [publicationID])
+        originalBibTeX = bibtex
+        bibtexText = bibtex
     }
 
     // MARK: - Actions
 
     private func validateBibTeX(_ text: String) {
-        // Basic validation - check for required structure
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
@@ -165,14 +152,12 @@ struct IOSBibTeXEditorSheet: View {
             return
         }
 
-        // Check for opening @type{
         let entryPattern = #"^@\w+\s*\{"#
         if trimmed.range(of: entryPattern, options: .regularExpression) == nil {
             validationError = "Missing @type{citekey structure"
             return
         }
 
-        // Check for matching braces
         var braceCount = 0
         for char in trimmed {
             if char == "{" { braceCount += 1 }
@@ -188,7 +173,6 @@ struct IOSBibTeXEditorSheet: View {
             return
         }
 
-        // Check for closing brace
         if !trimmed.hasSuffix("}") {
             validationError = "Entry must end with }"
             return
@@ -200,28 +184,31 @@ struct IOSBibTeXEditorSheet: View {
     private func saveBibTeX() {
         guard validationError == nil else { return }
 
-        // Update the publication's raw BibTeX
-        publication.rawBibTeX = bibtexText
-
-        // Try to save
+        // Parse the BibTeX and update fields via Rust store
         do {
-            try PersistenceController.shared.viewContext.save()
+            let items = try BibTeXParserFactory.createParser().parse(bibtexText)
+            guard let entry = items.compactMap({ item -> BibTeXEntry? in
+                if case .entry(let entry) = item { return entry }
+                return nil
+            }).first else {
+                validationError = "Could not parse BibTeX entry"
+                return
+            }
+
+            let store = RustStoreAdapter.shared
+            for (key, value) in entry.fields {
+                store.updateField(id: publicationID, field: key, value: value)
+            }
+
             onSave?(bibtexText)
             isEditing = false
+            originalBibTeX = bibtexText
         } catch {
-            validationError = "Failed to save: \(error.localizedDescription)"
+            validationError = "Failed to parse: \(error.localizedDescription)"
         }
     }
 
     private func copyToClipboard() {
         UIPasteboard.general.string = bibtexText
     }
-}
-
-// MARK: - Preview
-
-#Preview {
-    IOSBibTeXEditorSheet(
-        publication: CDPublication()
-    )
 }

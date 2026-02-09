@@ -74,6 +74,7 @@ struct InfoTab: View {
                     // MARK: - Email-Style Header
                     headerSection
                         .id("top")
+                        .padding(.top, 40)
 
                     Divider()
 
@@ -150,9 +151,6 @@ struct InfoTab: View {
                 proxy.scrollTo("top", anchor: .top)
             }
             .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
-            #if os(macOS)
-            .contentMargins(.top, 8, for: .scrollContent)  // Align top edge with other detail tabs
-            #endif
         }
         .task {
             // Load annotation field settings
@@ -670,12 +668,16 @@ struct InfoTab: View {
                         style: StrokeStyle(lineWidth: 2, dash: isDropTargeted ? [] : [5])
                     )
             )
-            .fileDropTarget(
-                for: pub,
-                in: libraryManager.activeLibrary,
-                handler: dropHandler,
-                isTargeted: $isDropTargeted
-            )
+            .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: $isDropTargeted) { providers in
+                Task {
+                    await dropHandler.handleDrop(
+                        providers: providers,
+                        for: pub.id,
+                        in: libraryManager.activeLibrary?.id
+                    )
+                }
+                return true
+            }
 
             // Import progress indicator
             if dropHandler.isImporting, let progress = dropHandler.importProgress {
@@ -1001,7 +1003,7 @@ struct InfoTab: View {
     }
 
     private func getFileSize(for file: CDLinkedFile) -> Int64? {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
             return nil
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
@@ -1037,8 +1039,8 @@ struct InfoTab: View {
                 do {
                     let _ = try AttachmentManager.shared.importAttachments(
                         from: urls,
-                        for: pub,
-                        in: libraryManager.activeLibrary
+                        for: pub.id,
+                        in: libraryManager.activeLibrary?.id
                     )
                     Logger.files.infoCapture("Imported \(urls.count) files via file picker", category: "files")
                 } catch {
@@ -1052,7 +1054,7 @@ struct InfoTab: View {
     }
 
     private func openFile(_ file: CDLinkedFile) {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
             return
         }
         #if os(macOS)
@@ -1062,7 +1064,7 @@ struct InfoTab: View {
 
     #if os(macOS)
     private func showInFinder(_ file: CDLinkedFile) {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -1071,7 +1073,7 @@ struct InfoTab: View {
 
     private func deleteFile(_ file: CDLinkedFile) {
         do {
-            try AttachmentManager.shared.delete(file, in: libraryManager.activeLibrary)
+            try AttachmentManager.shared.delete(LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id)
             Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
         } catch {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")
@@ -1235,7 +1237,7 @@ struct InfoTab: View {
             libraryID: library.id
         ) { [self] data in
             // Check for duplicates first
-            let result = AttachmentManager.shared.checkForDuplicate(data: data, in: publication)
+            let result = AttachmentManager.shared.checkForDuplicate(data: data, in: publication.id)
 
             switch result {
             case .duplicate(let existingFile, _):
@@ -1251,7 +1253,7 @@ struct InfoTab: View {
             case .noDuplicate:
                 // Import directly
                 do {
-                    try AttachmentManager.shared.importPDF(data: data, for: publication, in: library)
+                    try AttachmentManager.shared.importPDF(data: data, for: publication.id, in: library.id)
                     Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
 
                     await MainActor.run {
@@ -1273,7 +1275,7 @@ struct InfoTab: View {
         }
 
         do {
-            try AttachmentManager.shared.importPDF(data: data, for: publication, in: library)
+            try AttachmentManager.shared.importPDF(data: data, for: publication.id, in: library.id)
             Logger.files.infoCapture("[InfoTab] Duplicate PDF imported after user confirmation", category: "pdf")
 
             NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)

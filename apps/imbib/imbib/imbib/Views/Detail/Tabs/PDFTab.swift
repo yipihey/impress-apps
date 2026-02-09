@@ -144,7 +144,7 @@ struct PDFTab: View {
 
             PDFViewerWithControls(
                 linkedFile: linked,
-                library: libraryManager.activeLibrary,
+                libraryID: libraryManager.activeLibrary?.id,
                 publicationID: pub.id,
                 onCorruptPDF: { corruptFile in
                     Task {
@@ -615,22 +615,25 @@ struct PDFTab: View {
             }
 
             // Check for duplicate before importing
-            if let result = AttachmentManager.shared.checkForDuplicate(sourceURL: tempURL, in: pub) {
+            if let result = AttachmentManager.shared.checkForDuplicate(sourceURL: tempURL, in: pub.id) {
                 switch result {
                 case .duplicate(let existingFile, _):
                     logger.info("[PDFTab] Duplicate PDF detected, using existing: \(existingFile.filename)")
                     try? FileManager.default.removeItem(at: tempURL)
+                    // Refresh linkedFile from Core Data (existingFile is LinkedFileModel, state needs CDLinkedFile)
                     await MainActor.run {
-                        linkedFile = existingFile
+                        if let pub = publication {
+                            linkedFile = pub.primaryPDF ?? pub.linkedFiles?.first
+                        }
                     }
                     return
                 case .noDuplicate(let hash):
                     logger.info("[PDFTab] No duplicate found, importing with precomputed hash")
-                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library, precomputedHash: hash)
+                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: library.id, precomputedHash: hash)
                 }
             } else {
                 logger.info("[PDFTab] Importing PDF via PDFManager...")
-                try AttachmentManager.shared.importPDF(from: tempURL, for: pub, in: library)
+                try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: library.id)
             }
             logger.info("[PDFTab] PDF import SUCCESS")
 
@@ -680,8 +683,8 @@ struct PDFTab: View {
                         return
                     }
 
-                    // Import the PDF - PDFManager takes CDPublication directly
-                    try AttachmentManager.shared.importPDF(from: url, for: pub, in: library)
+                    // Import the PDF - AttachmentManager now takes UUIDs
+                    try AttachmentManager.shared.importPDF(from: url, for: pub.id, in: library.id)
 
                     // Refresh to show the new PDF
                     await MainActor.run {
@@ -713,9 +716,9 @@ struct PDFTab: View {
             libraryID: library.id
         ) { [weak libraryManager] data in
             // This is called when user saves the detected PDF
-            guard let library = libraryManager?.activeLibrary else { return }
+            guard let libraryID = libraryManager?.activeLibrary?.id else { return }
             do {
-                try AttachmentManager.shared.importPDF(data: data, for: pub, in: library)
+                try AttachmentManager.shared.importPDF(data: data, for: pub.id, in: libraryID)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
                 // Post notification to refresh PDF view
@@ -741,9 +744,9 @@ struct PDFTab: View {
             libraryID: library.id
         ) { [weak libraryManager] data in
             // This is called when user saves the detected PDF
-            guard let library = libraryManager?.activeLibrary else { return }
+            guard let libraryID = libraryManager?.activeLibrary?.id else { return }
             do {
-                try AttachmentManager.shared.importPDF(data: data, for: pub, in: library)
+                try AttachmentManager.shared.importPDF(data: data, for: pub.id, in: libraryID)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
                 // Post notification to refresh PDF view
@@ -762,7 +765,7 @@ struct PDFTab: View {
 
         do {
             // 1. Delete corrupt file from disk and Core Data
-            try AttachmentManager.shared.delete(corruptFile, in: libraryManager.activeLibrary)
+            try AttachmentManager.shared.delete(LinkedFileModel(from: corruptFile), in: libraryManager.activeLibrary?.id)
 
             // 2. Reset state and trigger re-download
             await MainActor.run {

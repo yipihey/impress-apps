@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 
 // MARK: - Comment Section
 
@@ -15,27 +14,26 @@ import CoreData
 /// Shows a flat list with indentation for replies, a text input field,
 /// and author attribution per comment.
 public struct CommentSectionView: View {
-    let publication: CDPublication
+    let publicationID: UUID
 
+    @State private var comments: [Comment] = []
     @State private var newCommentText = ""
-    @State private var replyingTo: CDComment?
-    @State private var editingComment: CDComment?
+    @State private var replyingTo: Comment?
+    @State private var editingComment: Comment?
     @State private var editText = ""
     @State private var showDeleteConfirmation = false
-    @State private var commentToDelete: CDComment?
+    @State private var commentToDelete: Comment?
 
-    @Environment(\.managedObjectContext) private var viewContext
-
-    public init(publication: CDPublication) {
-        self.publication = publication
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
     }
 
-    private var allComments: [CDComment] {
-        (publication.comments ?? []).sorted { $0.dateCreated < $1.dateCreated }
+    private var topLevelComments: [Comment] {
+        comments.filter { $0.parentCommentID == nil }
     }
 
-    private var topLevelComments: [CDComment] {
-        allComments.filter { $0.isTopLevel }
+    private func replies(for comment: Comment) -> [Comment] {
+        comments.filter { $0.parentCommentID == comment.id }.sorted { $0.dateCreated < $1.dateCreated }
     }
 
     public var body: some View {
@@ -45,8 +43,8 @@ public struct CommentSectionView: View {
                 Label("Comments", systemImage: "text.bubble")
                     .font(.headline)
                 Spacer()
-                if !allComments.isEmpty {
-                    Text("\(allComments.count)")
+                if !comments.isEmpty {
+                    Text("\(comments.count)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
@@ -56,7 +54,7 @@ public struct CommentSectionView: View {
                 }
             }
 
-            if allComments.isEmpty {
+            if comments.isEmpty {
                 Text("No comments yet. Start a discussion about this paper.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -67,7 +65,7 @@ public struct CommentSectionView: View {
                     commentRow(comment, indent: 0)
 
                     // Replies
-                    ForEach(comment.replies(from: allComments)) { reply in
+                    ForEach(replies(for: comment)) { reply in
                         commentRow(reply, indent: 1)
                     }
                 }
@@ -76,6 +74,9 @@ public struct CommentSectionView: View {
             // Input area
             commentInput
         }
+        .onAppear {
+            comments = RustStoreAdapter.shared.comments(for: publicationID)
+        }
         .confirmationDialog(
             "Delete Comment?",
             isPresented: $showDeleteConfirmation,
@@ -83,7 +84,8 @@ public struct CommentSectionView: View {
         ) {
             Button("Delete", role: .destructive) {
                 if let comment = commentToDelete {
-                    try? CommentService.shared.deleteComment(comment)
+                    RustStoreAdapter.shared.deleteComment(comment.id)
+                    comments = RustStoreAdapter.shared.comments(for: publicationID)
                     commentToDelete = nil
                 }
             }
@@ -98,7 +100,7 @@ public struct CommentSectionView: View {
     // MARK: - Comment Row
 
     @ViewBuilder
-    private func commentRow(_ comment: CDComment, indent: Int) -> some View {
+    private func commentRow(_ comment: Comment, indent: Int) -> some View {
         HStack(alignment: .top, spacing: 8) {
             // Author color dot
             if let author = comment.authorDisplayName {
@@ -217,24 +219,26 @@ public struct CommentSectionView: View {
         let text = newCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        try? CommentService.shared.addComment(
+        RustStoreAdapter.shared.addComment(
             text: text,
-            to: publication,
+            to: publicationID,
             parentCommentID: replyingTo?.id
         )
 
+        comments = RustStoreAdapter.shared.comments(for: publicationID)
         newCommentText = ""
         replyingTo = nil
     }
 
-    private func submitEdit(_ comment: CDComment) {
+    private func submitEdit(_ comment: Comment) {
         let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        try? CommentService.shared.editComment(comment, newText: text)
+        RustStoreAdapter.shared.editComment(comment.id, newText: text)
+        comments = RustStoreAdapter.shared.comments(for: publicationID)
         editingComment = nil
     }
 
-    private func isOwnComment(_ comment: CDComment) -> Bool {
+    private func isOwnComment(_ comment: Comment) -> Bool {
         #if os(macOS)
         let currentName = Host.current().localizedName ?? ""
         #else

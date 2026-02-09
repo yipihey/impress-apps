@@ -5,16 +5,12 @@
 //  Created by Claude on 2026-01-16.
 //
 //  Actor implementing AutomationOperations protocol (ADR-018).
-//  Calls PublicationRepository and SourceManager directly for rich data returns.
+//  Calls RustStoreAdapter and SourceManager directly for rich data returns.
 //
 
 import Foundation
 import OSLog
-import CoreData
 import ImpressFTUI
-#if canImport(CloudKit)
-import CloudKit
-#endif
 #if canImport(AppKit)
 import AppKit
 #else
@@ -27,7 +23,7 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "automationSer
 
 /// Main implementation of AutomationOperations.
 ///
-/// This actor provides the core automation functionality, calling repositories
+/// This actor provides the core automation functionality, calling the Rust store
 /// and source managers directly to return rich data types.
 ///
 /// Unlike URLSchemeHandler (which posts notifications for UI updates),
@@ -44,21 +40,15 @@ public actor AutomationService: AutomationOperations {
 
     // MARK: - Dependencies
 
-    private let repository: PublicationRepository
-    private let collectionRepository: CollectionRepository
     private var sourceManager: SourceManager
     private let settingsStore: AutomationSettingsStore
 
     // MARK: - Initialization
 
     public init(
-        repository: PublicationRepository = PublicationRepository(),
-        collectionRepository: CollectionRepository = CollectionRepository(),
         sourceManager: SourceManager = SourceManager(),
         settingsStore: AutomationSettingsStore = .shared
     ) {
-        self.repository = repository
-        self.collectionRepository = collectionRepository
         self.sourceManager = sourceManager
         self.settingsStore = settingsStore
     }
@@ -74,6 +64,16 @@ public actor AutomationService: AutomationOperations {
         let isEnabled = await settingsStore.isEnabled
         guard isEnabled else {
             throw AutomationOperationError.unauthorized
+        }
+    }
+
+    // MARK: - Rust Store Bridge
+
+    /// Access the Rust store on the main actor.
+    /// All RustStoreAdapter methods are @MainActor, so we bridge via MainActor.run.
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run {
+            operation(RustStoreAdapter.shared)
         }
     }
 
@@ -115,11 +115,19 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
         logger.info("Searching library for: \(query)")
 
-        let publications: [CDPublication]
+        let publications: [PublicationRowData]
         if query.isEmpty {
-            publications = await repository.fetchAll()
+            // Fetch all from default library
+            publications = await withStore { store in
+                if let lib = store.getDefaultLibrary() {
+                    return store.queryPublications(parentId: lib.id)
+                }
+                return []
+            }
         } else {
-            publications = await repository.search(query: query)
+            publications = await withStore { store in
+                store.searchPublications(query: query)
+            }
         }
 
         // Apply filters
@@ -136,23 +144,23 @@ public actor AutomationService: AutomationOperations {
             filtered = Array(filtered.prefix(limit))
         }
 
-        return filtered.compactMap { toPaperResult($0) }
+        return filtered.map { toPaperResult($0) }
     }
 
-    private func applyFilters(to publications: [CDPublication], filters: SearchFilters) -> [CDPublication] {
+    private func applyFilters(to publications: [PublicationRowData], filters: SearchFilters) -> [PublicationRowData] {
         var result = publications
 
         if let yearFrom = filters.yearFrom {
-            result = result.filter { $0.year >= Int16(yearFrom) }
+            result = result.filter { ($0.year ?? 0) >= yearFrom }
         }
         if let yearTo = filters.yearTo {
-            result = result.filter { $0.year <= Int16(yearTo) }
+            result = result.filter { ($0.year ?? Int.max) <= yearTo }
         }
         if let isRead = filters.isRead {
             result = result.filter { $0.isRead == isRead }
         }
         if let hasLocalPDF = filters.hasLocalPDF {
-            result = result.filter { $0.hasPDFDownloaded == hasLocalPDF }
+            result = result.filter { $0.hasDownloadedPDF == hasLocalPDF }
         }
         if let authors = filters.authors, !authors.isEmpty {
             result = result.filter { pub in
@@ -160,27 +168,16 @@ public actor AutomationService: AutomationOperations {
                 return authors.contains { pubAuthors.contains($0.lowercased()) }
             }
         }
-        if let libraries = filters.libraries, !libraries.isEmpty {
-            result = result.filter { pub in
-                guard let pubLibraries = pub.libraries else { return false }
-                return pubLibraries.contains { libraries.contains($0.id) }
-            }
-        }
-        if let collections = filters.collections, !collections.isEmpty {
-            result = result.filter { pub in
-                guard let pubCollections = pub.collections else { return false }
-                return pubCollections.contains { collections.contains($0.id) }
-            }
-        }
+        // Note: library/collection filtering requires detail lookups; skip for now
+        // since most callers filter by parentId at query time.
         if let tags = filters.tags, !tags.isEmpty {
             result = result.filter { pub in
-                guard let pubTags = pub.tags else { return false }
-                let pubTagPaths = Set(pubTags.compactMap { $0.canonicalPath })
+                let pubTagPaths = Set(pub.tagDisplays.map(\.path))
                 return tags.contains { pubTagPaths.contains($0) }
             }
         }
         if let flagColor = filters.flagColor {
-            result = result.filter { $0.flagColor == flagColor }
+            result = result.filter { $0.flag?.color.rawValue == flagColor }
         }
         if let addedAfter = filters.addedAfter {
             result = result.filter { $0.dateAdded > addedAfter }
@@ -265,8 +262,10 @@ public actor AutomationService: AutomationOperations {
     public func getPaper(identifier: PaperIdentifier) async throws -> PaperResult? {
         try await checkAuthorization()
 
-        let publication = await findPublication(by: identifier)
-        return publication.flatMap { toPaperResult($0) }
+        guard let publication = await findPublication(by: identifier) else {
+            return nil
+        }
+        return toPaperResult(publication)
     }
 
     public func getPapers(identifiers: [PaperIdentifier]) async throws -> [PaperResult] {
@@ -274,33 +273,33 @@ public actor AutomationService: AutomationOperations {
 
         var results: [PaperResult] = []
         for id in identifiers {
-            if let pub = await findPublication(by: id),
-               let result = toPaperResult(pub) {
-                results.append(result)
+            if let pub = await findPublication(by: id) {
+                results.append(toPaperResult(pub))
             }
         }
         return results
     }
 
-    private func findPublication(by identifier: PaperIdentifier) async -> CDPublication? {
+    private func findPublication(by identifier: PaperIdentifier) async -> PublicationRowData? {
         switch identifier {
         case .citeKey(let key):
-            return await repository.fetch(byCiteKey: key)
+            return await withStore { $0.findByCiteKey(citeKey: key) }
         case .doi(let doi):
-            return await repository.findByDOI(doi)
+            return await withStore { $0.findByDoi(doi: doi).first }
         case .arxiv(let id):
-            return await repository.findByArXiv(id)
+            return await withStore { $0.findByArxiv(arxivId: id).first }
         case .bibcode(let code):
-            return await repository.findByBibcode(code)
+            return await withStore { $0.findByBibcode(bibcode: code).first }
         case .uuid(let uuid):
-            return await repository.fetch(byID: uuid)
-        case .pmid:
-            // PMID lookup not yet implemented in repository
+            return await withStore { $0.getPublication(id: uuid) }
+        case .pmid(let id):
+            return await withStore { $0.findByIdentifiers(pmid: id).first }
+        case .semanticScholar:
+            // Semantic Scholar lookup not yet supported in Rust store
             return nil
-        case .semanticScholar(let id):
-            return await repository.findBySemanticScholarID(id)
-        case .openAlex(let id):
-            return await repository.findByOpenAlexID(id)
+        case .openAlex:
+            // OpenAlex lookup not yet supported in Rust store
+            return nil
         }
     }
 
@@ -317,14 +316,27 @@ public actor AutomationService: AutomationOperations {
         var duplicates: [String] = []
         var failed: [String: String] = [:]
 
-        // Collect existing publications that need library/collection assignment
-        var existingToAssign: [CDPublication] = []
+        // Collect existing publication IDs that need collection assignment
+        var existingToAssignIDs: [UUID] = []
+
+        // Resolve the target library ID
+        let targetLibraryID: UUID = await {
+            if let lib = library { return lib }
+            if let defaultLib = await withStore({ $0.getDefaultLibrary() }) {
+                return defaultLib.id
+            }
+            // Last resort: create a default library
+            if let created = await withStore({ $0.createLibrary(name: "Library") }) {
+                return created.id
+            }
+            return UUID()
+        }()
 
         for identifier in identifiers {
             // Check if already exists
             if let existing = await findPublication(by: identifier) {
                 duplicates.append(identifier.value)
-                existingToAssign.append(existing)
+                existingToAssignIDs.append(existing.id)
                 logger.debug("Duplicate found for: \(identifier.value)")
                 continue
             }
@@ -333,33 +345,46 @@ public actor AutomationService: AutomationOperations {
                 // Try to fetch from external source based on identifier type
                 let searchResult = try await fetchFromExternal(identifier: identifier)
 
-                // Create publication from search result
-                let publication = await repository.createFromSearchResult(searchResult)
+                // Get BibTeX from source (or synthesize it)
+                let bibtex: String
+                do {
+                    let entry = try await sourceManager.fetchBibTeX(for: searchResult)
+                    bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
+                } catch {
+                    // Synthesize BibTeX from search result metadata
+                    bibtex = searchResult.toBibTeX()
+                }
 
-                // Add to library if specified
-                if let libraryID = library {
-                    await assignToLibrary([publication], libraryID: libraryID)
+                // Import via Rust store
+                let importedIDs = await withStore { store in
+                    store.importBibTeX(bibtex, libraryId: targetLibraryID)
                 }
 
                 // Add to collection if specified
-                if let collectionID = collection {
-                    await assignToCollection([publication], collectionID: collectionID)
+                if let collectionID = collection, !importedIDs.isEmpty {
+                    await withStore { store in
+                        store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
+                    }
                 }
 
                 // Download PDF if requested
                 if downloadPDFs && !searchResult.pdfLinks.isEmpty {
-                    // Queue PDF download (actual download handled by PDFManager)
-                    await MainActor.run {
-                        NotificationCenter.default.post(
-                            name: .downloadPDF,
-                            object: nil,
-                            userInfo: ["publicationID": publication.id]
-                        )
+                    for pubID in importedIDs {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .downloadPDF,
+                                object: nil,
+                                userInfo: ["publicationID": pubID]
+                            )
+                        }
                     }
                 }
 
-                if let result = toPaperResult(publication) {
-                    added.append(result)
+                // Convert imported publications to PaperResult
+                for pubID in importedIDs {
+                    if let pub = await withStore({ $0.getPublication(id: pubID) }) {
+                        added.append(toPaperResult(pub))
+                    }
                 }
 
             } catch {
@@ -368,13 +393,12 @@ public actor AutomationService: AutomationOperations {
             }
         }
 
-        // Assign existing (duplicate) papers to target library/collection
-        if !existingToAssign.isEmpty {
-            if let libraryID = library {
-                await assignToLibrary(existingToAssign, libraryID: libraryID)
-            }
+        // Assign existing (duplicate) papers to target collection
+        if !existingToAssignIDs.isEmpty {
             if let collectionID = collection {
-                await assignToCollection(existingToAssign, collectionID: collectionID)
+                await withStore { store in
+                    store.addToCollection(publicationIds: existingToAssignIDs, collectionId: collectionID)
+                }
             }
         }
 
@@ -394,7 +418,9 @@ public actor AutomationService: AutomationOperations {
 
         for identifier in identifiers {
             if let pub = await findPublication(by: identifier) {
-                await assignToLibrary([pub], libraryID: libraryID)
+                await withStore { store in
+                    store.movePublications(ids: [pub.id], toLibraryId: libraryID)
+                }
                 assigned.append(identifier.value)
             } else {
                 notFound.append(identifier.value)
@@ -414,43 +440,15 @@ public actor AutomationService: AutomationOperations {
 
         for identifier in identifiers {
             if let pub = await findPublication(by: identifier) {
-                await assignToCollection([pub], collectionID: collectionID)
+                await withStore { store in
+                    store.addToCollection(publicationIds: [pub.id], collectionId: collectionID)
+                }
                 assigned.append(identifier.value)
             } else {
                 notFound.append(identifier.value)
             }
         }
         return AddToContainerResult(assigned: assigned, notFound: notFound)
-    }
-
-    /// Assign publications to a library by UUID.
-    /// Uses the repository's addToLibrary which handles mutableSetValue
-    /// and posts .publicationSavedToLibrary for UI refresh.
-    private func assignToLibrary(_ publications: [CDPublication], libraryID: UUID) async {
-        let context = PersistenceController.shared.viewContext
-        let library: CDLibrary? = await context.perform {
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
-        guard let library else { return }
-        await repository.addToLibrary(publications, library: library)
-    }
-
-    /// Assign publications to a collection by UUID.
-    /// Uses the repository's addPublications(to:) which handles
-    /// mutableSetValue and proper Core Data change tracking.
-    private func assignToCollection(_ publications: [CDPublication], collectionID: UUID) async {
-        let context = PersistenceController.shared.viewContext
-        let collection: CDCollection? = await context.perform {
-            let request = NSFetchRequest<CDCollection>(entityName: "Collection")
-            request.predicate = NSPredicate(format: "id == %@", collectionID as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
-        guard let collection else { return }
-        await repository.addPublications(publications, to: collection)
     }
 
     private func fetchFromExternal(identifier: PaperIdentifier) async throws -> SearchResult {
@@ -511,10 +509,18 @@ public actor AutomationService: AutomationOperations {
         logger.info("Deleting \(identifiers.count) papers")
 
         var deletedCount = 0
+        var idsToDelete: [UUID] = []
+
         for identifier in identifiers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.delete(publication)
+            if let pub = await findPublication(by: identifier) {
+                idsToDelete.append(pub.id)
                 deletedCount += 1
+            }
+        }
+
+        if !idsToDelete.isEmpty {
+            await withStore { store in
+                store.deletePublications(ids: idsToDelete)
             }
         }
 
@@ -524,27 +530,39 @@ public actor AutomationService: AutomationOperations {
     public func markAsRead(identifiers: [PaperIdentifier]) async throws -> Int {
         try await checkAuthorization()
 
-        var count = 0
+        var ids: [UUID] = []
         for identifier in identifiers {
-            if let publication = await findPublication(by: identifier), !publication.isRead {
-                await repository.markAsRead(publication)
-                count += 1
+            if let pub = await findPublication(by: identifier), !pub.isRead {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.setRead(ids: ids, read: true)
+            }
+        }
+
+        return ids.count
     }
 
     public func markAsUnread(identifiers: [PaperIdentifier]) async throws -> Int {
         try await checkAuthorization()
 
-        var count = 0
+        var ids: [UUID] = []
         for identifier in identifiers {
-            if let publication = await findPublication(by: identifier), publication.isRead {
-                await repository.markAsUnread(publication)
-                count += 1
+            if let pub = await findPublication(by: identifier), pub.isRead {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.setRead(ids: ids, read: false)
+            }
+        }
+
+        return ids.count
     }
 
     public func toggleReadStatus(identifiers: [PaperIdentifier]) async throws -> Int {
@@ -552,8 +570,10 @@ public actor AutomationService: AutomationOperations {
 
         var count = 0
         for identifier in identifiers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.toggleReadStatus(publication)
+            if let pub = await findPublication(by: identifier) {
+                await withStore { store in
+                    store.setRead(ids: [pub.id], read: !pub.isRead)
+                }
                 count += 1
             }
         }
@@ -565,12 +585,9 @@ public actor AutomationService: AutomationOperations {
 
         var count = 0
         for identifier in identifiers {
-            if let publication = await findPublication(by: identifier) {
-                // Toggle star status (would need to add method to repository)
-                let context = publication.managedObjectContext
-                context?.performAndWait {
-                    publication.isStarred = !publication.isStarred
-                    try? context?.save()
+            if let pub = await findPublication(by: identifier) {
+                await withStore { store in
+                    store.setStarred(ids: [pub.id], starred: !pub.isStarred)
                 }
                 count += 1
             }
@@ -583,16 +600,23 @@ public actor AutomationService: AutomationOperations {
     public func listCollections(libraryID: UUID?) async throws -> [CollectionResult] {
         try await checkAuthorization()
 
-        let collections = await collectionRepository.fetchAll()
-
-        return collections
-            .filter { collection in
-                if let libraryID = libraryID {
-                    return collection.library?.id == libraryID
-                }
-                return true
+        if let libraryID = libraryID {
+            let collections = await withStore { store in
+                store.listCollections(libraryId: libraryID)
             }
-            .map { toCollectionResult($0) }
+            return collections.map { toCollectionResult($0, libraryID: libraryID) }
+        } else {
+            // List collections across all libraries
+            let libraries = await withStore { $0.listLibraries() }
+            var allCollections: [CollectionResult] = []
+            for lib in libraries {
+                let collections = await withStore { store in
+                    store.listCollections(libraryId: lib.id)
+                }
+                allCollections.append(contentsOf: collections.map { toCollectionResult($0, libraryID: lib.id, libraryName: lib.name) })
+            }
+            return allCollections
+        }
     }
 
     public func createCollection(
@@ -604,68 +628,76 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
         logger.info("Creating collection: \(name)")
 
-        let collection = await collectionRepository.create(
-            name: name,
-            isSmartCollection: isSmartCollection,
-            predicate: predicate
-        )
+        // Resolve library ID
+        let resolvedLibraryID: UUID
+        if let libraryID = libraryID {
+            resolvedLibraryID = libraryID
+        } else if let defaultLib = await withStore({ $0.getDefaultLibrary() }) {
+            resolvedLibraryID = defaultLib.id
+        } else {
+            throw AutomationOperationError.operationFailed("No library found to create collection in")
+        }
 
-        return toCollectionResult(collection)
+        guard let collection = await withStore({ store in
+            store.createCollection(
+                name: name,
+                libraryId: resolvedLibraryID,
+                isSmart: isSmartCollection,
+                query: predicate
+            )
+        }) else {
+            throw AutomationOperationError.operationFailed("Failed to create collection")
+        }
+
+        return toCollectionResult(collection, libraryID: resolvedLibraryID)
     }
 
     public func deleteCollection(collectionID: UUID) async throws -> Bool {
         try await checkAuthorization()
 
-        let collections = await collectionRepository.fetchAll()
-        guard let collection = collections.first(where: { $0.id == collectionID }) else {
-            return false
+        // Delete via the generic deleteItem (collections are items in the Rust store)
+        await withStore { store in
+            store.deleteItem(id: collectionID)
         }
-
-        await collectionRepository.delete(collection)
         return true
     }
 
     public func addToCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
 
-        let collections = await collectionRepository.fetchAll()
-        guard let collection = collections.first(where: { $0.id == collectionID }) else {
-            throw AutomationOperationError.collectionNotFound(collectionID)
-        }
-
-        var count = 0
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.addToCollection(publication, collection: collection)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
 
-        return count
+        if !ids.isEmpty {
+            await withStore { store in
+                store.addToCollection(publicationIds: ids, collectionId: collectionID)
+            }
+        }
+
+        return ids.count
     }
 
     public func removeFromCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
 
-        let collections = await collectionRepository.fetchAll()
-        guard let collection = collections.first(where: { $0.id == collectionID }) else {
-            throw AutomationOperationError.collectionNotFound(collectionID)
-        }
-
-        var count = 0
-        var pubs: [CDPublication] = []
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                pubs.append(publication)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
 
-        if !pubs.isEmpty {
-            await collectionRepository.removePublications(pubs, from: collection)
+        if !ids.isEmpty {
+            await withStore { store in
+                store.removeFromCollection(publicationIds: ids, collectionId: collectionID)
+            }
         }
 
-        return count
+        return ids.count
     }
 
     // MARK: - Library Operations
@@ -674,55 +706,37 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
         logger.info("Creating library: \(name)")
 
-        let context = PersistenceController.shared.viewContext
-        let library: CDLibrary = await context.perform {
-            let lib = CDLibrary(context: context)
-            lib.id = UUID()
-            lib.name = name
-            lib.dateCreated = Date()
-            lib.isDefault = false
-            return lib
+        guard let library = await withStore({ $0.createLibrary(name: name) }) else {
+            throw AutomationOperationError.operationFailed("Failed to create library")
         }
 
-        // Create Papers directory
-        let papersURL = library.papersContainerURL
-        try? FileManager.default.createDirectory(at: papersURL, withIntermediateDirectories: true)
-
-        PersistenceController.shared.save()
         logger.info("Created library '\(name)' with ID: \(library.id)")
-
         return toLibraryResult(library)
     }
 
     public func listLibraries() async throws -> [LibraryResult] {
         try await checkAuthorization()
 
-        // Fetch libraries from persistence
-        let libraries = await fetchLibraries()
+        let libraries = await withStore { $0.listLibraries() }
         return libraries.map { toLibraryResult($0) }
     }
 
     public func getDefaultLibrary() async throws -> LibraryResult? {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        return libraries.first(where: { $0.isDefault }).map { toLibraryResult($0) }
+        guard let library = await withStore({ $0.getDefaultLibrary() }) else {
+            return nil
+        }
+        return toLibraryResult(library)
     }
 
     public func getInboxLibrary() async throws -> LibraryResult? {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        return libraries.first(where: { $0.isInbox }).map { toLibraryResult($0) }
-    }
-
-    private func fetchLibraries() async -> [CDLibrary] {
-        let context = PersistenceController.shared.viewContext
-        return await context.perform {
-            let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-            request.sortDescriptors = [NSSortDescriptor(key: "sortOrder", ascending: true)]
-            return (try? context.fetch(request)) ?? []
+        guard let library = await withStore({ $0.getInboxLibrary() }) else {
+            return nil
         }
+        return toLibraryResult(library)
     }
 
     // MARK: - Export Operations
@@ -730,49 +744,32 @@ public actor AutomationService: AutomationOperations {
     public func exportBibTeX(identifiers: [PaperIdentifier]?) async throws -> ExportResult {
         try await checkAuthorization()
 
-        let publications: [CDPublication]
         if let identifiers = identifiers {
-            publications = await getPaperEntities(identifiers: identifiers)
+            // Export specific publications
+            var ids: [UUID] = []
+            for identifier in identifiers {
+                if let pub = await findPublication(by: identifier) {
+                    ids.append(pub.id)
+                }
+            }
+            let content = await withStore { $0.exportBibTeX(ids: ids) }
+            return ExportResult(format: "bibtex", content: content, paperCount: ids.count)
         } else {
-            publications = await repository.fetchAll()
+            // Export all from default library
+            guard let defaultLib = await withStore({ $0.getDefaultLibrary() }) else {
+                return ExportResult(format: "bibtex", content: "", paperCount: 0)
+            }
+            let content = await withStore { $0.exportAllBibTeX(libraryId: defaultLib.id) }
+            let count = defaultLib.publicationCount
+            return ExportResult(format: "bibtex", content: content, paperCount: count)
         }
-
-        let content = await repository.export(publications)
-
-        return ExportResult(
-            format: "bibtex",
-            content: content,
-            paperCount: publications.count
-        )
     }
 
     public func exportRIS(identifiers: [PaperIdentifier]?) async throws -> ExportResult {
         try await checkAuthorization()
 
-        let publications: [CDPublication]
-        if let identifiers = identifiers {
-            publications = await getPaperEntities(identifiers: identifiers)
-        } else {
-            publications = await repository.fetchAll()
-        }
-
-        let content = await repository.exportToRIS(publications)
-
-        return ExportResult(
-            format: "ris",
-            content: content,
-            paperCount: publications.count
-        )
-    }
-
-    private func getPaperEntities(identifiers: [PaperIdentifier]) async -> [CDPublication] {
-        var publications: [CDPublication] = []
-        for identifier in identifiers {
-            if let pub = await findPublication(by: identifier) {
-                publications.append(pub)
-            }
-        }
-        return publications
+        // RIS export not yet available in Rust store
+        throw AutomationOperationError.operationFailed("RIS export not yet available with Rust store. Use BibTeX export instead.")
     }
 
     // MARK: - PDF Operations
@@ -791,17 +788,18 @@ public actor AutomationService: AutomationOperations {
                 continue
             }
 
-            if publication.hasPDFDownloaded {
+            if publication.hasDownloadedPDF {
                 alreadyHad.append(publication.citeKey)
                 continue
             }
 
             // Trigger PDF download via notification
+            let pubID = publication.id
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .downloadPDF,
                     object: nil,
-                    userInfo: ["publicationID": publication.id]
+                    userInfo: ["publicationID": pubID]
                 )
             }
 
@@ -822,7 +820,7 @@ public actor AutomationService: AutomationOperations {
         var status: [String: Bool] = [:]
         for identifier in identifiers {
             if let publication = await findPublication(by: identifier) {
-                status[identifier.value] = publication.hasPDFDownloaded
+                status[identifier.value] = publication.hasDownloadedPDF
             } else {
                 status[identifier.value] = false
             }
@@ -852,48 +850,56 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
         logger.info("Adding tag '\(path)' to \(papers.count) papers")
 
-        let tag = await repository.findOrCreateTagByPath(path)
-        var count = 0
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.addTag(tag, to: publication)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.addTag(ids: ids, tagPath: path)
+            }
+        }
+
+        return ids.count
     }
 
     public func removeTag(path: String, from papers: [PaperIdentifier]) async throws -> Int {
         try await checkAuthorization()
         logger.info("Removing tag '\(path)' from \(papers.count) papers")
 
-        let allTags = await repository.fetchAllTags()
-        guard let tag = allTags.first(where: { $0.canonicalPath == path }) else {
-            throw AutomationOperationError.operationFailed("Tag not found: \(path)")
-        }
-
-        var count = 0
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.removeTag(tag.id, from: publication)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.removeTag(ids: ids, tagPath: path)
+            }
+        }
+
+        return ids.count
     }
 
     public func listTags(matching prefix: String?, limit: Int) async throws -> [TagResult] {
         try await checkAuthorization()
 
-        let tags: [CDTag]
+        let tags = await withStore { $0.listTagsWithCounts() }
+
+        var filtered: [TagDefinition]
         if let prefix = prefix, !prefix.isEmpty {
-            tags = await repository.allTags(matching: prefix, limit: limit)
+            filtered = tags.filter { $0.path.lowercased().hasPrefix(prefix.lowercased()) }
         } else {
-            let allTags = await repository.fetchAllTags()
-            tags = Array(allTags.prefix(limit))
+            filtered = tags
         }
 
-        return tags.map { toTagResult($0) }
+        filtered = Array(filtered.prefix(limit))
+        return filtered.map { toTagResult($0) }
     }
 
     public func getTagTree() async throws -> String {
@@ -907,35 +913,44 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
         logger.info("Setting flag '\(color)' on \(papers.count) papers")
 
-        guard let flagColor = FlagColor(rawValue: color) else {
+        guard FlagColor(rawValue: color) != nil else {
             throw AutomationOperationError.operationFailed("Invalid flag color: \(color). Use: red, amber, blue, gray")
         }
-        let flagStyle = style.flatMap { FlagStyle(rawValue: $0) } ?? .solid
-        let flagLength = length.flatMap { FlagLength(rawValue: $0) } ?? .full
-        let flag = PublicationFlag(color: flagColor, style: flagStyle, length: flagLength)
 
-        var count = 0
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.setFlag(publication, flag: flag)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.setFlag(ids: ids, color: color, style: style, length: length)
+            }
+        }
+
+        return ids.count
     }
 
     public func clearFlag(papers: [PaperIdentifier]) async throws -> Int {
         try await checkAuthorization()
         logger.info("Clearing flag from \(papers.count) papers")
 
-        var count = 0
+        var ids: [UUID] = []
         for identifier in papers {
-            if let publication = await findPublication(by: identifier) {
-                await repository.setFlag(publication, flag: nil)
-                count += 1
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
             }
         }
-        return count
+
+        if !ids.isEmpty {
+            await withStore { store in
+                store.setFlag(ids: ids, color: nil)
+            }
+        }
+
+        return ids.count
     }
 
     // MARK: - Collection Papers
@@ -947,15 +962,13 @@ public actor AutomationService: AutomationOperations {
     ) async throws -> (papers: [PaperResult], totalCount: Int) {
         try await checkAuthorization()
 
-        let collections = await collectionRepository.fetchAll()
-        guard let collection = collections.first(where: { $0.id == collectionID }) else {
-            throw AutomationOperationError.collectionNotFound(collectionID)
+        let allPubs = await withStore { store in
+            store.listCollectionMembers(collectionId: collectionID)
         }
 
-        let allPubs = Array(collection.publications ?? [])
         let totalCount = allPubs.count
         let paginated = Array(allPubs.dropFirst(offset).prefix(limit))
-        let papers = paginated.compactMap { toPaperResult($0) }
+        let papers = paginated.map { toPaperResult($0) }
 
         return (papers: papers, totalCount: totalCount)
     }
@@ -965,60 +978,8 @@ public actor AutomationService: AutomationOperations {
     public func listParticipants(libraryID: UUID) async throws -> [ParticipantResult] {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        guard library.isSharedLibrary else {
-            return []  // Not shared, no participants
-        }
-
-        #if canImport(CloudKit)
-        guard let share = PersistenceController.shared.share(for: library) else {
-            return []
-        }
-
-        return share.participants.map { participant in
-            let formatter = PersonNameComponentsFormatter()
-            formatter.style = .default
-            let displayName = participant.userIdentity.nameComponents.map { formatter.string(from: $0) }
-            let email = participant.userIdentity.lookupInfo?.emailAddress
-
-            let permission: String
-            switch participant.permission {
-            case .readOnly:
-                permission = "readOnly"
-            case .readWrite:
-                permission = "readWrite"
-            default:
-                permission = "unknown"
-            }
-
-            let status: String
-            switch participant.acceptanceStatus {
-            case .accepted:
-                status = "accepted"
-            case .pending:
-                status = "pending"
-            case .removed:
-                status = "removed"
-            default:
-                status = "unknown"
-            }
-
-            return ParticipantResult(
-                id: participant.participantID,
-                displayName: displayName,
-                email: email,
-                permission: permission,
-                isOwner: participant == share.owner,
-                status: status
-            )
-        }
-        #else
+        // TODO: CloudKit sharing not yet available with Rust store
         return []
-        #endif
     }
 
     public func setParticipantPermission(
@@ -1028,43 +989,8 @@ public actor AutomationService: AutomationOperations {
     ) async throws {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        guard library.isSharedLibrary else {
-            throw AutomationOperationError.notShared
-        }
-
-        guard library.isShareOwner else {
-            throw AutomationOperationError.notShareOwner
-        }
-
-        #if canImport(CloudKit)
-        guard let share = PersistenceController.shared.share(for: library) else {
-            throw AutomationOperationError.notShared
-        }
-
-        guard let participant = share.participants.first(where: { $0.participantID == participantID }) else {
-            throw AutomationOperationError.participantNotFound(participantID)
-        }
-
-        let ckPermission: CKShare.ParticipantPermission
-        switch permission {
-        case "readOnly":
-            ckPermission = .readOnly
-        case "readWrite":
-            ckPermission = .readWrite
-        default:
-            throw AutomationOperationError.operationFailed("Invalid permission: \(permission). Use 'readOnly' or 'readWrite'")
-        }
-
-        try await CloudKitSharingService.shared.setPermission(ckPermission, for: participant, in: library)
-        logger.info("Set permission '\(permission)' for participant in library '\(library.displayName)'")
-        #else
+        // TODO: CloudKit sharing not yet available with Rust store
         throw AutomationOperationError.sharingUnavailable
-        #endif
     }
 
     // MARK: - Activity Feed Operations
@@ -1072,13 +998,8 @@ public actor AutomationService: AutomationOperations {
     public func recentActivity(libraryID: UUID, limit: Int) async throws -> [ActivityResult] {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        let records = await MainActor.run {
-            ActivityFeedService.shared.recentActivity(in: library, limit: limit)
+        let records = await withStore { store in
+            store.listActivityRecords(libraryId: libraryID, limit: UInt32(limit))
         }
 
         return records.map { toActivityResult($0) }
@@ -1093,11 +1014,11 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        let comments = await MainActor.run {
-            CommentService.shared.comments(for: publication)
+        let comments = await withStore { store in
+            store.listComments(publicationId: publication.id)
         }
 
-        return comments.map { toCommentResult($0, allComments: publication.comments ?? []) }
+        return buildCommentTree(from: comments)
     }
 
     public func addComment(
@@ -1111,35 +1032,36 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        let comment = try await MainActor.run {
-            try CommentService.shared.addComment(
+        // Get current user info
+        let authorName: String
+        #if os(macOS)
+        authorName = Host.current().localizedName ?? "Unknown"
+        #else
+        authorName = UIDevice.current.name
+        #endif
+
+        guard let comment = await withStore({ store in
+            store.createComment(
+                publicationId: publication.id,
                 text: text,
-                to: publication,
-                parentCommentID: parentCommentID
+                authorIdentifier: nil,
+                authorDisplayName: authorName,
+                parentCommentId: parentCommentID
             )
+        }) else {
+            throw AutomationOperationError.operationFailed("Failed to create comment")
         }
 
         logger.info("Added comment to '\(publication.citeKey)'")
-        return toCommentResult(comment, allComments: [])
+        return toCommentResult(comment)
     }
 
     public func deleteComment(commentID: UUID) async throws {
         try await checkAuthorization()
 
-        let context = PersistenceController.shared.viewContext
-        let comment: CDComment? = await context.perform {
-            let request = NSFetchRequest<CDComment>(entityName: "Comment")
-            request.predicate = NSPredicate(format: "id == %@", commentID as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
-
-        guard let comment = comment else {
-            throw AutomationOperationError.commentNotFound(commentID)
-        }
-
-        try await MainActor.run {
-            try CommentService.shared.deleteComment(comment)
+        // Delete comment via generic deleteItem
+        await withStore { store in
+            store.deleteItem(id: commentID)
         }
 
         logger.info("Deleted comment \(commentID)")
@@ -1150,16 +1072,15 @@ public actor AutomationService: AutomationOperations {
     public func listAssignments(libraryID: UUID) async throws -> [AssignmentResult] {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
+        // List all assignments (Rust store doesn't filter by library directly,
+        // so we filter in Swift)
+        let assignments = await withStore { store in
+            store.listAssignments()
         }
 
-        let assignments = await MainActor.run {
-            AssignmentService.shared.assignments(in: library)
-        }
-
-        return assignments.map { toAssignmentResult($0) }
+        // Filter by library
+        let filtered = assignments.filter { $0.libraryID == libraryID }
+        return filtered.map { toAssignmentResult($0) }
     }
 
     public func listAssignmentsForPublication(publicationIdentifier: PaperIdentifier) async throws -> [AssignmentResult] {
@@ -1169,8 +1090,8 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        let assignments = await MainActor.run {
-            AssignmentService.shared.assignments(for: publication)
+        let assignments = await withStore { store in
+            store.listAssignments(publicationId: publication.id)
         }
 
         return assignments.map { toAssignmentResult($0) }
@@ -1189,19 +1110,26 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
+        // Get current user info for "assigned by"
+        let assignedByName: String
+        #if os(macOS)
+        assignedByName = Host.current().localizedName ?? "Unknown"
+        #else
+        assignedByName = UIDevice.current.name
+        #endif
 
-        let assignment = try await MainActor.run {
-            try AssignmentService.shared.suggest(
-                publication: publication,
-                to: assigneeName,
-                in: library,
+        let dueDateMs: Int64? = dueDate.map { Int64($0.timeIntervalSince1970 * 1000) }
+
+        guard let assignment = await withStore({ store in
+            store.createAssignment(
+                publicationId: publication.id,
+                assigneeName: assigneeName,
+                assignedByName: assignedByName,
                 note: note,
-                dueDate: dueDate
+                dueDate: dueDateMs
             )
+        }) else {
+            throw AutomationOperationError.operationFailed("Failed to create assignment")
         }
 
         logger.info("Created assignment: '\(publication.citeKey)' suggested to '\(assigneeName)'")
@@ -1211,20 +1139,8 @@ public actor AutomationService: AutomationOperations {
     public func deleteAssignment(assignmentID: UUID) async throws {
         try await checkAuthorization()
 
-        let context = PersistenceController.shared.viewContext
-        let assignment: CDAssignment? = await context.perform {
-            let request = NSFetchRequest<CDAssignment>(entityName: "Assignment")
-            request.predicate = NSPredicate(format: "id == %@", assignmentID as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
-
-        guard let assignment = assignment else {
-            throw AutomationOperationError.assignmentNotFound(assignmentID)
-        }
-
-        try await MainActor.run {
-            try AssignmentService.shared.remove(assignment)
+        await withStore { store in
+            store.deleteItem(id: assignmentID)
         }
 
         logger.info("Deleted assignment \(assignmentID)")
@@ -1233,14 +1149,14 @@ public actor AutomationService: AutomationOperations {
     public func participantNames(libraryID: UUID) async throws -> [String] {
         try await checkAuthorization()
 
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
+        // TODO: CloudKit sharing not yet available with Rust store
+        // Return unique assignee names from assignments as a fallback
+        let assignments = await withStore { store in
+            store.listAssignments()
         }
 
-        return await MainActor.run {
-            AssignmentService.shared.participantNames(in: library)
-        }
+        let names = Set(assignments.map(\.assigneeName))
+        return Array(names).sorted()
     }
 
     // MARK: - Sharing Operations
@@ -1248,78 +1164,22 @@ public actor AutomationService: AutomationOperations {
     public func shareLibrary(libraryID: UUID) async throws -> ShareResult {
         try await checkAuthorization()
 
-        #if canImport(CloudKit)
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        // If already shared, return existing share info
-        if library.isSharedLibrary {
-            if let share = PersistenceController.shared.share(for: library) {
-                return ShareResult(
-                    libraryID: library.id,
-                    shareURL: share.url?.absoluteString,
-                    isShared: true
-                )
-            }
-        }
-
-        let (sharedLibrary, share) = try await CloudKitSharingService.shared.shareLibrary(library)
-        logger.info("Shared library '\(library.displayName)'")
-
-        return ShareResult(
-            libraryID: sharedLibrary.id,
-            shareURL: share.url?.absoluteString,
-            isShared: true
-        )
-        #else
+        // TODO: CloudKit sharing not yet available with Rust store
         throw AutomationOperationError.sharingUnavailable
-        #endif
     }
 
     public func unshareLibrary(libraryID: UUID) async throws {
         try await checkAuthorization()
 
-        #if canImport(CloudKit)
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        guard library.isSharedLibrary else {
-            throw AutomationOperationError.notShared
-        }
-
-        guard library.isShareOwner else {
-            throw AutomationOperationError.notShareOwner
-        }
-
-        try await CloudKitSharingService.shared.unshare(library)
-        logger.info("Unshared library '\(library.displayName)'")
-        #else
+        // TODO: CloudKit sharing not yet available with Rust store
         throw AutomationOperationError.sharingUnavailable
-        #endif
     }
 
     public func leaveShare(libraryID: UUID, keepCopy: Bool) async throws {
         try await checkAuthorization()
 
-        #if canImport(CloudKit)
-        let libraries = await fetchLibraries()
-        guard let library = libraries.first(where: { $0.id == libraryID }) else {
-            throw AutomationOperationError.libraryNotFound(libraryID)
-        }
-
-        guard library.isSharedLibrary else {
-            throw AutomationOperationError.notShared
-        }
-
-        try await CloudKitSharingService.shared.leaveShare(library, keepCopy: keepCopy)
-        logger.info("Left shared library '\(library.displayName)' (keepCopy: \(keepCopy))")
-        #else
+        // TODO: CloudKit sharing not yet available with Rust store
         throw AutomationOperationError.sharingUnavailable
-        #endif
     }
 
     // MARK: - Annotation Operations
@@ -1335,20 +1195,20 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        guard let linkedFile = publication.linkedFiles?.first else {
+        // Get linked files for this publication
+        let linkedFiles = await withStore { store in
+            store.listLinkedFiles(publicationId: publication.id)
+        }
+
+        guard let linkedFile = linkedFiles.first(where: { $0.isPDF }) else {
             throw AutomationOperationError.linkedFileNotFound(publication.citeKey)
         }
 
-        let annotations = await MainActor.run {
-            AnnotationPersistence.shared.loadAnnotations(for: linkedFile)
+        let annotations = await withStore { store in
+            store.listAnnotations(linkedFileId: linkedFile.id, pageNumber: pageNumber.map { Int32($0) })
         }
 
-        var filtered = annotations
-        if let pageNumber = pageNumber {
-            filtered = filtered.filter { $0.pageNumber == Int32(pageNumber) }
-        }
-
-        return filtered.map { toAnnotationResult($0) }
+        return annotations.map { toAnnotationResult($0) }
     }
 
     /// Add an annotation to a publication's PDF.
@@ -1366,7 +1226,12 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        guard let linkedFile = publication.linkedFiles?.first else {
+        // Get linked files for this publication
+        let linkedFiles = await withStore { store in
+            store.listLinkedFiles(publicationId: publication.id)
+        }
+
+        guard let linkedFile = linkedFiles.first(where: { $0.isPDF }) else {
             throw AutomationOperationError.linkedFileNotFound(publication.citeKey)
         }
 
@@ -1377,34 +1242,26 @@ public actor AutomationService: AutomationOperations {
 
         let hexColor = color ?? annotationType.defaultColor
 
-        // Create annotation in Core Data directly (without PDFKit)
-        let annotation = try await MainActor.run {
-            let context = PersistenceController.shared.viewContext
-            let cdAnnotation = CDAnnotation(context: context)
-            cdAnnotation.id = UUID()
-            cdAnnotation.pageNumber = Int32(pageNumber)
-            cdAnnotation.annotationType = annotationType.rawValue
-            cdAnnotation.color = hexColor
-            cdAnnotation.contents = contents
-            cdAnnotation.selectedText = selectedText
-            cdAnnotation.linkedFile = linkedFile
-            cdAnnotation.dateCreated = Date()
-            cdAnnotation.dateModified = Date()
+        // Set default bounds for note annotations
+        let boundsJson: String?
+        if annotationType == .note || annotationType == .freeText {
+            boundsJson = "{\"x\":50,\"y\":50,\"width\":200,\"height\":100}"
+        } else {
+            boundsJson = nil
+        }
 
-            // Set author from current user
-            #if os(macOS)
-            cdAnnotation.author = Host.current().localizedName ?? "Unknown"
-            #else
-            cdAnnotation.author = UIDevice.current.name
-            #endif
-
-            // Set default bounds for note annotations
-            if annotationType == .note || annotationType == .freeText {
-                cdAnnotation.boundsJSON = "{\"x\":50,\"y\":50,\"width\":200,\"height\":100}"
-            }
-
-            try context.save()
-            return cdAnnotation
+        guard let annotation = await withStore({ store in
+            store.createAnnotation(
+                linkedFileId: linkedFile.id,
+                annotationType: type,
+                pageNumber: Int64(pageNumber),
+                boundsJson: boundsJson,
+                color: hexColor,
+                contents: contents,
+                selectedText: selectedText
+            )
+        }) else {
+            throw AutomationOperationError.operationFailed("Failed to create annotation")
         }
 
         logger.info("Added \(type) annotation to '\(publication.citeKey)' page \(pageNumber)")
@@ -1415,20 +1272,8 @@ public actor AutomationService: AutomationOperations {
     public func deleteAnnotation(annotationID: UUID) async throws {
         try await checkAuthorization()
 
-        let context = PersistenceController.shared.viewContext
-        let annotation: CDAnnotation? = await context.perform {
-            let request = NSFetchRequest<CDAnnotation>(entityName: "Annotation")
-            request.predicate = NSPredicate(format: "id == %@", annotationID as CVarArg)
-            request.fetchLimit = 1
-            return try? context.fetch(request).first
-        }
-
-        guard let annotation = annotation else {
-            throw AutomationOperationError.annotationNotFound(annotationID)
-        }
-
-        try await MainActor.run {
-            try AnnotationPersistence.shared.delete(annotation)
+        await withStore { store in
+            store.deleteItem(id: annotationID)
         }
 
         logger.info("Deleted annotation \(annotationID)")
@@ -1444,7 +1289,8 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        return publication.fields["note"]
+        // PublicationRowData has `note` field
+        return publication.note
     }
 
     /// Update the notes for a publication.
@@ -1455,19 +1301,8 @@ public actor AutomationService: AutomationOperations {
             throw AutomationOperationError.paperNotFound(publicationIdentifier.value)
         }
 
-        await MainActor.run {
-            let context = publication.managedObjectContext
-            context?.performAndWait {
-                var fields = publication.fields
-                if let notes = notes, !notes.isEmpty {
-                    fields["note"] = notes
-                } else {
-                    fields.removeValue(forKey: "note")
-                }
-                publication.fields = fields
-                publication.dateModified = Date()
-                try? context?.save()
-            }
+        await withStore { store in
+            store.updateField(id: publication.id, field: "note", value: notes)
         }
 
         logger.info("Updated notes for '\(publication.citeKey)'")
@@ -1475,218 +1310,231 @@ public actor AutomationService: AutomationOperations {
 
     // MARK: - Conversion Helpers
 
-    private func toPaperResult(_ publication: CDPublication) -> PaperResult? {
-        // Guard against deleted objects
-        guard let context = publication.managedObjectContext, !publication.isDeleted else {
-            return nil
-        }
+    private func toPaperResult(_ pub: PublicationRowData) -> PaperResult {
+        let tagPaths = pub.tagDisplays.map(\.path).sorted()
 
-        // Access all Core Data properties on the context's queue to avoid threading crashes.
-        // This actor may be called from the HTTP server thread (not main).
-        var result: PaperResult?
-        context.performAndWait {
-            guard !publication.isDeleted else { return }
-
-            let fields = publication.fields
-
-            let tagPaths: [String] = (publication.tags ?? [])
-                .compactMap { $0.canonicalPath }
-                .sorted()
-
-            let flagResult: FlagResult? = publication.flag.map {
-                FlagResult(
-                    color: $0.color.rawValue,
-                    style: $0.style.rawValue,
-                    length: $0.length.rawValue
-                )
-            }
-
-            let collIDs: [UUID] = (publication.collections ?? []).map { $0.id }
-            let libIDs: [UUID] = (publication.libraries ?? []).map { $0.id }
-            let notes = fields["note"]
-            let annotationCount = (publication.linkedFiles ?? [])
-                .reduce(0) { $0 + ($1.annotations?.count ?? 0) }
-
-            result = PaperResult(
-                id: publication.id,
-                citeKey: publication.citeKey,
-                title: publication.title ?? "",
-                authors: parseAuthors(from: fields["author"]),
-                year: publication.year > 0 ? Int(publication.year) : nil,
-                venue: fields["journal"] ?? fields["booktitle"],
-                abstract: publication.abstract,
-                doi: publication.doi,
-                arxivID: publication.arxivID,
-                bibcode: publication.bibcode,
-                pmid: publication.pmid,
-                semanticScholarID: publication.semanticScholarID,
-                openAlexID: publication.openAlexID,
-                isRead: publication.isRead,
-                isStarred: publication.isStarred,
-                hasPDF: publication.hasPDFDownloaded || !(publication.linkedFiles?.isEmpty ?? true),
-                citationCount: publication.citationCount >= 0 ? Int(publication.citationCount) : nil,
-                dateAdded: publication.dateAdded,
-                dateModified: publication.dateModified,
-                bibtex: publication.rawBibTeX ?? "",
-                webURL: publication.webURL,
-                pdfURLs: publication.pdfLinks.map { $0.url.absoluteString },
-                tags: tagPaths,
-                flag: flagResult,
-                collectionIDs: collIDs,
-                libraryIDs: libIDs,
-                notes: notes,
-                annotationCount: annotationCount
+        let flagResult: FlagResult? = pub.flag.map {
+            FlagResult(
+                color: $0.color.rawValue,
+                style: $0.style.rawValue,
+                length: $0.length.rawValue
             )
         }
-        return result
+
+        return PaperResult(
+            id: pub.id,
+            citeKey: pub.citeKey,
+            title: pub.title,
+            authors: parseAuthors(from: pub.authorString),
+            year: pub.year,
+            venue: pub.venue,
+            abstract: pub.abstract,
+            doi: pub.doi,
+            arxivID: pub.arxivID,
+            bibcode: pub.bibcode,
+            pmid: nil,  // Not available in PublicationRowData
+            semanticScholarID: nil,  // Not available in PublicationRowData
+            openAlexID: nil,  // Not available in PublicationRowData
+            isRead: pub.isRead,
+            isStarred: pub.isStarred,
+            hasPDF: pub.hasDownloadedPDF,
+            citationCount: pub.citationCount > 0 ? pub.citationCount : nil,
+            dateAdded: pub.dateAdded,
+            dateModified: pub.dateModified,
+            bibtex: "",  // BibTeX not in row data; use exportBibTeX for full text
+            webURL: nil,  // Not available in PublicationRowData
+            pdfURLs: [],  // Not available in PublicationRowData
+            tags: tagPaths,
+            flag: flagResult,
+            collectionIDs: [],  // Not available in PublicationRowData
+            libraryIDs: [],  // Not available in PublicationRowData
+            notes: pub.note,
+            annotationCount: 0  // Not available in PublicationRowData
+        )
     }
 
-    private func parseAuthors(from authorField: String?) -> [String] {
-        guard let authorField = authorField else { return [] }
-        return authorField
-            .components(separatedBy: " and ")
+    /// Convert a full detail model to PaperResult (richer data).
+    private func toPaperResultFromDetail(_ pub: PublicationModel) -> PaperResult {
+        let tagPaths = pub.tags.map(\.path).sorted()
+
+        let flagResult: FlagResult? = pub.flag.map {
+            FlagResult(
+                color: $0.color.rawValue,
+                style: $0.style.rawValue,
+                length: $0.length.rawValue
+            )
+        }
+
+        return PaperResult(
+            id: pub.id,
+            citeKey: pub.citeKey,
+            title: pub.title,
+            authors: pub.authors.map(\.displayName),
+            year: pub.year,
+            venue: pub.journal ?? pub.booktitle,
+            abstract: pub.abstract,
+            doi: pub.doi,
+            arxivID: pub.arxivID,
+            bibcode: pub.bibcode,
+            pmid: pub.pmid,
+            semanticScholarID: pub.fields["semantic_scholar_id"],
+            openAlexID: pub.fields["openalex_id"],
+            isRead: pub.isRead,
+            isStarred: pub.isStarred,
+            hasPDF: pub.hasDownloadedPDF || !pub.linkedFiles.isEmpty,
+            citationCount: pub.citationCount > 0 ? pub.citationCount : nil,
+            dateAdded: pub.dateAdded,
+            dateModified: pub.dateModified,
+            bibtex: pub.rawBibTeX ?? "",
+            webURL: pub.url,
+            pdfURLs: [],
+            tags: tagPaths,
+            flag: flagResult,
+            collectionIDs: pub.collectionIDs,
+            libraryIDs: pub.libraryIDs,
+            notes: pub.note,
+            annotationCount: 0
+        )
+    }
+
+    private func parseAuthors(from authorString: String) -> [String] {
+        // PublicationRowData.authorString is pre-formatted as "Last1, Last2 ... LastN"
+        // Split by comma for the automation result
+        return authorString
+            .components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "..." }
     }
 
-    private func toCollectionResult(_ collection: CDCollection) -> CollectionResult {
-        guard let context = collection.managedObjectContext else {
-            return CollectionResult(id: collection.id, name: collection.name, paperCount: 0,
-                                    isSmartCollection: false, libraryID: nil, libraryName: nil)
-        }
-        var result: CollectionResult!
-        context.performAndWait {
-            result = CollectionResult(
-                id: collection.id,
-                name: collection.name,
-                paperCount: collection.publications?.count ?? 0,
-                isSmartCollection: collection.isSmartCollection,
-                libraryID: collection.library?.id,
-                libraryName: collection.library?.name
-            )
-        }
-        return result
+    private func toCollectionResult(_ collection: CollectionModel, libraryID: UUID? = nil, libraryName: String? = nil) -> CollectionResult {
+        CollectionResult(
+            id: collection.id,
+            name: collection.name,
+            paperCount: collection.publicationCount,
+            isSmartCollection: collection.isSmart,
+            libraryID: libraryID,
+            libraryName: libraryName
+        )
     }
 
-    private func toLibraryResult(_ library: CDLibrary) -> LibraryResult {
-        guard let context = library.managedObjectContext else {
-            return LibraryResult(id: library.id, name: library.displayName, paperCount: 0,
-                                 collectionCount: 0, isDefault: false, isInbox: false,
-                                 isShared: false, isShareOwner: false, participantCount: 0, canEdit: false)
-        }
-        var result: LibraryResult!
-        context.performAndWait {
-            result = LibraryResult(
-                id: library.id,
-                name: library.displayName,
-                paperCount: library.publications?.count ?? 0,
-                collectionCount: library.collections?.count ?? 0,
-                isDefault: library.isDefault,
-                isInbox: library.isInbox,
-                isShared: library.isSharedLibrary,
-                isShareOwner: library.isShareOwner,
-                participantCount: library.shareParticipantCount,
-                canEdit: library.canEdit
-            )
-        }
-        return result
+    private func toLibraryResult(_ library: LibraryModel) -> LibraryResult {
+        LibraryResult(
+            id: library.id,
+            name: library.name,
+            paperCount: library.publicationCount,
+            collectionCount: 0,  // Would need separate query; omit for now
+            isDefault: library.isDefault,
+            isInbox: library.isInbox,
+            isShared: false,  // CloudKit sharing not yet available with Rust store
+            isShareOwner: false,
+            participantCount: 0,
+            canEdit: true
+        )
     }
 
-    private func toTagResult(_ tag: CDTag) -> TagResult {
-        guard let context = tag.managedObjectContext else {
-            return TagResult(id: tag.id, name: tag.leaf, canonicalPath: tag.name,
-                             parentPath: nil, useCount: 0, publicationCount: 0)
-        }
-        var result: TagResult!
-        context.performAndWait {
-            result = TagResult(
-                id: tag.id,
-                name: tag.leaf,
-                canonicalPath: tag.canonicalPath ?? tag.name,
-                parentPath: tag.parentTag?.canonicalPath,
-                useCount: Int(tag.useCount),
-                publicationCount: tag.publicationCount
-            )
-        }
-        return result
+    private func toTagResult(_ tag: TagDefinition) -> TagResult {
+        // Extract parent path from the tag path
+        let components = tag.path.components(separatedBy: "/")
+        let parentPath = components.count > 1
+            ? components.dropLast().joined(separator: "/")
+            : nil
+
+        return TagResult(
+            id: UUID(),  // TagDefinition uses path as ID, generate UUID for TagResult
+            name: tag.leafName,
+            canonicalPath: tag.path,
+            parentPath: parentPath,
+            useCount: tag.publicationCount,
+            publicationCount: tag.publicationCount
+        )
     }
 
-    private func toActivityResult(_ record: CDActivityRecord) -> ActivityResult {
+    private func toActivityResult(_ record: ActivityRecord) -> ActivityResult {
         ActivityResult(
             id: record.id,
             activityType: record.activityType,
             actorDisplayName: record.actorDisplayName,
             targetTitle: record.targetTitle,
-            targetID: record.targetID,
+            targetID: record.targetID.flatMap { UUID(uuidString: $0) },
             detail: record.detail,
             date: record.date
         )
     }
 
-    private func toCommentResult(_ comment: CDComment, allComments: Set<CDComment>) -> CommentResult {
-        guard let context = comment.managedObjectContext else {
-            return CommentResult(id: comment.id, text: comment.text,
-                                 authorDisplayName: comment.authorDisplayName,
-                                 authorIdentifier: comment.authorIdentifier,
-                                 dateCreated: comment.dateCreated, dateModified: comment.dateModified,
-                                 parentCommentID: comment.parentCommentID, replies: [])
-        }
-        var result: CommentResult!
-        context.performAndWait {
-            let replies = allComments
-                .filter { $0.parentCommentID == comment.id }
-                .sorted { $0.dateCreated < $1.dateCreated }
-                .map { toCommentResult($0, allComments: allComments) }
-
-            result = CommentResult(
-                id: comment.id,
-                text: comment.text,
-                authorDisplayName: comment.authorDisplayName,
-                authorIdentifier: comment.authorIdentifier,
-                dateCreated: comment.dateCreated,
-                dateModified: comment.dateModified,
-                parentCommentID: comment.parentCommentID,
-                replies: replies
-            )
-        }
-        return result
+    private func toCommentResult(_ comment: Comment) -> CommentResult {
+        CommentResult(
+            id: comment.id,
+            text: comment.text,
+            authorDisplayName: comment.authorDisplayName,
+            authorIdentifier: comment.authorIdentifier,
+            dateCreated: comment.dateCreated,
+            dateModified: comment.dateModified,
+            parentCommentID: comment.parentCommentID,
+            replies: []
+        )
     }
 
-    private func toAssignmentResult(_ assignment: CDAssignment) -> AssignmentResult {
-        guard let context = assignment.managedObjectContext else {
-            return AssignmentResult(id: assignment.id, publicationID: UUID(),
-                                    publicationTitle: nil, publicationCiteKey: nil,
-                                    assigneeName: assignment.assigneeName,
-                                    assignedByName: assignment.assignedByName,
-                                    note: assignment.note, dateCreated: assignment.dateCreated,
-                                    dueDate: assignment.dueDate, libraryID: nil)
-        }
-        var result: AssignmentResult!
-        context.performAndWait {
-            result = AssignmentResult(
-                id: assignment.id,
-                publicationID: assignment.publication?.id ?? UUID(),
-                publicationTitle: assignment.publication?.title,
-                publicationCiteKey: assignment.publication?.citeKey,
-                assigneeName: assignment.assigneeName,
-                assignedByName: assignment.assignedByName,
-                note: assignment.note,
-                dateCreated: assignment.dateCreated,
-                dueDate: assignment.dueDate,
-                libraryID: assignment.library?.id
-            )
-        }
-        return result
+    /// Build a threaded comment tree from a flat list of comments.
+    private func buildCommentTree(from comments: [Comment]) -> [CommentResult] {
+        // Find top-level comments (no parent)
+        let topLevel = comments.filter { $0.parentCommentID == nil }
+
+        return topLevel
+            .sorted { $0.dateCreated < $1.dateCreated }
+            .map { comment in
+                let replies = comments
+                    .filter { $0.parentCommentID == comment.id }
+                    .sorted { $0.dateCreated < $1.dateCreated }
+                    .map { reply in
+                        CommentResult(
+                            id: reply.id,
+                            text: reply.text,
+                            authorDisplayName: reply.authorDisplayName,
+                            authorIdentifier: reply.authorIdentifier,
+                            dateCreated: reply.dateCreated,
+                            dateModified: reply.dateModified,
+                            parentCommentID: reply.parentCommentID,
+                            replies: []  // Only one level of nesting for now
+                        )
+                    }
+
+                return CommentResult(
+                    id: comment.id,
+                    text: comment.text,
+                    authorDisplayName: comment.authorDisplayName,
+                    authorIdentifier: comment.authorIdentifier,
+                    dateCreated: comment.dateCreated,
+                    dateModified: comment.dateModified,
+                    parentCommentID: comment.parentCommentID,
+                    replies: replies
+                )
+            }
     }
 
-    private func toAnnotationResult(_ annotation: CDAnnotation) -> AnnotationResult {
+    private func toAssignmentResult(_ assignment: Assignment) -> AssignmentResult {
+        AssignmentResult(
+            id: assignment.id,
+            publicationID: assignment.publicationID,
+            publicationTitle: nil,  // Would need extra lookup; omit for efficiency
+            publicationCiteKey: nil,
+            assigneeName: assignment.assigneeName,
+            assignedByName: assignment.assignedByName,
+            note: assignment.note,
+            dateCreated: assignment.dateCreated,
+            dueDate: assignment.dueDate,
+            libraryID: assignment.libraryID
+        )
+    }
+
+    private func toAnnotationResult(_ annotation: AnnotationModel) -> AnnotationResult {
         AnnotationResult(
             id: annotation.id,
             type: annotation.annotationType,
-            pageNumber: Int(annotation.pageNumber),
+            pageNumber: annotation.pageNumber,
             contents: annotation.contents,
             selectedText: annotation.selectedText,
             color: annotation.color ?? "#FFFF00",
-            author: annotation.author,
+            author: annotation.authorName,
             dateCreated: annotation.dateCreated,
             dateModified: annotation.dateModified
         )

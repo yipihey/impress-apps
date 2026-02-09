@@ -202,7 +202,7 @@ struct BibTeXTab: View {
                     return
                 }
 
-                await viewModel.updateFromBibTeX(pub, entry: entry)
+                await viewModel.updateFromBibTeX(id: pub.id, entry: entry)
 
                 await MainActor.run {
                     isEditing = false

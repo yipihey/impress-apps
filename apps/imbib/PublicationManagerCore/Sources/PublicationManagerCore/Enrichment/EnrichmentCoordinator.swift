@@ -6,12 +6,11 @@
 //
 
 import Foundation
-import CoreData
 import OSLog
 
 // MARK: - Enrichment Coordinator
 
-/// Coordinates enrichment services, connecting the EnrichmentService to Core Data persistence.
+/// Coordinates enrichment services, connecting the EnrichmentService to Rust store persistence.
 ///
 /// The EnrichmentCoordinator handles:
 /// - Creating and configuring the EnrichmentService with plugins
@@ -27,7 +26,7 @@ import OSLog
 /// await coordinator.start()
 ///
 /// // Queue a paper for enrichment
-/// await coordinator.queueForEnrichment(publication)
+/// await coordinator.queueForEnrichment(publicationID: pubID)
 /// ```
 public actor EnrichmentCoordinator {
 
@@ -39,7 +38,6 @@ public actor EnrichmentCoordinator {
     // MARK: - Properties
 
     private let service: EnrichmentService
-    private let repository: PublicationRepository
     private let adsSource: ADSSource
     private var isStarted = false
 
@@ -51,11 +49,8 @@ public actor EnrichmentCoordinator {
     // MARK: - Initialization
 
     public init(
-        repository: PublicationRepository = PublicationRepository(),
         credentialManager: CredentialManager = .shared
     ) {
-        self.repository = repository
-
         // Create enrichment plugins - ADS only
         let ads = ADSSource(credentialManager: credentialManager)
         self.adsSource = ads
@@ -72,6 +67,12 @@ public actor EnrichmentCoordinator {
         )
     }
 
+    // MARK: - Store Access
+
+    private func withStore<T: Sendable>(_ operation: @MainActor @Sendable (RustStoreAdapter) -> T) async -> T {
+        await MainActor.run { operation(RustStoreAdapter.shared) }
+    }
+
     // MARK: - Lifecycle
 
     /// Start the enrichment coordinator.
@@ -86,8 +87,8 @@ public actor EnrichmentCoordinator {
         Logger.enrichment.infoCapture("Starting EnrichmentCoordinator", category: "enrichment")
 
         // Wire up the persistence callback
-        await service.setOnEnrichmentComplete { [repository] publicationID, result in
-            await repository.saveEnrichmentResult(publicationID: publicationID, result: result)
+        await service.setOnEnrichmentComplete { publicationID, result in
+            await Self.saveEnrichmentResult(publicationID: publicationID, result: result)
         }
 
         // Start background sync
@@ -108,42 +109,24 @@ public actor EnrichmentCoordinator {
 
     // MARK: - Queue Operations
 
-    /// Queue a publication for background enrichment.
+    /// Queue a publication for background enrichment by ID.
     ///
     /// - Parameters:
-    ///   - publication: The publication to enrich
+    ///   - publicationID: The UUID of the publication to enrich
     ///   - priority: Priority level (default: libraryPaper)
     public func queueForEnrichment(
-        _ publication: CDPublication,
+        publicationID: UUID,
         priority: EnrichmentPriority = .libraryPaper
     ) async {
-        // Extract Core Data properties on main actor for thread safety
-        // Check for deleted/faulted objects to avoid crash
-        let result: (identifiers: [IdentifierType: String], publicationID: UUID, citeKey: String, isStale: Bool)? = await MainActor.run {
-            guard !publication.isDeleted, !publication.isFault else {
-                return nil
-            }
-            return (
-                publication.enrichmentIdentifiers,
-                publication.id,
-                publication.citeKey,
-                publication.isEnrichmentStale(thresholdDays: 1)
-            )
-        }
-
-        guard let (identifiers, publicationID, citeKey, isStale) = result else {
-            Logger.enrichment.debug("Skipping enrichment - publication deleted or faulted")
+        // Fetch publication detail from Rust store
+        guard let pub = await withStore({ $0.getPublicationDetail(id: publicationID) }) else {
+            Logger.enrichment.debug("Skipping enrichment - publication not found: \(publicationID)")
             return
         }
 
+        let identifiers = pub.enrichmentIdentifiers
         guard !identifiers.isEmpty else {
-            Logger.enrichment.debug("Skipping enrichment - no identifiers: \(citeKey)")
-            return
-        }
-
-        // Skip if recently enriched
-        if !isStale {
-            Logger.enrichment.debug("Skipping enrichment - recently enriched: \(citeKey)")
+            Logger.enrichment.debug("Skipping enrichment - no identifiers: \(pub.citeKey)")
             return
         }
 
@@ -154,32 +137,35 @@ public actor EnrichmentCoordinator {
         )
     }
 
-    /// Queue multiple publications for enrichment.
+    /// Queue multiple publications for enrichment by IDs.
     public func queueForEnrichment(
-        _ publications: [CDPublication],
+        _ publicationIDs: [UUID],
         priority: EnrichmentPriority = .backgroundSync
     ) async {
-        for publication in publications {
-            await queueForEnrichment(publication, priority: priority)
+        for id in publicationIDs {
+            await queueForEnrichment(publicationID: id, priority: priority)
         }
     }
 
     /// Queue all unenriched publications in a library.
-    public func queueUnenrichedPublications(in library: CDLibrary) async {
-        // Extract unenriched publications on main actor for thread safety
-        let (unenriched, libraryName) = await MainActor.run {
-            let pubs = library.publications ?? []
-            let filtered = pubs.filter { !$0.hasBeenEnriched || $0.isEnrichmentStale(thresholdDays: 7) }
-            return (Array(filtered), library.displayName)
+    public func queueUnenrichedPublications(inLibrary libraryID: UUID) async {
+        let store = await withStore({ $0 })
+        let publications = await MainActor.run {
+            store.queryPublications(parentId: libraryID)
+        }
+
+        // Filter to those with identifiers (potential for enrichment)
+        let unenriched = publications.filter { pub in
+            pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil
         }
 
         Logger.enrichment.infoCapture(
-            "Queueing \(unenriched.count) unenriched publications from \(libraryName)",
+            "Queueing \(unenriched.count) publications for enrichment from library \(libraryID)",
             category: "enrichment"
         )
 
-        for publication in unenriched {
-            await queueForEnrichment(publication, priority: .backgroundSync)
+        for pub in unenriched {
+            await queueForEnrichment(publicationID: pub.id, priority: .backgroundSync)
         }
     }
 
@@ -195,6 +181,47 @@ public actor EnrichmentCoordinator {
         get async { await service.isRunning }
     }
 
+    // MARK: - Enrichment Persistence
+
+    /// Save enrichment result to the Rust store via field updates.
+    @MainActor
+    private static func saveEnrichmentResult(publicationID: UUID, result: EnrichmentResult) {
+        let store = RustStoreAdapter.shared
+        let data = result.data
+
+        // Save resolved identifiers
+        for (idType, value) in result.resolvedIdentifiers {
+            switch idType {
+            case .doi:
+                store.updateField(id: publicationID, field: "doi", value: value)
+            case .arxiv:
+                store.updateField(id: publicationID, field: "arxiv_id", value: value)
+            case .bibcode:
+                store.updateField(id: publicationID, field: "bibcode", value: value)
+            case .pmid:
+                store.updateField(id: publicationID, field: "pmid", value: value)
+            default:
+                break
+            }
+        }
+
+        // Save enrichment data fields
+        if let citationCount = data.citationCount {
+            store.updateIntField(id: publicationID, field: "citation_count", value: Int64(citationCount))
+        }
+        if let referenceCount = data.referenceCount {
+            store.updateIntField(id: publicationID, field: "reference_count", value: Int64(referenceCount))
+        }
+        if let abstract = data.abstract {
+            store.updateField(id: publicationID, field: "abstract_text", value: abstract)
+        }
+        if let venue = data.venue {
+            store.updateField(id: publicationID, field: "journal", value: venue)
+        }
+
+        Logger.enrichment.debug("Saved enrichment result for \(publicationID)")
+    }
+
     // MARK: - Immediate Batch Enrichment
 
     /// Immediately enrich a batch of papers with ADS data.
@@ -203,77 +230,19 @@ public actor EnrichmentCoordinator {
     /// to enable Similar Papers and Co-read features. Uses a single ADS API call
     /// for up to 50 papers (much more efficient than individual calls).
     ///
-    /// - Parameter papers: Publications to enrich (must have arXiv IDs)
-    /// - Returns: Number of papers successfully enriched
-    @discardableResult
-    public func enrichBatchImmediately(_ papers: [CDPublication]) async -> Int {
-        // Extract Sendable data on main actor for thread safety
-        let requests: [(publicationID: UUID, identifiers: [IdentifierType: String])] = await MainActor.run {
-            papers.compactMap { paper in
-                // Filter to papers with arXiv IDs that haven't been enriched yet
-                guard paper.fields["eprint"] != nil && paper.bibcodeNormalized == nil else {
-                    return nil
-                }
-                return (paper.id, paper.enrichmentIdentifiers)
-            }
-        }
-
-        guard !requests.isEmpty else {
-            Logger.enrichment.debug("No papers need immediate ADS enrichment")
-            return 0
-        }
-
-        Logger.enrichment.infoCapture(
-            "Immediate ADS enrichment: \(requests.count) papers with arXiv IDs",
-            category: "enrichment"
-        )
-
-        // Use ADS batch enrichment (single API call)
-        let results = await adsSource.enrichBatch(requests: requests)
-
-        // Save successful results
-        var successCount = 0
-        for (pubID, result) in results {
-            if case .success(let enrichment) = result {
-                await repository.saveEnrichmentResult(publicationID: pubID, result: enrichment)
-                successCount += 1
-            }
-        }
-
-        Logger.enrichment.infoCapture(
-            "Immediate ADS enrichment complete: \(successCount)/\(requests.count) papers resolved",
-            category: "enrichment"
-        )
-
-        return successCount
-    }
-
-    /// Immediately enrich a batch of papers by their IDs.
-    ///
-    /// This variant takes UUIDs instead of CDPublication objects, making it safe to call
-    /// from non-main-actor contexts (e.g., actors). The publications are fetched on the
-    /// main actor internally.
-    ///
-    /// - Parameter publicationIDs: UUIDs of publications to enrich
+    /// - Parameter publicationIDs: UUIDs of publications to enrich (must have arXiv IDs)
     /// - Returns: Number of papers successfully enriched
     @discardableResult
     public func enrichBatchByIDs(_ publicationIDs: [UUID]) async -> Int {
         guard !publicationIDs.isEmpty else { return 0 }
 
-        // Fetch publications and extract Sendable data on main actor in one call
-        let arxivPapers: [(id: UUID, identifiers: [IdentifierType: String])] = await MainActor.run {
-            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            request.predicate = NSPredicate(format: "id IN %@", publicationIDs)
-            guard let papers = try? PersistenceController.shared.viewContext.fetch(request) else {
-                return []
-            }
-
-            // Filter and extract Sendable data in the same block
-            return papers.compactMap { paper in
-                guard paper.fields["eprint"] != nil && paper.bibcodeNormalized == nil else {
-                    return nil
-                }
-                return (paper.id, paper.enrichmentIdentifiers)
+        // Fetch publication details and extract Sendable data
+        let arxivPapers: [(id: UUID, identifiers: [IdentifierType: String])] = await withStore { store in
+            publicationIDs.compactMap { pubID in
+                guard let pub = store.getPublicationDetail(id: pubID) else { return nil }
+                // Filter to papers with arXiv IDs that don't already have bibcodes
+                guard pub.arxivID != nil && pub.bibcode == nil else { return nil }
+                return (pub.id, pub.enrichmentIdentifiers)
             }
         }
 
@@ -283,7 +252,7 @@ public actor EnrichmentCoordinator {
         }
 
         Logger.enrichment.infoCapture(
-            "Immediate ADS enrichment by IDs: \(arxivPapers.count) papers",
+            "Immediate ADS enrichment: \(arxivPapers.count) papers with arXiv IDs",
             category: "enrichment"
         )
 
@@ -297,7 +266,7 @@ public actor EnrichmentCoordinator {
         var successCount = 0
         for (pubID, result) in results {
             if case .success(let enrichment) = result {
-                await repository.saveEnrichmentResult(publicationID: pubID, result: enrichment)
+                await Self.saveEnrichmentResult(publicationID: pubID, result: enrichment)
                 successCount += 1
             }
         }
