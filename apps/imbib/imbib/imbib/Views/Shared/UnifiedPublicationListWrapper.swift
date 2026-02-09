@@ -1399,7 +1399,7 @@ struct UnifiedPublicationListWrapper: View {
 
         // Lazily initialize autocomplete service
         if tagAutocomplete == nil {
-            tagAutocomplete = TagAutocompleteService(persistenceController: PersistenceController.shared)
+            tagAutocomplete = TagAutocompleteService()
         }
 
         withAnimation(.easeInOut(duration: 0.15)) {

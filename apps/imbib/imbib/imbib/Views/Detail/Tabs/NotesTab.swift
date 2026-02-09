@@ -7,7 +7,6 @@
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -69,7 +68,7 @@ enum NotesPanelOrientation {
 // MARK: - Notes Tab
 
 struct NotesTab: View {
-    let publication: CDPublication
+    let publication: PublicationModel
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
@@ -80,7 +79,7 @@ struct NotesTab: View {
     @State private var panelSize: CGFloat = 400
 
     // PDF auto-load state
-    @State private var linkedFile: CDLinkedFile?
+    @State private var linkedFile: LinkedFileModel?
     @State private var isCheckingPDF = true
     @State private var isDownloading = false
     @State private var checkPDFTask: Task<Void, Never>?
@@ -168,8 +167,7 @@ struct NotesTab: View {
             checkAndLoadPDF()
         }
         .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
-            if let objectID = notification.object as? NSManagedObjectID,
-               objectID == publication.objectID {
+            if let pubID = notification.object as? UUID, pubID == publication.id {
                 checkAndLoadPDF()
             }
         }
@@ -245,10 +243,10 @@ struct NotesTab: View {
 
         checkPDFTask = Task {
             // Check for linked PDF files
-            let linkedFiles = publication.linkedFiles ?? []
+            let linkedFiles = publication.linkedFiles
             Logger.files.infoCapture("[NotesTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
 
-            if let firstPDF = publication.primaryPDF ?? linkedFiles.first {
+            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
                 Logger.files.infoCapture("[NotesTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -260,13 +258,13 @@ struct NotesTab: View {
             Logger.files.infoCapture("[NotesTab] No local PDF found, checking remote...", category: "pdf")
 
             // No local PDF - check if remote PDF is available
-            let resolverHasPDF = PDFURLResolver.hasPDF(publication: publication)
-            let hasPdfLinks = !publication.pdfLinks.isEmpty
             let hasArxivID = publication.arxivID != nil
+            let hasDOI = publication.doi != nil
+            let hasBibcode = publication.bibcode != nil
             let hasEprint = publication.fields["eprint"] != nil
-            let hasRemote = resolverHasPDF || hasPdfLinks || hasArxivID || hasEprint
+            let hasRemote = hasArxivID || hasDOI || hasBibcode || hasEprint
 
-            Logger.files.infoCapture("[NotesTab] PDF check: resolver=\(resolverHasPDF), pdfLinks=\(hasPdfLinks) (\(publication.pdfLinks.count)), arxivID=\(hasArxivID), eprint=\(hasEprint), result=\(hasRemote)", category: "pdf")
+            Logger.files.infoCapture("[NotesTab] PDF check: arxivID=\(hasArxivID), doi=\(hasDOI), bibcode=\(hasBibcode), eprint=\(hasEprint), result=\(hasRemote)", category: "pdf")
 
             await MainActor.run { isCheckingPDF = false }
 
@@ -287,12 +285,12 @@ struct NotesTab: View {
         await MainActor.run { isDownloading = true }
 
         let settings = await PDFSettingsStore.shared.settings
-        guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings) else {
-            Logger.files.warningCapture("[NotesTab] downloadPDF() FAILED: No URL resolved", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   pdfLinks: \(publication.pdfLinks.map { $0.url.absoluteString })", category: "pdf")
+        let status = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
+        guard let resolvedURL = status.pdfURL else {
+            Logger.files.warningCapture("[NotesTab] downloadPDF() FAILED: No URL resolved (\(status.displayDescription))", category: "pdf")
             Logger.files.infoCapture("[NotesTab]   arxivID: \(publication.arxivID ?? "nil")", category: "pdf")
             Logger.files.infoCapture("[NotesTab]   eprint: \(publication.fields["eprint"] ?? "nil")", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   bibcode: \(publication.bibcodeNormalized ?? "nil")", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   bibcode: \(publication.bibcode ?? "nil")", category: "pdf")
             Logger.files.infoCapture("[NotesTab]   doi: \(publication.doi ?? "nil")", category: "pdf")
             await MainActor.run { isDownloading = false }
             return
@@ -354,7 +352,7 @@ struct NotesTab: View {
             // Refresh linkedFile
             await MainActor.run {
                 isDownloading = false
-                linkedFile = publication.primaryPDF ?? publication.linkedFiles?.first
+                linkedFile = publication.linkedFiles.first(where: { $0.isPDF }) ?? publication.linkedFiles.first
                 Logger.files.infoCapture("[NotesTab] downloadPDF() complete - PDF loaded", category: "pdf")
             }
         } catch {
@@ -372,7 +370,7 @@ struct NotesTab: View {
 /// A collapsible notes panel that can be positioned below or beside the PDF viewer.
 /// Provides structured fields for annotations and a free-form notes area.
 struct NotesPanel: View {
-    let publication: CDPublication
+    let publication: PublicationModel
 
     @Binding var size: CGFloat
     @Binding var isCollapsed: Bool

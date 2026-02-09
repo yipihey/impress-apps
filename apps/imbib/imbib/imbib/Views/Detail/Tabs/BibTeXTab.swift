@@ -18,8 +18,8 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "bibtextab")
 
 struct BibTeXTab: View {
     let paper: any PaperRepresentable
-    let publication: CDPublication?
-    let publications: [CDPublication]  // For multi-selection support
+    let publicationID: UUID?
+    let publicationIDs: [UUID]  // For multi-selection support
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(\.themeColors) private var theme
@@ -30,12 +30,12 @@ struct BibTeXTab: View {
 
     /// Whether editing is enabled (only for single library paper)
     private var canEdit: Bool {
-        publication != nil && publications.count <= 1
+        publicationID != nil && publicationIDs.count <= 1
     }
 
     /// Whether multiple papers are selected
     private var isMultiSelection: Bool {
-        publications.count > 1
+        publicationIDs.count > 1
     }
 
     var body: some View {
@@ -120,7 +120,7 @@ struct BibTeXTab: View {
             } else {
                 // Multi-selection indicator
                 if isMultiSelection {
-                    Text("\(publications.count) papers selected")
+                    Text("\(publicationIDs.count) papers selected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -176,13 +176,11 @@ struct BibTeXTab: View {
     private func generateBibTeX() -> String {
         // Multi-selection: export all selected publications
         if isMultiSelection {
-            let entries = publications.map { $0.toBibTeXEntry() }
-            return BibTeXExporter().export(entries)
+            return RustStoreAdapter.shared.exportBibTeX(ids: publicationIDs)
         }
-        // Single paper: ADR-016: All papers are now CDPublication
-        if let pub = publication {
-            let entry = pub.toBibTeXEntry()
-            return BibTeXExporter().export([entry])
+        // Single paper: export via RustStoreAdapter
+        if let id = publicationID {
+            return RustStoreAdapter.shared.exportBibTeX(ids: [id])
         }
         // Fallback for any edge cases (should not happen)
         let entry = BibTeXExporter.generateEntry(from: paper)
@@ -190,7 +188,7 @@ struct BibTeXTab: View {
     }
 
     private func saveBibTeX() {
-        guard let pub = publication else { return }
+        guard let id = publicationID else { return }
 
         Task {
             do {
@@ -202,7 +200,7 @@ struct BibTeXTab: View {
                     return
                 }
 
-                await viewModel.updateFromBibTeX(id: pub.id, entry: entry)
+                await viewModel.updateFromBibTeX(id: id, entry: entry)
 
                 await MainActor.run {
                     isEditing = false
@@ -220,25 +218,20 @@ struct BibTeXTab: View {
 /// A simplified view shown when multiple papers are selected.
 /// Only displays combined BibTeX with a Copy button.
 struct MultiSelectionBibTeXView: View {
-    let publications: [CDPublication]
+    let publicationIDs: [UUID]
     var onDownloadPDFs: (() -> Void)?
 
-    /// Combined BibTeX content - computed directly from publications
+    /// Combined BibTeX content - exported via RustStoreAdapter
     private var bibtexContent: String {
-        guard !publications.isEmpty else { return "" }
-        let entries = publications.compactMap { pub -> BibTeXEntry? in
-            guard !pub.isDeleted, pub.managedObjectContext != nil else { return nil }
-            return pub.toBibTeXEntry()
-        }
-        guard !entries.isEmpty else { return "" }
-        return BibTeXExporter().export(entries)
+        guard !publicationIDs.isEmpty else { return "" }
+        return RustStoreAdapter.shared.exportBibTeX(ids: publicationIDs)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header with count and action buttons
             HStack {
-                Text("\(publications.count) papers selected")
+                Text("\(publicationIDs.count) papers selected")
                     .font(.headline)
 
                 Spacer()

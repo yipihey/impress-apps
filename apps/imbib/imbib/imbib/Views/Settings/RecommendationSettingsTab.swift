@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreData
 import PublicationManagerCore
 
 /// Settings tab for the transparent recommendation engine (ADR-020).
@@ -79,14 +78,11 @@ struct RecommendationSettingsTab: View {
                                     return name != "dismissed" && name != "exploration"
                                 }
                                 print("🔍 Building index for \(librariesToIndex.count) libraries")
-                                // Bridge to CDLibrary for legacy RecommendationEngine API
-                                let cdLibraries: [CDLibrary] = librariesToIndex.compactMap { lib in
-                                    let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-                                    request.predicate = NSPredicate(format: "id == %@", lib.id as CVarArg)
-                                    request.fetchLimit = 1
-                                    return try? PersistenceController.shared.viewContext.fetch(request).first
-                                }
-                                indexedCount = await RecommendationEngine.shared.buildEmbeddingIndex(from: cdLibraries)
+                                // TODO: Reconnect to RecommendationEngine after Rust migration
+                                // RecommendationEngine.shared.buildEmbeddingIndex needs migration to use UUIDs
+                                let libraryIDs = librariesToIndex.map(\.id)
+                                indexedCount = 0 // Placeholder until RecommendationEngine is migrated
+                                _ = libraryIDs
                                 print("🔍 Index built: \(indexedCount) publications indexed")
                                 isBuildingIndex = false
                             }

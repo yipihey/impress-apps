@@ -13,7 +13,7 @@ import PublicationManagerCore
 
 extension NSNotification.Name {
     /// Posted by SectionContentView when batch PDF download is requested.
-    /// userInfo: ["publications": [CDPublication], "libraryID": UUID]
+    /// userInfo: ["publicationIDs": [UUID], "libraryID": UUID]
     static let showBatchDownload = NSNotification.Name("showBatchDownload")
 }
 
@@ -49,10 +49,11 @@ struct FlagCounts {
 
 // MARK: - Shareable Item (iCloud Sharing)
 
-/// Represents an item that can be shared via iCloud
+/// Represents an item that can be shared via iCloud.
+/// TODO: Reconnect to CloudKit sharing after Rust migration.
 public enum ShareableItem: Identifiable {
-    case library(CDLibrary)
-    case collection(CDCollection)
+    case library(LibraryModel)
+    case collection(CollectionModel)
 
     public var id: String {
         switch self {

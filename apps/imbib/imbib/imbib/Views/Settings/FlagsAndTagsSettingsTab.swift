@@ -389,7 +389,7 @@ struct FlagsAndTagsSettingsTab: View {
         .frame(width: 360)
         .onAppear {
             if tagAutocomplete == nil {
-                tagAutocomplete = TagAutocompleteService(persistenceController: PersistenceController.shared)
+                tagAutocomplete = TagAutocompleteService()
             }
         }
     }

@@ -629,9 +629,9 @@ struct InboxSettingsTab: View {
     @Environment(SettingsViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
 
-    @State private var mutedItems: [CDMutedItem] = []
+    @State private var mutedItems: [MutedItem] = []
     @State private var dismissedPaperCount: Int = 0
-    @State private var selectedMuteType: CDMutedItem.MuteType = .author
+    @State private var selectedMuteType: MuteType = .author
     @State private var newMuteValue: String = ""
     @State private var selectedSaveLibraryID: UUID?
 
@@ -696,7 +696,7 @@ struct InboxSettingsTab: View {
 
             Section("Add Mute Rule") {
                 Picker("Type", selection: $selectedMuteType) {
-                    ForEach(CDMutedItem.MuteType.allCases, id: \.self) { type in
+                    ForEach(MuteType.allCases, id: \.self) { type in
                         Text(type.displayName).tag(type)
                     }
                 }
@@ -779,9 +779,9 @@ struct InboxSettingsTab: View {
 
     // MARK: - Grouped Items
 
-    private var groupedMutedItems: [CDMutedItem.MuteType: [CDMutedItem]] {
+    private var groupedMutedItems: [MuteType: [MutedItem]] {
         Dictionary(grouping: mutedItems) { item in
-            item.muteType ?? .author
+            MuteType(rawValue: item.muteType) ?? .author
         }
     }
 
@@ -830,7 +830,7 @@ struct InboxSettingsTab: View {
         loadMutedItems()
     }
 
-    private func unmute(_ item: CDMutedItem) {
+    private func unmute(_ item: MutedItem) {
         InboxManager.shared.unmute(item)
         loadMutedItems()
     }
@@ -853,7 +853,7 @@ struct InboxSettingsTab: View {
 // MARK: - Muted Item Row
 
 struct MutedItemRow: View {
-    let item: CDMutedItem
+    let item: MutedItem
     let onUnmute: () -> Void
 
     var body: some View {
@@ -883,7 +883,7 @@ struct MutedItemRow: View {
 
 // MARK: - MuteType Display Name
 
-extension CDMutedItem.MuteType {
+extension MuteType {
     var displayName: String {
         switch self {
         case .author: return "Authors"
@@ -901,11 +901,13 @@ struct SyncSettingsTab: View {
     var body: some View {
         Form {
             Section("Sync Health") {
-                SyncHealthView()
+                Text("Sync status monitoring will be available after CloudKit reconnection.")
+                    .foregroundStyle(.secondary)
             }
 
             Section("iCloud Settings") {
-                CloudKitSyncSettingsView()
+                Text("iCloud sync settings will be available after CloudKit reconnection.")
+                    .foregroundStyle(.secondary)
             }
 
             Section("Backup") {
@@ -920,7 +922,28 @@ struct SyncSettingsTab: View {
 
 // MARK: - Backup Settings Section
 
+// TODO: Reimplement BackupSettingsSection using Rust-backed storage.
+// LibraryBackupService, BackupInfo, BackupRestoreService, RestoreOptionsView,
+// and RestoreResultView were Core Data-based and have not yet been migrated.
+// When reimplemented, remove the #if false guard and the placeholder below.
+
 struct BackupSettingsSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Library Backup")
+                .font(.headline)
+
+            Text("Backup and restore is not yet available after the storage migration. This feature will be reimplemented in a future update.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+#if false
+// --- Original backup implementation (requires LibraryBackupService, BackupInfo, BackupRestoreService) ---
+
+struct _BackupSettingsSection_Original: View {
     @State private var isExporting = false
     @State private var exportProgress: LibraryBackupService.BackupProgress?
     @State private var lastBackupDate: Date?
@@ -1123,6 +1146,7 @@ private struct RestoreResultWrapper: Identifiable {
     let id = UUID()
     let result: BackupRestoreService.RestoreResult
 }
+#endif
 
 // MARK: - Advanced Settings
 

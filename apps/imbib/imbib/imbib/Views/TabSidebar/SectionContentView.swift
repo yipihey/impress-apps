@@ -7,7 +7,6 @@
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -100,9 +99,8 @@ struct SectionContentView: View {
             return .collection(id)
         case .explorationCollection(let id):
             guard let explorationLib = libraryManager.explorationLibrary else { return nil }
-            // Bridge LibraryModel → CDLibrary for collection lookup
-            let cdExplLib: CDLibrary? = fetchCDLibrary(id: explorationLib.id)
-            guard let cdLib = cdExplLib, findCollection(by: id, in: cdLib) != nil else { return nil }
+            let collections = RustStoreAdapter.shared.listCollections(libraryId: explorationLib.id)
+            guard collections.contains(where: { $0.id == id }) else { return nil }
             return .collection(id)
         case .flagged(let color):
             return .flagged(color)
@@ -191,20 +189,9 @@ struct SectionContentView: View {
         return libraryViewModel.publication(for: id)
     }
 
-    /// Fetch the underlying CDPublication for APIs that still require Core Data objects.
-    private func fetchCDPublication(id: UUID) -> CDPublication? {
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
-        return try? PersistenceController.shared.viewContext.fetch(request).first
-    }
-
-    /// Fetch the underlying CDLibrary for APIs that still require Core Data objects.
-    private func fetchCDLibrary(id: UUID) -> CDLibrary? {
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
-        return try? PersistenceController.shared.viewContext.fetch(request).first
+    /// Get the full publication detail for APIs that need the full model.
+    private func getPublicationDetail(id: UUID) -> PublicationModel? {
+        RustStoreAdapter.shared.getPublicationDetail(id: id)
     }
 
     private var selectedPublications: [PublicationRowData] {
@@ -334,9 +321,8 @@ struct SectionContentView: View {
             openDetachedTab(.info)
         }
         .onReceive(NotificationCenter.default.publisher(for: .closeDetachedWindows)) { _ in
-            guard let pubData = displayedPublication,
-                  let cdPub = fetchCDPublication(id: pubData.id) else { return }
-            DetailWindowController.shared.closeWindows(for: cdPub)
+            guard let pubData = displayedPublication else { return }
+            DetailWindowController.shared.closeWindows(forPublicationID: pubData.id)
         }
         #endif
     }
@@ -445,9 +431,8 @@ struct SectionContentView: View {
     @ViewBuilder
     private var detailView: some View {
         if isMultiSelection && selectedDetailTab == .bibtex {
-            let cdPubs = selectedPublicationIDs.compactMap { fetchCDPublication(id: $0) }
             MultiSelectionBibTeXView(
-                publications: cdPubs,
+                publicationIDs: Array(selectedPublicationIDs),
                 onDownloadPDFs: {
                     handleDownloadPDFs(selectedPublicationIDs)
                 }
@@ -548,16 +533,12 @@ struct SectionContentView: View {
     /// Share menu for a publication
     private func shareMenu(for pub: PublicationRowData) -> some View {
         Menu {
-            if let cdPub = fetchCDPublication(id: pub.id) {
-                ShareLink(
-                    item: ShareablePublication(from: cdPub),
-                    preview: SharePreview(
-                        pub.title,
-                        image: Image(systemName: "doc.text")
-                    )
-                ) {
-                    Label("Share Paper...", systemImage: "square.and.arrow.up")
-                }
+            ShareLink(
+                item: shareText(for: pub),
+                subject: Text(pub.title),
+                message: Text(shareText(for: pub))
+            ) {
+                Label("Share Paper...", systemImage: "square.and.arrow.up")
             }
 
             ShareLink(
@@ -597,9 +578,6 @@ struct SectionContentView: View {
 
     /// Open the current tab in a separate window
     private func openInSeparateWindow(_ pub: PublicationRowData) {
-        guard let cdPub = fetchCDPublication(id: pub.id) else { return }
-        let cdLib: CDLibrary? = libraryManager.activeLibrary.flatMap { fetchCDLibrary(id: $0.id) }
-
         let detachedTab: DetachedTab
         switch selectedDetailTab {
         case .info: detachedTab = .info
@@ -609,8 +587,11 @@ struct SectionContentView: View {
         }
 
         DetailWindowController.shared.openTab(
-            detachedTab, for: cdPub, library: cdLib,
-            libraryViewModel: libraryViewModel, libraryManager: libraryManager
+            detachedTab,
+            forPublicationID: pub.id,
+            libraryID: effectiveLibraryID,
+            libraryViewModel: libraryViewModel,
+            libraryManager: libraryManager
         )
     }
     #endif
@@ -619,12 +600,13 @@ struct SectionContentView: View {
 
     #if os(macOS)
     private func openDetachedTab(_ tab: DetachedTab) {
-        guard let pubData = displayedPublication,
-              let cdPub = fetchCDPublication(id: pubData.id) else { return }
-        let cdLib: CDLibrary? = libraryManager.activeLibrary.flatMap { fetchCDLibrary(id: $0.id) }
+        guard let pubData = displayedPublication else { return }
         DetailWindowController.shared.openTab(
-            tab, for: cdPub, library: cdLib,
-            libraryViewModel: libraryViewModel, libraryManager: libraryManager
+            tab,
+            forPublicationID: pubData.id,
+            libraryID: effectiveLibraryID,
+            libraryViewModel: libraryViewModel,
+            libraryManager: libraryManager
         )
     }
     #endif
@@ -798,44 +780,27 @@ struct SectionContentView: View {
 
     private func handleDownloadPDFs(_ ids: Set<UUID>) {
         // Batch download handled by posting notification (picked up by ContentView)
-        let publications = ids.compactMap { fetchCDPublication(id: $0) }
-        guard !publications.isEmpty else { return }
+        guard !ids.isEmpty else { return }
         NotificationCenter.default.post(
             name: .showBatchDownload,
             object: nil,
-            userInfo: ["publications": publications, "libraryID": effectiveLibraryID as Any]
+            userInfo: ["publicationIDs": Array(ids), "libraryID": effectiveLibraryID as Any]
         )
     }
 
     // MARK: - Lookup Helpers
 
-    private func fetchInboxFeed(id: UUID) -> CDSmartSearch? {
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-        let feeds = (try? PersistenceController.shared.viewContext.fetch(request)) ?? []
-        return feeds.first { $0.id == id }
-    }
-
-    /// Recursively find a collection in a library's collection tree
-    private func findCollection(by id: UUID, in library: CDLibrary) -> CDCollection? {
-        guard let collections = library.collections as? Set<CDCollection> else { return nil }
-        func findRecursive(in cols: Set<CDCollection>) -> CDCollection? {
-            for col in cols {
-                if col.id == id { return col }
-                if let children = col.childCollections as? Set<CDCollection>, !children.isEmpty {
-                    if let found = findRecursive(in: children) { return found }
-                }
-            }
-            return nil
-        }
-        return findRecursive(in: collections)
+    private func fetchInboxFeed(id: UUID) -> SmartSearch? {
+        let feed = RustStoreAdapter.shared.getSmartSearch(id: id)
+        guard let feed, feed.feedsToInbox else { return nil }
+        return feed
     }
 
     /// Find which library contains the given collection ID
     private func findCollectionLibraryID(collectionId: UUID) -> UUID? {
         for library in libraryManager.libraries {
-            guard let cdLib = fetchCDLibrary(id: library.id) else { continue }
-            if findCollection(by: collectionId, in: cdLib) != nil {
+            let collections = RustStoreAdapter.shared.listCollections(libraryId: library.id)
+            if collections.contains(where: { $0.id == collectionId }) {
                 return library.id
             }
         }

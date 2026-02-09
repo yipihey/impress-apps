@@ -16,10 +16,10 @@ private let detachedPDFLogger = Logger(subsystem: "com.imbib.app", category: "de
 
 /// A standalone PDF viewer window for a publication.
 struct DetachedPDFView: View {
-    let publication: CDPublication
-    let library: CDLibrary?
+    let publication: PublicationModel
+    let library: LibraryModel?
 
-    @State private var linkedFile: CDLinkedFile?
+    @State private var linkedFile: LinkedFileModel?
     @State private var isCheckingPDF = true
     @State private var isDownloading = false
     @State private var downloadError: Error?
@@ -154,20 +154,20 @@ struct DetachedPDFView: View {
         isCheckingPDF = true
 
         // Check for existing linked PDF
-        if let linked = publication.primaryPDF {
+        if let linked = publication.linkedFiles.first(where: { $0.isPDF }) {
             linkedFile = linked
             isCheckingPDF = false
             return
         }
 
-        // Check if we can resolve a PDF URL
+        // Check if we can resolve a PDF URL using the paper's identifiers
         let settings = await PDFSettingsStore.shared.settings
-        let resolution = PDFURLResolver.resolveWithDetails(for: publication, settings: settings)
-        hasPDFURL = resolution.url != nil || resolution.attemptedURL != nil
-        browserFallbackURL = resolution.attemptedURL
+        let status = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
+        hasPDFURL = status.pdfURL != nil
+        browserFallbackURL = status.browserURL ?? status.pdfURL
 
         // Auto-download if URL available and auto-download enabled
-        if resolution.url != nil && settings.autoDownloadEnabled {
+        if status.pdfURL != nil && settings.autoDownloadEnabled {
             isCheckingPDF = false
             await downloadPDF()
         } else {
@@ -176,21 +176,17 @@ struct DetachedPDFView: View {
     }
 
     private func downloadPDF() async {
-        detachedPDFLogger.info("[DetachedPDF] downloadPDF() called for: \(publication.citeKey ?? "unknown")")
+        detachedPDFLogger.info("[DetachedPDF] downloadPDF() called for: \(publication.citeKey)")
 
         let settings = await PDFSettingsStore.shared.settings
-        let resolution = PDFURLResolver.resolveWithDetails(for: publication, settings: settings)
+        let status = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
 
-        browserFallbackURL = resolution.attemptedURL
+        browserFallbackURL = status.browserURL ?? status.pdfURL
 
-        guard let resolvedURL = resolution.url else {
+        guard let resolvedURL = status.pdfURL else {
             detachedPDFLogger.warning("[DetachedPDF] No URL resolved")
             await MainActor.run {
-                if resolution.attemptedURL != nil {
-                    downloadError = PDFDownloadError.publisherNotAvailable
-                } else {
-                    downloadError = PDFDownloadError.noPDFAvailable
-                }
+                downloadError = PDFDownloadError.noPDFAvailable
             }
             return
         }
@@ -238,9 +234,10 @@ struct DetachedPDFView: View {
             // Clean up temp file
             try? FileManager.default.removeItem(at: tempURL)
 
-            // Refresh view
+            // Refresh linked file from store
             await MainActor.run {
-                if let linked = publication.primaryPDF {
+                let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: publication.id)
+                if let linked = files.first(where: { $0.isPDF }) {
                     linkedFile = linked
                 }
             }
@@ -262,10 +259,11 @@ struct DetachedPDFView: View {
 
 /// A standalone notes editor window for a publication.
 struct DetachedNotesView: View {
-    @ObservedObject var publication: CDPublication
+    let publication: PublicationModel
 
     @State private var notes: String = ""
     @State private var hasUnsavedChanges = false
+    @State private var originalNote: String = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -282,11 +280,13 @@ struct DetachedNotesView: View {
                 .scrollContentBackground(.hidden)
                 .padding()
                 .onChange(of: notes) { _, newValue in
-                    hasUnsavedChanges = newValue != (publication.fields["note"] ?? "")
+                    hasUnsavedChanges = newValue != originalNote
                 }
         }
         .onAppear {
-            notes = publication.fields["note"] ?? ""
+            let noteValue = publication.fields["note"] ?? ""
+            notes = noteValue
+            originalNote = noteValue
         }
         .onDisappear {
             saveNotes()
@@ -297,7 +297,7 @@ struct DetachedNotesView: View {
         HStack {
             // Publication info
             VStack(alignment: .leading, spacing: 2) {
-                Text(publication.title ?? "Untitled")
+                Text(publication.title)
                     .font(.headline)
                     .lineLimit(1)
 
@@ -324,16 +324,9 @@ struct DetachedNotesView: View {
     private func saveNotes() {
         guard hasUnsavedChanges else { return }
 
-        var fields = publication.fields
-        if notes.isEmpty {
-            fields.removeValue(forKey: "note")
-        } else {
-            fields["note"] = notes
-        }
-        publication.fields = fields
-
-        // Save context
-        try? publication.managedObjectContext?.save()
+        let value = notes.isEmpty ? nil : notes
+        RustStoreAdapter.shared.updateField(id: publication.id, field: "note", value: value)
+        originalNote = notes
         hasUnsavedChanges = false
     }
 }
@@ -342,7 +335,7 @@ struct DetachedNotesView: View {
 
 /// A standalone BibTeX editor window for a publication.
 struct DetachedBibTeXView: View {
-    @ObservedObject var publication: CDPublication
+    let publication: PublicationModel
 
     @State private var bibtex: String = ""
     @State private var isEditing = false
@@ -383,9 +376,9 @@ struct DetachedBibTeXView: View {
         HStack {
             // Publication info
             VStack(alignment: .leading, spacing: 2) {
-                Text(publication.citeKey ?? "Unknown")
+                Text(publication.citeKey)
                     .font(.headline.monospaced())
-                Text(publication.entryType ?? "article")
+                Text(publication.entryType)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -427,7 +420,7 @@ struct DetachedBibTeXView: View {
         } else {
             // Generate basic BibTeX from fields
             var lines: [String] = []
-            lines.append("@\(publication.entryType ?? "article"){\(publication.citeKey ?? "unknown"),")
+            lines.append("@\(publication.entryType){\(publication.citeKey),")
             for (key, value) in publication.fields.sorted(by: { $0.key < $1.key }) {
                 lines.append("  \(key) = {\(value)},")
             }
@@ -437,17 +430,18 @@ struct DetachedBibTeXView: View {
     }
 
     private func saveBibTeX() {
-        // Parse and save
+        // Parse and save via RustStoreAdapter
         do {
             let parser = BibTeXParserFactory.createParser()
             let items = try parser.parse(bibtex)
             if let item = items.first, case .entry(let entry) = item {
-                // Update fields from parsed entry
-                publication.citeKey = entry.citeKey
-                publication.entryType = entry.entryType
-                publication.rawBibTeX = bibtex
-                publication.fields = entry.fields
-                try? publication.managedObjectContext?.save()
+                // Update fields via RustStoreAdapter
+                RustStoreAdapter.shared.updateField(id: publication.id, field: "cite_key", value: entry.citeKey)
+                RustStoreAdapter.shared.updateField(id: publication.id, field: "entry_type", value: entry.entryType)
+                RustStoreAdapter.shared.updateField(id: publication.id, field: "raw_bibtex", value: bibtex)
+                for (key, value) in entry.fields {
+                    RustStoreAdapter.shared.updateField(id: publication.id, field: key, value: value)
+                }
                 hasUnsavedChanges = false
             }
         } catch {
@@ -461,7 +455,14 @@ struct DetachedBibTeXView: View {
 
 /// A standalone info panel window for a publication.
 struct DetachedInfoView: View {
-    let publication: CDPublication
+    let publication: PublicationModel
+
+    @State private var isRead: Bool
+
+    init(publication: PublicationModel) {
+        self.publication = publication
+        self._isRead = State(initialValue: publication.isRead)
+    }
 
     private var authors: [String] {
         guard let author = publication.fields["author"] else { return [] }
@@ -479,11 +480,9 @@ struct DetachedInfoView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // Title
-                    if let title = publication.title {
-                        infoSection("Title") {
-                            Text(title)
-                                .textSelection(.enabled)
-                        }
+                    infoSection("Title") {
+                        Text(publication.title)
+                            .textSelection(.enabled)
                     }
 
                     // Authors
@@ -496,9 +495,9 @@ struct DetachedInfoView: View {
 
                     // Year & Venue
                     HStack(alignment: .top, spacing: 32) {
-                        if publication.year > 0 {
+                        if let year = publication.year, year > 0 {
                             infoSection("Year") {
-                                Text(String(publication.year))
+                                Text(String(year))
                             }
                         }
                         if let venue = publication.fields["journal"] ?? publication.fields["booktitle"] {
@@ -536,10 +535,10 @@ struct DetachedInfoView: View {
                     // Record info
                     infoSection("Record") {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Cite key: \(publication.citeKey ?? "none")")
-                            Text("Type: \(publication.entryType ?? "article")")
+                            Text("Cite key: \(publication.citeKey)")
+                            Text("Type: \(publication.entryType)")
                             Text("Added: \(publication.dateAdded.formatted(date: .abbreviated, time: .shortened))")
-                            Text("Read: \(publication.isRead ? "Yes" : "No")")
+                            Text("Read: \(isRead ? "Yes" : "No")")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -553,7 +552,7 @@ struct DetachedInfoView: View {
     private var detachedToolbar: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(publication.title ?? "Untitled")
+                Text(publication.title)
                     .font(.headline)
                     .lineLimit(1)
             }
@@ -562,12 +561,12 @@ struct DetachedInfoView: View {
 
             // Toggle read status
             Button {
-                publication.isRead.toggle()
-                try? publication.managedObjectContext?.save()
+                isRead.toggle()
+                RustStoreAdapter.shared.setRead(ids: [publication.id], read: isRead)
             } label: {
-                Image(systemName: publication.isRead ? "circle.fill" : "circle")
+                Image(systemName: isRead ? "circle.fill" : "circle")
             }
-            .help(publication.isRead ? "Mark as unread" : "Mark as read")
+            .help(isRead ? "Mark as unread" : "Mark as read")
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

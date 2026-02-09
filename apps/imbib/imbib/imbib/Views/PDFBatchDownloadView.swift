@@ -13,8 +13,8 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "batch-downloa
 
 /// A sheet view that downloads PDFs for multiple publications with progress tracking.
 struct PDFBatchDownloadView: View {
-    let publications: [CDPublication]
-    let library: CDLibrary
+    let publicationIDs: [UUID]
+    let libraryID: UUID
 
     @Environment(\.dismiss) private var dismiss
 
@@ -26,15 +26,17 @@ struct PDFBatchDownloadView: View {
     @State private var skipCount = 0
     @State private var failCount = 0
 
+    private let store = RustStoreAdapter.shared
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Downloading PDFs")
                 .font(.headline)
 
-            ProgressView(value: Double(currentIndex), total: Double(publications.count))
+            ProgressView(value: Double(currentIndex), total: Double(publicationIDs.count))
                 .progressViewStyle(.linear)
 
-            Text("\(currentIndex) of \(publications.count)")
+            Text("\(currentIndex) of \(publicationIDs.count)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -94,29 +96,37 @@ struct PDFBatchDownloadView: View {
     // MARK: - Download Logic
 
     private func startDownload() {
-        logger.info("[BatchDownload] Starting download for \(publications.count) papers")
+        let ids = publicationIDs
+        let libID = libraryID
+        logger.info("[BatchDownload] Starting download for \(ids.count) papers")
 
         downloadTask = Task {
-            for (index, pub) in publications.enumerated() {
+            for (index, pubID) in ids.enumerated() {
                 if Task.isCancelled {
-                    logger.info("[BatchDownload] Cancelled at \(index)/\(publications.count)")
+                    logger.info("[BatchDownload] Cancelled at \(index)/\(ids.count)")
                     break
+                }
+
+                guard let pub = store.getPublicationDetail(id: pubID) else {
+                    logger.warning("[BatchDownload] Publication not found: \(pubID)")
+                    await MainActor.run { failCount += 1 }
+                    continue
                 }
 
                 await MainActor.run {
                     currentIndex = index
-                    currentTitle = pub.title ?? pub.citeKey
+                    currentTitle = pub.title
                 }
 
                 // Skip if already has local PDF
-                if hasLocalPDF(pub) {
+                if pub.hasDownloadedPDF {
                     logger.info("[BatchDownload] Skipping '\(pub.citeKey)' - already has PDF")
                     await MainActor.run { skipCount += 1 }
                     continue
                 }
 
                 // Download PDF
-                let success = await downloadPDF(for: pub)
+                let success = await downloadPDF(for: pub, libraryID: libID)
                 await MainActor.run {
                     if success {
                         successCount += 1
@@ -127,7 +137,7 @@ struct PDFBatchDownloadView: View {
             }
 
             await MainActor.run {
-                currentIndex = publications.count
+                currentIndex = ids.count
                 isComplete = true
                 logger.info("[BatchDownload] Complete: \(successCount) downloaded, \(skipCount) skipped, \(failCount) failed")
             }
@@ -139,15 +149,12 @@ struct PDFBatchDownloadView: View {
         dismiss()
     }
 
-    private func hasLocalPDF(_ publication: CDPublication) -> Bool {
-        guard let linkedFiles = publication.linkedFiles else { return false }
-        return linkedFiles.contains { $0.isPDF }
-    }
-
-    private func downloadPDF(for publication: CDPublication) async -> Bool {
-        // Resolve PDF URL
+    private func downloadPDF(for publication: PublicationModel, libraryID: UUID) async -> Bool {
+        // Resolve PDF URL using PDFURLResolverV2
         let settings = await PDFSettingsStore.shared.settings
-        guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings) else {
+        let accessStatus = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
+
+        guard let resolvedURL = accessStatus.pdfURL else {
             logger.warning("[BatchDownload] No PDF URL for '\(publication.citeKey)'")
             return false
         }
@@ -174,8 +181,8 @@ struct PDFBatchDownloadView: View {
                 return false
             }
 
-            // Import into library using PDFManager
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: library.id)
+            // Import into library using AttachmentManager
+            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: libraryID)
 
             // Clean up temp file
             try? FileManager.default.removeItem(at: tempURL)

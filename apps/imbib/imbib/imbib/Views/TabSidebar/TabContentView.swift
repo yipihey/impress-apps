@@ -100,12 +100,8 @@ struct TabContentView: View {
             viewModel.bumpDataVersion()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
-            if let collection = notification.userInfo?["collection"] as? CDCollection {
-                // Expand ancestors so collection is visible
-                for ancestor in collection.ancestors {
-                    viewModel.expansionState.expand(ancestor.id)
-                }
-                viewModel.navigateToTab(.explorationCollection(collection.id))
+            if let collectionID = notification.userInfo?["collectionID"] as? UUID {
+                viewModel.navigateToTab(.explorationCollection(collectionID))
                 viewModel.explorationRefreshTrigger = UUID()
                 viewModel.bumpDataVersion()
             }

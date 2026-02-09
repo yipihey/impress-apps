@@ -7,7 +7,6 @@
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -41,12 +40,12 @@ enum PDFDownloadError: LocalizedError {
 
 struct PDFTab: View {
     let paper: any PaperRepresentable
-    let publication: CDPublication?
+    let publicationID: UUID?
     @Binding var selectedTab: DetailTab
     var isMultiSelection: Bool = false  // Disable auto-download when multiple papers selected
 
     @Environment(LibraryManager.self) private var libraryManager
-    @State private var linkedFile: CDLinkedFile?
+    @State private var linkedFile: LinkedFileModel?
     @State private var isDownloading = false
     @State private var downloadError: Error?
     @State private var hasRemotePDF = false
@@ -62,9 +61,13 @@ struct PDFTab: View {
     @State private var einkDeviceManager = EInkDeviceManager.shared
     @State private var isSendingToEInk = false
 
+    // Computed publication from Rust store
+    private var publication: PublicationModel? {
+        publicationID.flatMap { RustStoreAdapter.shared.getPublicationDetail(id: $0) }
+    }
+
     var body: some View {
         Group {
-            // ADR-016: All papers are now CDPublication
             if let linked = linkedFile, let pub = publication {
                 // Has linked PDF file - show viewer only (no notes panel)
                 pdfViewerOnly(linked: linked, pub: pub)
@@ -110,14 +113,12 @@ struct PDFTab: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .pdfImportedFromBrowser)) { notification in
             // Refresh when PDF is imported from browser for this publication
-            if let objectID = notification.object as? NSManagedObjectID,
-               objectID == publication?.objectID {
+            if let pubID = notification.object as? UUID, pubID == publicationID {
                 resetAndCheckPDF()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
-            if let objectID = notification.object as? NSManagedObjectID,
-               objectID == publication?.objectID {
+            if let pubID = notification.object as? UUID, pubID == publicationID {
                 resetAndCheckPDF()
             }
         }
@@ -135,10 +136,11 @@ struct PDFTab: View {
     // MARK: - PDF Viewer Only (no notes panel)
 
     @ViewBuilder
-    private func pdfViewerOnly(linked: CDLinkedFile, pub: CDPublication) -> some View {
+    private func pdfViewerOnly(linked: LinkedFileModel, pub: PublicationModel) -> some View {
         VStack(spacing: 0) {
             // PDF switcher (only shown when multiple PDFs attached)
-            if pub.sortedPDFs.count > 1 {
+            let pdfs = pub.linkedFiles.filter { $0.isPDF }
+            if pdfs.count > 1 {
                 pdfSwitcher(currentPDF: linked, pub: pub)
             }
 
@@ -179,7 +181,7 @@ struct PDFTab: View {
             HandoffService.shared.startReading(
                 publicationID: pub.id,
                 citeKey: pub.citeKey,
-                title: pub.title ?? "Untitled",
+                title: pub.title,
                 page: 1,
                 zoom: 1.0
             )
@@ -193,13 +195,14 @@ struct PDFTab: View {
     // MARK: - PDF Switcher
 
     @ViewBuilder
-    private func pdfSwitcher(currentPDF: CDLinkedFile, pub: CDPublication) -> some View {
+    private func pdfSwitcher(currentPDF: LinkedFileModel, pub: PublicationModel) -> some View {
+        let pdfs = pub.linkedFiles.filter { $0.isPDF }
         HStack(spacing: 8) {
             Image(systemName: "doc.fill")
                 .foregroundStyle(.secondary)
 
             Menu {
-                ForEach(pub.sortedPDFs, id: \.id) { pdf in
+                ForEach(pdfs, id: \.id) { pdf in
                     Button {
                         linkedFile = pdf
                     } label: {
@@ -207,41 +210,17 @@ struct PDFTab: View {
                             if pdf.id == currentPDF.id {
                                 Image(systemName: "checkmark")
                             }
-                            Text(pdf.effectiveDisplayName)
-                            Text("(\(pdf.formattedFileSize))")
+                            Text(pdf.filename)
+                            Text("(\(Self.formattedFileSize(pdf.fileSize)))")
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
-
-                Divider()
-
-                // Set as default option
-                if currentPDF.id != pub.primaryPDFID {
-                    Button {
-                        pub.setPrimaryPDF(currentPDF)
-                        try? pub.managedObjectContext?.save()
-                    } label: {
-                        Label("Set as Default", systemImage: "star")
-                    }
-                } else {
-                    Button {
-                        pub.setPrimaryPDF(nil)
-                        try? pub.managedObjectContext?.save()
-                    } label: {
-                        Label("Remove Default", systemImage: "star.slash")
-                    }
-                }
             } label: {
                 HStack(spacing: 4) {
-                    Text(currentPDF.effectiveDisplayName)
+                    Text(currentPDF.filename)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if currentPDF.id == pub.primaryPDFID {
-                        Image(systemName: "star.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.yellow)
-                    }
                     Image(systemName: "chevron.down")
                         .font(.caption)
                 }
@@ -250,7 +229,7 @@ struct PDFTab: View {
 
             Spacer()
 
-            Text("\(pub.sortedPDFs.count) PDFs")
+            Text("\(pdfs.count) PDFs")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -430,7 +409,6 @@ struct PDFTab: View {
         checkPDFTask = Task {
             Logger.files.infoCapture("[PDFTab] checking publication...", category: "pdf")
 
-            // ADR-016: All papers are now CDPublication
             guard let pub = publication else {
                 Logger.files.warningCapture("[PDFTab] publication is NIL!", category: "pdf")
                 await MainActor.run { isCheckingPDF = false }
@@ -440,13 +418,13 @@ struct PDFTab: View {
             Logger.files.infoCapture("[PDFTab] pub='\(pub.citeKey)', checking linkedFiles...", category: "pdf")
 
             // Check for linked PDF files
-            let linkedFiles = pub.linkedFiles ?? []
+            let linkedFiles = pub.linkedFiles
             Logger.files.infoCapture("[PDFTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
             for (i, file) in linkedFiles.enumerated() {
-                Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath)", category: "pdf")
+                Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath ?? "nil")", category: "pdf")
             }
 
-            if let firstPDF = pub.primaryPDF ?? linkedFiles.first {
+            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
                 Logger.files.infoCapture("[PDFTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -459,24 +437,19 @@ struct PDFTab: View {
 
             Logger.files.infoCapture("[PDFTab] No local PDF found, checking remote...", category: "pdf")
 
-            // No local PDF - check if remote PDF is available
-            // Check multiple sources: PDFURLResolver, pdfLinks, arxivID from fields
-            let resolverHasPDF = PDFURLResolver.hasPDF(publication: pub)
-            let hasPdfLinks = !pub.pdfLinks.isEmpty
+            // No local PDF - check if remote PDF is available via identifiers
             let hasArxivID = pub.arxivID != nil
             let hasEprint = pub.fields["eprint"] != nil
-            let hasRemote = resolverHasPDF || hasPdfLinks || hasArxivID || hasEprint
+            let hasDOI = pub.doi != nil
+            let hasBibcode = pub.bibcode != nil
+            let hasRemote = hasArxivID || hasEprint || hasDOI || hasBibcode
 
             // Debug logging for PDF availability
             let arxivVal = pub.arxivID ?? "nil"
             let eprintVal = pub.fields["eprint"] ?? "nil"
-            Logger.files.infoCapture("[PDFTab] PDF check: resolver=\(resolverHasPDF), pdfLinks=\(hasPdfLinks) (\(pub.pdfLinks.count)), arxivID=\(hasArxivID) (\(arxivVal)), eprint=\(hasEprint) (\(eprintVal)), result=\(hasRemote)", category: "pdf")
-
-            // Log pdfLinks details if present
-            for (i, link) in pub.pdfLinks.enumerated() {
-                let sourceID = link.sourceID ?? "nil"
-                Logger.files.infoCapture("[PDFTab] pdfLink[\(i)]: \(link.url.absoluteString) type=\(String(describing: link.type)) source=\(sourceID)", category: "pdf")
-            }
+            let doiVal = pub.doi ?? "nil"
+            let bibcodeVal = pub.bibcode ?? "nil"
+            Logger.files.infoCapture("[PDFTab] PDF check: arxivID=\(hasArxivID) (\(arxivVal)), eprint=\(hasEprint) (\(eprintVal)), doi=\(hasDOI) (\(doiVal)), bibcode=\(hasBibcode) (\(bibcodeVal)), result=\(hasRemote)", category: "pdf")
 
             // Log fields if no PDF found
             if !hasRemote {
@@ -513,34 +486,33 @@ struct PDFTab: View {
         }
         logger.info("[PDFTab] downloadPDF() - publication: \(pub.citeKey)")
 
-        // Use resolveWithDetails to get full resolution info (including browser fallback)
+        // Use PDFURLResolverV2 for URL resolution
         let settings = await PDFSettingsStore.shared.settings
-        let resolution = PDFURLResolver.resolveWithDetails(for: pub, settings: settings)
+        let status = await PDFURLResolverV2.shared.resolve(for: pub, settings: settings)
 
-        // Store browser fallback URL if resolution failed but we have an attempted URL
+        // Store browser fallback URL from status if applicable
         await MainActor.run {
-            browserFallbackURL = resolution.attemptedURL
+            browserFallbackURL = status.browserURL
         }
 
-        guard let resolvedURL = resolution.url else {
+        guard let resolvedURL = status.pdfURL else {
             // Log detailed info about what identifiers were available
             logger.warning("[PDFTab] downloadPDF() FAILED: No URL resolved")
-            logger.info("[PDFTab]   pdfLinks: \(pub.pdfLinks.map { $0.url.absoluteString })")
             logger.info("[PDFTab]   arxivID: \(pub.arxivID ?? "nil")")
             logger.info("[PDFTab]   eprint: \(pub.fields["eprint"] ?? "nil")")
-            logger.info("[PDFTab]   bibcode: \(pub.bibcodeNormalized ?? "nil")")
+            logger.info("[PDFTab]   bibcode: \(pub.bibcode ?? "nil")")
             logger.info("[PDFTab]   doi: \(pub.doi ?? "nil")")
 
             // Always show an error when resolution fails
             await MainActor.run {
-                if let attemptedURL = resolution.attemptedURL {
-                    logger.info("[PDFTab]   Browser fallback URL available: \(attemptedURL.absoluteString)")
+                if let fallbackURL = status.browserURL {
+                    logger.info("[PDFTab]   Browser fallback URL available: \(fallbackURL.absoluteString)")
                     downloadError = PDFDownloadError.publisherNotAvailable
 
                     // Auto-open the built-in browser when resolution fails but we have a fallback URL
                     #if os(macOS)
                     Task {
-                        await openPDFBrowserWithURL(attemptedURL)
+                        await openPDFBrowserWithURL(fallbackURL)
                     }
                     #endif
                 } else {
@@ -551,12 +523,7 @@ struct PDFTab: View {
             return
         }
 
-        // Log if this is a fallback resolution
-        if resolution.isFallback {
-            logger.info("[PDFTab] Using fallback source: \(resolution.sourceType?.rawValue ?? "unknown") (preferred: \(resolution.preferredSourceType.rawValue))")
-        }
-
-        logger.info("[PDFTab] Downloading PDF from: \(resolvedURL.absoluteString)")
+        logger.info("[PDFTab] Downloading PDF from: \(resolvedURL.absoluteString) (status: \(status.displayDescription))")
 
         isDownloading = true
         downloadError = nil
@@ -620,10 +587,10 @@ struct PDFTab: View {
                 case .duplicate(let existingFile, _):
                     logger.info("[PDFTab] Duplicate PDF detected, using existing: \(existingFile.filename)")
                     try? FileManager.default.removeItem(at: tempURL)
-                    // Refresh linkedFile from Core Data (existingFile is LinkedFileModel, state needs CDLinkedFile)
+                    // Refresh linkedFile from current publication
                     await MainActor.run {
                         if let pub = publication {
-                            linkedFile = pub.primaryPDF ?? pub.linkedFiles?.first
+                            linkedFile = pub.linkedFiles.first(where: { $0.isPDF }) ?? pub.linkedFiles.first
                         }
                     }
                     return
@@ -723,7 +690,7 @@ struct PDFTab: View {
 
                 // Post notification to refresh PDF view
                 await MainActor.run {
-                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.objectID)
+                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.id)
                 }
             } catch {
                 logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
@@ -751,7 +718,7 @@ struct PDFTab: View {
 
                 // Post notification to refresh PDF view
                 await MainActor.run {
-                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.objectID)
+                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.id)
                 }
             } catch {
                 logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
@@ -760,12 +727,19 @@ struct PDFTab: View {
     }
     #endif
 
-    private func handleCorruptPDF(_ corruptFile: CDLinkedFile) async {
-        logger.warning("[PDFTab] Corrupt PDF detected, attempting recovery: \(corruptFile.filename)")
+    private func handleCorruptPDF(_ corruptFileID: UUID) async {
+        logger.warning("[PDFTab] Corrupt PDF detected, attempting recovery: \(corruptFileID)")
+
+        // Find the LinkedFileModel from current publication
+        guard let pub = publication,
+              let corruptFile = pub.linkedFiles.first(where: { $0.id == corruptFileID }) else {
+            logger.error("[PDFTab] Could not find corrupt file \(corruptFileID) in publication")
+            return
+        }
 
         do {
-            // 1. Delete corrupt file from disk and Core Data
-            try AttachmentManager.shared.delete(LinkedFileModel(from: corruptFile), in: libraryManager.activeLibrary?.id)
+            // 1. Delete corrupt file from disk and store
+            try AttachmentManager.shared.delete(corruptFile, in: libraryManager.activeLibrary?.id)
 
             // 2. Reset state and trigger re-download
             await MainActor.run {
@@ -817,7 +791,7 @@ struct PDFTab: View {
             NotificationCenter.default.post(
                 name: .sendToEInkDevice,
                 object: nil,
-                userInfo: ["publications": [pub]]
+                userInfo: ["publicationIDs": [pub.id]]
             )
         }
 
@@ -879,5 +853,14 @@ struct PDFTab: View {
         }
 
         return .ignored
+    }
+
+    // MARK: - Helpers
+
+    /// Format file size for display.
+    private static func formattedFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }

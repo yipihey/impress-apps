@@ -8,7 +8,6 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI
-import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
@@ -20,14 +19,14 @@ private let infoTabLogger = Logger(subsystem: "com.imbib.app", category: "infota
 
 struct InfoTab: View {
     let paper: any PaperRepresentable
-    let publication: CDPublication?
+    let publicationID: UUID?
 
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(\.themeColors) private var theme
     @Environment(\.fontScale) private var fontScale
 
     // State for attachment deletion
-    @State private var fileToDelete: CDLinkedFile?
+    @State private var fileToDelete: LinkedFileModel?
     @State private var showDeleteConfirmation = false
 
     // State for file drop
@@ -43,7 +42,6 @@ struct InfoTab: View {
     @State private var showBrowserDuplicateAlert = false
     @State private var browserDuplicateFilename = ""
     @State private var browserDuplicateData: Data?
-    @State private var browserDuplicatePublication: CDPublication?
 
     // Refresh trigger for attachments section
     @State private var attachmentsRefreshID = UUID()
@@ -64,6 +62,13 @@ struct InfoTab: View {
     // Author annotation state
     @State private var annotationSettings: QuickAnnotationSettings = .defaults
     @State private var annotations: [String: String] = [:]
+
+    /// The full publication model (fetched from Rust store by UUID).
+    /// Returns nil for non-library papers (search results, etc.).
+    private var publication: PublicationModel? {
+        guard let id = publicationID else { return nil }
+        return RustStoreAdapter.shared.getPublicationDetail(id: id)
+    }
 
     var body: some View {
         let bodyStart = CFAbsoluteTimeGetCurrent()
@@ -125,9 +130,9 @@ struct InfoTab: View {
                         Divider()
                     }
 
-                    // MARK: - Comments Section (shared libraries)
-                    if let pub = publication, pub.libraries?.contains(where: { $0.isSharedLibrary }) == true {
-                        CommentSectionView(publication: pub)
+                    // MARK: - Comments Section
+                    if let pub = publication, !pub.libraryIDs.isEmpty {
+                        CommentSectionView(publicationID: pub.id)
                         Divider()
                     }
 
@@ -156,7 +161,7 @@ struct InfoTab: View {
             // Load annotation field settings
             annotationSettings = await QuickAnnotationSettingsStore.shared.settings
         }
-        .onChange(of: publication?.id, initial: true) { _, _ in
+        .onChange(of: publicationID, initial: true) { _, _ in
             loadAnnotations()
         }
         .onAppear {
@@ -200,7 +205,6 @@ struct InfoTab: View {
         .alert("Duplicate PDF", isPresented: $showBrowserDuplicateAlert) {
             Button("Skip") {
                 browserDuplicateData = nil
-                browserDuplicatePublication = nil
             }
             Button("Import Anyway") {
                 importBrowserPDF()
@@ -210,8 +214,8 @@ struct InfoTab: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .pdfImportedFromBrowser)) { notification in
             // Refresh attachments section when a PDF is imported from browser
-            if let objectID = notification.object as? NSManagedObjectID,
-               objectID == publication?.objectID {
+            if let pubID = notification.object as? UUID,
+               pubID == publicationID {
                 attachmentsRefreshID = UUID()
                 Logger.files.infoCapture("[InfoTab] Refreshing attachments after PDF import", category: "pdf")
             }
@@ -219,7 +223,7 @@ struct InfoTab: View {
         .onReceive(NotificationCenter.default.publisher(for: .publicationEnrichmentDidComplete)) { notification in
             // Refresh view when enrichment data becomes available for this publication
             if let enrichedID = notification.userInfo?["publicationID"] as? UUID,
-               enrichedID == publication?.id {
+               enrichedID == publicationID {
                 enrichmentRefreshID = UUID()
                 infoTabLogger.info("Refreshing InfoTab after enrichment completed for \(publication?.citeKey ?? "unknown")")
             }
@@ -347,9 +351,8 @@ struct InfoTab: View {
 
     /// Displays flag stripe and tags using ImpressFTUI components.
     @ViewBuilder
-    private func flagAndTagsSection(_ pub: CDPublication) -> some View {
-        let tags = pub.tags ?? []
-        let sortedTags = tags.sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) }
+    private func flagAndTagsSection(_ pub: PublicationModel) -> some View {
+        let sortedTags = pub.tags.sorted { $0.path < $1.path }
         let hasFlag = pub.flag != nil
         let hasTags = !sortedTags.isEmpty
 
@@ -367,13 +370,7 @@ struct InfoTab: View {
                 if hasTags {
                     FlowLayout(spacing: 4) {
                         ForEach(sortedTags, id: \.id) { tag in
-                            TagChip(tag: TagDisplayData(
-                                id: tag.id,
-                                path: tag.canonicalPath ?? tag.name,
-                                leaf: tag.leaf,
-                                colorLight: tag.colorLight ?? tag.effectiveLightColor(),
-                                colorDark: tag.colorDark ?? tag.effectiveDarkColor()
-                            ))
+                            TagChip(tag: tag)
                         }
                     }
                 }
@@ -388,6 +385,40 @@ struct InfoTab: View {
         paper.bibcode != nil || paper.doi != nil || paper.arxivID != nil
     }
 
+    /// Exploration availability for references/citations
+    private enum ExplorationAvailability: Equatable {
+        case notEnriched
+        case hasResults(Int)
+        case noResults
+        case unavailable
+    }
+
+    /// Determine references availability from publication data
+    private var referencesAvailability: ExplorationAvailability {
+        guard let pub = publication else { return .unavailable }
+        let hasIdentifiers = pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil
+        if pub.referenceCount > 0 {
+            return .hasResults(pub.referenceCount)
+        } else if hasIdentifiers {
+            return .notEnriched
+        } else {
+            return .unavailable
+        }
+    }
+
+    /// Determine citations availability from publication data
+    private var citationsAvailability: ExplorationAvailability {
+        guard let pub = publication else { return .unavailable }
+        let hasIdentifiers = pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil
+        if pub.citationCount > 0 {
+            return .hasResults(pub.citationCount)
+        } else if hasIdentifiers {
+            return .notEnriched
+        } else {
+            return .unavailable
+        }
+    }
+
     @ViewBuilder
     private var exploreSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -398,7 +429,7 @@ struct InfoTab: View {
 
             // All buttons in a single row
             HStack(spacing: 8) {
-                let refAvail = publication?.referencesAvailability() ?? .notEnriched
+                let refAvail = referencesAvailability
                 Button {
                     showReferences()
                 } label: {
@@ -413,7 +444,7 @@ struct InfoTab: View {
                 .disabled(refAvail == .noResults || isExploring)
                 .help(referencesHelpText(for: refAvail))
 
-                let citeAvail = publication?.citationsAvailability() ?? .notEnriched
+                let citeAvail = citationsAvailability
                 Button {
                     showCitations()
                 } label: {
@@ -466,8 +497,7 @@ struct InfoTab: View {
 
     /// Label for the references button, including count if available
     private var referencesButtonLabel: String {
-        guard let pub = publication else { return "References" }
-        switch pub.referencesAvailability() {
+        switch referencesAvailability {
         case .hasResults(let count): return "References (\(count))"
         case .noResults: return "References (0)"
         default: return "References"
@@ -476,8 +506,7 @@ struct InfoTab: View {
 
     /// Label for the citations button, including count if available
     private var citationsButtonLabel: String {
-        guard let pub = publication else { return "Citations" }
-        switch pub.citationsAvailability() {
+        switch citationsAvailability {
         case .hasResults(let count): return "Citations (\(count))"
         case .noResults: return "Citations (0)"
         default: return "Citations"
@@ -485,7 +514,7 @@ struct InfoTab: View {
     }
 
     /// Help text for references button based on availability
-    private func referencesHelpText(for availability: CDPublication.ExplorationAvailability) -> String {
+    private func referencesHelpText(for availability: ExplorationAvailability) -> String {
         switch availability {
         case .notEnriched: return "Click to find papers this paper cites"
         case .hasResults(let count): return "Show \(count) referenced papers"
@@ -495,7 +524,7 @@ struct InfoTab: View {
     }
 
     /// Help text for citations button based on availability
-    private func citationsHelpText(for availability: CDPublication.ExplorationAvailability) -> String {
+    private func citationsHelpText(for availability: ExplorationAvailability) -> String {
         switch availability {
         case .notEnriched: return "Click to find papers that cite this paper"
         case .hasResults(let count): return "Show \(count) citing papers"
@@ -506,7 +535,7 @@ struct InfoTab: View {
 
     /// Show references using ExplorationService
     private func showReferences() {
-        guard let pub = publication else { return }
+        guard let pubID = publicationID else { return }
 
         isExploringReferences = true
         explorationError = nil
@@ -519,7 +548,7 @@ struct InfoTab: View {
                 ExplorationService.shared.setLibraryManager(libraryManager)
 
                 // Explore references - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreReferences(of: pub)
+                _ = try await ExplorationService.shared.exploreReferences(of: pubID)
 
                 await MainActor.run {
                     isExploringReferences = false
@@ -535,7 +564,7 @@ struct InfoTab: View {
 
     /// Show citations using ExplorationService
     private func showCitations() {
-        guard let pub = publication else { return }
+        guard let pubID = publicationID else { return }
 
         isExploringCitations = true
         explorationError = nil
@@ -548,7 +577,7 @@ struct InfoTab: View {
                 ExplorationService.shared.setLibraryManager(libraryManager)
 
                 // Explore citations - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCitations(of: pub)
+                _ = try await ExplorationService.shared.exploreCitations(of: pubID)
 
                 await MainActor.run {
                     isExploringCitations = false
@@ -564,7 +593,7 @@ struct InfoTab: View {
 
     /// Show similar papers using ExplorationService
     private func showSimilar() {
-        guard let pub = publication else { return }
+        guard let pubID = publicationID else { return }
 
         isExploringSimilar = true
         explorationError = nil
@@ -577,7 +606,7 @@ struct InfoTab: View {
                 ExplorationService.shared.setLibraryManager(libraryManager)
 
                 // Explore similar - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreSimilar(of: pub)
+                _ = try await ExplorationService.shared.exploreSimilar(of: pubID)
 
                 await MainActor.run {
                     isExploringSimilar = false
@@ -593,7 +622,7 @@ struct InfoTab: View {
 
     /// Show co-read papers using ExplorationService
     private func showCoReads() {
-        guard let pub = publication else { return }
+        guard let pubID = publicationID else { return }
 
         isExploringCoReads = true
         explorationError = nil
@@ -606,7 +635,7 @@ struct InfoTab: View {
                 ExplorationService.shared.setLibraryManager(libraryManager)
 
                 // Explore co-reads - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCoReads(of: pub)
+                _ = try await ExplorationService.shared.exploreCoReads(of: pubID)
 
                 await MainActor.run {
                     isExploringCoReads = false
@@ -623,8 +652,8 @@ struct InfoTab: View {
     // MARK: - Attachments Section with Drop Target
 
     @ViewBuilder
-    private func attachmentsSectionWithDrop(_ pub: CDPublication) -> some View {
-        let linkedFiles = Array(pub.linkedFiles ?? []).sorted { $0.dateAdded < $1.dateAdded }
+    private func attachmentsSectionWithDrop(_ pub: PublicationModel) -> some View {
+        let linkedFiles = pub.linkedFiles.sorted { $0.dateAdded < $1.dateAdded }
 
         VStack(alignment: .leading, spacing: 8) {
             // Header with count and Add button
@@ -706,24 +735,16 @@ struct InfoTab: View {
     }
 
     @ViewBuilder
-    private func enhancedAttachmentRow(_ file: CDLinkedFile) -> some View {
+    private func enhancedAttachmentRow(_ file: LinkedFileModel) -> some View {
         HStack(spacing: 8) {
             // File type icon
             FileTypeIcon(linkedFile: file, size: 20)
 
-            // Display name with edit support (future: inline rename)
+            // Display name
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.effectiveDisplayName)
+                Text(file.filename)
                     .lineLimit(1)
                     .truncationMode(.middle)
-
-                // Show actual filename if display name differs
-                if file.displayName != nil && file.displayName != file.filename {
-                    Text(file.filename)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
             }
 
             Spacer()
@@ -733,8 +754,8 @@ struct InfoTab: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
-            // File size (use cached or compute)
-            Text(file.fileSize > 0 ? file.formattedFileSize : getFileSizeString(for: file))
+            // File size
+            Text(file.fileSize > 0 ? ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file) : getFileSizeString(for: file))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -787,7 +808,7 @@ struct InfoTab: View {
     // MARK: - Legacy Attachments Section (for backward compatibility)
 
     @ViewBuilder
-    private func attachmentsSection(_ linkedFiles: [CDLinkedFile]) -> some View {
+    private func attachmentsSection(_ linkedFiles: [LinkedFileModel]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Attachments (\(linkedFiles.count))")
                 .font(.caption)
@@ -801,12 +822,12 @@ struct InfoTab: View {
     }
 
     @ViewBuilder
-    private func attachmentRow(_ file: CDLinkedFile) -> some View {
+    private func attachmentRow(_ file: LinkedFileModel) -> some View {
         HStack {
             FileTypeIcon(linkedFile: file, size: 18)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.effectiveDisplayName)
+                Text(file.filename)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -817,7 +838,7 @@ struct InfoTab: View {
 
             Spacer()
 
-            Text(file.fileSize > 0 ? file.formattedFileSize : getFileSizeString(for: file))
+            Text(file.fileSize > 0 ? ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file) : getFileSizeString(for: file))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -858,7 +879,7 @@ struct InfoTab: View {
     // MARK: - Record Info Section
 
     @ViewBuilder
-    private func recordInfoSection(_ pub: CDPublication) -> some View {
+    private func recordInfoSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Record Info")
                 .font(.caption)
@@ -922,9 +943,11 @@ struct InfoTab: View {
                 }
 
                 // Libraries this paper belongs to
-                if let libraries = pub.libraries, !libraries.isEmpty {
-                    // Use Set to deduplicate display names (handles duplicate inbox libraries)
-                    let uniqueNames = Set(libraries.map { $0.displayName }).sorted()
+                if !pub.libraryIDs.isEmpty {
+                    let libraryNames = pub.libraryIDs.compactMap { libID in
+                        RustStoreAdapter.shared.getLibrary(id: libID)?.name
+                    }
+                    let uniqueNames = Set(libraryNames).sorted()
                     GridRow {
                         Text(uniqueNames.count == 1 ? "Library" : "Libraries")
                             .foregroundStyle(.secondary)
@@ -1002,8 +1025,8 @@ struct InfoTab: View {
         }
     }
 
-    private func getFileSize(for file: CDLinkedFile) -> Int64? {
-        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
+    private func getFileSize(for file: LinkedFileModel) -> Int64? {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
             return nil
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
@@ -1012,7 +1035,7 @@ struct InfoTab: View {
         return attrs[.size] as? Int64
     }
 
-    private func getFileSizeString(for file: CDLinkedFile) -> String {
+    private func getFileSizeString(for file: LinkedFileModel) -> String {
         let start = CFAbsoluteTimeGetCurrent()
         defer {
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -1053,8 +1076,8 @@ struct InfoTab: View {
         }
     }
 
-    private func openFile(_ file: CDLinkedFile) {
-        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
+    private func openFile(_ file: LinkedFileModel) {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
             return
         }
         #if os(macOS)
@@ -1063,17 +1086,17 @@ struct InfoTab: View {
     }
 
     #if os(macOS)
-    private func showInFinder(_ file: CDLinkedFile) {
-        guard let url = AttachmentManager.shared.resolveURL(for: LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id) else {
+    private func showInFinder(_ file: LinkedFileModel) {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
     #endif
 
-    private func deleteFile(_ file: CDLinkedFile) {
+    private func deleteFile(_ file: LinkedFileModel) {
         do {
-            try AttachmentManager.shared.delete(LinkedFileModel(from: file), in: libraryManager.activeLibrary?.id)
+            try AttachmentManager.shared.delete(file, in: libraryManager.activeLibrary?.id)
             Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
         } catch {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")
@@ -1099,22 +1122,15 @@ struct InfoTab: View {
 
     /// Collect all available PDF sources for a publication.
     /// Shows both arXiv preprint and publisher links when available (they're often different).
-    private func collectPDFSources(for pub: CDPublication) -> [PDFSource] {
+    private func collectPDFSources(for pub: PublicationModel) -> [PDFSource] {
         var sources: [PDFSource] = []
         var seenURLs: Set<URL> = []
-        var hasArxivSource = false
 
-        // Helper to check if a URL is an arXiv link (any subdomain)
-        func isArxivURL(_ url: URL) -> Bool {
-            let urlString = url.absoluteString.lowercased()
-            return urlString.contains("arxiv.org") || urlString.contains("export.arxiv")
-        }
-
-        // 1. Always add arXiv link first if available (most reliable for preprints)
-        if let arxivURL = pub.arxivPDFURL {
+        // 1. Add arXiv link first if available (most reliable for preprints)
+        if let arxivID = pub.arxivID,
+           let arxivURL = URL(string: "https://arxiv.org/pdf/\(arxivID)") {
             sources.append(PDFSource(url: arxivURL, type: .preprint, sourceID: "arXiv"))
             seenURLs.insert(arxivURL)
-            hasArxivSource = true
         }
 
         // 2. Add publisher/DOI link if available and different from arXiv
@@ -1127,24 +1143,7 @@ struct InfoTab: View {
             }
         }
 
-        // 3. Add other PDF links from enrichment
-        for link in pub.pdfLinks {
-            // Skip if we already have this URL
-            if seenURLs.contains(link.url) {
-                continue
-            }
-            // Skip if it's any arXiv link and we already have an arXiv source
-            if hasArxivSource && isArxivURL(link.url) {
-                continue
-            }
-            sources.append(PDFSource(url: link.url, type: link.type, sourceID: link.sourceID))
-            seenURLs.insert(link.url)
-            if isArxivURL(link.url) {
-                hasArxivSource = true
-            }
-        }
-
-        // 4. Fallback: ADS abstract page if we have no sources but have a bibcode
+        // 3. Fallback: ADS abstract page if we have no sources but have a bibcode
         if sources.isEmpty, let bibcode = pub.bibcode,
            let adsURL = URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract") {
             sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
@@ -1154,26 +1153,26 @@ struct InfoTab: View {
     }
 
     @ViewBuilder
-    private func pdfSourcesSection(_ sources: [PDFSource], publication: CDPublication) -> some View {
+    private func pdfSourcesSection(_ sources: [PDFSource], publication pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("PDF Sources")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             ForEach(sources, id: \.self) { source in
-                pdfSourceRow(source, publication: publication)
+                pdfSourceRow(source, publication: pub)
             }
         }
     }
 
     @ViewBuilder
-    private func pdfSourceRow(_ source: PDFSource, publication: CDPublication) -> some View {
+    private func pdfSourceRow(_ source: PDFSource, publication pub: PublicationModel) -> some View {
         HStack {
             // Clickable label - opens in imBib browser on macOS, system browser on iOS
             #if os(macOS)
             Button {
                 Task {
-                    await openInImBibBrowser(source.url, publication: publication)
+                    await openInImBibBrowser(source.url, publication: pub)
                 }
             } label: {
                 Text(source.label)
@@ -1208,7 +1207,7 @@ struct InfoTab: View {
             #if os(macOS)
             Button {
                 Task {
-                    await openInImBibBrowser(source.url, publication: publication)
+                    await openInImBibBrowser(source.url, publication: pub)
                 }
             } label: {
                 Image(systemName: "globe")
@@ -1228,16 +1227,18 @@ struct InfoTab: View {
     }
 
     #if os(macOS)
-    private func openInImBibBrowser(_ url: URL, publication: CDPublication) async {
+    private func openInImBibBrowser(_ url: URL, publication pub: PublicationModel) async {
         guard let library = libraryManager.activeLibrary else { return }
 
+        let capturedPubID = pub.id
+
         await PDFBrowserWindowController.shared.openBrowser(
-            for: publication,
+            for: pub,
             startURL: url,
             libraryID: library.id
         ) { [self] data in
             // Check for duplicates first
-            let result = AttachmentManager.shared.checkForDuplicate(data: data, in: publication.id)
+            let result = AttachmentManager.shared.checkForDuplicate(data: data, in: capturedPubID)
 
             switch result {
             case .duplicate(let existingFile, _):
@@ -1245,7 +1246,6 @@ struct InfoTab: View {
                 await MainActor.run {
                     browserDuplicateFilename = existingFile.filename
                     browserDuplicateData = data
-                    browserDuplicatePublication = publication
                     showBrowserDuplicateAlert = true
                 }
                 Logger.files.infoCapture("[InfoTab] Duplicate PDF detected: matches \(existingFile.filename)", category: "pdf")
@@ -1253,11 +1253,11 @@ struct InfoTab: View {
             case .noDuplicate:
                 // Import directly
                 do {
-                    try AttachmentManager.shared.importPDF(data: data, for: publication.id, in: library.id)
+                    try AttachmentManager.shared.importPDF(data: data, for: capturedPubID, in: library.id)
                     Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
 
                     await MainActor.run {
-                        NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+                        NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: capturedPubID)
                     }
                 } catch {
                     Logger.files.errorCapture("[InfoTab] Failed to import PDF from browser: \(error)", category: "pdf")
@@ -1269,23 +1269,22 @@ struct InfoTab: View {
     /// Import the pending browser PDF after user chooses "Import Anyway" for duplicate
     private func importBrowserPDF() {
         guard let data = browserDuplicateData,
-              let publication = browserDuplicatePublication,
+              let pubID = publicationID,
               let library = libraryManager.activeLibrary else {
             return
         }
 
         do {
-            try AttachmentManager.shared.importPDF(data: data, for: publication.id, in: library.id)
+            try AttachmentManager.shared.importPDF(data: data, for: pubID, in: library.id)
             Logger.files.infoCapture("[InfoTab] Duplicate PDF imported after user confirmation", category: "pdf")
 
-            NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+            NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pubID)
         } catch {
             Logger.files.errorCapture("[InfoTab] Failed to import duplicate PDF: \(error)", category: "pdf")
         }
 
         // Clear pending state
         browserDuplicateData = nil
-        browserDuplicatePublication = nil
     }
     #endif
 }

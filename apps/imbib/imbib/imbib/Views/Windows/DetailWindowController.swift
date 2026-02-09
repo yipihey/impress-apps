@@ -138,14 +138,14 @@ public final class DetailWindowController {
     ///
     /// - Parameters:
     ///   - tab: The tab type to open (pdf, notes, bibtex, info)
-    ///   - publication: The publication to display
+    ///   - publication: The publication model to display
     ///   - screen: Optional target screen (defaults to secondary if available)
     ///   - library: The library containing the publication (needed for PDF path resolution)
     public func openTab(
         _ tab: DetachedTab,
-        for publication: CDPublication,
+        for publication: PublicationModel,
         on screen: NSScreen? = nil,
-        library: CDLibrary? = nil,
+        library: LibraryModel? = nil,
         libraryViewModel: LibraryViewModel? = nil,
         libraryManager: LibraryManager? = nil
     ) {
@@ -161,7 +161,7 @@ public final class DetailWindowController {
             return
         }
 
-        logger.info("Creating detached \(tab.title) window for: \(publication.title ?? "Unknown")")
+        logger.info("Creating detached \(tab.title) window for: \(publication.title)")
 
         // Create the content view
         let contentView = createContentView(for: tab, publication: publication, library: library)
@@ -171,7 +171,7 @@ public final class DetailWindowController {
 
         // Create window
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "\(tab.title) - \(publication.title ?? "Unknown")"
+        window.title = "\(tab.title) - \(publication.title)"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.minSize = tab.minSize
 
@@ -188,7 +188,7 @@ public final class DetailWindowController {
         }
 
         // Set window delegate to track close
-        let delegate = WindowDelegate(key: key, citeKey: publication.citeKey ?? "", controller: self)
+        let delegate = WindowDelegate(key: key, citeKey: publication.citeKey, controller: self)
         window.delegate = delegate
         delegates[key] = delegate
 
@@ -210,7 +210,7 @@ public final class DetailWindowController {
         // Save state for restoration on app restart
         Task {
             let state = DetachedWindowState(
-                publicationCiteKey: publication.citeKey ?? "",
+                publicationCiteKey: publication.citeKey,
                 tab: tab.rawValue,
                 frame: window.frame,
                 screenName: window.screen?.localizedName
@@ -221,19 +221,47 @@ public final class DetailWindowController {
         logger.info("Detached \(tab.title) window opened")
     }
 
-    /// Close all detached windows for a publication.
+    /// Open a detached window using publication ID and library ID.
     ///
-    /// - Parameter publication: The publication whose windows should be closed
-    public func closeWindows(for publication: CDPublication) {
-        let keysToClose = windows.keys.filter { $0.publicationID == publication.id }
+    /// Looks up the PublicationModel from the Rust store.
+    public func openTab(
+        _ tab: DetachedTab,
+        forPublicationID publicationID: UUID,
+        libraryID: UUID? = nil,
+        on screen: NSScreen? = nil,
+        libraryViewModel: LibraryViewModel? = nil,
+        libraryManager: LibraryManager? = nil
+    ) {
+        // Get publication data from Rust store
+        let store = RustStoreAdapter.shared
+        guard let publication = store.getPublicationDetail(id: publicationID) else {
+            logger.warning("Cannot open detached window: publication \(publicationID) not found")
+            return
+        }
+
+        let library: LibraryModel? = libraryID.flatMap { store.getLibrary(id: $0) }
+
+        openTab(
+            tab,
+            for: publication,
+            on: screen,
+            library: library,
+            libraryViewModel: libraryViewModel,
+            libraryManager: libraryManager
+        )
+    }
+
+    /// Close all detached windows for a publication by ID.
+    public func closeWindows(forPublicationID id: UUID) {
+        let keysToClose = windows.keys.filter { $0.publicationID == id }
         for key in keysToClose {
             closeWindow(key: key)
         }
     }
 
-    /// Close a specific detached window.
-    public func closeTab(_ tab: DetachedTab, for publication: CDPublication) {
-        let key = DetachedWindowKey(publicationID: publication.id, tab: tab)
+    /// Close a specific detached window by publication ID.
+    public func closeTab(_ tab: DetachedTab, forPublicationID id: UUID) {
+        let key = DetachedWindowKey(publicationID: id, tab: tab)
         closeWindow(key: key)
     }
 
@@ -247,15 +275,15 @@ public final class DetailWindowController {
         logger.info("All detached windows closed")
     }
 
-    /// Check if a window is open for a specific tab of a publication.
-    public func hasOpenWindow(_ tab: DetachedTab, for publication: CDPublication) -> Bool {
-        let key = DetachedWindowKey(publicationID: publication.id, tab: tab)
+    /// Check if a window is open for a specific tab of a publication by ID.
+    public func hasOpenWindow(_ tab: DetachedTab, forPublicationID id: UUID) -> Bool {
+        let key = DetachedWindowKey(publicationID: id, tab: tab)
         return windows[key] != nil
     }
 
-    /// Check if any detached windows are open for a publication.
-    public func hasAnyOpenWindow(for publication: CDPublication) -> Bool {
-        windows.keys.contains { $0.publicationID == publication.id }
+    /// Check if any detached windows are open for a publication by ID.
+    public func hasAnyOpenWindow(forPublicationID id: UUID) -> Bool {
+        windows.keys.contains { $0.publicationID == id }
     }
 
     /// Get count of open detached windows
@@ -265,9 +293,7 @@ public final class DetailWindowController {
     ///
     /// Call this during app startup to restore any detached windows that were open
     /// when the app was last closed.
-    ///
-    /// - Parameter repository: The publication repository to look up publications
-    public func restoreFromSavedState(repository: PublicationRepository) {
+    public func restoreFromSavedState() {
         Task {
             // First, sanitize any corrupted/oversized window states
             await DetachedWindowStateStore.shared.sanitizeAllStates()
@@ -281,10 +307,17 @@ public final class DetailWindowController {
 
             logger.info("Restoring \(states.count) detached windows from saved state")
 
+            let store = RustStoreAdapter.shared
+
             for state in states {
-                // Find the publication by cite key
-                guard let publication = await repository.findByCiteKey(state.publicationCiteKey) else {
+                // Find the publication by cite key via RustStoreAdapter
+                guard let pubRow = store.findByCiteKey(citeKey: state.publicationCiteKey) else {
                     logger.warning("Could not find publication for cite key: \(state.publicationCiteKey)")
+                    continue
+                }
+
+                guard let publication = store.getPublicationDetail(id: pubRow.id) else {
+                    logger.warning("Could not load publication detail for: \(state.publicationCiteKey)")
                     continue
                 }
 
@@ -298,9 +331,12 @@ public final class DetailWindowController {
                     NSScreen.screens.first { $0.localizedName == screenName }
                 }
 
+                // Get library from publication's library IDs
+                let library: LibraryModel? = publication.libraryIDs.first.flatMap { store.getLibrary(id: $0) }
+
                 // Open the tab
                 await MainActor.run {
-                    openTab(tab, for: publication, on: targetScreen, library: publication.libraries?.first)
+                    openTab(tab, for: publication, on: targetScreen, library: library)
 
                     // Apply saved frame after window is created, with constraint to prevent oversized windows
                     let key = DetachedWindowKey(publicationID: publication.id, tab: tab)
@@ -470,8 +506,8 @@ public final class DetailWindowController {
     @ViewBuilder
     private func createContentView(
         for tab: DetachedTab,
-        publication: CDPublication,
-        library: CDLibrary?
+        publication: PublicationModel,
+        library: LibraryModel?
     ) -> some View {
         switch tab {
         case .pdf:
@@ -479,9 +515,7 @@ public final class DetailWindowController {
                 .frame(minWidth: tab.minSize.width, minHeight: tab.minSize.height)
 
         case .notes:
-            NotesTab(publication: publication)
-                .environment(self.libraryViewModel ?? LibraryViewModel())
-                .environment(self.libraryManager ?? LibraryManager())
+            DetachedNotesView(publication: publication)
                 .frame(minWidth: tab.minSize.width, minHeight: tab.minSize.height)
 
         case .bibtex:

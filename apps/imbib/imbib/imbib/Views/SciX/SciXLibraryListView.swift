@@ -8,13 +8,56 @@
 import SwiftUI
 import PublicationManagerCore
 
+// MARK: - SciXLibrary Convenience Extensions
+
+/// Sync state for SciX libraries, derived from the syncState string.
+enum SciXSyncState: String {
+    case synced
+    case pending
+    case error
+}
+
+extension SciXLibrary {
+    /// Display name for the library (alias for name).
+    var displayName: String { name }
+
+    /// Parsed sync state enum.
+    var syncStateEnum: SciXSyncState {
+        SciXSyncState(rawValue: syncState) ?? .synced
+    }
+
+    /// Parsed permission level with display icon.
+    var permissionLevelEnum: SciXPermissionLevel {
+        SciXPermissionLevel(rawValue: permissionLevel) ?? .read
+    }
+
+    /// Whether there are pending changes to sync upstream.
+    /// Currently always false -- server-side push is not yet implemented.
+    var hasPendingChanges: Bool { false }
+
+    /// Number of pending changes.
+    var pendingChangeCount: Int { 0 }
+}
+
+extension SciXPermissionLevel {
+    /// SF Symbol icon for each permission level.
+    var icon: String {
+        switch self {
+        case .owner: return "crown"
+        case .admin: return "gearshape"
+        case .write: return "pencil"
+        case .read: return "eye"
+        }
+    }
+}
+
 /// Header view showing SciX library metadata (cloud icon, name, permissions, sync status).
 ///
 /// Displayed above the `UnifiedPublicationListWrapper` when viewing a SciX library source.
 /// All publication list logic (loading, actions, keyboard shortcuts) is handled by the wrapper.
 struct SciXLibraryHeader: View {
 
-    let library: CDSciXLibrary
+    let library: SciXLibrary
 
     var body: some View {
         HStack {

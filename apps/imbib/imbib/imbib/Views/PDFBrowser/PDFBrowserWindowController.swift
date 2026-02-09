@@ -52,8 +52,7 @@ public final class PDFBrowserWindowController {
     ///
     /// - Parameter viewModel: The view model containing publication and URL info
     public func openWindow(with viewModel: PDFBrowserViewModel) {
-        let publicationID = viewModel.publication.objectID.uriRepresentation().hashValue
-        let windowKey = UUID(uuidString: String(format: "%08X-0000-0000-0000-000000000000", publicationID)) ?? UUID()
+        let windowKey = viewModel.publication.id
 
         // Check for existing window
         if let existingWindow = windows[windowKey] {
@@ -62,7 +61,7 @@ public final class PDFBrowserWindowController {
             return
         }
 
-        Logger.pdfBrowser.info("Creating new browser window for: \(viewModel.publication.title ?? "Unknown")")
+        Logger.pdfBrowser.info("Creating new browser window for: \(viewModel.publication.title)")
 
         // Create the SwiftUI view
         let browserView = MacPDFBrowserView(viewModel: viewModel)
@@ -73,7 +72,7 @@ public final class PDFBrowserWindowController {
 
         // Create window
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "PDF Browser - \(viewModel.publication.title ?? "Unknown")"
+        window.title = "PDF Browser - \(viewModel.publication.title)"
         window.setContentSize(NSSize(width: 1000, height: 800))
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.minSize = NSSize(width: 800, height: 600)
@@ -104,10 +103,8 @@ public final class PDFBrowserWindowController {
     /// Close the browser window for a publication.
     ///
     /// - Parameter publication: The publication whose window should be closed
-    public func closeWindow(for publication: CDPublication) {
-        let publicationID = publication.objectID.uriRepresentation().hashValue
-        let windowKey = UUID(uuidString: String(format: "%08X-0000-0000-0000-000000000000", publicationID)) ?? UUID()
-        closeWindow(key: windowKey)
+    public func closeWindow(for publication: PublicationModel) {
+        closeWindow(key: publication.id)
     }
 
     /// Close all browser windows.
@@ -121,10 +118,8 @@ public final class PDFBrowserWindowController {
     }
 
     /// Check if a window is open for a publication.
-    public func hasOpenWindow(for publication: CDPublication) -> Bool {
-        let publicationID = publication.objectID.uriRepresentation().hashValue
-        let windowKey = UUID(uuidString: String(format: "%08X-0000-0000-0000-000000000000", publicationID)) ?? UUID()
-        return windows[windowKey] != nil
+    public func hasOpenWindow(for publication: PublicationModel) -> Bool {
+        return windows[publication.id] != nil
     }
 
     // MARK: - Private
@@ -179,7 +174,7 @@ public extension PDFBrowserWindowController {
     /// prefix approach is for programmatic downloads. In the browser, users authenticate
     /// naturally via institutional login pages, and the WKWebView maintains session cookies.
     func openBrowser(
-        for publication: CDPublication,
+        for publication: PublicationModel,
         libraryID: UUID,
         onPDFCaptured: @escaping (Data) async -> Void
     ) async {
@@ -229,7 +224,7 @@ public extension PDFBrowserWindowController {
     ///   - libraryID: The library ID for PDF import
     ///   - onPDFCaptured: Callback when a PDF is captured
     func openBrowser(
-        for publication: CDPublication,
+        for publication: PublicationModel,
         startURL: URL,
         libraryID: UUID,
         onPDFCaptured: @escaping (Data) async -> Void

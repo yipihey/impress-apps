@@ -10,7 +10,6 @@
 import AppKit
 import SwiftUI
 import PublicationManagerCore
-import CoreData
 import ImpressSidebar
 import ImpressFTUI
 import UniformTypeIdentifiers
@@ -206,9 +205,8 @@ final class ImbibSidebarViewModel {
         case .scixLibraries:
             return hasSciXAPIKey
         case .exploration:
-            guard let lib = libraryManager?.explorationLibrary,
-                  let cdLib = fetchCDLibrary(id: lib.id) else { return false }
-            return explorationHasContent(cdLib)
+            guard let lib = libraryManager?.explorationLibrary else { return false }
+            return explorationHasContent(libraryID: lib.id)
         case .dismissed:
             guard let lib = libraryManager?.dismissedLibrary else { return false }
             return lib.publicationCount > 0
@@ -280,29 +278,28 @@ final class ImbibSidebarViewModel {
             displayCount: unread > 0 ? unread : nil
         ))
 
-        // Top-level feeds (no parent collection)
+        // Top-level feeds (no parent collection — feeds don't have parent collection in domain model)
         let feeds = fetchInboxFeeds()
-        let topFeeds = feeds.filter { $0.inboxParentCollection == nil }
-        for feed in topFeeds {
+        for feed in feeds {
             nodes.append(makeInboxFeedNode(feed))
         }
 
         // Inbox collections
-        if let inboxLib = InboxManager.shared.inboxLibrary,
-           let collections = inboxLib.collections as? Set<CDCollection>,
-           !collections.isEmpty {
-            let rootCollections = Array(collections)
-                .filter { $0.parentCollection == nil && !$0.isSmartSearchResults && !$0.isSystemCollection }
+        if let inboxLib = InboxManager.shared.inboxLibrary {
+            let collections = store.listCollections(libraryId: inboxLib.id)
+            let rootCollections = collections
+                .filter { $0.parentID == nil && !$0.isSmart }
                 .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
             for collection in rootCollections {
-                nodes.append(makeInboxCollectionNode(collection, depth: 0))
+                let hasChildren = collections.contains { $0.parentID == collection.id }
+                nodes.append(makeInboxCollectionNode(collection, depth: 0, hasChildren: hasChildren, allCollections: collections))
             }
         }
 
         return nodes
     }
 
-    private func makeInboxFeedNode(_ feed: CDSmartSearch) -> ImbibSidebarNode {
+    private func makeInboxFeedNode(_ feed: SmartSearch) -> ImbibSidebarNode {
         let unread = unreadCountForFeed(feed)
         return ImbibSidebarNode(
             id: feed.id,
@@ -313,10 +310,8 @@ final class ImbibSidebarViewModel {
         )
     }
 
-    private func makeInboxCollectionNode(_ collection: CDCollection, depth: Int) -> ImbibSidebarNode {
-        let feeds = fetchInboxFeeds().filter { $0.inboxParentCollection?.id == collection.id }
-        let hasContent = collection.hasChildren || !feeds.isEmpty
-        let count = collection.allPublicationsIncludingDescendants.filter { !$0.isDeleted }.count
+    private func makeInboxCollectionNode(_ collection: CollectionModel, depth: Int, hasChildren: Bool, allCollections: [CollectionModel]) -> ImbibSidebarNode {
+        let count = collection.publicationCount
         return ImbibSidebarNode(
             id: collection.id,
             nodeType: .inboxCollection(collectionID: collection.id),
@@ -324,27 +319,24 @@ final class ImbibSidebarViewModel {
             iconName: "folder",
             displayCount: count > 0 ? count : nil,
             treeDepth: depth,
-            hasTreeChildren: hasContent
+            hasTreeChildren: hasChildren
         )
     }
 
     private func inboxCollectionSubchildren(collectionID: UUID) -> [ImbibSidebarNode] {
-        guard let inboxLib = InboxManager.shared.inboxLibrary,
-              let collection = findInboxCollection(by: collectionID, in: inboxLib) else { return [] }
+        guard let inboxLib = InboxManager.shared.inboxLibrary else { return [] }
+        let allCollections = store.listCollections(libraryId: inboxLib.id)
+        guard allCollections.contains(where: { $0.id == collectionID }) else { return [] }
 
         var nodes: [ImbibSidebarNode] = []
 
-        // Nested feeds
-        let feeds = fetchInboxFeeds().filter { $0.inboxParentCollection?.id == collection.id }
-        for feed in feeds {
-            nodes.append(makeInboxFeedNode(feed))
-        }
-
         // Child collections
-        let children = collection.sortedChildren
-            .filter { !$0.isSmartSearchResults && !$0.isSystemCollection }
+        let children = allCollections
+            .filter { $0.parentID == collectionID && !$0.isSmart }
+            .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
         for child in children {
-            nodes.append(makeInboxCollectionNode(child, depth: child.depth))
+            let hasGrandchildren = allCollections.contains { $0.parentID == child.id }
+            nodes.append(makeInboxCollectionNode(child, depth: 1, hasChildren: hasGrandchildren, allCollections: allCollections))
         }
 
         return nodes
@@ -373,33 +365,44 @@ final class ImbibSidebarViewModel {
     }
 
     private func libraryCollectionChildren(libraryID: UUID) -> [ImbibSidebarNode] {
-        // Fetch via Core Data for now — collections still use CDCollection
-        guard let cdLibrary = fetchCDLibrary(id: libraryID),
-              let collections = cdLibrary.collections as? Set<CDCollection> else { return [] }
-        return Array(collections)
-            .filter { $0.parentCollection == nil }
+        let collections = store.listCollections(libraryId: libraryID)
+        return collections
+            .filter { $0.parentID == nil }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
-            .map { makeLibraryCollectionNode($0, libraryID: libraryID) }
+            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: 0) }
     }
 
     private func collectionSubchildren(collectionID: UUID, libraryID: UUID) -> [ImbibSidebarNode] {
-        guard let cdLibrary = fetchCDLibrary(id: libraryID),
-              let collection = findCollectionInLibrary(by: collectionID, in: cdLibrary) else { return [] }
-        return collection.sortedChildren
-            .map { makeLibraryCollectionNode($0, libraryID: libraryID) }
+        let collections = store.listCollections(libraryId: libraryID)
+        return collections
+            .filter { $0.parentID == collectionID }
+            .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
+            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: depthOf(collectionID, in: collections) + 1) }
     }
 
-    private func makeLibraryCollectionNode(_ collection: CDCollection, libraryID: UUID) -> ImbibSidebarNode {
-        let count = collection.allPublicationsIncludingDescendants.filter { !$0.isDeleted }.count
+    private func makeLibraryCollectionNode(_ collection: CollectionModel, libraryID: UUID, allCollections: [CollectionModel], depth: Int) -> ImbibSidebarNode {
+        let count = collection.publicationCount
+        let hasChildren = allCollections.contains { $0.parentID == collection.id }
         return ImbibSidebarNode(
             id: collection.id,
             nodeType: .libraryCollection(collectionID: collection.id, libraryID: libraryID),
             displayName: collection.name,
-            iconName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder",
+            iconName: collection.isSmart ? "folder.badge.gearshape" : "folder",
             displayCount: count > 0 ? count : nil,
-            treeDepth: collection.depth,
-            hasTreeChildren: collection.hasChildren
+            treeDepth: depth,
+            hasTreeChildren: hasChildren
         )
+    }
+
+    /// Compute depth of a collection by walking the parentID chain.
+    private func depthOf(_ collectionID: UUID, in collections: [CollectionModel]) -> Int {
+        var depth = 0
+        var currentID: UUID? = collectionID
+        while let cid = currentID, let col = collections.first(where: { $0.id == cid }), let pid = col.parentID {
+            depth += 1
+            currentID = pid
+        }
+        return depth
     }
 
     // MARK: Shared With Me
@@ -440,37 +443,35 @@ final class ImbibSidebarViewModel {
     // MARK: Exploration
 
     private func explorationChildren() -> [ImbibSidebarNode] {
-        guard let lib = libraryManager?.explorationLibrary,
-              let cdLib = fetchCDLibrary(id: lib.id) else { return [] }
-        var items: [(order: Int16, node: ImbibSidebarNode)] = []
+        guard let lib = libraryManager?.explorationLibrary else { return [] }
+        var items: [(order: Int, node: ImbibSidebarNode)] = []
 
         // Smart searches
-        if let searches = cdLib.smartSearches {
-            for search in searches {
-                items.append((search.order, ImbibSidebarNode(
-                    id: search.id,
-                    nodeType: .explorationSearch(searchID: search.id),
-                    displayName: search.name,
-                    iconName: "lightbulb"
-                )))
-            }
+        let searches = store.listSmartSearches(libraryId: lib.id)
+        for search in searches {
+            items.append((search.sortOrder, ImbibSidebarNode(
+                id: search.id,
+                nodeType: .explorationSearch(searchID: search.id),
+                displayName: search.name,
+                iconName: "lightbulb"
+            )))
         }
 
         // Collections
-        if let collections = cdLib.collections as? Set<CDCollection> {
-            let rootCollections = Array(collections)
-                .filter { $0.parentCollection == nil && !$0.isSmartSearchResults }
-            for collection in rootCollections {
-                items.append((collection.sortOrder, makeExplorationCollectionNode(collection)))
-            }
+        let collections = store.listCollections(libraryId: lib.id)
+        let rootCollections = collections
+            .filter { $0.parentID == nil && !$0.isSmart }
+        for collection in rootCollections {
+            let hasChildren = collections.contains { $0.parentID == collection.id }
+            items.append((collection.sortOrder, makeExplorationCollectionNode(collection, allCollections: collections, depth: 0, hasChildren: hasChildren)))
         }
 
         items.sort { $0.order != $1.order ? $0.order < $1.order : $0.node.displayName < $1.node.displayName }
         return items.map(\.node)
     }
 
-    private func makeExplorationCollectionNode(_ collection: CDCollection) -> ImbibSidebarNode {
-        let count = collection.matchingPublicationCount
+    private func makeExplorationCollectionNode(_ collection: CollectionModel, allCollections: [CollectionModel], depth: Int, hasChildren: Bool) -> ImbibSidebarNode {
+        let count = collection.publicationCount
         let name = collection.name
         let icon: String
         if name.hasPrefix("Refs:") { icon = "arrow.down.doc" }
@@ -486,18 +487,21 @@ final class ImbibSidebarViewModel {
             displayName: name,
             iconName: icon,
             displayCount: count > 0 ? count : nil,
-            treeDepth: collection.depth,
-            hasTreeChildren: collection.hasChildren
+            treeDepth: depth,
+            hasTreeChildren: hasChildren
         )
     }
 
     private func explorationCollectionSubchildren(collectionID: UUID) -> [ImbibSidebarNode] {
-        guard let lib = libraryManager?.explorationLibrary,
-              let cdLib = fetchCDLibrary(id: lib.id),
-              let collection = findExplorationCollection(by: collectionID, in: cdLib) else { return [] }
-        return collection.sortedChildren
-            .filter { !$0.isSmartSearchResults }
-            .map { makeExplorationCollectionNode($0) }
+        guard let lib = libraryManager?.explorationLibrary else { return [] }
+        let collections = store.listCollections(libraryId: lib.id)
+        return collections
+            .filter { $0.parentID == collectionID && !$0.isSmart }
+            .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
+            .map { child in
+                let hasGrandchildren = collections.contains { $0.parentID == child.id }
+                return makeExplorationCollectionNode(child, allCollections: collections, depth: depthOf(collectionID, in: collections) + 1, hasChildren: hasGrandchildren)
+            }
     }
 
     // MARK: Flagged
@@ -667,7 +671,7 @@ final class ImbibSidebarViewModel {
             bumpDataVersion()
 
         case .section(.scixLibraries):
-            let reordered = siblings.compactMap { node -> CDSciXLibrary? in
+            let reordered = siblings.compactMap { node -> SciXLibrary? in
                 if case .scixLibrary(let id) = node.nodeType {
                     return scixRepository.libraries.first { $0.id == id }
                 }
@@ -686,68 +690,50 @@ final class ImbibSidebarViewModel {
 
     private func reorderCollections(_ collectionIDs: [UUID]) {
         for (index, id) in collectionIDs.enumerated() {
-            if let collection = findCollectionByID(id) {
-                collection.sortOrder = Int16(index)
-            }
+            store.updateIntField(id: id, field: "sort_order", value: Int64(index))
         }
-        try? PersistenceController.shared.viewContext.save()
         bumpDataVersion()
     }
 
     private func reorderExplorationChildren(_ siblings: [ImbibSidebarNode]) {
-        let context = PersistenceController.shared.viewContext
-        guard let lib = libraryManager?.explorationLibrary,
-              let cdLib = fetchCDLibrary(id: lib.id) else { return }
         for (index, node) in siblings.enumerated() {
             switch node.nodeType {
             case .explorationSearch(let searchID):
-                if let search = cdLib.smartSearches?.first(where: { $0.id == searchID }) {
-                    search.order = Int16(index)
-                }
+                store.updateIntField(id: searchID, field: "sort_order", value: Int64(index))
             case .explorationCollection(let colID):
-                if let collection = findCollectionByID(colID) {
-                    collection.sortOrder = Int16(index)
-                }
+                store.updateIntField(id: colID, field: "sort_order", value: Int64(index))
             default:
                 break
             }
         }
-        try? context.save()
         bumpDataVersion()
     }
 
     private func handleReparent(_ node: ImbibSidebarNode, newParent: ImbibSidebarNode?) {
         guard case .libraryCollection(let collectionID, let sourceLibraryID) = node.nodeType else { return }
 
-        let context = PersistenceController.shared.viewContext
-
-        guard let collection = findCollectionByID(collectionID) else { return }
-
         if let newParent = newParent {
             switch newParent.nodeType {
             case .library(let libraryID):
-                // Move to root of library
-                guard let cdLibrary = fetchCDLibrary(id: libraryID) else { return }
-                collection.parentCollection = nil
-                collection.library = cdLibrary
-                try? context.save()
+                // Move to root of library — clear parent, update library association
+                store.updateField(id: collectionID, field: "parent_id", value: nil)
+                if sourceLibraryID != libraryID {
+                    store.updateField(id: collectionID, field: "library_id", value: libraryID.uuidString)
+                }
                 libraryManager?.loadLibraries()
                 bumpDataVersion()
 
             case .libraryCollection(let targetColID, let targetLibID):
-                // Move into target collection
-                guard let targetCollection = findCollectionByID(targetColID) else { return }
-                // Check for circular reference
-                if targetCollection.ancestors.contains(where: { $0.id == collectionID }) { return }
+                // Check for circular reference by walking ancestor chain
                 if targetColID == collectionID { return }
+                let collections = store.listCollections(libraryId: targetLibID)
+                if isAncestor(collectionID, of: targetColID, in: collections) { return }
 
+                // Update parent
+                store.updateField(id: collectionID, field: "parent_id", value: targetColID.uuidString)
                 if sourceLibraryID != targetLibID {
-                    if let cdLibrary = fetchCDLibrary(id: targetLibID) {
-                        collection.library = cdLibrary
-                    }
+                    store.updateField(id: collectionID, field: "library_id", value: targetLibID.uuidString)
                 }
-                collection.parentCollection = targetCollection
-                try? context.save()
                 libraryManager?.loadLibraries()
                 bumpDataVersion()
 
@@ -755,6 +741,18 @@ final class ImbibSidebarViewModel {
                 break
             }
         }
+    }
+
+    /// Check if `ancestorID` is an ancestor of `descendantID` in the collection tree.
+    private func isAncestor(_ ancestorID: UUID, of descendantID: UUID, in collections: [CollectionModel]) -> Bool {
+        var currentID: UUID? = descendantID
+        while let cid = currentID {
+            guard let col = collections.first(where: { $0.id == cid }) else { return false }
+            guard let parentID = col.parentID else { return false }
+            if parentID == ancestorID { return true }
+            currentID = parentID
+        }
+        return false
     }
 
     private func handleExternalDrop(_ pasteboard: NSPasteboard, target: ImbibSidebarNode?) -> Bool {
@@ -817,16 +815,10 @@ final class ImbibSidebarViewModel {
 
         switch target.nodeType {
         case .library(let id):
-            if let cdLibrary = fetchCDLibrary(id: id) {
-                userInfo["library"] = cdLibrary
-            }
+            userInfo["libraryID"] = id
         case .libraryCollection(let colID, let libID):
-            if let cdLibrary = fetchCDLibrary(id: libID) {
-                userInfo["library"] = cdLibrary
-            }
-            if let collection = findCollectionByID(colID) {
-                userInfo["collection"] = collection
-            }
+            userInfo["libraryID"] = libID
+            userInfo["collectionID"] = colID
         default:
             break
         }
@@ -849,39 +841,20 @@ final class ImbibSidebarViewModel {
     }
 
     private func handlePublicationDrop(_ uuids: [UUID], onto target: ImbibSidebarNode) async {
-        let context = PersistenceController.shared.viewContext
-
         switch target.nodeType {
         case .library(let libraryID):
-            guard let cdLibrary = fetchCDLibrary(id: libraryID) else { return }
-            await context.perform {
-                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-                request.predicate = NSPredicate(format: "id IN %@", uuids)
-                guard let publications = try? context.fetch(request) else { return }
-                for pub in publications {
-                    pub.addToLibrary(cdLibrary)
-                }
-                try? context.save()
-            }
+            // Move publications to the target library
+            store.movePublications(ids: uuids, toLibraryId: libraryID)
+            bumpDataVersion()
 
-        case .libraryCollection(let collectionID, _):
-            guard let collection = findCollectionByID(collectionID),
-                  !collection.isSmartCollection else { return }
-            await context.perform {
-                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-                request.predicate = NSPredicate(format: "id IN %@", uuids)
-                guard let publications = try? context.fetch(request) else { return }
-                var current = collection.publications ?? []
-                let collectionLibrary = collection.effectiveLibrary
-                for pub in publications {
-                    current.insert(pub)
-                    if let library = collectionLibrary {
-                        pub.addToLibrary(library)
-                    }
-                }
-                collection.publications = current
-                try? context.save()
-            }
+        case .libraryCollection(let collectionID, let libraryID):
+            // Check if collection is not smart
+            let collections = store.listCollections(libraryId: libraryID)
+            guard let collection = collections.first(where: { $0.id == collectionID }),
+                  !collection.isSmart else { return }
+            // Add publications to collection (also ensures they're in the library)
+            store.addToCollection(publicationIds: uuids, collectionId: collectionID)
+            bumpDataVersion()
 
         default:
             break
@@ -894,7 +867,7 @@ final class ImbibSidebarViewModel {
     private func resolveSelectedTab() {
         guard let id = selectedNodeID else {
             selectedTab = nil
-            ExplorationService.shared.currentExplorationContext = nil
+            ExplorationService.shared.currentExplorationCollectionID = nil
             return
         }
 
@@ -905,13 +878,9 @@ final class ImbibSidebarViewModel {
 
         // Set exploration context
         if case .explorationCollection(let colID) = node.nodeType {
-            if let explorationLib = libraryManager?.explorationLibrary,
-               let cdLib = fetchCDLibrary(id: explorationLib.id),
-               let collection = findExplorationCollection(by: colID, in: cdLib) {
-                ExplorationService.shared.currentExplorationContext = collection
-            }
+            ExplorationService.shared.currentExplorationCollectionID = colID
         } else {
-            ExplorationService.shared.currentExplorationContext = nil
+            ExplorationService.shared.currentExplorationCollectionID = nil
         }
     }
 
@@ -927,11 +896,8 @@ final class ImbibSidebarViewModel {
             bumpDataVersion()
 
         case .libraryCollection(let colID, _), .inboxCollection(collectionID: let colID):
-            if let collection = findCollectionByID(colID) {
-                collection.name = trimmed
-                try? collection.managedObjectContext?.save()
-                bumpDataVersion()
-            }
+            store.updateField(id: colID, field: "name", value: trimmed)
+            bumpDataVersion()
 
         default:
             break
@@ -1051,9 +1017,10 @@ final class ImbibSidebarViewModel {
     }
 
     private func buildCollectionContextMenu(_ menu: NSMenu, collectionID: UUID, libraryID: UUID) {
-        guard let collection = findCollectionByID(collectionID) else { return }
+        let collections = store.listCollections(libraryId: libraryID)
+        guard let collection = collections.first(where: { $0.id == collectionID }) else { return }
 
-        if !collection.isSmartCollection {
+        if !collection.isSmart {
             let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
             renameItem.target = ContextMenuActions.shared
             renameItem.representedObject = collectionID
@@ -1175,14 +1142,6 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Lookup Helpers
 
-    /// Bridge from LibraryModel to CDLibrary when needed for Core Data operations.
-    func fetchCDLibrary(id: UUID) -> CDLibrary? {
-        let request = NSFetchRequest<CDLibrary>(entityName: "Library")
-        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        request.fetchLimit = 1
-        return try? PersistenceController.shared.viewContext.fetch(request).first
-    }
-
     private func findNode(_ id: UUID) -> ImbibSidebarNode? {
         func search(in nodes: [ImbibSidebarNode]) -> ImbibSidebarNode? {
             for node in nodes {
@@ -1194,76 +1153,79 @@ final class ImbibSidebarViewModel {
         return search(in: buildSectionNodes())
     }
 
-    private func findCollectionByID(_ id: UUID) -> CDCollection? {
+    /// Find a collection by ID across all libraries.
+    private func findCollectionModel(_ id: UUID) -> CollectionModel? {
         guard let manager = libraryManager else { return nil }
-        // Search all libraries (including inbox and exploration) for the collection
+        // Search all libraries
         for library in manager.libraries {
-            if let cdLibrary = fetchCDLibrary(id: library.id),
-               let found = findCollectionInLibrary(by: id, in: cdLibrary) {
+            let collections = store.listCollections(libraryId: library.id)
+            if let found = collections.first(where: { $0.id == id }) {
                 return found
             }
         }
-        // Also check inbox library
-        if let inboxLib = InboxManager.shared.inboxLibrary,
-           let found = findCollectionInLibrary(by: id, in: inboxLib) {
-            return found
+        // Check inbox library
+        if let inboxLib = InboxManager.shared.inboxLibrary {
+            let collections = store.listCollections(libraryId: inboxLib.id)
+            if let found = collections.first(where: { $0.id == id }) {
+                return found
+            }
         }
-        // Also check exploration library
-        if let explorationLib = manager.explorationLibrary,
-           let cdLibrary = fetchCDLibrary(id: explorationLib.id),
-           let found = findCollectionInLibrary(by: id, in: cdLibrary) {
-            return found
+        // Check exploration library
+        if let explorationLib = manager.explorationLibrary {
+            let collections = store.listCollections(libraryId: explorationLib.id)
+            if let found = collections.first(where: { $0.id == id }) {
+                return found
+            }
         }
         return nil
     }
 
-    private func findCollectionInLibrary(by id: UUID, in library: CDLibrary) -> CDCollection? {
-        guard let collections = library.collections as? Set<CDCollection> else { return nil }
-        func findRecursive(in cols: Set<CDCollection>) -> CDCollection? {
-            for col in cols {
-                if col.id == id { return col }
-                if let children = col.childCollections, !children.isEmpty {
-                    if let found = findRecursive(in: children) { return found }
-                }
+    /// Find the library ID that contains a given collection.
+    private func findLibraryIDForCollection(_ collectionID: UUID) -> UUID? {
+        guard let manager = libraryManager else { return nil }
+        for library in manager.libraries {
+            let collections = store.listCollections(libraryId: library.id)
+            if collections.contains(where: { $0.id == collectionID }) {
+                return library.id
             }
-            return nil
         }
-        return findRecursive(in: collections)
-    }
-
-    private func findInboxCollection(by id: UUID, in library: CDLibrary) -> CDCollection? {
-        findCollectionInLibrary(by: id, in: library)
-    }
-
-    private func findExplorationCollection(by id: UUID, in library: CDLibrary) -> CDCollection? {
-        findCollectionInLibrary(by: id, in: library)
-    }
-
-    private func explorationHasContent(_ library: CDLibrary) -> Bool {
-        let hasSearches = library.smartSearches?.isEmpty == false
-        let hasCollections: Bool
-        if let collections = library.collections as? Set<CDCollection> {
-            hasCollections = collections.contains { !$0.isSmartSearchResults }
-        } else {
-            hasCollections = false
+        if let inboxLib = InboxManager.shared.inboxLibrary {
+            let collections = store.listCollections(libraryId: inboxLib.id)
+            if collections.contains(where: { $0.id == collectionID }) {
+                return inboxLib.id
+            }
         }
+        if let explorationLib = manager.explorationLibrary {
+            let collections = store.listCollections(libraryId: explorationLib.id)
+            if collections.contains(where: { $0.id == collectionID }) {
+                return explorationLib.id
+            }
+        }
+        return nil
+    }
+
+    private func explorationHasContent(libraryID: UUID) -> Bool {
+        let searches = store.listSmartSearches(libraryId: libraryID)
+        let hasSearches = !searches.isEmpty
+        let collections = store.listCollections(libraryId: libraryID)
+        let hasCollections = collections.contains { !$0.isSmart }
         return hasSearches || hasCollections
     }
 
-    private func fetchInboxFeeds() -> [CDSmartSearch] {
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-        request.sortDescriptors = [
-            NSSortDescriptor(key: "order", ascending: true),
-            NSSortDescriptor(key: "name", ascending: true)
-        ]
-        return (try? PersistenceController.shared.viewContext.fetch(request)) ?? []
+    private func fetchInboxFeeds() -> [SmartSearch] {
+        // Fetch all smart searches that feed to inbox
+        let allSearches = store.listSmartSearches()
+        return allSearches
+            .filter { $0.feedsToInbox }
+            .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
     }
 
-    private func unreadCountForFeed(_ feed: CDSmartSearch) -> Int {
-        guard let collection = feed.resultCollection,
-              let publications = collection.publications else { return 0 }
-        return publications.filter { !$0.isRead && !$0.isDeleted }.count
+    private func unreadCountForFeed(_ feed: SmartSearch) -> Int {
+        // Count unread publications in the feed's library scope
+        // Smart searches that feed to inbox store results as collection members
+        // Use the feed's library ID to count unread
+        guard let libraryID = feed.libraryID else { return 0 }
+        return store.countUnread(parentId: libraryID)
     }
 
     // MARK: - Creation Helpers
@@ -1278,25 +1240,18 @@ final class ImbibSidebarViewModel {
         }
     }
 
-    func createCollection(in libraryID: UUID, parent: CDCollection? = nil) {
-        guard let cdLibrary = fetchCDLibrary(id: libraryID) else { return }
-        let context = cdLibrary.managedObjectContext ?? PersistenceController.shared.viewContext
-        let collection = CDCollection(context: context)
-        collection.id = UUID()
-        collection.name = parent != nil ? "New Subcollection" : "New Collection"
-        collection.isSmartCollection = false
-        collection.library = cdLibrary
-        collection.parentCollection = parent
+    func createCollection(in libraryID: UUID, parentID: UUID? = nil) {
+        let name = parentID != nil ? "New Subcollection" : "New Collection"
+        guard let collection = store.createCollection(name: name, libraryId: libraryID) else { return }
 
-        try? context.save()
-        libraryManager?.loadLibraries()
-
-        // Expand parent so child is visible
-        if let parent = parent {
-            expansionState.expand(parent.id)
+        // If there's a parent, update the parent_id field
+        if let parentID = parentID {
+            store.updateField(id: collection.id, field: "parent_id", value: parentID.uuidString)
+            expansionState.expand(parentID)
         }
         expansionState.expand(libraryID)
 
+        libraryManager?.loadLibraries()
         bumpDataVersion()
 
         // Trigger inline rename
@@ -1305,19 +1260,14 @@ final class ImbibSidebarViewModel {
         }
     }
 
-    func createInboxCollection(parent: CDCollection? = nil) {
+    func createInboxCollection(parentID: UUID? = nil) {
         guard let inboxLib = InboxManager.shared.inboxLibrary else { return }
-        let context = inboxLib.managedObjectContext ?? PersistenceController.shared.viewContext
-        let collection = CDCollection(context: context)
-        collection.id = UUID()
-        collection.name = parent != nil ? "New Subcollection" : "New Collection"
-        collection.isSmartCollection = false
-        collection.library = inboxLib
-        collection.parentCollection = parent
-        try? context.save()
+        let name = parentID != nil ? "New Subcollection" : "New Collection"
+        guard let collection = store.createCollection(name: name, libraryId: inboxLib.id) else { return }
 
-        if let parent = parent {
-            expansionState.expand(parent.id)
+        if let parentID = parentID {
+            store.updateField(id: collection.id, field: "parent_id", value: parentID.uuidString)
+            expansionState.expand(parentID)
         }
 
         bumpDataVersion()
@@ -1328,8 +1278,6 @@ final class ImbibSidebarViewModel {
     }
 
     func deleteCollection(_ collectionID: UUID) {
-        guard let collection = findCollectionByID(collectionID) else { return }
-
         // Clear selection if this collection is selected (didSet resolves selectedTab)
         switch selectedTab {
         case .collection(let id) where id == collectionID,
@@ -1340,15 +1288,12 @@ final class ImbibSidebarViewModel {
             break
         }
 
-        let context = collection.managedObjectContext ?? PersistenceController.shared.viewContext
-        context.delete(collection)
-        try? context.save()
+        store.deleteItem(id: collectionID)
         libraryManager?.loadLibraries()
         bumpDataVersion()
     }
 
     func deleteExplorationCollection(_ collectionID: UUID) {
-        guard findCollectionByID(collectionID) != nil else { return }
         if case .explorationCollection(let id) = selectedTab, id == collectionID {
             selectedNodeID = nil
         }
@@ -1403,20 +1348,18 @@ final class ImbibSidebarViewModel {
     }
 
     func exportLibrary(_ libraryID: UUID) {
-        guard let cdLibrary = fetchCDLibrary(id: libraryID) else { return }
         NotificationCenter.default.post(
             name: .showUnifiedExport,
             object: nil,
-            userInfo: ["library": cdLibrary]
+            userInfo: ["libraryID": libraryID]
         )
     }
 
     func importToLibrary(_ libraryID: UUID) {
-        guard let cdLibrary = fetchCDLibrary(id: libraryID) else { return }
         NotificationCenter.default.post(
             name: .showUnifiedImport,
             object: nil,
-            userInfo: ["library": cdLibrary]
+            userInfo: ["libraryID": libraryID]
         )
     }
 }
@@ -1459,14 +1402,12 @@ final class ContextMenuActions: NSObject {
         guard let info = sender.representedObject as? [String: UUID],
               let libraryID = info["libraryID"],
               let collectionID = info["collectionID"] else { return }
-        let collection = viewModel?.findCollectionByIDPublic(collectionID)
-        viewModel?.createCollection(in: libraryID, parent: collection)
+        viewModel?.createCollection(in: libraryID, parentID: collectionID)
     }
 
     @objc func createInboxSubcollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
-        let parent = viewModel?.findCollectionByIDPublic(collectionID)
-        viewModel?.createInboxCollection(parent: parent)
+        viewModel?.createInboxCollection(parentID: collectionID)
     }
 
     @objc func deleteLibrary(_ sender: NSMenuItem) {
@@ -1496,17 +1437,16 @@ final class ContextMenuActions: NSObject {
 
     @objc func shareLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID,
-              let cdLibrary = viewModel?.fetchCDLibrary(id: libraryID) else { return }
-        // Dispatch async so SwiftUI processes the sheet after NSMenu's event loop exits
+              let library = RustStoreAdapter.shared.getLibrary(id: libraryID) else { return }
         let vm = viewModel
         DispatchQueue.main.async {
-            vm?.itemToShareViaICloud = .library(cdLibrary)
+            vm?.itemToShareViaICloud = .library(library)
         }
     }
 
     @objc func shareCollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID,
-              let collection = viewModel?.findCollectionByIDPublic(collectionID) else { return }
+              let collection = viewModel?.findCollectionModelPublic(collectionID) else { return }
         let vm = viewModel
         DispatchQueue.main.async {
             vm?.itemToShareViaICloud = .collection(collection)
@@ -1541,9 +1481,9 @@ final class ContextMenuActions: NSObject {
 // MARK: - Public Lookup
 
 extension ImbibSidebarViewModel {
-    /// Public wrapper for findCollectionByID, used by ContextMenuActions
-    func findCollectionByIDPublic(_ id: UUID) -> CDCollection? {
-        findCollectionByID(id)
+    /// Public wrapper for findCollectionModel, used by ContextMenuActions
+    func findCollectionModelPublic(_ id: UUID) -> CollectionModel? {
+        findCollectionModel(id)
     }
 }
 #endif

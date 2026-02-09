@@ -248,8 +248,8 @@ class PDFBrowserWebView: WKWebView {
         // Fall back to publication info if available
         if let pub = viewModel?.publication {
             let author = pub.authorString.split(separator: ",").first.map(String.init) ?? "Unknown"
-            let year = pub.year > 0 ? "\(pub.year)" : "NoYear"
-            let titleWord = pub.title?.split(separator: " ").first.map(String.init) ?? "Document"
+            let year = (pub.year ?? 0) > 0 ? "\(pub.year!)" : "NoYear"
+            let titleWord = pub.title.split(separator: " ").first.map(String.init) ?? "Document"
             return "\(author)_\(year)_\(titleWord).pdf"
         }
 
@@ -1225,8 +1225,8 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             let pub = viewModel.publication
             let authorStr = pub.authorString
             let author = authorStr.split(separator: ",").first.map(String.init) ?? "Unknown"
-            let year = pub.year > 0 ? "\(pub.year)" : "NoYear"
-            let titleWord = pub.title?.split(separator: " ").first.map(String.init) ?? "Document"
+            let year = (pub.year ?? 0) > 0 ? "\(pub.year!)" : "NoYear"
+            let titleWord = pub.title.split(separator: " ").first.map(String.init) ?? "Document"
 
             return "\(author)_\(year)_\(titleWord)\(suffix).pdf"
         }
@@ -1546,7 +1546,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 #if DEBUG
 struct MacPDFBrowserView_Previews: PreviewProvider {
     static var previews: some View {
-        Text("MacPDFBrowserView requires CDPublication")
+        Text("MacPDFBrowserView requires PublicationModel")
             .frame(width: 800, height: 600)
     }
 }

@@ -430,10 +430,10 @@ struct ContentView: View {
             if entry.isDuplicate { continue }
             switch entry.source {
             case .bibtex(let bibtex):
-                newBibTeXStrings.append(bibtex.rawBibTeX ?? bibtex.toBibTeXString())
+                newBibTeXStrings.append(bibtex.rawBibTeX ?? BibTeXExporter().export(bibtex))
             case .ris(let ris):
                 let bibtex = RISBibTeXConverter.toBibTeX(ris)
-                newBibTeXStrings.append(bibtex.rawBibTeX ?? bibtex.toBibTeXString())
+                newBibTeXStrings.append(bibtex.rawBibTeX ?? BibTeXExporter().export(bibtex))
             }
         }
 
@@ -605,14 +605,18 @@ struct ImportExportHandlersModifier: ViewModifier {
             }
             // Unified Import/Export handlers
             .onReceive(NotificationCenter.default.publisher(for: .showUnifiedExport)) { notification in
-                if let libraryID = notification.userInfo?["libraryID"] as? UUID {
-                    unifiedExportData = UnifiedExportData(scope: .libraryID(libraryID))
+                let store = RustStoreAdapter.shared
+                if let libraryID = notification.userInfo?["libraryID"] as? UUID,
+                   let lib = libraryManager.libraries.first(where: { $0.id == libraryID }) {
+                    let count = store.queryPublications(parentId: libraryID).count
+                    unifiedExportData = UnifiedExportData(scope: .library(libraryID, lib.name, count))
                 } else if let publicationIDs = notification.userInfo?["publicationIDs"] as? [UUID], !publicationIDs.isEmpty {
-                    unifiedExportData = UnifiedExportData(scope: .selectionIDs(publicationIDs))
+                    unifiedExportData = UnifiedExportData(scope: .selection(publicationIDs))
                 } else if !selectedPublications.isEmpty {
-                    unifiedExportData = UnifiedExportData(scope: .selectionIDs(selectedPublications.map(\.id)))
+                    unifiedExportData = UnifiedExportData(scope: .selection(selectedPublications.map(\.id)))
                 } else if let activeLibraryModel = libraryManager.activeLibrary {
-                    unifiedExportData = UnifiedExportData(scope: .libraryID(activeLibraryModel.id))
+                    let count = store.queryPublications(parentId: activeLibraryModel.id).count
+                    unifiedExportData = UnifiedExportData(scope: .library(activeLibraryModel.id, activeLibraryModel.name, count))
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showUnifiedImport)) { notification in

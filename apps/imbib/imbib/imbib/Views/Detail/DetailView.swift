@@ -80,6 +80,13 @@ struct DetailView: View {
         libraryManager.activeLibrary?.id
     }
 
+    /// The full publication model (fetched from Rust store by UUID).
+    /// Returns nil for non-library papers (search results, etc.).
+    private var publication: PublicationModel? {
+        guard let id = publicationID else { return nil }
+        return RustStoreAdapter.shared.getPublicationDetail(id: id)
+    }
+
     // MARK: - Initialization
 
     init(paper: any PaperRepresentable, publicationID: UUID? = nil, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
@@ -124,15 +131,15 @@ struct DetailView: View {
             Group {
                 switch selectedTab {
                 case .info:
-                    InfoTab(paper: paper, publication: publication)
+                    InfoTab(paper: paper, publicationID: publicationID)
                         .onAppear {
                             let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
                             logger.info("DetailView.body -> InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
                         }
                 case .bibtex:
-                    BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
+                    BibTeXTab(paper: paper, publicationID: publicationID, publicationIDs: publicationID.map { [$0] } ?? [])
                 case .pdf:
-                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
+                    PDFTab(paper: paper, publicationID: publicationID, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
                 case .notes:
                     if let pub = publication {
                         NotesTab(publication: pub)
@@ -149,14 +156,13 @@ struct DetailView: View {
         .navigationTitle(paper.title)
         #endif
         // macOS: No navigation title - clean Apple Mail/Notes style
-        .task(id: publication?.id) {
+        .task(id: publicationID) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
 
             // Auto-enrich on view if needed (for ref/cite counts and other metadata)
-            // Check isDeleted to avoid crash when viewing a publication that was just deleted
-            if let pub = publication, !pub.isDeleted, pub.needsEnrichment {
-                await EnrichmentCoordinator.shared.queueForEnrichment(pub, priority: .recentlyViewed)
+            if let pubID = publicationID {
+                await EnrichmentCoordinator.shared.queueForEnrichment(publicationID: pubID, priority: .recentlyViewed)
             }
         }
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
@@ -199,8 +205,8 @@ struct DetailView: View {
         }
         // File drop support - allows dropping files to attach them to the publication
         .modifier(FileDropModifier(
-            publication: publication,
-            library: owningLibrary,
+            publicationID: publicationID,
+            libraryID: owningLibraryID,
             handler: dropHandler,
             isTargeted: $isDropTargeted,
             onPDFImported: {
@@ -215,14 +221,13 @@ struct DetailView: View {
     // MARK: - Auto-Mark as Read
 
     private func autoMarkAsRead() async {
-        // Check isDeleted to avoid crash when publication was just deleted
-        guard let pub = publication, !pub.isDeleted, !pub.isRead else { return }
+        guard let pub = publication, !pub.isRead else { return }
 
         // Wait 1 second before marking as read (like Mail)
         do {
             try await Task.sleep(for: .seconds(1))
             // Re-check after sleep in case publication was deleted while waiting
-            guard !pub.isDeleted else { return }
+            guard publication != nil else { return }
             await viewModel.markAsRead(id: pub.id)
             logger.debug("Auto-marked as read: \(pub.citeKey)")
         } catch {
@@ -295,8 +300,8 @@ struct DetailView: View {
 /// View modifier that enables file drop support on the detail view.
 /// Dropped files become attachments; PDFs become the preferred PDF.
 private struct FileDropModifier: ViewModifier {
-    let publication: CDPublication?
-    let library: CDLibrary?
+    let publicationID: UUID?
+    let libraryID: UUID?
     var handler: FileDropHandler
     @Binding var isTargeted: Bool
     var onPDFImported: (() -> Void)?
@@ -308,8 +313,8 @@ private struct FileDropModifier: ViewModifier {
         return content
             .overlay(dropOverlay)
             .modifier(FileDropTargetModifier(
-                publication: publication,
-                library: library,
+                publicationID: publicationID,
+                libraryID: libraryID,
                 handler: handler,
                 isTargeted: $isTargeted
             ))
@@ -362,20 +367,20 @@ private struct FileDropModifier: ViewModifier {
 
 /// Helper modifier for applying the file drop target
 private struct FileDropTargetModifier: ViewModifier {
-    let publication: CDPublication?
-    let library: CDLibrary?
+    let publicationID: UUID?
+    let libraryID: UUID?
     var handler: FileDropHandler
     @Binding var isTargeted: Bool
 
     func body(content: Content) -> some View {
-        if let pub = publication {
+        if let pubID = publicationID {
             content
                 .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: $isTargeted) { providers in
                     Task { @MainActor in
                         await handler.handleDrop(
                             providers: providers,
-                            for: pub.id,
-                            in: library?.id
+                            for: pubID,
+                            in: libraryID
                         )
                     }
                     return true
@@ -389,31 +394,10 @@ private struct FileDropTargetModifier: ViewModifier {
 // MARK: - Preview
 
 #Preview {
-    // Create a sample CDPublication for preview
-    let publication = PersistenceController.preview.viewContext.performAndWait {
-        let pub = CDPublication(context: PersistenceController.preview.viewContext)
-        pub.id = UUID()
-        pub.citeKey = "Smith2024Deep"
-        pub.entryType = "inproceedings"
-        pub.title = "Deep Learning for Natural Language Processing"
-        pub.year = 2024
-        pub.dateAdded = Date()
-        pub.dateModified = Date()
-        pub.abstract = "This paper presents a novel approach to natural language processing using deep learning techniques..."
-
-        var fields: [String: String] = [:]
-        fields["author"] = "Smith, John and Doe, Jane and Wilson, Bob"
-        fields["booktitle"] = "Conference on Machine Learning"
-        fields["doi"] = "10.1234/example.2024.001"
-        pub.fields = fields
-
-        return pub
-    }
-
-    let libraryID = UUID()
-
     NavigationStack {
-        DetailView(publication: publication, libraryID: libraryID, selectedTab: .constant(.info))
+        // Preview requires a real publication ID from the store; use a placeholder
+        Text("DetailView preview requires RustStoreAdapter data")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .environment(LibraryViewModel())
     .environment(LibraryManager())
