@@ -234,6 +234,21 @@ pub struct ActivityRecordRow {
     pub library_id: String,
 }
 
+/// Operation record for provenance display.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct OperationRow {
+    pub id: String,
+    pub target_id: String,
+    pub op_type: String,
+    pub intent: String,
+    pub reason: Option<String>,
+    pub author: String,
+    pub date: i64,
+    pub logical_clock: u64,
+    pub batch_id: Option<String>,
+}
+
 /// Tag definition with publication count for settings/management.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -312,7 +327,7 @@ pub fn item_to_bibliography_row(
         venue: get_str(payload, "venue"),
         note: get_str(payload, "note"),
         date_added: item.created.timestamp_millis(),
-        date_modified: item.modified.timestamp_millis(),
+        date_modified: item.created.timestamp_millis(),
         primary_category: primary_class,
         categories,
         tags,
@@ -412,7 +427,7 @@ pub fn item_to_publication_detail(
         tags,
         authors,
         date_added: item.created.timestamp_millis(),
-        date_modified: item.modified.timestamp_millis(),
+        date_modified: item.created.timestamp_millis(),
         linked_files,
         citation_count: get_i64(payload, "citation_count").unwrap_or(0) as i32,
         reference_count: get_i64(payload, "reference_count").unwrap_or(0) as i32,
@@ -553,7 +568,7 @@ pub fn item_to_annotation_row(item: &Item) -> AnnotationRow {
         selected_text: get_str(payload, "selected_text"),
         author_name: get_str(payload, "author_name"),
         date_created: item.created.timestamp_millis(),
-        date_modified: item.modified.timestamp_millis(),
+        date_modified: item.created.timestamp_millis(),
         linked_file_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
     }
 }
@@ -567,7 +582,7 @@ pub fn item_to_comment_row(item: &Item) -> CommentRow {
         author_identifier: get_str(payload, "author_identifier"),
         author_display_name: get_str(payload, "author_display_name"),
         date_created: item.created.timestamp_millis(),
-        date_modified: item.modified.timestamp_millis(),
+        date_modified: item.created.timestamp_millis(),
         parent_comment_id: get_str(payload, "parent_comment_id"),
         publication_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
     }
@@ -600,6 +615,22 @@ pub fn item_to_activity_record_row(item: &Item) -> ActivityRecordRow {
         date: item.created.timestamp_millis(),
         detail: get_str(payload, "detail"),
         library_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
+    }
+}
+
+/// Convert a core/operation Item into an OperationRow.
+pub fn item_to_operation_row(item: &Item) -> OperationRow {
+    let payload = &item.payload;
+    OperationRow {
+        id: item.id.to_string(),
+        target_id: get_str(payload, "target_id").unwrap_or_default(),
+        op_type: get_str(payload, "op_type").unwrap_or_default(),
+        intent: get_str(payload, "intent").unwrap_or_else(|| "routine".into()),
+        reason: get_str(payload, "reason"),
+        author: item.author.clone(),
+        date: item.created.timestamp_millis(),
+        logical_clock: item.logical_clock,
+        batch_id: item.batch_id.clone(),
     }
 }
 

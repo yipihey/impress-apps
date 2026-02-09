@@ -4,7 +4,7 @@ use impress_core::schema::{FieldDef, FieldType, Schema};
 /// Schema for bibliography entries (maps to CDPublication / Publication).
 pub fn bibliography_entry_schema() -> Schema {
     Schema {
-        id: "bibliography-entry".into(),
+        id: "imbib/bibliography-entry".into(),
         name: "Bibliography Entry".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -66,7 +66,7 @@ pub fn bibliography_entry_schema() -> Schema {
 /// Schema for libraries (maps to CDLibrary).
 pub fn library_schema() -> Schema {
     Schema {
-        id: "library".into(),
+        id: "imbib/library".into(),
         name: "Library".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -85,7 +85,7 @@ pub fn library_schema() -> Schema {
 /// Schema for collections (maps to CDCollection).
 pub fn collection_schema() -> Schema {
     Schema {
-        id: "collection".into(),
+        id: "imbib/collection".into(),
         name: "Collection".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -102,7 +102,7 @@ pub fn collection_schema() -> Schema {
 /// Schema for tag definitions (maps to CDTag).
 pub fn tag_definition_schema() -> Schema {
     Schema {
-        id: "tag-definition".into(),
+        id: "imbib/tag-definition".into(),
         name: "Tag Definition".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -121,7 +121,7 @@ pub fn tag_definition_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn linked_file_schema() -> Schema {
     Schema {
-        id: "linked-file".into(),
+        id: "imbib/linked-file".into(),
         name: "Linked File".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -145,7 +145,7 @@ pub fn linked_file_schema() -> Schema {
 /// Parent: library item.
 pub fn smart_search_schema() -> Schema {
     Schema {
-        id: "smart-search".into(),
+        id: "imbib/smart-search".into(),
         name: "Smart Search".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -168,7 +168,7 @@ pub fn smart_search_schema() -> Schema {
 /// Schema for muted items — authors/venues/categories to hide from inbox (maps to CDMutedItem).
 pub fn muted_item_schema() -> Schema {
     Schema {
-        id: "muted-item".into(),
+        id: "imbib/muted-item".into(),
         name: "Muted Item".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -183,7 +183,7 @@ pub fn muted_item_schema() -> Schema {
 /// Schema for dismissed papers — papers explicitly dismissed from inbox (maps to CDDismissedPaper).
 pub fn dismissed_paper_schema() -> Schema {
     Schema {
-        id: "dismissed-paper".into(),
+        id: "imbib/dismissed-paper".into(),
         name: "Dismissed Paper".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -199,7 +199,7 @@ pub fn dismissed_paper_schema() -> Schema {
 /// Schema for SciX (ADS) remote libraries (maps to CDSciXLibrary).
 pub fn scix_library_schema() -> Schema {
     Schema {
-        id: "scix-library".into(),
+        id: "imbib/scix-library".into(),
         name: "SciX Library".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -224,7 +224,7 @@ pub fn scix_library_schema() -> Schema {
 /// Parent: linked-file item.
 pub fn annotation_schema() -> Schema {
     Schema {
-        id: "annotation".into(),
+        id: "imbib/annotation".into(),
         name: "Annotation".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -246,7 +246,7 @@ pub fn annotation_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn comment_schema() -> Schema {
     Schema {
-        id: "comment".into(),
+        id: "imbib/comment".into(),
         name: "Comment".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -265,7 +265,7 @@ pub fn comment_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn assignment_schema() -> Schema {
     Schema {
-        id: "assignment".into(),
+        id: "imbib/assignment".into(),
         name: "Assignment".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -283,7 +283,7 @@ pub fn assignment_schema() -> Schema {
 /// Parent: library item.
 pub fn activity_record_schema() -> Schema {
     Schema {
-        id: "activity-record".into(),
+        id: "imbib/activity-record".into(),
         name: "Activity Record".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -302,7 +302,7 @@ pub fn activity_record_schema() -> Schema {
 /// Parent: library item.
 pub fn recommendation_profile_schema() -> Schema {
     Schema {
-        id: "recommendation-profile".into(),
+        id: "imbib/recommendation-profile".into(),
         name: "Recommendation Profile".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -312,6 +312,24 @@ pub fn recommendation_profile_schema() -> Schema {
             optional_string("training_events_json"),
         ],
         expected_edges: vec![],
+        inherits: None,
+    }
+}
+
+/// Schema for operations — records of mutations applied to items.
+pub fn core_operation_schema() -> Schema {
+    Schema {
+        id: "core/operation".into(),
+        name: "Operation".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            required_string("target_id"),
+            required_string("op_type"),
+            required_string("intent"),
+            field("op_data", FieldType::Object, false),
+            optional_string("reason"),
+        ],
+        expected_edges: vec![EdgeType::OperatesOn],
         inherits: None,
     }
 }
@@ -360,6 +378,9 @@ pub fn register_all(registry: &mut impress_core::SchemaRegistry) {
     registry
         .register(recommendation_profile_schema())
         .expect("recommendation-profile schema registration");
+    registry
+        .register(core_operation_schema())
+        .expect("core/operation schema registration");
 }
 
 fn required_string(name: &str) -> FieldDef {
@@ -407,20 +428,21 @@ mod tests {
     fn register_all_schemas() {
         let mut reg = SchemaRegistry::new();
         register_all(&mut reg);
-        assert!(reg.get("bibliography-entry").is_some());
-        assert!(reg.get("library").is_some());
-        assert!(reg.get("collection").is_some());
-        assert!(reg.get("tag-definition").is_some());
-        assert!(reg.get("linked-file").is_some());
-        assert!(reg.get("smart-search").is_some());
-        assert!(reg.get("muted-item").is_some());
-        assert!(reg.get("dismissed-paper").is_some());
-        assert!(reg.get("scix-library").is_some());
-        assert!(reg.get("annotation").is_some());
-        assert!(reg.get("comment").is_some());
-        assert!(reg.get("assignment").is_some());
-        assert!(reg.get("activity-record").is_some());
-        assert!(reg.get("recommendation-profile").is_some());
+        assert!(reg.get("imbib/bibliography-entry").is_some());
+        assert!(reg.get("imbib/library").is_some());
+        assert!(reg.get("imbib/collection").is_some());
+        assert!(reg.get("imbib/tag-definition").is_some());
+        assert!(reg.get("imbib/linked-file").is_some());
+        assert!(reg.get("imbib/smart-search").is_some());
+        assert!(reg.get("imbib/muted-item").is_some());
+        assert!(reg.get("imbib/dismissed-paper").is_some());
+        assert!(reg.get("imbib/scix-library").is_some());
+        assert!(reg.get("imbib/annotation").is_some());
+        assert!(reg.get("imbib/comment").is_some());
+        assert!(reg.get("imbib/assignment").is_some());
+        assert!(reg.get("imbib/activity-record").is_some());
+        assert!(reg.get("imbib/recommendation-profile").is_some());
+        assert!(reg.get("core/operation").is_some());
     }
 
     #[test]

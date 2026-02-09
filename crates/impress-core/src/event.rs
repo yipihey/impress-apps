@@ -12,6 +12,10 @@ pub enum ItemEvent {
         mutations: Vec<FieldMutation>,
     },
     Deleted(ItemId),
+    OperationApplied {
+        operation_id: ItemId,
+        target_id: ItemId,
+    },
 }
 
 #[cfg(test)]
@@ -26,6 +30,10 @@ mod tests {
             ItemEvent::Updated {
                 id: Uuid::new_v4(),
                 mutations: vec![FieldMutation::SetRead(true)],
+            },
+            ItemEvent::OperationApplied {
+                operation_id: Uuid::new_v4(),
+                target_id: Uuid::new_v4(),
             },
         ];
         for e in &events {

@@ -1,5 +1,6 @@
 pub mod event;
 pub mod item;
+pub mod operation;
 pub mod query;
 pub mod reference;
 pub mod registry;
@@ -13,6 +14,7 @@ pub mod sqlite_store;
 
 pub use event::*;
 pub use item::*;
+pub use operation::*;
 pub use query::*;
 pub use reference::*;
 pub use registry::*;

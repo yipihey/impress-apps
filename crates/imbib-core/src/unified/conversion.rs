@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use impress_core::item::{ActorKind, Item, ItemId, Value};
+use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
 
 use crate::domain::Publication;
 use uuid::Uuid;
@@ -97,25 +97,26 @@ pub fn publication_to_item(pub_data: &Publication, library_id: Option<ItemId>) -
         .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(Utc::now);
 
-    let modified = pub_data
-        .modified_at
-        .as_ref()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
-
     Item {
         id,
-        schema: "bibliography-entry".into(),
+        schema: "imbib/bibliography-entry".into(),
         payload,
         created,
-        modified,
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: pub_data.tags.clone(),
         flag: None, // Flag state managed separately by Swift
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: library_id,
     }
@@ -199,7 +200,7 @@ pub fn item_to_publication(item: &Item) -> Publication {
         collections: vec![],
         library_id: item.parent.map(|p| p.to_string()),
         created_at: Some(item.created.to_rfc3339()),
-        modified_at: Some(item.modified.to_rfc3339()),
+        modified_at: None,
         source_id: get_string(&item.payload, "source_id"),
         citation_count: get_int(&item.payload, "citation_count").map(|v| v as i32),
         reference_count: get_int(&item.payload, "reference_count").map(|v| v as i32),
@@ -233,16 +234,24 @@ pub fn library_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "library".into(),
+        schema: "imbib/library".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: None,
     }
@@ -266,16 +275,24 @@ pub fn collection_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "collection".into(),
+        schema: "imbib/collection".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: parent_id,
     }
@@ -301,16 +318,24 @@ pub fn tag_definition_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "tag-definition".into(),
+        schema: "imbib/tag-definition".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: parent_id,
     }
@@ -339,16 +364,24 @@ pub fn linked_file_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "linked-file".into(),
+        schema: "imbib/linked-file".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(publication_id),
     }
@@ -383,16 +416,24 @@ pub fn smart_search_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "smart-search".into(),
+        schema: "imbib/smart-search".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(library_id),
     }
@@ -406,16 +447,24 @@ pub fn muted_item_to_item(mute_type: &str, value: &str) -> Item {
 
     Item {
         id: Uuid::new_v4(),
-        schema: "muted-item".into(),
+        schema: "imbib/muted-item".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: None,
     }
@@ -434,16 +483,24 @@ pub fn dismissed_paper_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "dismissed-paper".into(),
+        schema: "imbib/dismissed-paper".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: None,
     }
@@ -474,16 +531,24 @@ pub fn scix_library_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "scix-library".into(),
+        schema: "imbib/scix-library".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: None,
     }
@@ -510,16 +575,24 @@ pub fn annotation_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "annotation".into(),
+        schema: "imbib/annotation".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(linked_file_id),
     }
@@ -542,16 +615,24 @@ pub fn comment_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "comment".into(),
+        schema: "imbib/comment".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(publication_id),
     }
@@ -576,16 +657,24 @@ pub fn assignment_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "assignment".into(),
+        schema: "imbib/assignment".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(publication_id),
     }
@@ -610,16 +699,24 @@ pub fn activity_record_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "activity-record".into(),
+        schema: "imbib/activity-record".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(library_id),
     }
@@ -642,16 +739,24 @@ pub fn recommendation_profile_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "recommendation-profile".into(),
+        schema: "imbib/recommendation-profile".into(),
         payload,
         created: Utc::now(),
-        modified: Utc::now(),
         author: "system".into(),
         author_kind: ActorKind::System,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
         tags: vec![],
         flag: None,
         is_read: false,
         is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
         references: vec![],
         parent: Some(library_id),
     }
@@ -787,7 +892,7 @@ mod tests {
         let pub_data = make_publication();
         let item = publication_to_item(&pub_data, None);
 
-        assert_eq!(item.schema, "bibliography-entry");
+        assert_eq!(item.schema, "imbib/bibliography-entry");
         assert_eq!(
             get_string(&item.payload, "cite_key"),
             Some("smith2024".into())
@@ -820,7 +925,7 @@ mod tests {
     #[test]
     fn library_to_item_fields() {
         let item = library_to_item("My Library", Some("/path/to/lib.bib"), None, true, false, false);
-        assert_eq!(item.schema, "library");
+        assert_eq!(item.schema, "imbib/library");
         assert_eq!(get_string(&item.payload, "name"), Some("My Library".into()));
         assert_eq!(
             item.payload.get("is_default"),
@@ -832,7 +937,7 @@ mod tests {
     fn collection_to_item_fields() {
         let parent = Uuid::new_v4();
         let item = collection_to_item("Favorites", Some(parent), false, None, Some(5));
-        assert_eq!(item.schema, "collection");
+        assert_eq!(item.schema, "imbib/collection");
         assert_eq!(item.parent, Some(parent));
         assert_eq!(
             get_string(&item.payload, "name"),
@@ -851,7 +956,7 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(item.schema, "tag-definition");
+        assert_eq!(item.schema, "imbib/tag-definition");
         assert_eq!(
             get_string(&item.payload, "canonical_path"),
             Some("methods/sims".into())
@@ -882,7 +987,7 @@ mod tests {
     fn linked_file_to_item_fields() {
         let pub_id = Uuid::new_v4();
         let item = linked_file_to_item(pub_id, "paper.pdf", Some("Papers/paper.pdf"), Some("pdf"), 1024, Some("abc123"), true);
-        assert_eq!(item.schema, "linked-file");
+        assert_eq!(item.schema, "imbib/linked-file");
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(get_string(&item.payload, "filename"), Some("paper.pdf".into()));
         assert_eq!(item.payload.get("is_pdf"), Some(&Value::Bool(true)));
@@ -893,7 +998,7 @@ mod tests {
     fn smart_search_to_item_fields() {
         let lib_id = Uuid::new_v4();
         let item = smart_search_to_item("My Search", "dark matter", lib_id, Some("[\"ADS\",\"arXiv\"]"), 50, true, false, 3600, Some(1));
-        assert_eq!(item.schema, "smart-search");
+        assert_eq!(item.schema, "imbib/smart-search");
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "name"), Some("My Search".into()));
         assert_eq!(get_string(&item.payload, "query"), Some("dark matter".into()));
@@ -904,7 +1009,7 @@ mod tests {
     #[test]
     fn muted_item_to_item_fields() {
         let item = muted_item_to_item("author", "Smith, John");
-        assert_eq!(item.schema, "muted-item");
+        assert_eq!(item.schema, "imbib/muted-item");
         assert_eq!(get_string(&item.payload, "mute_type"), Some("author".into()));
         assert_eq!(get_string(&item.payload, "value"), Some("Smith, John".into()));
         assert!(item.parent.is_none());
@@ -913,7 +1018,7 @@ mod tests {
     #[test]
     fn dismissed_paper_to_item_fields() {
         let item = dismissed_paper_to_item(Some("10.1234/test"), Some("2401.00001"), None);
-        assert_eq!(item.schema, "dismissed-paper");
+        assert_eq!(item.schema, "imbib/dismissed-paper");
         assert_eq!(get_string(&item.payload, "doi"), Some("10.1234/test".into()));
         assert_eq!(get_string(&item.payload, "arxiv_id"), Some("2401.00001".into()));
         assert!(get_string(&item.payload, "bibcode").is_none());
@@ -922,7 +1027,7 @@ mod tests {
     #[test]
     fn scix_library_to_item_fields() {
         let item = scix_library_to_item("remote-123", "My ADS Lib", Some("A test library"), true, "owner", Some("test@example.com"), None);
-        assert_eq!(item.schema, "scix-library");
+        assert_eq!(item.schema, "imbib/scix-library");
         assert_eq!(get_string(&item.payload, "remote_id"), Some("remote-123".into()));
         assert_eq!(get_string(&item.payload, "name"), Some("My ADS Lib".into()));
         assert_eq!(item.payload.get("is_public"), Some(&Value::Bool(true)));
@@ -932,7 +1037,7 @@ mod tests {
     fn annotation_to_item_fields() {
         let file_id = Uuid::new_v4();
         let item = annotation_to_item(file_id, "highlight", 5, Some("{\"x\":10}"), Some("#ffff00"), None, Some("dark matter"));
-        assert_eq!(item.schema, "annotation");
+        assert_eq!(item.schema, "imbib/annotation");
         assert_eq!(item.parent, Some(file_id));
         assert_eq!(get_string(&item.payload, "annotation_type"), Some("highlight".into()));
         assert_eq!(item.payload.get("page_number"), Some(&Value::Int(5)));
@@ -943,7 +1048,7 @@ mod tests {
     fn comment_to_item_fields() {
         let pub_id = Uuid::new_v4();
         let item = comment_to_item(pub_id, "Great paper!", Some("user-123"), Some("Jane Doe"), None);
-        assert_eq!(item.schema, "comment");
+        assert_eq!(item.schema, "imbib/comment");
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(get_string(&item.payload, "text"), Some("Great paper!".into()));
         assert_eq!(get_string(&item.payload, "author_display_name"), Some("Jane Doe".into()));
@@ -953,7 +1058,7 @@ mod tests {
     fn assignment_to_item_fields() {
         let pub_id = Uuid::new_v4();
         let item = assignment_to_item(pub_id, "Alice", Some("Bob"), Some("Read by Friday"), Some(1700000000000));
-        assert_eq!(item.schema, "assignment");
+        assert_eq!(item.schema, "imbib/assignment");
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(get_string(&item.payload, "assignee_name"), Some("Alice".into()));
         assert_eq!(item.payload.get("due_date"), Some(&Value::Int(1700000000000)));
@@ -963,7 +1068,7 @@ mod tests {
     fn activity_record_to_item_fields() {
         let lib_id = Uuid::new_v4();
         let item = activity_record_to_item(lib_id, "added", Some("Jane"), Some("Dark Matter Paper"), None, None);
-        assert_eq!(item.schema, "activity-record");
+        assert_eq!(item.schema, "imbib/activity-record");
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "activity_type"), Some("added".into()));
     }
@@ -972,7 +1077,7 @@ mod tests {
     fn recommendation_profile_to_item_fields() {
         let lib_id = Uuid::new_v4();
         let item = recommendation_profile_to_item(lib_id, Some("{\"cosmo\":0.8}"), None, None, None);
-        assert_eq!(item.schema, "recommendation-profile");
+        assert_eq!(item.schema, "imbib/recommendation-profile");
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "topic_affinities_json"), Some("{\"cosmo\":0.8}".into()));
     }

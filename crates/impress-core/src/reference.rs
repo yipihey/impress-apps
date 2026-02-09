@@ -42,6 +42,12 @@ pub enum EdgeType {
     // General
     RelatesTo,
 
+    // Workflow
+    DependsOn,
+
+    // Operations
+    OperatesOn,
+
     // Extensible
     Custom(String),
 }
@@ -91,6 +97,8 @@ mod tests {
             EdgeType::Annotates,
             EdgeType::Visualizes,
             EdgeType::RelatesTo,
+            EdgeType::DependsOn,
+            EdgeType::OperatesOn,
             EdgeType::Custom("my-edge".into()),
         ];
         for v in &variants {
