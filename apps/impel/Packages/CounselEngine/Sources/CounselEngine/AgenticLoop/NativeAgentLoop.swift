@@ -3,6 +3,15 @@ import ImpressAI
 import ImpressKit
 import OSLog
 
+/// Callback for tool execution progress events.
+public typealias ToolProgressCallback = @Sendable (ToolProgressEvent) async -> Void
+
+/// A progress event emitted during tool execution.
+public enum ToolProgressEvent: Sendable {
+    case toolStart(toolName: String, toolInput: [String: String])
+    case toolComplete(toolName: String, outputSummary: String, durationMs: Int)
+}
+
 /// Native agentic loop that replaces ClaudeCLIClient with direct Anthropic API calls.
 ///
 /// Uses `AnthropicProvider` for completions and `CounselToolRegistry` for tool execution
@@ -12,9 +21,17 @@ public actor NativeAgentLoop {
     private let toolRegistry: CounselToolRegistry
     private let logger = Logger(subsystem: "com.impress.impel", category: "native-agent-loop")
 
+    /// Optional callback for progress events during tool execution.
+    private var onProgress: ToolProgressCallback?
+
     public init(provider: AnthropicProvider = AnthropicProvider(), toolRegistry: CounselToolRegistry = CounselToolRegistry()) {
         self.provider = provider
         self.toolRegistry = toolRegistry
+    }
+
+    /// Set a progress callback that fires on tool start/complete.
+    public func setProgressCallback(_ callback: ToolProgressCallback?) {
+        self.onProgress = callback
     }
 
     /// Run the agentic loop with tool use.
@@ -87,18 +104,32 @@ public actor NativeAgentLoop {
                 guard case .toolUse(let toolUse) = content else { continue }
 
                 logger.info("Executing tool: \(toolUse.name)")
-                let startTime = Date()
 
+                // Emit tool_start event
+                let inputSummary = toolUse.input.reduce(into: [String: String]()) { dict, kv in
+                    if let s: String = kv.value.get() { dict[kv.key] = String(s.prefix(200)) }
+                    else if let i: Int = kv.value.get() { dict[kv.key] = String(i) }
+                    else if let b: Bool = kv.value.get() { dict[kv.key] = String(b) }
+                    else { dict[kv.key] = "..." }
+                }
+                await onProgress?(.toolStart(toolName: toolUse.name, toolInput: inputSummary))
+
+                let startTime = Date()
                 let result = await toolRegistry.execute(toolUse)
                 let duration = Date().timeIntervalSince(startTime)
+                let durationMs = Int(duration * 1000)
 
                 toolExecutions.append(ToolExecutionRecord(
                     toolName: toolUse.name,
                     toolInput: toolUse.input.mapValues { $0.toJSONValue() },
                     toolOutput: result.content,
                     isError: result.isError,
-                    durationMs: Int(duration * 1000)
+                    durationMs: durationMs
                 ))
+
+                // Emit tool_complete event
+                let outputSummary = String(result.content.prefix(200))
+                await onProgress?(.toolComplete(toolName: toolUse.name, outputSummary: outputSummary, durationMs: durationMs))
 
                 toolResults.append(.toolResult(result))
             }

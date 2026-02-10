@@ -58,6 +58,9 @@ struct ImpelApp: App {
                             await mailGatewayState.setCounselEngine(engine)
                         }
                         await mailGatewayState.setCounselEngineRef(engine)
+
+                        // Wire TaskOrchestrator to HTTP router for Task API
+                        ImpelHTTPRouterState.shared.orchestrator = engine.taskOrchestrator
                     } catch {
                         counselLogger.error("Failed to initialize CounselEngine: \(error.localizedDescription)")
                     }
@@ -154,19 +157,18 @@ final class ImpelCounselIntentService: CounselIntentService, @unchecked Sendable
     }
 
     func ask(question: String) async throws -> String {
-        guard let engine = await mailGatewayState.counselEngine,
-              let store = await mailGatewayState.messageStore else {
+        guard let engine = await mailGatewayState.counselEngine else {
             throw ImpelIntentError.counselUnavailable
         }
-        let request = CounselRequest(
-            subject: "Shortcut Query",
-            body: question,
-            from: "shortcut@localhost",
-            intent: .general
+
+        // Use the Task API instead of going through the email path
+        let taskRequest = TaskRequest(
+            intent: "general",
+            query: question,
+            sourceApp: "shortcut"
         )
-        let handler = engine.makeTaskHandler(store: store)
-        let result = await handler(request)
-        return result.body
+        let result = try await engine.taskOrchestrator.submitAndWait(taskRequest)
+        return result.responseText ?? "Task completed."
     }
 }
 
@@ -192,18 +194,15 @@ extension ImpelApp {
         case "ask":
             if let question = parsed.parameters["question"], !question.isEmpty {
                 navigateToTab = .counsel
-                // Submit to counsel via mail gateway if running
+                // Submit to counsel via Task API
                 Task {
-                    guard let engine = mailGatewayState.counselEngine,
-                          let store = await mailGatewayState.messageStore else { return }
-                    let request = CounselRequest(
-                        subject: "URL Query",
-                        body: question,
-                        from: "url-scheme@localhost",
-                        intent: .general
+                    guard let engine = mailGatewayState.counselEngine else { return }
+                    let taskRequest = TaskRequest(
+                        intent: "general",
+                        query: question,
+                        sourceApp: "url-scheme"
                     )
-                    let handler = engine.makeTaskHandler(store: store)
-                    let _ = await handler(request)
+                    _ = try? await engine.taskOrchestrator.submitAndWait(taskRequest)
                 }
             }
 

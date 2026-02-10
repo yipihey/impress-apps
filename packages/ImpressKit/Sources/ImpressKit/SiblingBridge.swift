@@ -121,6 +121,49 @@ public actor SiblingBridge {
         return data
     }
 
+    /// Make a POST request with a raw JSON dictionary body.
+    public func postRaw(
+        _ path: String,
+        to app: SiblingApp,
+        body: [String: Any]
+    ) async throws -> Data {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(app.httpPort)
+        components.path = path
+        guard let url = components.url else {
+            throw SiblingBridgeError.invalidURL(path)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return data
+    }
+
+    /// Make a DELETE request to a sibling app's HTTP API.
+    public func deleteRequest<T: Decodable & Sendable>(
+        _ path: String,
+        from app: SiblingApp
+    ) async throws -> T {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(app.httpPort)
+        components.path = path
+        guard let url = components.url else {
+            throw SiblingBridgeError.invalidURL(path)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return try decoder.decode(T.self, from: data)
+    }
+
     // MARK: - Availability
 
     /// Check if a sibling app's HTTP API is responding.

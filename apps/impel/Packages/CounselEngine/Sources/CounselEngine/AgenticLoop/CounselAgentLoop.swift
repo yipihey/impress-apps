@@ -23,9 +23,12 @@ public struct AgentLoopConfig: Sendable {
 public struct AgentLoopResult: Sendable {
     public let responseText: String
     public let toolExecutions: [CounselToolExecution]
-    public let totalTokensUsed: Int
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
     public let roundsUsed: Int
     public let finishReason: AgentLoopFinishReason
+
+    public var totalTokensUsed: Int { totalInputTokens + totalOutputTokens }
 }
 
 public enum AgentLoopFinishReason: String, Sendable {
@@ -137,7 +140,8 @@ public actor CounselAgentLoop {
         return AgentLoopResult(
             responseText: responseText,
             toolExecutions: toolExecutions,
-            totalTokensUsed: totalTokens,
+            totalInputTokens: nativeResult.totalInputTokens,
+            totalOutputTokens: nativeResult.totalOutputTokens,
             roundsUsed: nativeResult.roundsUsed,
             finishReason: finishReason
         )

@@ -9,6 +9,7 @@
 import Foundation
 import ImpressAutomation
 import ImpelCore
+import CounselEngine
 import OSLog
 
 private let routerLogger = Logger(subsystem: "com.impress.impel", category: "httpRouter")
@@ -108,6 +109,27 @@ public actor ImpelHTTPRouter: HTTPRouter {
                 }
             }
 
+            // Tasks
+            if pathLower == "/api/tasks" {
+                return await handleListTasks(request)
+            }
+            if pathLower.hasPrefix("/api/tasks/") {
+                let remainder = String(path.dropFirst("/api/tasks/".count))
+                let remainderLower = remainder.lowercased()
+
+                if remainderLower.hasSuffix("/result") {
+                    let taskId = String(remainder.dropLast("/result".count))
+                    return await handleGetTaskResult(id: taskId)
+                }
+                if remainderLower.hasSuffix("/stream") {
+                    let taskId = String(remainder.dropLast("/stream".count))
+                    return await handleTaskStream(id: taskId, request: request)
+                }
+                if !remainder.contains("/") {
+                    return await handleGetTask(id: remainder)
+                }
+            }
+
             // Events
             if pathLower == "/events" {
                 return await handleEvents(request)
@@ -116,6 +138,11 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
         // POST endpoints
         if request.method == "POST" {
+            // Tasks
+            if pathLower == "/api/tasks" {
+                return await handleCreateTask(request)
+            }
+
             if pathLower == "/threads" {
                 return await handleCreateThread(request)
             }
@@ -195,6 +222,13 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
         // DELETE endpoints
         if request.method == "DELETE" {
+            if pathLower.hasPrefix("/api/tasks/") {
+                let id = String(path.dropFirst("/api/tasks/".count))
+                if !id.contains("/") {
+                    return await handleCancelTask(id: id)
+                }
+            }
+
             if pathLower.hasPrefix("/agents/") {
                 let id = String(path.dropFirst("/agents/".count))
                 if !id.contains("/") {
@@ -217,7 +251,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
     private func handleStatus() async -> HTTPResponse {
         let state = await getState()
 
-        return .json([
+        var response: [String: Any] = [
             "status": "ok",
             "app": "impel",
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
@@ -228,8 +262,19 @@ public actor ImpelHTTPRouter: HTTPRouter {
             "workingAgents": state.workingAgents.count,
             "personas": state.personas.count,
             "escalations": state.escalations.count,
-            "pendingEscalations": state.pendingEscalations.count
-        ])
+            "pendingEscalations": state.pendingEscalations.count,
+            "tasks_api": true
+        ]
+
+        // Include task counts if orchestrator is available
+        if let orchestrator = await getOrchestrator() {
+            let runningTasks = (try? await orchestrator.listTasks(status: .running, limit: 1000))?.count ?? 0
+            let queuedTasks = (try? await orchestrator.listTasks(status: .queued, limit: 1000))?.count ?? 0
+            response["runningTasks"] = runningTasks
+            response["queuedTasks"] = queuedTasks
+        }
+
+        return .json(response)
     }
 
     /// GET /api/logs
@@ -715,6 +760,209 @@ public actor ImpelHTTPRouter: HTTPRouter {
         return .notFound("Escalation not found: \(id)")
     }
 
+    // MARK: - Task Handlers
+
+    /// POST /api/tasks — Submit a new task.
+    private func handleCreateTask(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSON(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+
+        guard let query = json["query"] as? String, !query.isEmpty else {
+            return .badRequest("Missing 'query' parameter")
+        }
+
+        let intent = json["intent"] as? String ?? "general"
+        let sourceApp = json["source_app"] as? String ?? "api"
+        let callbackURL = json["callback_url"] as? String
+
+        // Extract conversation_id from context or top-level
+        let conversationID: String?
+        if let context = json["context"] as? [String: Any] {
+            conversationID = context["conversation_id"] as? String
+        } else {
+            conversationID = json["conversation_id"] as? String
+        }
+
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        let taskRequest = TaskRequest(
+            intent: intent,
+            query: query,
+            sourceApp: sourceApp,
+            conversationID: conversationID,
+            callbackURL: callbackURL
+        )
+
+        do {
+            let taskID = try await orchestrator.submit(taskRequest)
+            return .json([
+                "status": "ok",
+                "task_id": taskID,
+                "task_status": "queued"
+            ])
+        } catch {
+            return .serverError("Failed to create task: \(error.localizedDescription)")
+        }
+    }
+
+    /// GET /api/tasks — List tasks with optional filters.
+    private func handleListTasks(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        let statusFilter: CounselTaskStatus?
+        if let statusStr = request.queryParams["status"] {
+            statusFilter = CounselTaskStatus(rawValue: statusStr)
+        } else {
+            statusFilter = nil
+        }
+
+        let limit = Int(request.queryParams["limit"] ?? "50") ?? 50
+
+        do {
+            let tasks = try await orchestrator.listTasks(status: statusFilter, limit: limit)
+            let taskDicts: [[String: Any]] = tasks.map { taskToDict($0) }
+            return .json([
+                "status": "ok",
+                "count": tasks.count,
+                "tasks": taskDicts
+            ])
+        } catch {
+            return .serverError("Failed to list tasks: \(error.localizedDescription)")
+        }
+    }
+
+    /// GET /api/tasks/{id} — Get task status.
+    private func handleGetTask(id: String) async -> HTTPResponse {
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        do {
+            guard let task = try await orchestrator.getTask(id) else {
+                return .notFound("Task not found: \(id)")
+            }
+            return .json([
+                "status": "ok",
+                "task": taskToDict(task)
+            ])
+        } catch {
+            return .serverError("Failed to get task: \(error.localizedDescription)")
+        }
+    }
+
+    /// GET /api/tasks/{id}/result — Get full task result with tool executions.
+    private func handleGetTaskResult(id: String) async -> HTTPResponse {
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        do {
+            guard let result = try await orchestrator.getResult(id) else {
+                return .notFound("Task not found: \(id)")
+            }
+            return .json(taskResultToDict(result))
+        } catch {
+            return .serverError("Failed to get task result: \(error.localizedDescription)")
+        }
+    }
+
+    /// GET /api/tasks/{id}/stream — Poll for task progress events.
+    ///
+    /// Returns accumulated events since `after_sequence` (default 0).
+    /// Clients poll this endpoint to track task progress. If the task is still
+    /// running and no new events are available, waits up to `timeout` seconds
+    /// (default 10, max 30) for new events before returning an empty list.
+    ///
+    /// True SSE streaming requires changes to the HTTP server infrastructure
+    /// (persistent connections). This polling approach provides equivalent
+    /// functionality with the existing request/response model.
+    private func handleTaskStream(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        let afterSeq = Int(request.queryParams["after_sequence"] ?? "0") ?? 0
+        let timeout = min(Int(request.queryParams["timeout"] ?? "10") ?? 10, 30)
+
+        // Try to get events immediately
+        var events = await orchestrator.getEvents(for: id, afterSequence: afterSeq)
+
+        // If no events and task is still running, wait briefly
+        if events.isEmpty {
+            let task = try? await orchestrator.getTask(id)
+            if task?.status == .running || task?.status == .queued {
+                let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+                while Date() < deadline {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    events = await orchestrator.getEvents(for: id, afterSequence: afterSeq)
+                    if !events.isEmpty { break }
+                    // Check if task finished
+                    if let t = try? await orchestrator.getTask(id),
+                       t.status != .running && t.status != .queued { break }
+                }
+            }
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+        let eventDicts: [[String: Any]] = events.map { event in
+            var dict: [String: Any] = [
+                "sequence": event.sequence,
+                "event_type": event.eventType,
+                "task_id": event.taskID,
+                "timestamp": isoFormatter.string(from: event.timestamp)
+            ]
+            if let toolName = event.toolName { dict["tool_name"] = toolName }
+            if let toolInput = event.toolInput { dict["tool_input"] = toolInput }
+            if let outputSummary = event.outputSummary { dict["output_summary"] = outputSummary }
+            if let durationMs = event.durationMs { dict["duration_ms"] = durationMs }
+            if let responseText = event.responseText { dict["response_text"] = responseText }
+            if let error = event.error { dict["error"] = error }
+            return dict
+        }
+
+        let taskStatus: String
+        if let task = try? await orchestrator.getTask(id) {
+            taskStatus = task.status.rawValue
+        } else {
+            taskStatus = "unknown"
+        }
+
+        return .json([
+            "status": "ok",
+            "task_id": id,
+            "task_status": taskStatus,
+            "events": eventDicts,
+            "last_sequence": events.last?.sequence ?? afterSeq
+        ])
+    }
+
+    /// DELETE /api/tasks/{id} — Cancel a task.
+    private func handleCancelTask(id: String) async -> HTTPResponse {
+        guard let orchestrator = getOrchestrator() else {
+            return .serverError("Task orchestrator not available")
+        }
+
+        do {
+            let cancelled = try await orchestrator.cancel(id)
+            if cancelled {
+                return .json([
+                    "status": "ok",
+                    "message": "Task cancelled",
+                    "task_id": id
+                ])
+            } else {
+                return .badRequest("Task \(id) cannot be cancelled (not running or queued)")
+            }
+        } catch {
+            return .serverError("Failed to cancel task: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Events
 
     /// GET /events
@@ -775,7 +1023,13 @@ public actor ImpelHTTPRouter: HTTPRouter {
                 "PUT /escalations/{id}/acknowledge": "Acknowledge (body: {by})",
                 "PUT /escalations/{id}/resolve": "Resolve (body: {by, resolution})",
                 "GET /escalations/{id}/poll": "Long-poll for resolution (param: timeout)",
-                "GET /events": "Event stream"
+                "GET /events": "Event stream",
+                "POST /api/tasks": "Submit a task (body: {query, intent?, source_app?, conversation_id?, callback_url?})",
+                "GET /api/tasks": "List tasks (params: status, limit)",
+                "GET /api/tasks/{id}": "Get task status",
+                "GET /api/tasks/{id}/result": "Get full task result with tool executions",
+                "GET /api/tasks/{id}/stream": "Poll task progress events (params: after_sequence, timeout)",
+                "DELETE /api/tasks/{id}": "Cancel a running/queued task"
             ],
             "port": ImpelHTTPServer.defaultPort,
             "localhost_only": true
@@ -801,6 +1055,12 @@ public actor ImpelHTTPRouter: HTTPRouter {
         // that has the ImpelClient as an environment object.
         // Fallback: use a static reference set at app startup.
         return ImpelHTTPRouterState.shared.client
+    }
+
+    /// Get the TaskOrchestrator for the Task API.
+    @MainActor
+    private func getOrchestrator() -> TaskOrchestrator? {
+        return ImpelHTTPRouterState.shared.orchestrator
     }
 
     /// Mutate a thread by ID and return success/failure response.
@@ -898,6 +1158,80 @@ public actor ImpelHTTPRouter: HTTPRouter {
         return dict
     }
 
+    private func taskToDict(_ task: CounselTask) -> [String: Any] {
+        let isoFormatter = ISO8601DateFormatter()
+        var dict: [String: Any] = [
+            "id": task.id,
+            "intent": task.intent,
+            "query": task.query,
+            "source_app": task.sourceApp,
+            "status": task.status.rawValue,
+            "tool_execution_count": task.toolExecutionCount,
+            "rounds_used": task.roundsUsed,
+            "total_input_tokens": task.totalInputTokens,
+            "total_output_tokens": task.totalOutputTokens,
+            "total_tokens_used": task.totalTokensUsed,
+            "created_at": isoFormatter.string(from: task.createdAt)
+        ]
+        if let conversationID = task.conversationID {
+            dict["conversation_id"] = conversationID
+        }
+        if let responseText = task.responseText {
+            dict["response_text"] = responseText
+        }
+        if let finishReason = task.finishReason {
+            dict["finish_reason"] = finishReason
+        }
+        if let errorMessage = task.errorMessage {
+            dict["error_message"] = errorMessage
+        }
+        if let startedAt = task.startedAt {
+            dict["started_at"] = isoFormatter.string(from: startedAt)
+        }
+        if let completedAt = task.completedAt {
+            dict["completed_at"] = isoFormatter.string(from: completedAt)
+        }
+        return dict
+    }
+
+    private func taskResultToDict(_ result: TaskResult) -> [String: Any] {
+        let isoFormatter = ISO8601DateFormatter()
+        var dict: [String: Any] = [
+            "status": "ok",
+            "task_id": result.taskID,
+            "task_status": result.status.rawValue,
+            "rounds_used": result.roundsUsed,
+            "total_input_tokens": result.totalInputTokens,
+            "total_output_tokens": result.totalOutputTokens,
+            "total_tokens_used": result.totalTokensUsed,
+            "created_at": isoFormatter.string(from: result.createdAt)
+        ]
+        if let responseText = result.responseText {
+            dict["response_text"] = responseText
+        }
+        if let finishReason = result.finishReason {
+            dict["finish_reason"] = finishReason
+        }
+        if let errorMessage = result.errorMessage {
+            dict["error_message"] = errorMessage
+        }
+        if let startedAt = result.startedAt {
+            dict["started_at"] = isoFormatter.string(from: startedAt)
+        }
+        if let completedAt = result.completedAt {
+            dict["completed_at"] = isoFormatter.string(from: completedAt)
+        }
+        dict["tool_executions"] = result.toolExecutions.map { exec -> [String: Any] in
+            [
+                "tool_name": exec.toolName,
+                "output_summary": exec.outputSummary,
+                "is_error": exec.isError,
+                "duration_ms": exec.durationMs
+            ]
+        }
+        return dict
+    }
+
     private func escalationToDict(_ escalation: Escalation) -> [String: Any] {
         var dict: [String: Any] = [
             "id": escalation.id,
@@ -921,11 +1255,12 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
 // MARK: - Router State (static reference to ImpelClient)
 
-/// Holds a reference to ImpelClient so the HTTP router can access state.
+/// Holds a reference to ImpelClient and TaskOrchestrator so the HTTP router can access state.
 /// Set from ImpelApp at startup.
 @MainActor
 final class ImpelHTTPRouterState {
     static let shared = ImpelHTTPRouterState()
     weak var client: ImpelClient?
+    var orchestrator: TaskOrchestrator?
     private init() {}
 }

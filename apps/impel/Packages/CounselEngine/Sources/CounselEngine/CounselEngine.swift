@@ -16,11 +16,20 @@ public final class CounselEngine: Sendable {
     private let contextCompressor: ContextCompressor
     public let nativeLoop: NativeAgentLoop
 
+    /// Task orchestrator for structured programmatic task submission.
+    public let taskOrchestrator: TaskOrchestrator
+
     public init() throws {
         self.database = try CounselDatabase()
         self.conversationManager = CounselConversationManager(database: database)
         self.contextCompressor = ContextCompressor()
         self.nativeLoop = NativeAgentLoop()
+        self.taskOrchestrator = TaskOrchestrator(
+            database: database,
+            conversationManager: conversationManager,
+            contextCompressor: contextCompressor,
+            nativeLoop: nativeLoop
+        )
 
         logger.info("CounselEngine initialized (native API mode)")
     }
@@ -35,37 +44,29 @@ public final class CounselEngine: Sendable {
         }
     }
 
-    // MARK: - Request Handling
+    // MARK: - Request Handling (Email Gateway Adapter)
 
+    /// Handle a request from the email gateway.
+    ///
+    /// This is a thin adapter that converts an email-based CounselRequest into a
+    /// structured TaskRequest, submits it to the TaskOrchestrator, waits for the
+    /// result, and formats it for email delivery. The email gateway is no longer
+    /// the core execution path — the Task API is.
     private func handleRequest(_ request: CounselRequest, store: MessageStore) async -> CounselTaskResult {
-        logger.info("Handling request: '\(request.subject)' from \(request.from) [intent: \(request.intent.rawValue)]")
-
-        // Check if persistence is enabled
-        let persistenceEnabled = UserDefaults.standard.object(forKey: "counselPersistenceEnabled") as? Bool ?? true
+        logger.info("Handling email request: '\(request.subject)' from \(request.from) [intent: \(request.intent.rawValue)]")
 
         // Strip quoted content from the email body
         let body = Self.stripQuotedContent(request.body)
 
-        // Resolve or create conversation (needed for context even if not persisting)
-        let conversation: CounselConversation
-        do {
-            if persistenceEnabled {
-                conversation = try conversationManager.resolveConversation(for: request)
-            } else {
-                // Create an ephemeral conversation object without persisting
-                conversation = CounselConversation(
-                    subject: request.subject,
-                    participantEmail: request.from
-                )
-            }
-        } catch {
-            logger.error("Failed to resolve conversation: \(error.localizedDescription)")
-            return CounselTaskResult(body: "I encountered an error processing your request: \(error.localizedDescription)\n\n— counsel@impress.local")
-        }
-
-        // Persist the user message (only if persistence enabled)
+        // Resolve conversation via email headers for thread continuity
+        let conversationID: String?
+        let persistenceEnabled = UserDefaults.standard.object(forKey: "counselPersistenceEnabled") as? Bool ?? true
         if persistenceEnabled {
             do {
+                let conversation = try conversationManager.resolveConversation(for: request)
+                conversationID = conversation.id
+
+                // Persist the email-specific user message with messageID for threading
                 _ = try conversationManager.persistUserMessage(
                     conversationID: conversation.id,
                     content: body,
@@ -74,114 +75,53 @@ public final class CounselEngine: Sendable {
                     intent: request.intent.rawValue
                 )
             } catch {
-                logger.error("Failed to persist user message: \(error.localizedDescription)")
-            }
-        }
-
-        // Load conversation history
-        var history: [AIMessage]
-        if persistenceEnabled {
-            do {
-                history = try conversationManager.loadHistory(conversationID: conversation.id)
-            } catch {
-                logger.error("Failed to load history: \(error.localizedDescription)")
-                history = [AIMessage(role: .user, text: body)]
+                logger.error("Failed to resolve conversation: \(error.localizedDescription)")
+                return CounselTaskResult(body: "I encountered an error processing your request: \(error.localizedDescription)\n\n— counsel@impress.local")
             }
         } else {
-            // No history available without persistence
-            history = [AIMessage(role: .user, text: body)]
+            conversationID = nil
         }
 
-        // Compress if needed
-        history = await contextCompressor.compressIfNeeded(
-            messages: history,
-            database: database,
-            conversationID: conversation.id
+        // Submit as a structured task via the orchestrator.
+        // Skip user/assistant persistence since the email adapter handles it
+        // with email-specific metadata (messageID, inReplyTo).
+        let taskRequest = TaskRequest(
+            intent: request.intent.rawValue,
+            query: body,
+            sourceApp: "email",
+            conversationID: conversationID,
+            skipUserPersistence: true,
+            skipAssistantPersistence: true
         )
 
-        // Build system prompt
-        let customPrompt = UserDefaults.standard.string(forKey: "counselSystemPrompt")
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let systemPrompt = CounselSystemPrompt.build(
-            basePrompt: customPrompt,
-            conversationSummary: conversation.summary
-        )
+        do {
+            let result = try await taskOrchestrator.submitAndWait(taskRequest)
 
-        // Set up progress reporter
-        let progressReporter = CounselProgressReporter(
-            store: store,
-            recipientEmail: request.from,
-            subject: request.subject,
-            originalMessageID: request.messageID,
-            references: request.references
-        )
+            // Generate a stable reply messageID for email thread resolution
+            let replyMessageID = "<\(UUID().uuidString)@impress.local>"
 
-        // Read config from UserDefaults
-        let modelId = UserDefaults.standard.string(forKey: "counselModel")
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let maxTurns = UserDefaults.standard.integer(forKey: "counselMaxTurns")
-        let effectiveMaxTurns = maxTurns > 0 ? maxTurns : 40
-
-        logger.info("Agent config: maxTurns=\(effectiveMaxTurns) (from UserDefaults: \(maxTurns)), model=\(modelId ?? "default")")
-
-        let config = AgentLoopConfig(
-            maxTurns: effectiveMaxTurns,
-            modelId: modelId
-        )
-
-        // Run the agentic loop via NativeAgentLoop
-        let agentLoop = CounselAgentLoop(
-            database: database,
-            config: config,
-            nativeLoop: nativeLoop
-        )
-        await agentLoop.setProgressReporter(progressReporter)
-
-        let result = await agentLoop.run(
-            conversationID: conversation.id,
-            systemPrompt: systemPrompt,
-            messages: history
-        )
-
-        // Generate a stable reply messageID for thread resolution
-        let replyMessageID = "<\(UUID().uuidString)@impress.local>"
-
-        // Persist the assistant response (only if persistence enabled)
-        if persistenceEnabled {
-            do {
-                _ = try conversationManager.persistAssistantMessage(
-                    conversationID: conversation.id,
-                    content: result.responseText,
+            // Persist email-specific assistant message with threading info
+            if persistenceEnabled, let convID = conversationID {
+                _ = try? conversationManager.persistAssistantMessage(
+                    conversationID: convID,
+                    content: result.responseText ?? "",
                     emailMessageID: replyMessageID,
                     inReplyTo: request.messageID
                 )
-            } catch {
-                logger.error("Failed to persist assistant message: \(error.localizedDescription)")
             }
 
-            // Update conversation status
-            do {
-                var updated = conversation
-                updated.updatedAt = Date()
-                updated.totalTokensUsed = conversation.totalTokensUsed + result.totalTokensUsed
-                try database.updateConversation(updated)
-            } catch {
-                logger.error("Failed to update conversation: \(error.localizedDescription)")
+            var responseText = result.responseText ?? "I completed the task but couldn't generate a summary."
+            if !result.toolExecutions.isEmpty {
+                responseText += "\n\n---\n[Used \(result.toolExecutions.count) tool(s) across \(result.roundsUsed) turn(s)]"
             }
+
+            logger.info("Email request completed via task \(result.taskID): \(result.roundsUsed) turns, \(result.totalTokensUsed) tokens")
+
+            return CounselTaskResult(body: responseText, replyMessageID: replyMessageID)
+        } catch {
+            logger.error("Task submission failed for email request: \(error.localizedDescription)")
+            return CounselTaskResult(body: "I encountered an error: \(error.localizedDescription)\n\n— counsel@impress.local")
         }
-
-        logger.info("Request completed: \(result.roundsUsed) turns, \(result.totalTokensUsed) tokens, \(result.toolExecutions.count) tool calls, finish: \(result.finishReason.rawValue)")
-
-        // Notify sibling apps that a counsel thread completed
-        ImpressNotification.post(ImpressNotification.threadCompleted, from: .impel, resourceIDs: [conversation.id])
-
-        // Append status footer for multi-tool responses
-        var responseText = result.responseText
-        if result.toolExecutions.count > 0 {
-            responseText += "\n\n---\n[Used \(result.toolExecutions.count) tool(s) across \(result.roundsUsed) turn(s)]"
-        }
-
-        return CounselTaskResult(body: responseText, replyMessageID: replyMessageID)
     }
 
     // MARK: - Public Data Access

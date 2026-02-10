@@ -26,6 +26,8 @@ public struct ImpressNotification: Sendable {
     public static let threadCompleted = "thread-completed"
     /// impel: human review needed
     public static let escalationCreated = "escalation-created"
+    /// impel: structured task completed (Task API)
+    public static let taskCompleted = "task-completed"
 
     // MARK: - Posting
 

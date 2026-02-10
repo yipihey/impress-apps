@@ -90,6 +90,33 @@ public final class CounselDatabase: Sendable {
             try db.create(indexOn: "standingOrder", columns: ["nextRunAt"])
         }
 
+        migrator.registerMigration("v2_tasks") { db in
+            try db.create(table: "counselTask") { t in
+                t.primaryKey("id", .text).notNull()
+                t.column("intent", .text).notNull()
+                t.column("query", .text).notNull()
+                t.column("sourceApp", .text).notNull().defaults(to: "api")
+                t.column("conversationID", .text)
+                    .references("counselConversation", onDelete: .setNull)
+                t.column("callbackURL", .text)
+                t.column("status", .text).notNull().defaults(to: "queued")
+                t.column("responseText", .text)
+                t.column("toolExecutionCount", .integer).notNull().defaults(to: 0)
+                t.column("roundsUsed", .integer).notNull().defaults(to: 0)
+                t.column("totalInputTokens", .integer).notNull().defaults(to: 0)
+                t.column("totalOutputTokens", .integer).notNull().defaults(to: 0)
+                t.column("finishReason", .text)
+                t.column("errorMessage", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("startedAt", .datetime)
+                t.column("completedAt", .datetime)
+            }
+
+            try db.create(indexOn: "counselTask", columns: ["status"])
+            try db.create(indexOn: "counselTask", columns: ["conversationID"])
+            try db.create(indexOn: "counselTask", columns: ["createdAt"])
+        }
+
         try migrator.migrate(dbWriter)
     }
 
@@ -220,6 +247,45 @@ public final class CounselDatabase: Sendable {
                 .filter(Column("nextRunAt") != nil)
                 .filter(Column("nextRunAt") <= date)
                 .order(Column("nextRunAt").asc)
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: - Tasks
+
+    public func createTask(_ task: CounselTask) throws {
+        try dbWriter.write { db in
+            try task.insert(db)
+        }
+    }
+
+    public func updateTask(_ task: CounselTask) throws {
+        try dbWriter.write { db in
+            try task.update(db)
+        }
+    }
+
+    public func fetchTask(id: String) throws -> CounselTask? {
+        try dbWriter.read { db in
+            try CounselTask.fetchOne(db, key: id)
+        }
+    }
+
+    public func fetchTasks(status: CounselTaskStatus? = nil, limit: Int = 100) throws -> [CounselTask] {
+        try dbWriter.read { db in
+            var request = CounselTask.order(Column("createdAt").desc)
+            if let status {
+                request = request.filter(Column("status") == status.rawValue)
+            }
+            return try request.limit(limit).fetchAll(db)
+        }
+    }
+
+    public func fetchTasksForConversation(_ conversationID: String) throws -> [CounselTask] {
+        try dbWriter.read { db in
+            try CounselTask
+                .filter(Column("conversationID") == conversationID)
+                .order(Column("createdAt").desc)
                 .fetchAll(db)
         }
     }
