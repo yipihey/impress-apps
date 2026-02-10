@@ -127,11 +127,11 @@ public final class SciXLibraryRepository {
             // Update existing — use store field updates
             store.updateField(id: existing.id, field: "name", value: metadata.name)
             store.updateField(id: existing.id, field: "description", value: metadata.description)
-            store.updateBoolField(id: existing.id, field: "isPublic", value: metadata.public)
-            store.updateField(id: existing.id, field: "permissionLevel", value: metadata.permission)
-            store.updateField(id: existing.id, field: "ownerEmail", value: metadata.owner)
-            store.updateIntField(id: existing.id, field: "documentCount", value: Int64(metadata.num_documents))
-            store.updateIntField(id: existing.id, field: "lastSyncDate", value: Int64(Date().timeIntervalSince1970 * 1000))
+            store.updateBoolField(id: existing.id, field: "is_public", value: metadata.public)
+            store.updateField(id: existing.id, field: "permission_level", value: metadata.permission)
+            store.updateField(id: existing.id, field: "owner_email", value: metadata.owner)
+            store.updateIntField(id: existing.id, field: "document_count", value: Int64(metadata.num_documents))
+            store.updateIntField(id: existing.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
             loadLibraries()
             return findLibrary(remoteID: metadata.id)
         } else {
@@ -181,7 +181,7 @@ public final class SciXLibraryRepository {
     /// Update library sort order
     public func updateSortOrder(_ orderedLibraries: [SciXLibrary]) {
         for (index, library) in orderedLibraries.enumerated() {
-            store.updateIntField(id: library.id, field: "sortOrder", value: Int64(index))
+            store.updateIntField(id: library.id, field: "sort_order", value: Int64(index))
         }
         loadLibraries()
     }

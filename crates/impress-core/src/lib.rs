@@ -5,6 +5,7 @@ pub mod query;
 pub mod reference;
 pub mod registry;
 pub mod schema;
+pub mod schemas;
 pub mod store;
 
 #[cfg(feature = "sqlite")]

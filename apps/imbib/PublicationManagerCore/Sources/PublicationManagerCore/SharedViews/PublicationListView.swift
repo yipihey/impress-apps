@@ -1031,8 +1031,8 @@ public struct PublicationListView: View {
     }
 
     /// Update a single row in the cache (O(1) instead of full rebuild).
-    /// Used when only one publication's read status changed.
-    /// With pre-shaped data, we look for the updated row in the publications array.
+    /// Used when only one publication's read/flag status changed.
+    /// Fetches fresh data from the Rust store to pick up the mutation.
     private func updateSingleRowData(for publicationID: UUID) {
         let start = CFAbsoluteTimeGetCurrent()
         defer {
@@ -1040,14 +1040,14 @@ public struct PublicationListView: View {
             Logger.performance.info("⏱ updateSingleRowData: \(elapsed, format: .fixed(precision: 2))ms")
         }
 
-        // Find the updated data in the publications array
-        guard let updatedData = publications.first(where: { $0.id == publicationID }) else {
+        // Fetch fresh data from the store (not the stale publications input array)
+        guard let updatedData = RustStoreAdapter.shared.getPublication(id: publicationID) else {
             return
         }
 
         rowDataCache[publicationID] = updatedData
 
-        // Invalidate filtered data cache - read status change may affect unread filter
+        // Invalidate filtered data cache - read/flag status change may affect filters
         filterCache.invalidate()
     }
 
@@ -1834,11 +1834,21 @@ public struct PublicationListView: View {
             )
         #else
         rowContent(data: rowData, index: index)
-            .listRowBackground(
-                selection.contains(rowData.id)
-                    ? theme.selectedRowBackground
-                    : Color.clear
+            .background(
+                // macOS SwiftUI List draws the system accent color (blue) for selection
+                // at the NSTableRowView level. There's no API to customize it.
+                // This opaque background draws ABOVE it, replacing blue with a neutral
+                // gray. Negative padding extends coverage to the full row bounds.
+                ZStack {
+                    theme.contentBackground
+                    if selection.contains(rowData.id) {
+                        theme.selectedRowBackground
+                    }
+                }
+                .padding(.horizontal, -20)
+                .padding(.vertical, -10)
             )
+            .listRowBackground(Color.clear)
         #endif
     }
 

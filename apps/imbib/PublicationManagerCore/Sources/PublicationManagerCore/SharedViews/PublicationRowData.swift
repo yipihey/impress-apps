@@ -7,6 +7,7 @@
 
 import Foundation
 import ImpressFTUI
+import ImpressMailStyle
 import OSLog
 
 /// Immutable value-type snapshot of publication data for safe list rendering.
@@ -156,4 +157,29 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.tagDisplays = tagDisplays
         self.libraryName = libraryName
     }
+}
+
+// MARK: - MailStyleItem Conformance
+
+extension PublicationRowData: MailStyleItem {
+    public var headerText: String {
+        if let year = year { return "\(authorString) · \(year)" }
+        return authorString
+    }
+
+    public var titleText: String { title }
+
+    public var date: Date { dateAdded }
+
+    public var previewText: String? { abstract }
+
+    public var subtitleText: String? { venue }
+
+    public var trailingBadgeText: String? {
+        citationCount > 0 ? "\(citationCount)" : nil
+    }
+
+    public var hasAttachment: Bool { hasDownloadedPDF }
+
+    public var hasSecondaryAttachment: Bool { hasOtherAttachments }
 }

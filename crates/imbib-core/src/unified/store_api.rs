@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::conversion;
 use super::schemas;
-use super::shaped_queries::*;
+use super::shaped_queries::*;  // includes ArtifactRow, ArtifactRelation, item_to_artifact_row
 
 /// Error type for the store API, exposed via UniFFI.
 #[derive(Debug, thiserror::Error)]
@@ -1205,7 +1205,13 @@ impl ImbibStore {
         let items = self.store.query(&q)?;
         let mut rows = Vec::new();
         for item in &items {
-            let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+            // Count publications via Contains references (not parent), since
+            // add_to_scix_library uses AddReference(Contains).
+            let pub_count = item
+                .references
+                .iter()
+                .filter(|r| r.edge_type == EdgeType::Contains)
+                .count();
             rows.push(item_to_scix_library_row(item, pub_count as i32));
         }
         Ok(rows)
@@ -1218,7 +1224,13 @@ impl ImbibStore {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
             Some(item) if item.schema == "imbib/scix-library" => {
-                let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+                // Count publications via Contains references (not parent), since
+                // add_to_scix_library uses AddReference(Contains).
+                let pub_count = item
+                    .references
+                    .iter()
+                    .filter(|r| r.edge_type == EdgeType::Contains)
+                    .count();
                 Ok(Some(item_to_scix_library_row(&item, pub_count as i32)))
             }
             _ => Ok(None),
@@ -1244,6 +1256,45 @@ impl ImbibStore {
                 )],
             )?;
         }
+        Ok(())
+    }
+
+    /// Query publications linked to a SciX library via item_references (Contains edges).
+    ///
+    /// SciX libraries store their membership via `AddReference(Contains)` rather than
+    /// parent relationships. This method uses `Predicate::ReferencedBy` to find all
+    /// bibliography entries that are targets of Contains edges from the given SciX library.
+    pub fn query_scix_library_publications(
+        &self,
+        scix_library_id: String,
+        sort_field: String,
+        ascending: bool,
+    ) -> Result<Vec<BibliographyRow>, StoreApiError> {
+        let scix_uuid = parse_uuid(&scix_library_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, scix_uuid)],
+            sort: vec![SortDescriptor {
+                field: normalize_sort_field(&sort_field),
+                ascending,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        self.items_to_bibliography_rows(&items, &tag_defs)
+    }
+
+    /// Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
+    pub fn reparent_item(
+        &self,
+        id: String,
+        new_parent_id: String,
+    ) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let parent_uuid = parse_uuid(&new_parent_id)?;
+        self.store
+            .update(uuid, vec![FieldMutation::SetParent(Some(parent_uuid))])?;
         Ok(())
     }
 
@@ -1742,6 +1793,321 @@ impl ImbibStore {
             }
         }
         Ok(new_ids)
+    }
+    // --- Artifact operations ---
+
+    /// Create a research artifact.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_artifact(
+        &self,
+        schema: String,
+        title: String,
+        source_url: Option<String>,
+        notes: Option<String>,
+        artifact_subtype: Option<String>,
+        file_name: Option<String>,
+        file_hash: Option<String>,
+        file_size: Option<i64>,
+        file_mime_type: Option<String>,
+        capture_context: Option<String>,
+        original_author: Option<String>,
+        event_name: Option<String>,
+        event_date: Option<String>,
+        tags: Vec<String>,
+    ) -> Result<ArtifactRow, StoreApiError> {
+        if !schema.starts_with("impress/artifact/") {
+            return Err(StoreApiError::InvalidInput(format!(
+                "schema must start with 'impress/artifact/', got: {}",
+                schema
+            )));
+        }
+        let item = conversion::artifact_to_item(
+            &schema,
+            &title,
+            source_url.as_deref(),
+            notes.as_deref(),
+            artifact_subtype.as_deref(),
+            file_name.as_deref(),
+            file_hash.as_deref(),
+            file_size,
+            file_mime_type.as_deref(),
+            capture_context.as_deref(),
+            original_author.as_deref(),
+            event_name.as_deref(),
+            event_date.as_deref(),
+            tags,
+        );
+        self.store.insert(item.clone())?;
+        let tag_defs = self.load_tag_definitions()?;
+        Ok(item_to_artifact_row(&item, &tag_defs))
+    }
+
+    /// Get a single artifact by ID.
+    pub fn get_artifact(&self, id: String) -> Result<Option<ArtifactRow>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            Some(item) if item.schema.starts_with("impress/artifact/") => {
+                let tag_defs = self.load_tag_definitions()?;
+                Ok(Some(item_to_artifact_row(&item, &tag_defs)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// List artifacts, optionally filtered by a specific schema type.
+    /// If schema_filter is None, returns artifacts across all artifact schemas.
+    pub fn list_artifacts(
+        &self,
+        schema_filter: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Vec<ArtifactRow>, StoreApiError> {
+        let sort = vec![SortDescriptor {
+            field: normalize_sort_field(&sort_field),
+            ascending,
+        }];
+        let tag_defs = self.load_tag_definitions()?;
+
+        match schema_filter {
+            Some(schema) => {
+                let q = ItemQuery {
+                    schema: Some(schema),
+                    sort,
+                    limit: limit.map(|l| l as usize),
+                    offset: offset.map(|o| o as usize),
+                    ..Default::default()
+                };
+                let items = self.store.query(&q)?;
+                Ok(items
+                    .iter()
+                    .map(|item| item_to_artifact_row(item, &tag_defs))
+                    .collect())
+            }
+            None => {
+                // Query each artifact schema and merge results
+                let schemas = [
+                    "impress/artifact/presentation",
+                    "impress/artifact/poster",
+                    "impress/artifact/dataset",
+                    "impress/artifact/webpage",
+                    "impress/artifact/note",
+                    "impress/artifact/media",
+                    "impress/artifact/code",
+                    "impress/artifact/general",
+                ];
+                let mut all_items = Vec::new();
+                for schema in &schemas {
+                    let q = ItemQuery {
+                        schema: Some((*schema).into()),
+                        ..Default::default()
+                    };
+                    all_items.extend(self.store.query(&q)?);
+                }
+                // Sort merged results
+                let sort_key = normalize_sort_field(&sort_field);
+                all_items.sort_by(|a, b| {
+                    let cmp = match sort_key.as_str() {
+                        "created" => a.created.cmp(&b.created),
+                        "payload.title" => {
+                            let at = a.payload.get("title");
+                            let bt = b.payload.get("title");
+                            format!("{:?}", at).cmp(&format!("{:?}", bt))
+                        }
+                        _ => a.created.cmp(&b.created),
+                    };
+                    if ascending { cmp } else { cmp.reverse() }
+                });
+                // Apply offset/limit
+                let start = offset.unwrap_or(0) as usize;
+                let rows: Vec<ArtifactRow> = all_items
+                    .iter()
+                    .skip(start)
+                    .take(limit.unwrap_or(u32::MAX) as usize)
+                    .map(|item| item_to_artifact_row(item, &tag_defs))
+                    .collect();
+                Ok(rows)
+            }
+        }
+    }
+
+    /// Search artifacts by text across title, notes, source_url, and original_author.
+    pub fn search_artifacts(
+        &self,
+        query: String,
+        schema_filter: Option<String>,
+    ) -> Result<Vec<ArtifactRow>, StoreApiError> {
+        let search_pred = Predicate::Or(vec![
+            Predicate::Contains("title".into(), query.clone()),
+            Predicate::Contains("notes".into(), query.clone()),
+            Predicate::Contains("source_url".into(), query.clone()),
+            Predicate::Contains("original_author".into(), query),
+        ]);
+        // Query all items, then filter by artifact schema prefix
+        let q = ItemQuery {
+            schema: schema_filter,
+            predicates: vec![search_pred],
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        Ok(items
+            .iter()
+            .filter(|item| item.schema.starts_with("impress/artifact/"))
+            .map(|item| item_to_artifact_row(item, &tag_defs))
+            .collect())
+    }
+
+    /// Update an artifact's fields.
+    pub fn update_artifact(
+        &self,
+        id: String,
+        title: Option<String>,
+        source_url: Option<String>,
+        notes: Option<String>,
+        artifact_subtype: Option<String>,
+        capture_context: Option<String>,
+        original_author: Option<String>,
+        event_name: Option<String>,
+        event_date: Option<String>,
+    ) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let mut mutations = Vec::new();
+        if let Some(v) = title {
+            mutations.push(FieldMutation::SetPayload("title".into(), Value::String(v)));
+        }
+        if let Some(v) = source_url {
+            mutations.push(FieldMutation::SetPayload("source_url".into(), Value::String(v)));
+        }
+        if let Some(v) = notes {
+            mutations.push(FieldMutation::SetPayload("notes".into(), Value::String(v)));
+        }
+        if let Some(v) = artifact_subtype {
+            mutations.push(FieldMutation::SetPayload("artifact_subtype".into(), Value::String(v)));
+        }
+        if let Some(v) = capture_context {
+            mutations.push(FieldMutation::SetPayload("capture_context".into(), Value::String(v)));
+        }
+        if let Some(v) = original_author {
+            mutations.push(FieldMutation::SetPayload("original_author".into(), Value::String(v)));
+        }
+        if let Some(v) = event_name {
+            mutations.push(FieldMutation::SetPayload("event_name".into(), Value::String(v)));
+        }
+        if let Some(v) = event_date {
+            mutations.push(FieldMutation::SetPayload("event_date".into(), Value::String(v)));
+        }
+        if !mutations.is_empty() {
+            self.store.update(uuid, mutations)?;
+        }
+        Ok(())
+    }
+
+    /// Delete an artifact by ID.
+    pub fn delete_artifact(&self, id: String) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        self.store.delete(uuid)?;
+        Ok(())
+    }
+
+    /// Link an artifact to a publication via RelatesTo edge.
+    pub fn link_artifact_to_publication(
+        &self,
+        artifact_id: String,
+        publication_id: String,
+    ) -> Result<(), StoreApiError> {
+        let art_uuid = parse_uuid(&artifact_id)?;
+        let pub_uuid = parse_uuid(&publication_id)?;
+        self.store.update(
+            art_uuid,
+            vec![FieldMutation::AddReference(
+                impress_core::reference::TypedReference {
+                    target: pub_uuid,
+                    edge_type: EdgeType::RelatesTo,
+                    metadata: None,
+                },
+            )],
+        )?;
+        Ok(())
+    }
+
+    /// Get relations from an artifact to other items.
+    pub fn get_artifact_relations(
+        &self,
+        id: String,
+    ) -> Result<Vec<ArtifactRelation>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let item = self
+            .store
+            .get(uuid)?
+            .ok_or(StoreApiError::NotFound(id))?;
+        let mut relations = Vec::new();
+        for reference in &item.references {
+            let target_item = self.store.get(reference.target)?;
+            let (target_schema, target_title) = match &target_item {
+                Some(ti) => {
+                    let title = match ti.payload.get("title") {
+                        Some(Value::String(s)) => Some(s.clone()),
+                        _ => ti.payload.get("name").and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        }),
+                    };
+                    (Some(ti.schema.clone()), title)
+                }
+                None => (None, None),
+            };
+            relations.push(ArtifactRelation {
+                target_id: reference.target.to_string(),
+                edge_type: format!("{:?}", reference.edge_type),
+                target_schema,
+                target_title,
+            });
+        }
+        Ok(relations)
+    }
+
+    /// Count all artifacts, optionally filtered by schema.
+    pub fn count_artifacts(
+        &self,
+        schema_filter: Option<String>,
+    ) -> Result<u32, StoreApiError> {
+        match schema_filter {
+            Some(schema) => {
+                let q = ItemQuery {
+                    schema: Some(schema),
+                    ..Default::default()
+                };
+                Ok(self.store.count(&q)? as u32)
+            }
+            None => {
+                // Count across all artifact schemas
+                let schemas = [
+                    "impress/artifact/presentation",
+                    "impress/artifact/poster",
+                    "impress/artifact/dataset",
+                    "impress/artifact/webpage",
+                    "impress/artifact/note",
+                    "impress/artifact/media",
+                    "impress/artifact/code",
+                    "impress/artifact/general",
+                ];
+                let mut total = 0u32;
+                for schema in &schemas {
+                    let q = ItemQuery {
+                        schema: Some((*schema).into()),
+                        ..Default::default()
+                    };
+                    total += self.store.count(&q)? as u32;
+                }
+                Ok(total)
+            }
+        }
     }
 }
 
@@ -2868,5 +3234,151 @@ mod tests {
         assert_eq!(detail.linked_files[0].filename, "paper.pdf");
         assert!(detail.collections.contains(&coll.id));
         assert_eq!(detail.libraries.len(), 1);
+    }
+
+    #[test]
+    fn artifact_crud() {
+        let store = make_store();
+
+        // Create artifact
+        let art = store
+            .create_artifact(
+                "impress/artifact/presentation".into(),
+                "My Talk on Dark Matter".into(),
+                Some("https://example.com/talk".into()),
+                Some("Great talk at AAS".into()),
+                None,
+                Some("talk.pdf".into()),
+                None,
+                Some(1024000),
+                Some("application/pdf".into()),
+                Some("AAS 245".into()),
+                Some("Jane Doe".into()),
+                Some("AAS 245".into()),
+                Some("2025-01-15".into()),
+                vec!["talks".into()],
+            )
+            .unwrap();
+        assert_eq!(art.title, "My Talk on Dark Matter");
+        assert_eq!(art.schema, "impress/artifact/presentation");
+        assert_eq!(art.source_url, Some("https://example.com/talk".into()));
+        assert_eq!(art.file_name, Some("talk.pdf".into()));
+        assert_eq!(art.file_size, Some(1024000));
+        assert_eq!(art.tags.len(), 1);
+
+        // Get by ID
+        let fetched = store.get_artifact(art.id.clone()).unwrap().unwrap();
+        assert_eq!(fetched.title, "My Talk on Dark Matter");
+
+        // List (all schemas)
+        let all = store
+            .list_artifacts(None, "created".into(), false, None, None)
+            .unwrap();
+        assert_eq!(all.len(), 1);
+
+        // List (specific schema)
+        let presentations = store
+            .list_artifacts(
+                Some("impress/artifact/presentation".into()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(presentations.len(), 1);
+
+        let notes = store
+            .list_artifacts(
+                Some("impress/artifact/note".into()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(notes.len(), 0);
+
+        // Search
+        let results = store.search_artifacts("Dark Matter".into(), None).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let no_results = store.search_artifacts("quantum".into(), None).unwrap();
+        assert_eq!(no_results.len(), 0);
+
+        // Update
+        store
+            .update_artifact(
+                art.id.clone(),
+                Some("Updated Talk Title".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let updated = store.get_artifact(art.id.clone()).unwrap().unwrap();
+        assert_eq!(updated.title, "Updated Talk Title");
+
+        // Count
+        let count = store.count_artifacts(None).unwrap();
+        assert_eq!(count, 1);
+
+        let pres_count = store
+            .count_artifacts(Some("impress/artifact/presentation".into()))
+            .unwrap();
+        assert_eq!(pres_count, 1);
+
+        // Delete
+        store.delete_artifact(art.id.clone()).unwrap();
+        assert!(store.get_artifact(art.id).unwrap().is_none());
+        assert_eq!(store.count_artifacts(None).unwrap(), 0);
+    }
+
+    #[test]
+    fn artifact_link_to_publication() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+
+        let bibtex = r#"@article{Smith2024, title={Dark Matter}, author={Smith}, year={2024}}"#;
+        let pub_ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+        assert_eq!(pub_ids.len(), 1);
+
+        let art = store
+            .create_artifact(
+                "impress/artifact/note".into(),
+                "Notes on Dark Matter Paper".into(),
+                None,
+                Some("Key findings from Smith2024".into()),
+                None, None, None, None, None, None, None, None, None,
+                vec![],
+            )
+            .unwrap();
+
+        // Link artifact to publication
+        store
+            .link_artifact_to_publication(art.id.clone(), pub_ids[0].clone())
+            .unwrap();
+
+        // Verify relation
+        let relations = store.get_artifact_relations(art.id).unwrap();
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].target_id, pub_ids[0]);
+        assert_eq!(relations[0].target_title, Some("Dark Matter".into()));
+    }
+
+    #[test]
+    fn artifact_invalid_schema_rejected() {
+        let store = make_store();
+        let result = store.create_artifact(
+            "imbib/bibliography-entry".into(),
+            "Should Fail".into(),
+            None, None, None, None, None, None, None, None, None, None, None,
+            vec![],
+        );
+        assert!(result.is_err());
     }
 }

@@ -25,6 +25,7 @@ let package = Package(
         .package(path: "../../../packages/ImpressKeyboard"),
         .package(path: "../../../packages/ImpressSidebar"),
         .package(path: "../../../packages/ImpressFTUI"),
+        .package(path: "../../../packages/ImpressMailStyle"),
         .package(path: "../../../packages/ImpressLogging"),
         .package(path: "../../../packages/ImpressOperationQueue"),
         .package(path: "../../../packages/ImpressKit")
@@ -43,6 +44,7 @@ let package = Package(
                 "ImpressKeyboard",
                 "ImpressSidebar",
                 "ImpressFTUI",
+                "ImpressMailStyle",
                 "ImpressLogging",
                 "ImpressOperationQueue",
                 "ImpressKit"

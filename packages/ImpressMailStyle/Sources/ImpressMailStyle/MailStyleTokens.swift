@@ -1,28 +1,19 @@
 //
 //  MailStyleTokens.swift
-//  PublicationManagerCore
-//
-//  Created by Claude on 2026-01-05.
+//  ImpressMailStyle
 //
 
 import SwiftUI
 
-/// Design tokens for Apple Mail-style publication rows
+/// Design tokens for Apple Mail-style list rows.
 ///
-/// These constants define the visual appearance of publication list rows,
-/// following Apple Mail's design language with:
-/// - Blue dot for unread items
-/// - Bold author names (like sender names)
-/// - Title as subject line
-/// - Abstract preview as message preview
-///
-/// Many colors can be customized via the theming system. Use the
-/// theme-aware accessors when a ThemeColors is available.
+/// Defines colors, spacing, fonts, line limits, and date formatting
+/// following Apple Mail's visual language.
 public enum MailStyleTokens {
 
     // MARK: - Default Colors
 
-    /// Default blue dot color for unread publications
+    /// Default blue dot color for unread items
     public static let unreadDotColor = Color.blue
 
     /// Secondary text color for dates, abstracts, etc.
@@ -37,49 +28,29 @@ public enum MailStyleTokens {
 
     // MARK: - Theme-Aware Colors
 
-    /// Get unread dot color from theme
-    public static func unreadDotColor(from theme: ThemeColors) -> Color {
-        theme.unreadDot
+    /// Get unread dot color from color scheme
+    public static func unreadDotColor(from scheme: any MailStyleColorScheme) -> Color {
+        scheme.unreadDot
     }
 
-    /// Get accent color from theme
-    public static func accentColor(from theme: ThemeColors) -> Color {
-        theme.accent
+    /// Get accent color from color scheme
+    public static func accentColor(from scheme: any MailStyleColorScheme) -> Color {
+        scheme.accent
     }
 
-    /// Get icon tint color from theme
-    public static func iconTint(from theme: ThemeColors) -> Color {
-        theme.iconTint
+    /// Get primary text color from color scheme
+    public static func primaryTextColor(from scheme: any MailStyleColorScheme) -> Color {
+        scheme.primaryText
     }
 
-    /// Get primary text color from theme
-    public static func primaryTextColor(from theme: ThemeColors) -> Color {
-        theme.primaryText
+    /// Get secondary text color from color scheme
+    public static func secondaryTextColor(from scheme: any MailStyleColorScheme) -> Color {
+        scheme.secondaryText
     }
 
-    /// Get secondary text color from theme
-    public static func secondaryTextColor(from theme: ThemeColors) -> Color {
-        theme.secondaryText
-    }
-
-    /// Get tertiary text color from theme
-    public static func tertiaryTextColor(from theme: ThemeColors) -> Color {
-        theme.tertiaryText
-    }
-
-    /// Get link color from theme
-    public static func linkColor(from theme: ThemeColors) -> Color {
-        theme.linkColor
-    }
-
-    /// Get detail view background from theme (nil = system default)
-    public static func detailBackground(from theme: ThemeColors) -> Color? {
-        theme.detailBackground
-    }
-
-    /// Get row separator color from theme (nil = system default)
-    public static func rowSeparator(from theme: ThemeColors) -> Color? {
-        theme.rowSeparator
+    /// Get tertiary text color from color scheme
+    public static func tertiaryTextColor(from scheme: any MailStyleColorScheme) -> Color {
+        scheme.tertiaryText
     }
 
     // MARK: - Spacing
@@ -101,16 +72,16 @@ public enum MailStyleTokens {
 
     // MARK: - Fonts (Default - use scaled versions with fontScale)
 
-    /// Font for authors when read
+    /// Font for header text when read
     public static let authorFont = Font.system(.body, weight: .semibold)
 
-    /// Font for authors when unread (bolder)
+    /// Font for header text when unread (bolder)
     public static let authorFontUnread = Font.system(.body, weight: .bold)
 
     /// Font for title
     public static let titleFont = Font.system(.body)
 
-    /// Font for abstract preview
+    /// Font for preview text
     public static let abstractFont = Font.system(.subheadline)
 
     /// Font for date
@@ -126,12 +97,12 @@ public enum MailStyleTokens {
     private static let subheadlineSize: CGFloat = 15
     private static let captionSize: CGFloat = 12
 
-    /// Scaled font for authors when read
+    /// Scaled font for header text when read
     public static func authorFont(scale: Double) -> Font {
         .system(size: bodySize * scale, weight: .semibold)
     }
 
-    /// Scaled font for authors when unread (bolder)
+    /// Scaled font for header text when unread (bolder)
     public static func authorFontUnread(scale: Double) -> Font {
         .system(size: bodySize * scale, weight: .bold)
     }
@@ -141,12 +112,12 @@ public enum MailStyleTokens {
         .system(size: bodySize * scale)
     }
 
-    /// Scaled font for title (serif)
+    /// Scaled font for title (serif variant)
     public static func titleFontSerif(scale: Double) -> Font {
         .system(size: bodySize * scale, design: .serif)
     }
 
-    /// Scaled font for abstract preview
+    /// Scaled font for preview text
     public static func abstractFont(scale: Double) -> Font {
         .system(size: subheadlineSize * scale)
     }
@@ -161,7 +132,7 @@ public enum MailStyleTokens {
         .system(size: captionSize * scale)
     }
 
-    /// Scaled font for year/citation count in the row header
+    /// Scaled font for metadata (year, citation count, etc.)
     public static func metadataFont(scale: Double) -> Font {
         .system(size: captionSize * scale)
     }
@@ -171,46 +142,39 @@ public enum MailStyleTokens {
     /// Maximum lines for title (nil = unlimited)
     public static let titleLineLimit: Int? = nil
 
-    /// Maximum lines for abstract preview
+    /// Maximum lines for preview text
     public static let abstractLineLimit = 2
 
-    /// Maximum lines for authors
+    /// Maximum lines for header text
     public static let authorLineLimit = 1
 
     // MARK: - Date Formatting
 
-    /// Format a date in Apple Mail style (time/yesterday/weekday/date)
+    /// Format a date in Apple Mail style (time/yesterday/weekday/date).
     ///
     /// - Today: "10:30 AM"
     /// - Yesterday: "Yesterday"
     /// - Within past week: "Monday"
     /// - Older: "Jan 5"
-    ///
-    /// - Parameter date: The date to format
-    /// - Returns: Formatted date string
     public static func formatRelativeDate(_ date: Date) -> String {
         let calendar = Calendar.current
         let now = Date()
 
-        // Today: show time only
         if calendar.isDateInToday(date) {
             return date.formatted(date: .omitted, time: .shortened)
         }
 
-        // Yesterday
         if calendar.isDateInYesterday(date) {
             return "Yesterday"
         }
 
-        // Within past week: show weekday name
         let daysAgo = calendar.dateComponents([.day], from: date, to: now).day ?? 0
         if daysAgo < 7 {
             let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE"  // Full weekday name
+            formatter.dateFormat = "EEEE"
             return formatter.string(from: date)
         }
 
-        // Older: show abbreviated date
         return date.formatted(.dateTime.month(.abbreviated).day())
     }
 }

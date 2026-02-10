@@ -1,12 +1,12 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "MessageManagerCore",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -24,7 +24,9 @@ let package = Package(
         .package(path: "../../../packages/ImpressKeyboard"),
         .package(path: "../../../packages/ImpressSidebar"),
         .package(path: "../../../packages/ImpressLogging"),
-        .package(path: "../../../packages/ImpressOperationQueue")
+        .package(path: "../../../packages/ImpressOperationQueue"),
+        .package(path: "../../../packages/ImpressFTUI"),
+        .package(path: "../../../packages/ImpressMailStyle")
     ],
     targets: [
         .target(
@@ -39,7 +41,9 @@ let package = Package(
                 "ImpressKeyboard",
                 "ImpressSidebar",
                 "ImpressLogging",
-                "ImpressOperationQueue"
+                "ImpressOperationQueue",
+                "ImpressFTUI",
+                "ImpressMailStyle"
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),

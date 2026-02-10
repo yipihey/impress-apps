@@ -7,6 +7,7 @@
 
 import Foundation
 import MessageManagerCore
+import ImpressMailStyle
 
 // MARK: - Display Message
 
@@ -51,30 +52,25 @@ public struct DisplayMessage: Identifiable, Sendable, Hashable {
         self.threadCount = threadCount
     }
 
-    /// Formatted date string for display.
+    /// Formatted date string for display (delegates to MailStyleTokens).
     public var displayDate: String {
-        let calendar = Calendar.current
-        let formatter = DateFormatter()
-
-        if calendar.isDateInToday(date) {
-            formatter.dateFormat = "h:mm a"
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday"
-        } else if calendar.isDate(date, equalTo: Date(), toGranularity: .weekOfYear) {
-            formatter.dateFormat = "EEE"
-        } else if calendar.isDate(date, equalTo: Date(), toGranularity: .year) {
-            formatter.dateFormat = "MMM d"
-        } else {
-            formatter.dateFormat = "MMM d, yyyy"
-        }
-
-        return formatter.string(from: date)
+        MailStyleTokens.formatRelativeDate(date)
     }
 
     /// Whether this represents a thread with multiple messages.
     public var isThread: Bool {
         threadCount > 1
     }
+}
+
+// MARK: - MailStyleItem Conformance
+
+extension DisplayMessage: MailStyleItem {
+    public var headerText: String { from }
+    public var titleText: String { subject }
+    public var previewText: String? { snippet.isEmpty ? nil : snippet }
+    public var trailingBadgeText: String? { threadCount > 1 ? "(\(threadCount))" : nil }
+    public var hasAttachment: Bool { hasAttachments }
 }
 
 // MARK: - Conversion from MessageManagerCore.Message

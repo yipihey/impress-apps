@@ -2,8 +2,8 @@ name: impart
 options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
-    macOS: "14.0"
-    iOS: "17.0"
+    macOS: "26.0"
+    iOS: "26.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   developmentLanguage: en
@@ -33,12 +33,16 @@ packages:
     path: ../../packages/ImpressAutomation
   ImpressKit:
     path: ../../packages/ImpressKit
+  ImpressFTUI:
+    path: ../../packages/ImpressFTUI
+  ImpressMailStyle:
+    path: ../../packages/ImpressMailStyle
 
 targets:
   impart:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Shared
       - path: macOS
@@ -57,6 +61,8 @@ targets:
       - package: ImpressAI
       - package: ImpressAutomation
       - package: ImpressKit
+      - package: ImpressFTUI
+      - package: ImpressMailStyle
       - target: impart-Widgets
         embed: true
     info:
@@ -140,7 +146,7 @@ targets:
   impart-iOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Shared
       - path: impart-iOS
@@ -159,6 +165,8 @@ targets:
       - package: ImpressAI
       - package: ImpressAutomation
       - package: ImpressKit
+      - package: ImpressFTUI
+      - package: ImpressMailStyle
       - target: impart-ShareExtension
         embed: true
     info:

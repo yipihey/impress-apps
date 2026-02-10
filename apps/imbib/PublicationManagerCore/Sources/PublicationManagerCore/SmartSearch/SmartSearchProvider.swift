@@ -159,11 +159,37 @@ public actor SmartSearchProvider {
             // Create new publications via BibTeX import
             let createStart = CFAbsoluteTimeGetCurrent()
             var newPublicationIDs: [UUID] = []
+            var importTargetIsInbox = false
             if !newResults.isEmpty {
                 newPublicationIDs = await MainActor.run {
                     let store = RustStoreAdapter.shared
-                    guard let smartSearch = store.getSmartSearch(id: id),
-                          let libraryID = smartSearch.libraryID else { return [UUID]() }
+                    guard let smartSearch = store.getSmartSearch(id: id) else { return [UUID]() }
+
+                    // Resolve library ID — fall back to inbox for feeds-to-inbox searches
+                    // whose parent was orphaned (parent set to NULL by cascade delete).
+                    let libraryID: UUID
+                    if let ssLibID = smartSearch.libraryID {
+                        libraryID = ssLibID
+                    } else if feedsToInbox, let inbox = store.getInboxLibrary() {
+                        libraryID = inbox.id
+                        // Re-parent the orphaned smart search to current inbox
+                        store.reparentItem(id: id, newParentId: inbox.id)
+                        Logger.smartSearch.infoCapture(
+                            "Re-parented orphaned smart search '\(name)' to inbox library",
+                            category: "smartsearch"
+                        )
+                    } else {
+                        Logger.smartSearch.errorCapture(
+                            "Smart search '\(name)' has no library ID and no inbox available",
+                            category: "smartsearch"
+                        )
+                        return [UUID]()
+                    }
+
+                    // Track if we're importing directly into inbox
+                    if let inbox = store.getInboxLibrary(), libraryID == inbox.id {
+                        importTargetIsInbox = true
+                    }
 
                     var createdIDs: [UUID] = []
                     for result in newResults {
@@ -177,6 +203,15 @@ public actor SmartSearchProvider {
                 }
             }
             let createTime = (CFAbsoluteTimeGetCurrent() - createStart) * 1000
+
+            // Link all found publications (new + existing) to this smart search via Contains references.
+            // This allows the feed view to query "papers from this feed" via ReferencedBy.
+            let allFoundIDs = newPublicationIDs + existingPubs.map(\.id)
+            if !allFoundIDs.isEmpty {
+                await MainActor.run {
+                    RustStoreAdapter.shared.addToCollection(publicationIds: allFoundIDs, collectionId: id)
+                }
+            }
 
             // If this feed goes to inbox, add publications to the inbox library
             if feedsToInbox {
@@ -202,14 +237,27 @@ public actor SmartSearchProvider {
                     }
                 }
 
-                let allPubIDs = existingPubIDsForInbox + newPublicationIDs
-                let addedCount = await MainActor.run {
-                    InboxManager.shared.addToInboxBatch(allPubIDs)
+                // When papers were imported directly into inbox (because the smart search
+                // is parented to inbox), they're already there — only add existing pubs
+                // that aren't yet in inbox. Count newly-imported papers as "added" too.
+                let pubIDsToAdd: [UUID]
+                if importTargetIsInbox {
+                    pubIDsToAdd = existingPubIDsForInbox  // new ones already in inbox
+                } else {
+                    pubIDsToAdd = existingPubIDsForInbox + newPublicationIDs
                 }
 
+                let addedFromBatch = await MainActor.run {
+                    InboxManager.shared.addToInboxBatch(pubIDsToAdd)
+                }
+
+                // Total added = batch additions + newly-imported papers (if they went to inbox directly)
+                let totalAdded = importTargetIsInbox ? (addedFromBatch + newPublicationIDs.count) : addedFromBatch
+
                 let inboxTime = (CFAbsoluteTimeGetCurrent() - inboxStart) * 1000
-                Logger.smartSearch.debugCapture(
-                    "Added \(addedCount) papers to inbox library in \(String(format: "%.0f", inboxTime))ms",
+                Logger.smartSearch.infoCapture(
+                    "Added \(totalAdded) papers to inbox library in \(String(format: "%.0f", inboxTime))ms" +
+                    " (\(newPublicationIDs.count) new, \(addedFromBatch) existing moved)",
                     category: "smartsearch"
                 )
             }

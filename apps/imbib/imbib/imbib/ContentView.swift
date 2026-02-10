@@ -465,7 +465,7 @@ struct ContentView: View {
                 store.updateField(id: id, field: "title", value: title)
             }
             if let abstract = bibtex.fields["abstract"] {
-                store.updateField(id: id, field: "abstract", value: abstract)
+                store.updateField(id: id, field: "abstract_text", value: abstract)
             }
             if let doi = bibtex.fields["doi"] {
                 store.updateField(id: id, field: "doi", value: doi)
@@ -479,7 +479,7 @@ struct ContentView: View {
                 store.updateField(id: id, field: "title", value: title)
             }
             if let abstract = ris.abstract {
-                store.updateField(id: id, field: "abstract", value: abstract)
+                store.updateField(id: id, field: "abstract_text", value: abstract)
             }
             if let doi = ris.doi {
                 store.updateField(id: id, field: "doi", value: doi)

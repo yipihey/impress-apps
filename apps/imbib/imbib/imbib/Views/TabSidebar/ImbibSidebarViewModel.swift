@@ -207,6 +207,8 @@ final class ImbibSidebarViewModel {
         case .exploration:
             guard let lib = libraryManager?.explorationLibrary else { return false }
             return explorationHasContent(libraryID: lib.id)
+        case .artifacts:
+            return true
         case .dismissed:
             guard let lib = libraryManager?.dismissedLibrary else { return false }
             return lib.publicationCount > 0
@@ -258,6 +260,8 @@ final class ImbibSidebarViewModel {
             return explorationChildren()
         case .flagged:
             return flaggedChildren()
+        case .artifacts:
+            return artifactsChildren()
         case .dismissed:
             return dismissedChildren()
         }
@@ -346,8 +350,10 @@ final class ImbibSidebarViewModel {
 
     private func librariesChildren() -> [ImbibSidebarNode] {
         guard let manager = libraryManager else { return [] }
+        let explorationID = manager.explorationLibrary?.id
+        let dismissedID = manager.dismissedLibrary?.id
         return manager.libraries
-            .filter { !$0.isInbox }
+            .filter { !$0.isInbox && $0.id != explorationID && $0.id != dismissedID }
             .map { library in
                 // Check via Rust store for collections
                 let collections = store.listCollections(libraryId: library.id)
@@ -369,7 +375,7 @@ final class ImbibSidebarViewModel {
         return collections
             .filter { $0.parentID == nil }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
-            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: 0) }
+            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: 1) }
     }
 
     private func collectionSubchildren(collectionID: UUID, libraryID: UUID) -> [ImbibSidebarNode] {
@@ -377,7 +383,7 @@ final class ImbibSidebarViewModel {
         return collections
             .filter { $0.parentID == collectionID }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
-            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: depthOf(collectionID, in: collections) + 1) }
+            .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: depthOf(collectionID, in: collections) + 2) }
     }
 
     private func makeLibraryCollectionNode(_ collection: CollectionModel, libraryID: UUID, allCollections: [CollectionModel], depth: Int) -> ImbibSidebarNode {
@@ -528,6 +534,37 @@ final class ImbibSidebarViewModel {
                 iconName: "flag.fill",
                 displayCount: count > 0 ? count : nil,
                 iconColor: color.defaultLightColor
+            ))
+        }
+
+        return nodes
+    }
+
+    // MARK: Artifacts
+
+    private func artifactsChildren() -> [ImbibSidebarNode] {
+        var nodes: [ImbibSidebarNode] = []
+
+        // All Artifacts row
+        let totalCount = store.countArtifacts(type: nil)
+        nodes.append(ImbibSidebarNode(
+            id: ImbibSidebarNodeID.allArtifacts,
+            nodeType: .allArtifacts,
+            displayName: "All Artifacts",
+            iconName: "archivebox",
+            displayCount: totalCount > 0 ? totalCount : nil
+        ))
+
+        // Per-type rows
+        for artifactType in ArtifactType.allCases {
+            let count = store.countArtifacts(type: artifactType)
+            guard count > 0 else { continue }
+            nodes.append(ImbibSidebarNode(
+                id: ImbibSidebarNodeID.artifactType(artifactType.rawValue),
+                nodeType: .artifactType(artifactType.rawValue),
+                displayName: artifactType.pluralDisplayName,
+                iconName: artifactType.iconName,
+                displayCount: count
             ))
         }
 
@@ -718,7 +755,7 @@ final class ImbibSidebarViewModel {
                 // Move to root of library — clear parent, update library association
                 store.updateField(id: collectionID, field: "parent_id", value: nil)
                 if sourceLibraryID != libraryID {
-                    store.updateField(id: collectionID, field: "library_id", value: libraryID.uuidString)
+                    store.reparentItem(id: collectionID, newParentId: libraryID)
                 }
                 libraryManager?.loadLibraries()
                 bumpDataVersion()
@@ -729,10 +766,10 @@ final class ImbibSidebarViewModel {
                 let collections = store.listCollections(libraryId: targetLibID)
                 if isAncestor(collectionID, of: targetColID, in: collections) { return }
 
-                // Update parent
+                // Update parent collection
                 store.updateField(id: collectionID, field: "parent_id", value: targetColID.uuidString)
                 if sourceLibraryID != targetLibID {
-                    store.updateField(id: collectionID, field: "library_id", value: targetLibID.uuidString)
+                    store.reparentItem(id: collectionID, newParentId: targetLibID)
                 }
                 libraryManager?.loadLibraries()
                 bumpDataVersion()
@@ -1098,6 +1135,7 @@ final class ImbibSidebarViewModel {
         case .sharedLibrary: return .sharedWithMe
         case .scixLibrary: return .scixLibraries
         case .anyFlag, .flagColor: return .flagged
+        case .allArtifacts, .artifactType: return .artifacts
         case .dismissed: return .dismissed
         case .explorationSearch, .explorationCollection: return .exploration
         default: return nil

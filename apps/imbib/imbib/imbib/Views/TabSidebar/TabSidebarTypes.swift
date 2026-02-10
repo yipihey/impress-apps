@@ -34,6 +34,8 @@ enum ImbibTab: Hashable {
     case inboxFeed(UUID)             // Smart search with feedsToInbox
     case inboxCollection(UUID)       // Collection in the inbox library
     case flagged(String?)     // nil = any flag, String = FlagColor.rawValue
+    case allArtifacts
+    case artifactType(String)   // ArtifactType.rawValue
     case dismissed
 }
 

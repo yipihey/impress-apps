@@ -8,15 +8,14 @@ description = "Unified item protocol for the impress research suite"
 
 [features]
 default = []
-sqlite = ["rusqlite", "serde_json"]
+sqlite = ["rusqlite"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }

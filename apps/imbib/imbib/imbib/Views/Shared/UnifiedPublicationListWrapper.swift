@@ -344,6 +344,28 @@ struct UnifiedPublicationListWrapper: View {
                 if case .smartSearch(let ssID) = source {
                     await queueBackgroundRefreshIfNeeded(ssID)
                 }
+
+                // Auto-refresh SciX libraries that haven't been synced yet
+                if case .scixLibrary(let id) = source {
+                    let store = RustStoreAdapter.shared
+                    if let scix = store.getScixLibrary(id: id) {
+                        let needsRefresh = scix.syncState == "pending" || scix.lastSyncDate == nil
+                        if needsRefresh, let remoteID = Optional(scix.remoteID), !remoteID.isEmpty {
+                            logger.info("Auto-refreshing SciX library '\(scix.name)' (syncState=\(scix.syncState))")
+                            isBackgroundRefreshing = true
+                            do {
+                                try await SciXSyncManager.shared.pullLibraryPapers(libraryID: remoteID)
+                                await MainActor.run {
+                                    isBackgroundRefreshing = false
+                                    refreshPublicationsList()
+                                }
+                            } catch {
+                                logger.error("SciX auto-refresh failed: \(error.localizedDescription)")
+                                isBackgroundRefreshing = false
+                            }
+                        }
+                    }
+                }
             }
             // Belt-and-suspenders: .task(id:) can miss re-fires inside
             // AppKit-bridged containers (HSplitView/ZStack). Explicit
@@ -1674,6 +1696,9 @@ struct UnifiedPublicationListWrapper: View {
         // Move publications to the target library
         store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
 
+        // Notify sidebar to refresh library counts
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: targetLibraryID)
+
         // Compute next selection
         let nextID = computeNextSelection(removing: ids, from: visualOrder)
 
@@ -1700,6 +1725,9 @@ struct UnifiedPublicationListWrapper: View {
         // Move to dismissed library
         let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
         RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
+
+        // Notify sidebar to refresh library counts
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: dismissedLibrary.id)
 
         // Compute next selection
         let nextID = computeNextSelection(removing: ids, from: visualOrder)

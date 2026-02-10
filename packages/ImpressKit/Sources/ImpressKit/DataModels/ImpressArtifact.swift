@@ -6,6 +6,7 @@ public enum ImpressArtifact: Codable, Sendable, Hashable {
     case document(ImpressDocumentRef)
     case figure(ImpressFigureRef)
     case conversationRef(id: UUID, subject: String?)
+    case researchArtifact(ImpressResearchArtifactRef)
 
     /// The unique identifier regardless of artifact type.
     public var id: UUID {
@@ -14,6 +15,7 @@ public enum ImpressArtifact: Codable, Sendable, Hashable {
         case .document(let ref): return ref.id
         case .figure(let ref): return ref.id
         case .conversationRef(let id, _): return id
+        case .researchArtifact(let ref): return ref.id
         }
     }
 
@@ -24,6 +26,7 @@ public enum ImpressArtifact: Codable, Sendable, Hashable {
         case .document: return .imprint
         case .figure: return .implore
         case .conversationRef: return .impart
+        case .researchArtifact: return .imbib
         }
     }
 
@@ -34,6 +37,7 @@ public enum ImpressArtifact: Codable, Sendable, Hashable {
         case .document(let ref): return ref.title
         case .figure(let ref): return ref.title ?? "Figure"
         case .conversationRef(_, let subject): return subject ?? "Conversation"
+        case .researchArtifact(let ref): return ref.title
         }
     }
 }

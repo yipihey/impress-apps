@@ -611,6 +611,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func countAnnotations(linkedFileId: String) throws  -> UInt32
     
+    /**
+     * Count all artifacts, optionally filtered by schema.
+     */
+    func countArtifacts(schemaFilter: String?) throws  -> UInt32
+    
     func countPdfs(publicationId: String) throws  -> UInt32
     
     func countUnread(parentId: String?) throws  -> UInt32
@@ -618,6 +623,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     func createActivityRecord(libraryId: String, activityType: String, actorDisplayName: String?, targetTitle: String?, targetId: String?, detail: String?) throws  -> ActivityRecordRow
     
     func createAnnotation(linkedFileId: String, annotationType: String, pageNumber: Int64, boundsJson: String?, color: String?, contents: String?, selectedText: String?) throws  -> AnnotationRow
+    
+    /**
+     * Create a research artifact.
+     */
+    func createArtifact(schema: String, title: String, sourceUrl: String?, notes: String?, artifactSubtype: String?, fileName: String?, fileHash: String?, fileSize: Int64?, fileMimeType: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?, tags: [String]) throws  -> ArtifactRow
     
     func createAssignment(publicationId: String, assigneeName: String, assignedByName: String?, note: String?, dueDate: Int64?) throws  -> AssignmentRow
     
@@ -638,6 +648,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     func createSmartSearch(name: String, query: String, libraryId: String, sourceIdsJson: String?, maxResults: Int64, feedsToInbox: Bool, autoRefreshEnabled: Bool, refreshIntervalSeconds: Int64) throws  -> SmartSearchRow
     
     func createTag(path: String, colorLight: String?, colorDark: String?) throws 
+    
+    /**
+     * Delete an artifact by ID.
+     */
+    func deleteArtifact(id: String) throws 
     
     /**
      * Delete any item by ID.
@@ -675,6 +690,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func fullTextSearch(query: String, parentId: String?, limit: UInt32?) throws  -> [BibliographyRow]
     
+    /**
+     * Get a single artifact by ID.
+     */
+    func getArtifact(id: String) throws  -> ArtifactRow?
+    
+    /**
+     * Get relations from an artifact to other items.
+     */
+    func getArtifactRelations(id: String) throws  -> [ArtifactRelation]
+    
     func getDefaultLibrary() throws  -> LibraryRow?
     
     func getFlaggedPublications(color: String?) throws  -> [BibliographyRow]
@@ -701,9 +726,20 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?) throws  -> Bool
     
+    /**
+     * Link an artifact to a publication via RelatesTo edge.
+     */
+    func linkArtifactToPublication(artifactId: String, publicationId: String) throws 
+    
     func listActivityRecords(libraryId: String, limit: UInt32?, offset: UInt32?) throws  -> [ActivityRecordRow]
     
     func listAnnotations(linkedFileId: String, pageNumber: Int32?) throws  -> [AnnotationRow]
+    
+    /**
+     * List artifacts, optionally filtered by a specific schema type.
+     * If schema_filter is None, returns artifacts across all artifact schemas.
+     */
+    func listArtifacts(schemaFilter: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [ArtifactRow]
     
     func listAssignments(publicationId: String?) throws  -> [AssignmentRow]
     
@@ -740,6 +776,15 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func queryRecent(limit: UInt32, parentId: String?) throws  -> [BibliographyRow]
     
+    /**
+     * Query publications linked to a SciX library via item_references (Contains edges).
+     *
+     * SciX libraries store their membership via `AddReference(Contains)` rather than
+     * parent relationships. This method uses `Predicate::ReferencedBy` to find all
+     * bibliography entries that are targets of Contains edges from the given SciX library.
+     */
+    func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool) throws  -> [BibliographyRow]
+    
     func queryStarred(parentId: String?) throws  -> [BibliographyRow]
     
     func queryUnread(parentId: String?) throws  -> [BibliographyRow]
@@ -752,6 +797,16 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Rename a tag (definition + all assignments on publications).
      */
     func renameTag(oldPath: String, newPath: String) throws 
+    
+    /**
+     * Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
+     */
+    func reparentItem(id: String, newParentId: String) throws 
+    
+    /**
+     * Search artifacts by text across title, notes, source_url, and original_author.
+     */
+    func searchArtifacts(query: String, schemaFilter: String?) throws  -> [ArtifactRow]
     
     func searchPublications(query: String, parentId: String?) throws  -> [BibliographyRow]
     
@@ -766,6 +821,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setRead(ids: [String], read: Bool) throws 
     
     func setStarred(ids: [String], starred: Bool) throws 
+    
+    /**
+     * Update an artifact's fields.
+     */
+    func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?) throws 
     
     /**
      * Update a boolean payload field on any item.
@@ -915,6 +975,17 @@ open func countAnnotations(linkedFileId: String)throws  -> UInt32 {
 })
 }
     
+    /**
+     * Count all artifacts, optionally filtered by schema.
+     */
+open func countArtifacts(schemaFilter: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_artifacts(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(schemaFilter),$0
+    )
+})
+}
+    
 open func countPdfs(publicationId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_pdfs(self.uniffiClonePointer(),
@@ -954,6 +1025,30 @@ open func createAnnotation(linkedFileId: String, annotationType: String, pageNum
         FfiConverterOptionString.lower(color),
         FfiConverterOptionString.lower(contents),
         FfiConverterOptionString.lower(selectedText),$0
+    )
+})
+}
+    
+    /**
+     * Create a research artifact.
+     */
+open func createArtifact(schema: String, title: String, sourceUrl: String?, notes: String?, artifactSubtype: String?, fileName: String?, fileHash: String?, fileSize: Int64?, fileMimeType: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?, tags: [String])throws  -> ArtifactRow {
+    return try  FfiConverterTypeArtifactRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_artifact(self.uniffiClonePointer(),
+        FfiConverterString.lower(schema),
+        FfiConverterString.lower(title),
+        FfiConverterOptionString.lower(sourceUrl),
+        FfiConverterOptionString.lower(notes),
+        FfiConverterOptionString.lower(artifactSubtype),
+        FfiConverterOptionString.lower(fileName),
+        FfiConverterOptionString.lower(fileHash),
+        FfiConverterOptionInt64.lower(fileSize),
+        FfiConverterOptionString.lower(fileMimeType),
+        FfiConverterOptionString.lower(captureContext),
+        FfiConverterOptionString.lower(originalAuthor),
+        FfiConverterOptionString.lower(eventName),
+        FfiConverterOptionString.lower(eventDate),
+        FfiConverterSequenceString.lower(tags),$0
     )
 })
 }
@@ -1062,6 +1157,16 @@ open func createTag(path: String, colorLight: String?, colorDark: String?)throws
         FfiConverterString.lower(path),
         FfiConverterOptionString.lower(colorLight),
         FfiConverterOptionString.lower(colorDark),$0
+    )
+}
+}
+    
+    /**
+     * Delete an artifact by ID.
+     */
+open func deleteArtifact(id: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_artifact(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
     )
 }
 }
@@ -1196,6 +1301,28 @@ open func fullTextSearch(query: String, parentId: String?, limit: UInt32?)throws
 })
 }
     
+    /**
+     * Get a single artifact by ID.
+     */
+open func getArtifact(id: String)throws  -> ArtifactRow? {
+    return try  FfiConverterOptionTypeArtifactRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_get_artifact(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Get relations from an artifact to other items.
+     */
+open func getArtifactRelations(id: String)throws  -> [ArtifactRelation] {
+    return try  FfiConverterSequenceTypeArtifactRelation.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_get_artifact_relations(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
 open func getDefaultLibrary()throws  -> LibraryRow? {
     return try  FfiConverterOptionTypeLibraryRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_get_default_library(self.uniffiClonePointer(),$0
@@ -1302,6 +1429,17 @@ open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?)thro
 })
 }
     
+    /**
+     * Link an artifact to a publication via RelatesTo edge.
+     */
+open func linkArtifactToPublication(artifactId: String, publicationId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_link_artifact_to_publication(self.uniffiClonePointer(),
+        FfiConverterString.lower(artifactId),
+        FfiConverterString.lower(publicationId),$0
+    )
+}
+}
+    
 open func listActivityRecords(libraryId: String, limit: UInt32?, offset: UInt32?)throws  -> [ActivityRecordRow] {
     return try  FfiConverterSequenceTypeActivityRecordRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_activity_records(self.uniffiClonePointer(),
@@ -1317,6 +1455,22 @@ open func listAnnotations(linkedFileId: String, pageNumber: Int32?)throws  -> [A
     uniffi_imbib_core_fn_method_imbibstore_list_annotations(self.uniffiClonePointer(),
         FfiConverterString.lower(linkedFileId),
         FfiConverterOptionInt32.lower(pageNumber),$0
+    )
+})
+}
+    
+    /**
+     * List artifacts, optionally filtered by a specific schema type.
+     * If schema_filter is None, returns artifacts across all artifact schemas.
+     */
+open func listArtifacts(schemaFilter: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [ArtifactRow] {
+    return try  FfiConverterSequenceTypeArtifactRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_artifacts(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(schemaFilter),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -1459,6 +1613,23 @@ open func queryRecent(limit: UInt32, parentId: String?)throws  -> [BibliographyR
 })
 }
     
+    /**
+     * Query publications linked to a SciX library via item_references (Contains edges).
+     *
+     * SciX libraries store their membership via `AddReference(Contains)` rather than
+     * parent relationships. This method uses `Predicate::ReferencedBy` to find all
+     * bibliography entries that are targets of Contains edges from the given SciX library.
+     */
+open func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool)throws  -> [BibliographyRow] {
+    return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_query_scix_library_publications(self.uniffiClonePointer(),
+        FfiConverterString.lower(scixLibraryId),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),$0
+    )
+})
+}
+    
 open func queryStarred(parentId: String?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_query_starred(self.uniffiClonePointer(),
@@ -1500,6 +1671,29 @@ open func renameTag(oldPath: String, newPath: String)throws  {try rustCallWithEr
         FfiConverterString.lower(newPath),$0
     )
 }
+}
+    
+    /**
+     * Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
+     */
+open func reparentItem(id: String, newParentId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_reparent_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(newParentId),$0
+    )
+}
+}
+    
+    /**
+     * Search artifacts by text across title, notes, source_url, and original_author.
+     */
+open func searchArtifacts(query: String, schemaFilter: String?)throws  -> [ArtifactRow] {
+    return try  FfiConverterSequenceTypeArtifactRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_search_artifacts(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterOptionString.lower(schemaFilter),$0
+    )
+})
 }
     
 open func searchPublications(query: String, parentId: String?)throws  -> [BibliographyRow] {
@@ -1556,6 +1750,24 @@ open func setStarred(ids: [String], starred: Bool)throws  {try rustCallWithError
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
+    )
+}
+}
+    
+    /**
+     * Update an artifact's fields.
+     */
+open func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_update_artifact(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterOptionString.lower(title),
+        FfiConverterOptionString.lower(sourceUrl),
+        FfiConverterOptionString.lower(notes),
+        FfiConverterOptionString.lower(artifactSubtype),
+        FfiConverterOptionString.lower(captureContext),
+        FfiConverterOptionString.lower(originalAuthor),
+        FfiConverterOptionString.lower(eventName),
+        FfiConverterOptionString.lower(eventDate),$0
     )
 }
 }
@@ -2364,6 +2576,304 @@ public func FfiConverterTypeAnnotationRow_lift(_ buf: RustBuffer) throws -> Anno
 #endif
 public func FfiConverterTypeAnnotationRow_lower(_ value: AnnotationRow) -> RustBuffer {
     return FfiConverterTypeAnnotationRow.lower(value)
+}
+
+
+/**
+ * Relation from an artifact to another item.
+ */
+public struct ArtifactRelation {
+    public var targetId: String
+    public var edgeType: String
+    public var targetSchema: String?
+    public var targetTitle: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(targetId: String, edgeType: String, targetSchema: String?, targetTitle: String?) {
+        self.targetId = targetId
+        self.edgeType = edgeType
+        self.targetSchema = targetSchema
+        self.targetTitle = targetTitle
+    }
+}
+
+
+
+extension ArtifactRelation: Equatable, Hashable {
+    public static func ==(lhs: ArtifactRelation, rhs: ArtifactRelation) -> Bool {
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.edgeType != rhs.edgeType {
+            return false
+        }
+        if lhs.targetSchema != rhs.targetSchema {
+            return false
+        }
+        if lhs.targetTitle != rhs.targetTitle {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(targetId)
+        hasher.combine(edgeType)
+        hasher.combine(targetSchema)
+        hasher.combine(targetTitle)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArtifactRelation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArtifactRelation {
+        return
+            try ArtifactRelation(
+                targetId: FfiConverterString.read(from: &buf), 
+                edgeType: FfiConverterString.read(from: &buf), 
+                targetSchema: FfiConverterOptionString.read(from: &buf), 
+                targetTitle: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArtifactRelation, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.edgeType, into: &buf)
+        FfiConverterOptionString.write(value.targetSchema, into: &buf)
+        FfiConverterOptionString.write(value.targetTitle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactRelation_lift(_ buf: RustBuffer) throws -> ArtifactRelation {
+    return try FfiConverterTypeArtifactRelation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactRelation_lower(_ value: ArtifactRelation) -> RustBuffer {
+    return FfiConverterTypeArtifactRelation.lower(value)
+}
+
+
+/**
+ * Research artifact row for list display.
+ */
+public struct ArtifactRow {
+    public var id: String
+    public var schema: String
+    public var title: String
+    public var sourceUrl: String?
+    public var notes: String?
+    public var artifactSubtype: String?
+    public var fileName: String?
+    public var fileHash: String?
+    public var fileSize: Int64?
+    public var fileMimeType: String?
+    public var captureContext: String?
+    public var originalAuthor: String?
+    public var eventName: String?
+    public var eventDate: String?
+    public var tags: [TagDisplayRow]
+    public var flagColor: String?
+    public var isRead: Bool
+    public var isStarred: Bool
+    public var createdAt: Int64
+    public var author: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, schema: String, title: String, sourceUrl: String?, notes: String?, artifactSubtype: String?, fileName: String?, fileHash: String?, fileSize: Int64?, fileMimeType: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?, tags: [TagDisplayRow], flagColor: String?, isRead: Bool, isStarred: Bool, createdAt: Int64, author: String) {
+        self.id = id
+        self.schema = schema
+        self.title = title
+        self.sourceUrl = sourceUrl
+        self.notes = notes
+        self.artifactSubtype = artifactSubtype
+        self.fileName = fileName
+        self.fileHash = fileHash
+        self.fileSize = fileSize
+        self.fileMimeType = fileMimeType
+        self.captureContext = captureContext
+        self.originalAuthor = originalAuthor
+        self.eventName = eventName
+        self.eventDate = eventDate
+        self.tags = tags
+        self.flagColor = flagColor
+        self.isRead = isRead
+        self.isStarred = isStarred
+        self.createdAt = createdAt
+        self.author = author
+    }
+}
+
+
+
+extension ArtifactRow: Equatable, Hashable {
+    public static func ==(lhs: ArtifactRow, rhs: ArtifactRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.schema != rhs.schema {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.sourceUrl != rhs.sourceUrl {
+            return false
+        }
+        if lhs.notes != rhs.notes {
+            return false
+        }
+        if lhs.artifactSubtype != rhs.artifactSubtype {
+            return false
+        }
+        if lhs.fileName != rhs.fileName {
+            return false
+        }
+        if lhs.fileHash != rhs.fileHash {
+            return false
+        }
+        if lhs.fileSize != rhs.fileSize {
+            return false
+        }
+        if lhs.fileMimeType != rhs.fileMimeType {
+            return false
+        }
+        if lhs.captureContext != rhs.captureContext {
+            return false
+        }
+        if lhs.originalAuthor != rhs.originalAuthor {
+            return false
+        }
+        if lhs.eventName != rhs.eventName {
+            return false
+        }
+        if lhs.eventDate != rhs.eventDate {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        if lhs.flagColor != rhs.flagColor {
+            return false
+        }
+        if lhs.isRead != rhs.isRead {
+            return false
+        }
+        if lhs.isStarred != rhs.isStarred {
+            return false
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(schema)
+        hasher.combine(title)
+        hasher.combine(sourceUrl)
+        hasher.combine(notes)
+        hasher.combine(artifactSubtype)
+        hasher.combine(fileName)
+        hasher.combine(fileHash)
+        hasher.combine(fileSize)
+        hasher.combine(fileMimeType)
+        hasher.combine(captureContext)
+        hasher.combine(originalAuthor)
+        hasher.combine(eventName)
+        hasher.combine(eventDate)
+        hasher.combine(tags)
+        hasher.combine(flagColor)
+        hasher.combine(isRead)
+        hasher.combine(isStarred)
+        hasher.combine(createdAt)
+        hasher.combine(author)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArtifactRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArtifactRow {
+        return
+            try ArtifactRow(
+                id: FfiConverterString.read(from: &buf), 
+                schema: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                sourceUrl: FfiConverterOptionString.read(from: &buf), 
+                notes: FfiConverterOptionString.read(from: &buf), 
+                artifactSubtype: FfiConverterOptionString.read(from: &buf), 
+                fileName: FfiConverterOptionString.read(from: &buf), 
+                fileHash: FfiConverterOptionString.read(from: &buf), 
+                fileSize: FfiConverterOptionInt64.read(from: &buf), 
+                fileMimeType: FfiConverterOptionString.read(from: &buf), 
+                captureContext: FfiConverterOptionString.read(from: &buf), 
+                originalAuthor: FfiConverterOptionString.read(from: &buf), 
+                eventName: FfiConverterOptionString.read(from: &buf), 
+                eventDate: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceTypeTagDisplayRow.read(from: &buf), 
+                flagColor: FfiConverterOptionString.read(from: &buf), 
+                isRead: FfiConverterBool.read(from: &buf), 
+                isStarred: FfiConverterBool.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArtifactRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.schema, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.sourceUrl, into: &buf)
+        FfiConverterOptionString.write(value.notes, into: &buf)
+        FfiConverterOptionString.write(value.artifactSubtype, into: &buf)
+        FfiConverterOptionString.write(value.fileName, into: &buf)
+        FfiConverterOptionString.write(value.fileHash, into: &buf)
+        FfiConverterOptionInt64.write(value.fileSize, into: &buf)
+        FfiConverterOptionString.write(value.fileMimeType, into: &buf)
+        FfiConverterOptionString.write(value.captureContext, into: &buf)
+        FfiConverterOptionString.write(value.originalAuthor, into: &buf)
+        FfiConverterOptionString.write(value.eventName, into: &buf)
+        FfiConverterOptionString.write(value.eventDate, into: &buf)
+        FfiConverterSequenceTypeTagDisplayRow.write(value.tags, into: &buf)
+        FfiConverterOptionString.write(value.flagColor, into: &buf)
+        FfiConverterBool.write(value.isRead, into: &buf)
+        FfiConverterBool.write(value.isStarred, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactRow_lift(_ buf: RustBuffer) throws -> ArtifactRow {
+    return try FfiConverterTypeArtifactRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactRow_lower(_ value: ArtifactRow) -> RustBuffer {
+    return FfiConverterTypeArtifactRow.lower(value)
 }
 
 
@@ -7205,6 +7715,131 @@ public func FfiConverterTypeOpenManuscriptCommand_lift(_ buf: RustBuffer) throws
 #endif
 public func FfiConverterTypeOpenManuscriptCommand_lower(_ value: OpenManuscriptCommand) -> RustBuffer {
     return FfiConverterTypeOpenManuscriptCommand.lower(value)
+}
+
+
+/**
+ * Operation record for provenance display.
+ */
+public struct OperationRow {
+    public var id: String
+    public var targetId: String
+    public var opType: String
+    public var intent: String
+    public var reason: String?
+    public var author: String
+    public var date: Int64
+    public var logicalClock: UInt64
+    public var batchId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, targetId: String, opType: String, intent: String, reason: String?, author: String, date: Int64, logicalClock: UInt64, batchId: String?) {
+        self.id = id
+        self.targetId = targetId
+        self.opType = opType
+        self.intent = intent
+        self.reason = reason
+        self.author = author
+        self.date = date
+        self.logicalClock = logicalClock
+        self.batchId = batchId
+    }
+}
+
+
+
+extension OperationRow: Equatable, Hashable {
+    public static func ==(lhs: OperationRow, rhs: OperationRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.opType != rhs.opType {
+            return false
+        }
+        if lhs.intent != rhs.intent {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.date != rhs.date {
+            return false
+        }
+        if lhs.logicalClock != rhs.logicalClock {
+            return false
+        }
+        if lhs.batchId != rhs.batchId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(targetId)
+        hasher.combine(opType)
+        hasher.combine(intent)
+        hasher.combine(reason)
+        hasher.combine(author)
+        hasher.combine(date)
+        hasher.combine(logicalClock)
+        hasher.combine(batchId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOperationRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OperationRow {
+        return
+            try OperationRow(
+                id: FfiConverterString.read(from: &buf), 
+                targetId: FfiConverterString.read(from: &buf), 
+                opType: FfiConverterString.read(from: &buf), 
+                intent: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterOptionString.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                date: FfiConverterInt64.read(from: &buf), 
+                logicalClock: FfiConverterUInt64.read(from: &buf), 
+                batchId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OperationRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.opType, into: &buf)
+        FfiConverterString.write(value.intent, into: &buf)
+        FfiConverterOptionString.write(value.reason, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterInt64.write(value.date, into: &buf)
+        FfiConverterUInt64.write(value.logicalClock, into: &buf)
+        FfiConverterOptionString.write(value.batchId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOperationRow_lift(_ buf: RustBuffer) throws -> OperationRow {
+    return try FfiConverterTypeOperationRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOperationRow_lower(_ value: OperationRow) -> RustBuffer {
+    return FfiConverterTypeOperationRow.lower(value)
 }
 
 
@@ -14579,6 +15214,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeArtifactRow: FfiConverterRustBuffer {
+    typealias SwiftType = ArtifactRow?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeArtifactRow.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeArtifactRow.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeBibliographyRow: FfiConverterRustBuffer {
     typealias SwiftType = BibliographyRow?
 
@@ -15107,6 +15766,56 @@ fileprivate struct FfiConverterSequenceTypeAnnotationRow: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeAnnotationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeArtifactRelation: FfiConverterRustBuffer {
+    typealias SwiftType = [ArtifactRelation]
+
+    public static func write(_ value: [ArtifactRelation], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeArtifactRelation.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ArtifactRelation] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ArtifactRelation]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeArtifactRelation.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeArtifactRow: FfiConverterRustBuffer {
+    typealias SwiftType = [ArtifactRow]
+
+    public static func write(_ value: [ArtifactRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeArtifactRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ArtifactRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ArtifactRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeArtifactRow.read(from: &buf))
         }
         return seq
     }
@@ -18404,6 +19113,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_count_annotations() != 49064) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_artifacts() != 54054) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_pdfs() != 36052) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18414,6 +19126,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_annotation() != 49918) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_artifact() != 8969) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_assignment() != 45754) {
@@ -18444,6 +19159,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_tag() != 51092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_artifact() != 55877) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_item() != 44423) {
@@ -18491,6 +19209,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_full_text_search() != 23621) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_artifact() != 45468) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_artifact_relations() != 61552) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_get_default_library() != 52853) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18530,10 +19254,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 19934) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_link_artifact_to_publication() != 22858) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_activity_records() != 10944) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_annotations() != 59526) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_artifacts() != 34198) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_assignments() != 26664) {
@@ -18584,6 +19314,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_recent() != 35555) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_scix_library_publications() != 12037) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_starred() != 46076) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18597,6 +19330,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_rename_tag() != 556) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_reparent_item() != 7572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_search_artifacts() != 15549) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_search_publications() != 7240) {
@@ -18618,6 +19357,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 47502) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_artifact() != 43646) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_update_bool_field() != 1104) {

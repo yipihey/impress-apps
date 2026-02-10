@@ -99,14 +99,20 @@ struct TabContentView: View {
             viewModel.refreshFlagCounts()
             viewModel.bumpDataVersion()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryContentDidChange)) { _ in
+            libraryManager.loadLibraries()
+            viewModel.bumpDataVersion()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             if let collectionID = notification.userInfo?["collectionID"] as? UUID {
+                libraryManager.loadLibraries()
                 viewModel.navigateToTab(.explorationCollection(collectionID))
                 viewModel.explorationRefreshTrigger = UUID()
                 viewModel.bumpDataVersion()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
+            libraryManager.loadLibraries()
             viewModel.explorationRefreshTrigger = UUID()
             viewModel.bumpDataVersion()
         }

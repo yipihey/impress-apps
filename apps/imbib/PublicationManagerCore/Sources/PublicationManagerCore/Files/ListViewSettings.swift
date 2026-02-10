@@ -7,6 +7,7 @@
 
 import Foundation
 import ImpressFTUI
+import ImpressMailStyle
 
 // MARK: - Row Density
 
@@ -143,4 +144,25 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
 
     /// Default settings matching the original MailStylePublicationRow behavior
     public static let `default` = ListViewSettings()
+}
+
+// MARK: - MailStyleRowConfiguration Bridge
+
+extension ListViewSettings {
+    /// Convert to a domain-agnostic ``MailStyleRowConfiguration`` for use with ``MailStyleRow``.
+    public var mailStyleConfiguration: MailStyleRowConfiguration {
+        MailStyleRowConfiguration(
+            showDate: showDateAdded,
+            showTitle: showTitle,
+            showSubtitle: showVenue,
+            showTrailingBadge: showCitationCount,
+            showUnreadIndicator: showUnreadIndicator,
+            showAttachmentIndicator: showAttachmentIndicator,
+            showFlagStripe: showFlagStripe,
+            previewLineLimit: abstractLineLimit,
+            tagDisplayStyle: tagDisplayStyle,
+            tagPathStyle: tagPathStyle,
+            density: MailStyleRowDensity(rawValue: rowDensity.rawValue) ?? .default
+        )
+    }
 }

@@ -160,18 +160,24 @@ impl SqliteItemStore {
             CREATE INDEX IF NOT EXISTS idx_items_starred ON items(is_starred);
             CREATE INDEX IF NOT EXISTS idx_item_tags_path ON item_tags(tag_path);
             CREATE INDEX IF NOT EXISTS idx_item_refs_target ON item_references(target_id, edge_type);
-            CREATE INDEX IF NOT EXISTS idx_items_logical_clock ON items(logical_clock);
-            CREATE INDEX IF NOT EXISTS idx_items_priority ON items(priority);
-            CREATE INDEX IF NOT EXISTS idx_items_visibility ON items(visibility);
             ",
         )
         .map_err(|e| StoreError::Storage(format!("init_schema: {}", e)))?;
 
-        // Partial indices (these use WHERE clauses, need separate statements)
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_items_op_target ON items(op_target_id, logical_clock) WHERE op_target_id IS NOT NULL;
-             CREATE INDEX IF NOT EXISTS idx_items_batch ON items(batch_id) WHERE batch_id IS NOT NULL;",
-        ).map_err(|e| StoreError::Storage(format!("init_partial_indices: {}", e)))?;
+        // Indices on columns added by envelope expansion — created separately so that
+        // on existing databases (where init_schema is a no-op for the table) we don't
+        // fail before migrate_schema has a chance to add the columns.  migrate_schema
+        // also creates these indices idempotently after adding the columns.
+        for idx_sql in &[
+            "CREATE INDEX IF NOT EXISTS idx_items_logical_clock ON items(logical_clock)",
+            "CREATE INDEX IF NOT EXISTS idx_items_priority ON items(priority)",
+            "CREATE INDEX IF NOT EXISTS idx_items_visibility ON items(visibility)",
+            "CREATE INDEX IF NOT EXISTS idx_items_op_target ON items(op_target_id, logical_clock) WHERE op_target_id IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_items_batch ON items(batch_id) WHERE batch_id IS NOT NULL",
+        ] {
+            // .ok() — on existing DBs these columns don't exist yet; migrate_schema handles it
+            let _ = conn.execute(idx_sql, []);
+        }
 
         // FTS5 table
         conn.execute_batch(
@@ -210,6 +216,20 @@ impl SqliteItemStore {
         let _ = conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS store_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         );
+
+        // Create indices for migrated columns (idempotent — IF NOT EXISTS).
+        // These are also in init_schema for fresh databases, but on existing databases
+        // init_schema runs before migrate_schema, so the columns don't exist yet.
+        let index_migrations = [
+            "CREATE INDEX IF NOT EXISTS idx_items_logical_clock ON items(logical_clock)",
+            "CREATE INDEX IF NOT EXISTS idx_items_priority ON items(priority)",
+            "CREATE INDEX IF NOT EXISTS idx_items_visibility ON items(visibility)",
+            "CREATE INDEX IF NOT EXISTS idx_items_op_target ON items(op_target_id, logical_clock) WHERE op_target_id IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_items_batch ON items(batch_id) WHERE batch_id IS NOT NULL",
+        ];
+        for sql in &index_migrations {
+            let _ = conn.execute(sql, []);
+        }
 
         Ok(())
     }

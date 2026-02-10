@@ -39,6 +39,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Set up mouse back/forward button handling
         setupMouseButtonMonitor()
+
+        // Register global hotkey for quick artifact capture (Cmd+Shift+Space)
+        CaptureHotkeyManager.shared.register()
     }
 
     /// Monitor mouse back/forward buttons and map them to focus cycling (h/l shortcuts).
@@ -59,11 +62,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Clean up event monitor
+        // Clean up event monitors
         if let monitor = mouseEventMonitor {
             NSEvent.removeMonitor(monitor)
             mouseEventMonitor = nil
         }
+        CaptureHotkeyManager.shared.unregister()
     }
 
     /// Remove corrupted SwiftUI window state that could cause oversized windows.

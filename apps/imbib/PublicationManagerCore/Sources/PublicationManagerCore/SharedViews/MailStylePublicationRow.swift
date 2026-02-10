@@ -9,6 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ImpressFTUI
 import ImpressKit
+import ImpressMailStyle
 
 // MARK: - Browser Destination
 
@@ -252,24 +253,6 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var isUnread: Bool { !data.isRead }
 
-    /// Author string with year for display
-    private var authorYearString: String {
-        if settings.showYear, let year = data.year {
-            return "\(data.authorString) · \(year)"
-        }
-        return data.authorString
-    }
-
-    /// Content spacing based on row density
-    private var contentSpacing: CGFloat {
-        settings.rowDensity.contentSpacing
-    }
-
-    /// Row padding based on row density
-    private var rowPadding: CGFloat {
-        settings.rowDensity.rowPadding
-    }
-
     // MARK: - Initialization
 
     public init(
@@ -361,136 +344,40 @@ public struct MailStylePublicationRow: View, Equatable {
         rowContent
     }
 
+    /// Effective configuration: when highlightedCitationCount is set, suppress the default badge
+    /// since the highlighted version replaces it in the trailing header.
+    private var effectiveConfiguration: MailStyleRowConfiguration {
+        var config = settings.mailStyleConfiguration
+        if highlightedCitationCount != nil {
+            config.showTrailingBadge = false
+        }
+        return config
+    }
+
     private var rowContent: some View {
-        HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Flag stripe (leading edge)
-            if settings.showFlagStripe {
-                FlagStripe(flag: data.flag, rowHeight: 44)
+        MailStyleRow(item: data, configuration: effectiveConfiguration) {
+            // Recommendation score (when sorting by recommended)
+            if let score = recommendationScore {
+                HStack(spacing: 2) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 9 * fontScale))
+                    Text(String(format: "%.1f", score))
+                        .font(MailStyleTokens.dateFont(scale: fontScale))
+                }
+                .foregroundStyle(theme.accent)
             }
 
-            // Indicators column: unread dot and star
-            if settings.showUnreadIndicator {
-                VStack(spacing: 2) {
-                    Circle()
-                        .fill(isUnread ? MailStyleTokens.unreadDotColor(from: theme) : .clear)
-                        .frame(
-                            width: MailStyleTokens.unreadDotSize,
-                            height: MailStyleTokens.unreadDotSize
-                        )
-
-                    if data.isStarred {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 10 * fontScale))
-                            .foregroundStyle(.yellow)
-                    }
+            // Highlighted citation count (when sorting by citations)
+            if let citationCount = highlightedCitationCount {
+                HStack(spacing: 2) {
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: 9 * fontScale))
+                    Text("\(citationCount)")
+                        .font(MailStyleTokens.dateFont(scale: fontScale))
                 }
-                .padding(.top, 6)
-            }
-
-            // Content
-            VStack(alignment: .leading, spacing: contentSpacing) {
-                // Row 1: Authors [· Year] + [Date Added] [Citation Count]
-                HStack {
-                    Text(authorYearString)
-                        .font(isUnread ? MailStyleTokens.authorFontUnread(scale: fontScale) : MailStyleTokens.authorFont(scale: fontScale))
-                        .foregroundStyle(MailStyleTokens.primaryTextColor(from: theme))
-                        .lineLimit(MailStyleTokens.authorLineLimit)
-
-                    Spacer()
-
-                    if settings.showDateAdded {
-                        Text(MailStyleTokens.formatRelativeDate(data.dateAdded))
-                            .font(MailStyleTokens.dateFont(scale: fontScale))
-                            .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
-                    }
-
-                    // Recommendation score (when sorting by recommended)
-                    if let score = recommendationScore {
-                        HStack(spacing: 2) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 9 * fontScale))
-                            Text(String(format: "%.1f", score))
-                                .font(MailStyleTokens.dateFont(scale: fontScale))
-                        }
-                        .foregroundStyle(theme.accent)
-                    }
-
-                    // Highlighted citation count (when sorting by citations)
-                    if let citationCount = highlightedCitationCount {
-                        HStack(spacing: 2) {
-                            Image(systemName: "quote.bubble")
-                                .font(.system(size: 9 * fontScale))
-                            Text("\(citationCount)")
-                                .font(MailStyleTokens.dateFont(scale: fontScale))
-                        }
-                        .foregroundStyle(theme.accent)
-                    } else if settings.showCitationCount && data.citationCount > 0 {
-                        // Regular citation count display (when not sorting by citations)
-                        Text("\(data.citationCount)")
-                            .font(MailStyleTokens.dateFont(scale: fontScale))
-                            .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
-                    }
-                }
-
-                // Row 2: Title (conditional)
-                if settings.showTitle {
-                    Text(data.title)
-                        .font(MailStyleTokens.titleFont(scale: fontScale))
-                        .fontWeight(isUnread ? .medium : .regular)
-                        .foregroundStyle(MailStyleTokens.primaryTextColor(from: theme))
-                        .lineLimit(MailStyleTokens.titleLineLimit)
-                }
-
-                // Row 2.5: Venue (conditional)
-                if settings.showVenue, let venue = data.venue, !venue.isEmpty {
-                    Text(venue)
-                        .font(MailStyleTokens.abstractFont(scale: fontScale))
-                        .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
-                        .lineLimit(1)
-                }
-
-                // Row 2.7: Tags (conditional)
-                if !data.tagDisplays.isEmpty {
-                    TagLine(tags: data.tagDisplays, style: settings.tagDisplayStyle, pathStyle: settings.tagPathStyle)
-                }
-
-                // Row 2.75: Category chips disabled for performance
-                // CategoryChipsRow creates multiple views per row which impacts scroll performance
-                // Categories are still visible in the detail view
-
-                // Row 3: Attachment indicator + Abstract preview (conditional)
-                let hasAttachments = data.hasDownloadedPDF || data.hasOtherAttachments
-                if (settings.showAttachmentIndicator && hasAttachments) || settings.abstractLineLimit > 0 {
-                    HStack(spacing: 4) {
-                        if settings.showAttachmentIndicator {
-                            // Paperclip for downloaded PDFs
-                            if data.hasDownloadedPDF {
-                                Image(systemName: "paperclip")
-                                    .font(MailStyleTokens.attachmentFont(scale: fontScale))
-                                    .foregroundStyle(MailStyleTokens.tertiaryTextColor(from: theme))
-                            }
-                            // Document icon for other attachments (non-PDF files)
-                            if data.hasOtherAttachments {
-                                Image(systemName: "doc.fill")
-                                    .font(MailStyleTokens.attachmentFont(scale: fontScale))
-                                    .foregroundStyle(MailStyleTokens.tertiaryTextColor(from: theme))
-                            }
-                        }
-
-                        if settings.abstractLineLimit > 0, let abstract = data.abstract, !abstract.isEmpty {
-                            // PERFORMANCE: Plain text with truncation - AbstractRenderer
-                            // is only used in detail view where formatting matters
-                            Text(String(abstract.prefix(300)))
-                                .font(MailStyleTokens.abstractFont(scale: fontScale))
-                                .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
-                                .lineLimit(settings.abstractLineLimit)
-                        }
-                    }
-                }
+                .foregroundStyle(theme.accent)
             }
         }
-        .padding(.vertical, rowPadding)
-        .contentShape(Rectangle())
         // Multi-selection drag: read current selection from holder at drag time
         .itemProvider {
             // Read current selection from holder (class reference, not captured value)

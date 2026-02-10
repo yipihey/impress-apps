@@ -5,13 +5,14 @@ import UniformTypeIdentifiers
 /// Hierarchy:
 /// ```
 /// public.data
-///   com.impress.artifact              — base for all impress artifacts
-///     com.impress.paper-reference     — UUID + citeKey + title
-///     com.impress.document-reference  — UUID + title
-///     com.impress.figure-reference    — UUID + format
-///     com.impress.conversation-ref    — UUID + subject
-///   com.impress.bibtex-entry          — full BibTeX (conforms to public.text)
-///   com.impress.citation-key          — just a cite key string
+///   com.impress.artifact                       — base for all impress artifacts
+///     com.impress.paper-reference              — UUID + citeKey + title
+///     com.impress.document-reference           — UUID + title
+///     com.impress.figure-reference             — UUID + format
+///     com.impress.conversation-ref             — UUID + subject
+///     com.impress.research-artifact-reference  — UUID + schema + title
+///   com.impress.bibtex-entry                   — full BibTeX (conforms to public.text)
+///   com.impress.citation-key                   — just a cite key string
 /// ```
 extension UTType {
     /// Base type for all Impress artifacts.
@@ -41,6 +42,12 @@ extension UTType {
     /// A cross-app conversation reference (UUID + subject).
     public static let impressConversationReference = UTType(
         exportedAs: "com.impress.conversation-ref",
+        conformingTo: .impressArtifact
+    )
+
+    /// A cross-app research artifact reference (UUID + schema + title).
+    public static let impressResearchArtifactReference = UTType(
+        exportedAs: "com.impress.research-artifact-reference",
         conformingTo: .impressArtifact
     )
 

@@ -18,6 +18,13 @@ pub fn publication_to_item(pub_data: &Publication, library_id: Option<ItemId>) -
         "author_text",
         &Some(format_author_text(&pub_data.authors)),
     );
+    // Structured author data for detail view — stored as JSON string
+    // Schema declares FieldType::Object but we store as String for serde round-trip
+    if !pub_data.authors.is_empty() {
+        if let Ok(json) = serde_json::to_string(&pub_data.authors) {
+            payload.insert("authors_json".into(), Value::String(json));
+        }
+    }
     insert_opt_int(&mut payload, "year", &pub_data.year);
     insert_opt_string(&mut payload, "month", &pub_data.month);
     insert_opt_string(&mut payload, "journal", &pub_data.journal);
@@ -759,6 +766,66 @@ pub fn recommendation_profile_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(library_id),
+    }
+}
+
+/// Convert artifact fields to an Item.
+/// The `schema` must be one of the `impress/artifact/*` schemas.
+#[allow(clippy::too_many_arguments)]
+pub fn artifact_to_item(
+    schema: &str,
+    title: &str,
+    source_url: Option<&str>,
+    notes: Option<&str>,
+    artifact_subtype: Option<&str>,
+    file_name: Option<&str>,
+    file_hash: Option<&str>,
+    file_size: Option<i64>,
+    file_mime_type: Option<&str>,
+    capture_context: Option<&str>,
+    original_author: Option<&str>,
+    event_name: Option<&str>,
+    event_date: Option<&str>,
+    tags: Vec<String>,
+) -> Item {
+    let mut payload = BTreeMap::new();
+    insert_string(&mut payload, "title", title);
+    insert_opt_string(&mut payload, "source_url", &source_url.map(String::from));
+    insert_opt_string(&mut payload, "notes", &notes.map(String::from));
+    insert_opt_string(&mut payload, "artifact_subtype", &artifact_subtype.map(String::from));
+    insert_opt_string(&mut payload, "file_name", &file_name.map(String::from));
+    insert_opt_string(&mut payload, "file_hash", &file_hash.map(String::from));
+    if let Some(size) = file_size {
+        payload.insert("file_size".into(), Value::Int(size));
+    }
+    insert_opt_string(&mut payload, "file_mime_type", &file_mime_type.map(String::from));
+    insert_opt_string(&mut payload, "capture_context", &capture_context.map(String::from));
+    insert_opt_string(&mut payload, "original_author", &original_author.map(String::from));
+    insert_opt_string(&mut payload, "event_name", &event_name.map(String::from));
+    insert_opt_string(&mut payload, "event_date", &event_date.map(String::from));
+
+    Item {
+        id: Uuid::new_v4(),
+        schema: schema.into(),
+        payload,
+        created: Utc::now(),
+        author: "user".into(),
+        author_kind: ActorKind::Human,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags,
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
     }
 }
 

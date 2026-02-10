@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressMailStyle
 
 // MARK: - Theme Colors
 
@@ -13,7 +14,7 @@ import SwiftUI
 ///
 /// This struct provides computed colors based on the current theme settings
 /// and whether the system is in light or dark mode.
-public struct ThemeColors: Sendable {
+public struct ThemeColors: Sendable, MailStyleColorScheme {
 
     // MARK: - Properties
 
@@ -208,14 +209,14 @@ public struct ThemeColors: Sendable {
 
 public extension ThemeColors {
 
-    /// Selected row background with theme accent
+    /// Row background when selected — uses system's neutral gray, consistent
+    /// regardless of whether the list has keyboard focus.
     var selectedRowBackground: Color {
-        accent.opacity(0.15)
-    }
-
-    /// Hover row background with theme accent
-    var hoverRowBackground: Color {
-        accent.opacity(0.08)
+        #if os(macOS)
+        Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+        #else
+        Color.primary.opacity(0.12)
+        #endif
     }
 
     /// Badge background using theme accent

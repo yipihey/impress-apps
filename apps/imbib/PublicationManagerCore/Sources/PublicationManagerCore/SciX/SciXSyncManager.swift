@@ -85,11 +85,11 @@ public actor SciXSyncManager {
                     // Update existing library fields
                     store.updateField(id: existing.id, field: "name", value: remote.name)
                     store.updateField(id: existing.id, field: "description", value: remote.description)
-                    store.updateBoolField(id: existing.id, field: "isPublic", value: remote.public)
-                    store.updateField(id: existing.id, field: "permissionLevel", value: remote.permission)
-                    store.updateField(id: existing.id, field: "ownerEmail", value: remote.owner)
-                    store.updateIntField(id: existing.id, field: "documentCount", value: Int64(remote.num_documents))
-                    store.updateIntField(id: existing.id, field: "lastSyncDate", value: Int64(Date().timeIntervalSince1970 * 1000))
+                    store.updateBoolField(id: existing.id, field: "is_public", value: remote.public)
+                    store.updateField(id: existing.id, field: "permission_level", value: remote.permission)
+                    store.updateField(id: existing.id, field: "owner_email", value: remote.owner)
+                    store.updateIntField(id: existing.id, field: "document_count", value: Int64(remote.num_documents))
+                    store.updateIntField(id: existing.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
                     if let refreshed = store.getScixLibrary(id: existing.id) {
                         updatedLibraries.append(refreshed)
                     }
@@ -194,9 +194,9 @@ public actor SciXSyncManager {
             }
 
             // Update library metadata
-            store.updateIntField(id: library.id, field: "lastSyncDate", value: Int64(Date().timeIntervalSince1970 * 1000))
-            store.updateIntField(id: library.id, field: "documentCount", value: Int64(papers.count))
-            store.updateField(id: library.id, field: "syncState", value: "synced")
+            store.updateIntField(id: library.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
+            store.updateIntField(id: library.id, field: "document_count", value: Int64(papers.count))
+            store.updateField(id: library.id, field: "sync_state", value: "synced")
 
             Logger.scix.info("Cached \(papers.count) papers for library \(libraryID)")
         }

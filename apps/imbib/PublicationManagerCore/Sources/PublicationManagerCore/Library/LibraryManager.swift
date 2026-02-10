@@ -336,6 +336,12 @@ public final class LibraryManager {
             return lib
         }
 
+        // Clear orphaned ID if the library was deleted externally
+        if dismissedLibraryID != nil {
+            Logger.library.warningCapture("Dismissed library UUID orphaned (library deleted), clearing", category: "library")
+            dismissedLibraryID = nil
+        }
+
         Logger.library.infoCapture("Creating Dismissed library for Inbox triage", category: "library")
         guard let lib = store.createLibrary(name: "Dismissed") else {
             return getOrCreateDefaultLibrary()

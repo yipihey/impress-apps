@@ -223,7 +223,7 @@ struct DetailView: View {
     private func autoMarkAsRead() async {
         guard let pub = publication, !pub.isRead else { return }
 
-        // Wait 1 second before marking as read (like Mail)
+        // Wait 2 seconds before marking as read
         do {
             try await Task.sleep(for: .seconds(1))
             // Re-check after sleep in case publication was deleted while waiting

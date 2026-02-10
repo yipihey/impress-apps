@@ -194,7 +194,7 @@ public final class SciXLibraryViewModel {
             store.updateField(id: library.id, field: "description", value: description)
         }
         if let isPublic = isPublic {
-            store.updateBoolField(id: library.id, field: "isPublic", value: isPublic)
+            store.updateBoolField(id: library.id, field: "is_public", value: isPublic)
         }
         libraries = repository.libraries
     }

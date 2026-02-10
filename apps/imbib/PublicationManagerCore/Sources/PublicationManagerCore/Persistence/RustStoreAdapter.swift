@@ -1143,13 +1143,13 @@ public final class RustStoreAdapter {
             return queryPublications(parentId: id, sort: sort, ascending: ascending)
         case .collection(let id):
             return listCollectionMembers(collectionId: id, sort: sort, ascending: ascending)
-        case .smartSearch:
-            // Smart searches are executed via search, not direct query
-            return []
+        case .smartSearch(let id):
+            // Query publications linked to this smart search via Contains references
+            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending)
         case .flagged(let color):
             return getFlaggedPublications(color: color)
         case .scixLibrary(let id):
-            return queryPublications(parentId: id, sort: sort, ascending: ascending)
+            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending)
         case .unread:
             return queryUnread()
         case .starred:
@@ -1160,6 +1160,30 @@ public final class RustStoreAdapter {
             return queryPublications(parentId: id, sort: sort, ascending: ascending)
         case .dismissed:
             return []
+        }
+    }
+
+    /// Query publications linked to a SciX library via item_references (Contains edges).
+    public func queryScixLibraryPublications(
+        scixLibraryId: UUID, sort: String = "created", ascending: Bool = false
+    ) -> [PublicationRowData] {
+        do {
+            let rows = try store.queryScixLibraryPublications(
+                scixLibraryId: scixLibraryId.uuidString, sortField: sort, ascending: ascending)
+            return rows.compactMap { PublicationRowData(from: $0) }
+        } catch {
+            Logger.library.error("queryScixLibraryPublications failed: \(error)")
+            return []
+        }
+    }
+
+    /// Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
+    public func reparentItem(id: UUID, newParentId: UUID) {
+        do {
+            try store.reparentItem(id: id.uuidString, newParentId: newParentId.uuidString)
+            didMutate()
+        } catch {
+            Logger.library.error("reparentItem failed: \(error)")
         }
     }
 
@@ -1365,6 +1389,208 @@ public final class RustStoreAdapter {
             note: note,
             dueDate: dueDateTimestamp
         )
+    }
+}
+
+// MARK: - Artifact Operations
+
+extension RustStoreAdapter {
+
+    /// Create a new research artifact.
+    @discardableResult
+    public func createArtifact(
+        type: ArtifactType,
+        title: String,
+        sourceURL: String? = nil,
+        notes: String? = nil,
+        artifactSubtype: String? = nil,
+        fileName: String? = nil,
+        fileHash: String? = nil,
+        fileSize: Int64? = nil,
+        fileMimeType: String? = nil,
+        captureContext: String? = nil,
+        originalAuthor: String? = nil,
+        eventName: String? = nil,
+        eventDate: String? = nil,
+        tags: [String] = []
+    ) -> ResearchArtifact? {
+        do {
+            let row = try store.createArtifact(
+                schema: type.rawValue,
+                title: title,
+                sourceUrl: sourceURL,
+                notes: notes,
+                artifactSubtype: artifactSubtype,
+                fileName: fileName,
+                fileHash: fileHash,
+                fileSize: fileSize,
+                fileMimeType: fileMimeType,
+                captureContext: captureContext,
+                originalAuthor: originalAuthor,
+                eventName: eventName,
+                eventDate: eventDate,
+                tags: tags
+            )
+            didMutate()
+            Logger.library.infoCapture("Created artifact '\(title)' (\(type.displayName))", category: "artifacts")
+            return ResearchArtifact(from: row)
+        } catch {
+            Logger.library.errorCapture("Failed to create artifact: \(error)", category: "artifacts")
+            return nil
+        }
+    }
+
+    /// Get a single artifact by ID.
+    public func getArtifact(id: UUID) -> ResearchArtifact? {
+        do {
+            guard let row = try store.getArtifact(id: id.uuidString) else {
+                return nil
+            }
+            return ResearchArtifact(from: row)
+        } catch {
+            Logger.library.errorCapture("Failed to get artifact \(id): \(error)", category: "artifacts")
+            return nil
+        }
+    }
+
+    /// List artifacts, optionally filtered by type.
+    public func listArtifacts(
+        type: ArtifactType? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [ResearchArtifact] {
+        do {
+            let rows = try store.listArtifacts(
+                schemaFilter: type?.rawValue,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
+            return rows.map { ResearchArtifact(from: $0) }
+        } catch {
+            Logger.library.errorCapture("Failed to list artifacts: \(error)", category: "artifacts")
+            return []
+        }
+    }
+
+    /// Search artifacts by text query.
+    public func searchArtifacts(query: String, type: ArtifactType? = nil) -> [ResearchArtifact] {
+        do {
+            let rows = try store.searchArtifacts(
+                query: query,
+                schemaFilter: type?.rawValue
+            )
+            return rows.map { ResearchArtifact(from: $0) }
+        } catch {
+            Logger.library.errorCapture("Failed to search artifacts: \(error)", category: "artifacts")
+            return []
+        }
+    }
+
+    /// Update an artifact's fields.
+    public func updateArtifact(
+        id: UUID,
+        title: String? = nil,
+        sourceURL: String? = nil,
+        notes: String? = nil,
+        artifactSubtype: String? = nil,
+        captureContext: String? = nil,
+        originalAuthor: String? = nil,
+        eventName: String? = nil,
+        eventDate: String? = nil
+    ) {
+        do {
+            try store.updateArtifact(
+                id: id.uuidString,
+                title: title,
+                sourceUrl: sourceURL,
+                notes: notes,
+                artifactSubtype: artifactSubtype,
+                captureContext: captureContext,
+                originalAuthor: originalAuthor,
+                eventName: eventName,
+                eventDate: eventDate
+            )
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to update artifact \(id): \(error)", category: "artifacts")
+        }
+    }
+
+    /// Delete an artifact.
+    public func deleteArtifact(id: UUID) {
+        do {
+            try store.deleteArtifact(id: id.uuidString)
+            didMutate()
+            Logger.library.infoCapture("Deleted artifact \(id)", category: "artifacts")
+        } catch {
+            Logger.library.errorCapture("Failed to delete artifact \(id): \(error)", category: "artifacts")
+        }
+    }
+
+    /// Link an artifact to a publication.
+    public func linkArtifactToPublication(artifactID: UUID, publicationID: UUID) {
+        do {
+            try store.linkArtifactToPublication(
+                artifactId: artifactID.uuidString,
+                publicationId: publicationID.uuidString
+            )
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to link artifact: \(error)", category: "artifacts")
+        }
+    }
+
+    /// Count all artifacts, optionally filtered by type.
+    public func countArtifacts(type: ArtifactType? = nil) -> Int {
+        do {
+            return Int(try store.countArtifacts(schemaFilter: type?.rawValue))
+        } catch {
+            return 0
+        }
+    }
+
+    /// Set read state on artifacts.
+    public func setArtifactRead(ids: [UUID], read: Bool) {
+        do {
+            try store.setRead(ids: ids.map(\.uuidString), read: read)
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to set artifact read: \(error)", category: "artifacts")
+        }
+    }
+
+    /// Set starred state on artifacts.
+    public func setArtifactStarred(ids: [UUID], starred: Bool) {
+        do {
+            try store.setStarred(ids: ids.map(\.uuidString), starred: starred)
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to set artifact starred: \(error)", category: "artifacts")
+        }
+    }
+
+    /// Add a tag to artifacts.
+    public func addArtifactTag(ids: [UUID], tagPath: String) {
+        do {
+            try store.addTag(ids: ids.map(\.uuidString), tagPath: tagPath)
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to add artifact tag: \(error)", category: "artifacts")
+        }
+    }
+
+    /// Remove a tag from artifacts.
+    public func removeArtifactTag(ids: [UUID], tagPath: String) {
+        do {
+            try store.removeTag(ids: ids.map(\.uuidString), tagPath: tagPath)
+            didMutate()
+        } catch {
+            Logger.library.errorCapture("Failed to remove artifact tag: \(error)", category: "artifacts")
+        }
     }
 }
 

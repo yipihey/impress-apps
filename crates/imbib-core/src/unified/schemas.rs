@@ -53,7 +53,7 @@ pub fn bibliography_entry_schema() -> Schema {
             optional_string("raw_ris"),
             // Structured data as JSON objects
             field("keywords", FieldType::StringArray, false),
-            field("authors_json", FieldType::Object, false),
+            optional_string("authors_json"),
             field("editors_json", FieldType::Object, false),
             field("extra_fields", FieldType::Object, false),
             field("linked_files_json", FieldType::Object, false),
@@ -334,8 +334,11 @@ pub fn core_operation_schema() -> Schema {
     }
 }
 
-/// Register all imbib schemas in a registry.
+/// Register all imbib schemas (+ shared artifact schemas) in a registry.
 pub fn register_all(registry: &mut impress_core::SchemaRegistry) {
+    // Register suite-wide artifact schemas from impress-core
+    impress_core::schemas::register_artifact_schemas(registry);
+
     registry
         .register(bibliography_entry_schema())
         .expect("bibliography-entry schema registration");

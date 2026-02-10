@@ -30,6 +30,8 @@ enum ImbibSidebarNodeType: Hashable {
     case explorationCollection(collectionID: UUID)
     case anyFlag
     case flagColor(FlagColor)
+    case allArtifacts
+    case artifactType(String)   // ArtifactType.rawValue
     case dismissed
 }
 
@@ -91,6 +93,10 @@ extension ImbibSidebarNode {
             return .flagged(nil)
         case .flagColor(let color):
             return .flagged(color.rawValue)
+        case .allArtifacts:
+            return .allArtifacts
+        case .artifactType(let rawValue):
+            return .artifactType(rawValue)
         case .dismissed:
             return .dismissed
         }
@@ -144,5 +150,11 @@ enum ImbibSidebarNodeID {
 
     static func flagColor(_ color: FlagColor) -> UUID {
         stable("flagColor.\(color.rawValue)")
+    }
+
+    static let allArtifacts = stable("allArtifacts")
+
+    static func artifactType(_ rawValue: String) -> UUID {
+        stable("artifactType.\(rawValue)")
     }
 }

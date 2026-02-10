@@ -47,6 +47,8 @@ packages:
     path: ../../../packages/ImpressSidebar
   ImpressFTUI:
     path: ../../../packages/ImpressFTUI
+  ImpressMailStyle:
+    path: ../../../packages/ImpressMailStyle
   ImpressLogging:
     path: ../../../packages/ImpressLogging
   ImpressOperationQueue:

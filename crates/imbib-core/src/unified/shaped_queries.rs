@@ -234,6 +234,42 @@ pub struct ActivityRecordRow {
     pub library_id: String,
 }
 
+/// Research artifact row for list display.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ArtifactRow {
+    pub id: String,
+    pub schema: String,
+    pub title: String,
+    pub source_url: Option<String>,
+    pub notes: Option<String>,
+    pub artifact_subtype: Option<String>,
+    pub file_name: Option<String>,
+    pub file_hash: Option<String>,
+    pub file_size: Option<i64>,
+    pub file_mime_type: Option<String>,
+    pub capture_context: Option<String>,
+    pub original_author: Option<String>,
+    pub event_name: Option<String>,
+    pub event_date: Option<String>,
+    pub tags: Vec<TagDisplayRow>,
+    pub flag_color: Option<String>,
+    pub is_read: bool,
+    pub is_starred: bool,
+    pub created_at: i64,
+    pub author: String,
+}
+
+/// Relation from an artifact to another item.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ArtifactRelation {
+    pub target_id: String,
+    pub edge_type: String,
+    pub target_schema: Option<String>,
+    pub target_title: Option<String>,
+}
+
 /// Operation record for provenance display.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -353,7 +389,7 @@ pub fn item_to_collection_row(item: &Item, publication_count: i32) -> Collection
     CollectionRow {
         id: item.id.to_string(),
         name: get_str(payload, "name").unwrap_or_default(),
-        parent_id: item.parent.map(|p| p.to_string()),
+        parent_id: get_str(payload, "parent_id"),
         is_smart: get_bool(payload, "is_smart"),
         publication_count,
         sort_order: get_i64(payload, "sort_order").unwrap_or(0) as i32,
@@ -438,42 +474,66 @@ pub fn item_to_publication_detail(
 }
 
 /// Parse authors from the `authors_json` payload field.
-/// Expected format: JSON array of objects with keys: given_name, family_name, suffix, orcid, affiliation
+/// Falls back to parsing `author_text` (semicolon-separated "Family, Given" format)
+/// for papers that were imported before `authors_json` was populated.
 fn parse_authors_json(payload: &BTreeMap<String, Value>) -> Vec<AuthorRow> {
-    let json_str = match payload.get("authors_json") {
-        Some(Value::String(s)) => s.clone(),
-        _ => return vec![],
-    };
-    let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&json_str);
-    match parsed {
-        Ok(arr) => arr
-            .iter()
-            .filter_map(|v| {
-                let obj = v.as_object()?;
-                let family_name = obj.get("family_name")?.as_str()?.to_string();
-                Some(AuthorRow {
-                    given_name: obj
-                        .get("given_name")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    family_name,
-                    suffix: obj
-                        .get("suffix")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    orcid: obj
-                        .get("orcid")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    affiliation: obj
-                        .get("affiliation")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
+    // Try structured JSON first
+    if let Some(Value::String(json_str)) = payload.get("authors_json") {
+        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(json_str);
+        if let Ok(arr) = parsed {
+            let rows: Vec<AuthorRow> = arr
+                .iter()
+                .filter_map(|v| {
+                    let obj = v.as_object()?;
+                    let family_name = obj.get("family_name")?.as_str()?.to_string();
+                    Some(AuthorRow {
+                        given_name: obj
+                            .get("given_name")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        family_name,
+                        suffix: obj
+                            .get("suffix")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        orcid: obj
+                            .get("orcid")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        affiliation: obj
+                            .get("affiliation")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                    })
                 })
-            })
-            .collect(),
-        Err(_) => vec![],
+                .collect();
+            if !rows.is_empty() {
+                return rows;
+            }
+        }
     }
+
+    // Fallback: parse author_text ("Family, Given; Family, Given; ...")
+    if let Some(Value::String(text)) = payload.get("author_text") {
+        if !text.is_empty() {
+            return text
+                .split("; ")
+                .filter(|s| !s.is_empty())
+                .map(|entry| {
+                    let parts: Vec<&str> = entry.splitn(2, ", ").collect();
+                    AuthorRow {
+                        family_name: parts[0].to_string(),
+                        given_name: parts.get(1).map(|s| s.to_string()),
+                        suffix: None,
+                        orcid: None,
+                        affiliation: None,
+                    }
+                })
+                .collect();
+        }
+    }
+
+    vec![]
 }
 
 /// Convert an Item into a LinkedFileRow.
@@ -615,6 +675,57 @@ pub fn item_to_activity_record_row(item: &Item) -> ActivityRecordRow {
         date: item.created.timestamp_millis(),
         detail: get_str(payload, "detail"),
         library_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
+    }
+}
+
+/// Convert an artifact Item into an ArtifactRow.
+pub fn item_to_artifact_row(item: &Item, tag_defs: &[TagDisplayRow]) -> ArtifactRow {
+    let payload = &item.payload;
+    let tags: Vec<TagDisplayRow> = item
+        .tags
+        .iter()
+        .map(|tag_path| {
+            tag_defs
+                .iter()
+                .find(|td| td.path == *tag_path)
+                .cloned()
+                .unwrap_or_else(|| {
+                    let leaf = tag_path
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or(tag_path)
+                        .to_string();
+                    TagDisplayRow {
+                        path: tag_path.clone(),
+                        leaf_name: leaf,
+                        color_light: None,
+                        color_dark: None,
+                    }
+                })
+        })
+        .collect();
+
+    ArtifactRow {
+        id: item.id.to_string(),
+        schema: item.schema.clone(),
+        title: get_str(payload, "title").unwrap_or_default(),
+        source_url: get_str(payload, "source_url"),
+        notes: get_str(payload, "notes"),
+        artifact_subtype: get_str(payload, "artifact_subtype"),
+        file_name: get_str(payload, "file_name"),
+        file_hash: get_str(payload, "file_hash"),
+        file_size: get_i64(payload, "file_size"),
+        file_mime_type: get_str(payload, "file_mime_type"),
+        capture_context: get_str(payload, "capture_context"),
+        original_author: get_str(payload, "original_author"),
+        event_name: get_str(payload, "event_name"),
+        event_date: get_str(payload, "event_date"),
+        tags,
+        flag_color: item.flag.as_ref().map(|f| f.color.clone()),
+        is_read: item.is_read,
+        is_starred: item.is_starred,
+        created_at: item.created.timestamp_millis(),
+        author: item.author.clone(),
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressMailStyle
 
 // MARK: - Theme Colors Environment Key
 
@@ -71,6 +72,8 @@ public struct ThemeProvider: ViewModifier {
         content
             .environment(\.themeColors, colors)
             .environment(\.fontScale, effectiveFontScale)
+            .environment(\.mailStyleColors, colors)
+            .environment(\.mailStyleFontScale, effectiveFontScale)
             .tint(colors.accent)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
             #if os(macOS)
@@ -195,6 +198,8 @@ public struct PreviewTheme: ViewModifier {
         content
             .environment(\.themeColors, colors)
             .environment(\.fontScale, settings.fontScale)
+            .environment(\.mailStyleColors, colors)
+            .environment(\.mailStyleFontScale, settings.fontScale)
             .environment(\.colorScheme, colorScheme)
             .tint(colors.accent)
     }

@@ -150,4 +150,21 @@ public struct ImpressURL: Sendable {
     public static func askCounsel(question: String) -> ImpressURL {
         ImpressURL(app: .impel, action: "ask", parameters: ["question": question])
     }
+
+    /// `imbib://open/artifact/{uuid}`
+    public static func openArtifact(id: UUID) -> ImpressURL {
+        ImpressURL(app: .imbib, action: "open", resourceType: "artifact", resourceID: id.uuidString)
+    }
+
+    /// `imbib://open/artifact/{uuid}?type={schema}`
+    public static func openArtifact(id: UUID, type: String) -> ImpressURL {
+        ImpressURL(app: .imbib, action: "open", resourceType: "artifact", resourceID: id.uuidString, parameters: ["type": type])
+    }
+
+    /// `imbib://navigate/artifacts?type={schema}`
+    public static func navigateArtifacts(type: String? = nil) -> ImpressURL {
+        var params: [String: String] = [:]
+        if let type { params["type"] = type }
+        return ImpressURL(app: .imbib, action: "navigate", resourceType: "artifacts", parameters: params)
+    }
 }

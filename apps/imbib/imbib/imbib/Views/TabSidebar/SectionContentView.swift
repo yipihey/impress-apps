@@ -31,6 +31,7 @@ struct SectionContentView: View {
     enum ContentKind: Equatable {
         case source(PublicationSource)
         case searchForm(SearchFormType)
+        case artifacts(ArtifactType?)   // nil = all artifacts, else filtered by type
     }
 
     // MARK: - Properties
@@ -48,6 +49,7 @@ struct SectionContentView: View {
     @State private var selectedPublicationIDs = Set<UUID>()
     @State private var displayedPublicationID: UUID?
     @State private var selectedDetailTab: DetailTab = .info
+    @State private var selectedArtifactID: UUID?
 
     /// Search form: whether to show the form or results
     @State private var showSearchForm = true
@@ -66,6 +68,10 @@ struct SectionContentView: View {
         case .scixLibrary(let id):
             guard scixRepository.libraries.contains(where: { $0.id == id }) else { return nil }
             return .source(.scixLibrary(id))
+        case .allArtifacts:
+            return .artifacts(nil)
+        case .artifactType(let rawValue):
+            return .artifacts(ArtifactType(rawValue: rawValue))
         default:
             return currentSource.map { .source($0) }
         }
@@ -106,6 +112,8 @@ struct SectionContentView: View {
             return .flagged(color)
         case .dismissed:
             return libraryManager.dismissedLibrary.map { .library($0.id) }
+        case .allArtifacts, .artifactType:
+            return nil
         case .searchForm, .scixLibrary, nil:
             return nil
         }
@@ -128,6 +136,8 @@ struct SectionContentView: View {
             return nil
         case .dismissed:
             return libraryManager.dismissedLibrary?.id
+        case .allArtifacts, .artifactType:
+            return nil
         case .searchForm, .scixLibrary, nil:
             return nil
         }
@@ -141,6 +151,7 @@ struct SectionContentView: View {
         switch content {
         case .source(let source): return "source-\(source.viewID)"
         case .searchForm(let type): return "search-\(type.rawValue)"
+        case .artifacts(let type): return "artifacts-\(type?.rawValue ?? "all")"
         }
     }
 
@@ -148,38 +159,22 @@ struct SectionContentView: View {
         selectedPublicationIDs.first
     }
 
-    private var selectedPublicationBinding: Binding<PublicationRowData?> {
+    private var selectedPublicationIDBinding: Binding<UUID?> {
         Binding(
-            get: {
-                guard let id = selectedPublicationID else { return nil }
-                return libraryViewModel.publication(for: id)
-            },
-            set: { newPublication in
-                let newID = newPublication?.id
+            get: { selectedPublicationIDs.first },
+            set: { newID in
+                // Only replace the full selection set when explicitly navigating
+                // to a single item. When called from PublicationListView's
+                // .onChange(of: selection) during multi-select, the Set<UUID>
+                // binding is the source of truth — don't collapse it here.
                 if let id = newID {
-                    if !selectedPublicationIDs.contains(id) {
+                    if selectedPublicationIDs.count <= 1 || !selectedPublicationIDs.contains(id) {
                         selectedPublicationIDs = [id]
                     }
                 } else {
                     selectedPublicationIDs.removeAll()
                 }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(50))
-                    displayedPublicationID = newID
-                }
-            }
-        )
-    }
-
-    private var selectedPublicationIDBinding: Binding<UUID?> {
-        Binding(
-            get: { selectedPublicationIDs.first },
-            set: { newID in
-                if let id = newID {
-                    selectedPublicationIDs = [id]
-                } else {
-                    selectedPublicationIDs.removeAll()
-                }
+                displayedPublicationID = newID
             }
         )
     }
@@ -293,6 +288,7 @@ struct SectionContentView: View {
         .onChange(of: tabKey) { _, _ in
             selectedPublicationIDs.removeAll()
             displayedPublicationID = nil
+            selectedArtifactID = nil
             // Reset search form when switching to a search tab
             if case .searchForm = content {
                 showSearchForm = true
@@ -354,6 +350,12 @@ struct SectionContentView: View {
             } else {
                 searchResultsView
             }
+
+        case .artifacts(let typeFilter):
+            ArtifactListView(
+                typeFilter: typeFilter,
+                selectedArtifactID: $selectedArtifactID
+            )
         }
     }
 
@@ -430,7 +432,9 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if isMultiSelection && selectedDetailTab == .bibtex {
+        if let artifactID = selectedArtifactID, isArtifactContent {
+            ArtifactDetailView(artifactID: artifactID)
+        } else if isMultiSelection && selectedDetailTab == .bibtex {
             MultiSelectionBibTeXView(
                 publicationIDs: Array(selectedPublicationIDs),
                 onDownloadPDFs: {
@@ -449,11 +453,16 @@ struct SectionContentView: View {
         } else {
             ContentUnavailableView(
                 "No Selection",
-                systemImage: "doc.text",
-                description: Text("Select a publication to view details")
+                systemImage: isArtifactContent ? "archivebox" : "doc.text",
+                description: Text(isArtifactContent ? "Select an artifact to view details" : "Select a publication to view details")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var isArtifactContent: Bool {
+        if case .artifacts = resolvedContent { return true }
+        return false
     }
 
     // MARK: - Detail Toolbar (Liquid Glass)
