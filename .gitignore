@@ -21,6 +21,7 @@ Cargo.lock
 
 # Swift Package Manager
 .build/
+build/
 .swiftpm/
 Package.resolved
 

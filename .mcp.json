@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "repomix": {
+      "command": "repomix",
+      "args": ["--mcp"]
+    }
+  }
+}
