@@ -81,6 +81,34 @@ public actor CounselToolRegistry {
                     "required": AnySendable([AnySendable("citeKeys")])
                 ]
             ),
+            AITool(
+                name: "imbib_create_artifact",
+                description: "Create a research artifact in imbib. Artifacts capture non-paper items like notes, webpages, datasets, presentations, and code.",
+                inputSchema: [
+                    "type": AnySendable("object"),
+                    "properties": AnySendable([
+                        "type": AnySendable(["type": AnySendable("string"), "description": AnySendable("Artifact type"), "enum": AnySendable([AnySendable("presentation"), AnySendable("poster"), AnySendable("dataset"), AnySendable("webpage"), AnySendable("note"), AnySendable("media"), AnySendable("code"), AnySendable("general")])] as [String: AnySendable]),
+                        "title": AnySendable(["type": AnySendable("string"), "description": AnySendable("Artifact title")] as [String: AnySendable]),
+                        "source_url": AnySendable(["type": AnySendable("string"), "description": AnySendable("Source URL (optional)")] as [String: AnySendable]),
+                        "notes": AnySendable(["type": AnySendable("string"), "description": AnySendable("Notes or content (optional)")] as [String: AnySendable]),
+                        "tags": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Tags (optional)")] as [String: AnySendable])
+                    ] as [String: AnySendable]),
+                    "required": AnySendable([AnySendable("type"), AnySendable("title")])
+                ]
+            ),
+            AITool(
+                name: "imbib_search_artifacts",
+                description: "Search research artifacts in imbib by title, notes, or metadata.",
+                inputSchema: [
+                    "type": AnySendable("object"),
+                    "properties": AnySendable([
+                        "query": AnySendable(["type": AnySendable("string"), "description": AnySendable("Search query")] as [String: AnySendable]),
+                        "type": AnySendable(["type": AnySendable("string"), "description": AnySendable("Filter by artifact type (optional)")] as [String: AnySendable]),
+                        "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results (default 20)")] as [String: AnySendable])
+                    ] as [String: AnySendable]),
+                    "required": AnySendable([AnySendable("query")])
+                ]
+            ),
         ]
     }
 
@@ -183,6 +211,31 @@ public actor CounselToolRegistry {
                 let keysParam = citeKeys.joined(separator: ",")
                 let data = try await bridge.getRaw("/api/export/bibtex", from: .imbib, query: ["keys": keysParam])
                 result = String(data: data, encoding: .utf8) ?? ""
+
+            case "imbib_create_artifact":
+                let artifactType = stringParam(input, "type") ?? "general"
+                let title = stringParam(input, "title") ?? ""
+                let sourceURL = stringParam(input, "source_url")
+                let notes = stringParam(input, "notes")
+                let tags = arrayParam(input, "tags")
+                var body: [String: Any] = [
+                    "type": artifactType,
+                    "title": title
+                ]
+                if let sourceURL { body["source_url"] = sourceURL }
+                if let notes { body["notes"] = notes }
+                if let tags { body["tags"] = tags }
+                let data = try await bridge.postRaw("/api/artifacts", to: .imbib, body: body)
+                result = String(data: data, encoding: .utf8) ?? "{}"
+
+            case "imbib_search_artifacts":
+                let query = stringParam(input, "query") ?? ""
+                let type = stringParam(input, "type")
+                let limit = intParam(input, "limit") ?? 20
+                var queryParams = ["query": query, "limit": String(limit)]
+                if let type { queryParams["type"] = type }
+                let data = try await bridge.getRaw("/api/artifacts", from: .imbib, query: queryParams)
+                result = String(data: data, encoding: .utf8) ?? "[]"
 
             // imprint tools
             case "imprint_list_documents":

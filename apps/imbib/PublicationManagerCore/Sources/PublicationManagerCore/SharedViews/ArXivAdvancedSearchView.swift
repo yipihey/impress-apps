@@ -25,9 +25,21 @@ public struct ArXivAdvancedSearchFormView: View {
     @State private var expandedGroups: Set<String> = []
     @State private var queryAssistanceViewModel = QueryAssistanceViewModel()
 
+    // MARK: - Mode & Feed Properties
+
+    public let mode: SearchFormMode
+    public let editingFeedID: UUID?
+
+    @State private var feedName: String = ""
+    @State private var refreshPreset: RefreshIntervalPreset = .daily
+    @State private var isCreating: Bool = false
+
     // MARK: - Initialization
 
-    public init() {}
+    public init(mode: SearchFormMode = .explorationSearch, editingFeedID: UUID? = nil) {
+        self.mode = mode
+        self.editingFeedID = editingFeedID
+    }
 
     // MARK: - Body
 
@@ -46,6 +58,12 @@ public struct ArXivAdvancedSearchFormView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 8)
+
+                // Feed settings (shown when creating a feed)
+                if mode == .inboxFeed {
+                    feedSettingsSection
+                    Divider()
+                }
 
                 // Search Terms Section
                 searchTermsSection
@@ -97,7 +115,18 @@ public struct ArXivAdvancedSearchFormView: View {
 
                     Spacer()
 
-                    if searchViewModel.isEditMode {
+                    if editingFeedID != nil {
+                        Button("Save Feed") { saveFeed() }
+                            .buttonStyle(.borderedProminent).disabled(isFormEmpty)
+                            .keyboardShortcut(.return, modifiers: .command)
+                    } else if mode == .inboxFeed {
+                        Button { createFeed() } label: {
+                            if isCreating { ProgressView().controlSize(.small) }
+                            else { Text("Create Feed") }
+                        }
+                        .buttonStyle(.borderedProminent).disabled(isFormEmpty || isCreating)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    } else if searchViewModel.isEditMode {
                         // Edit mode: Save button
                         Button("Save") {
                             searchViewModel.saveToSmartSearch()
@@ -135,6 +164,11 @@ public struct ArXivAdvancedSearchFormView: View {
             // Initialize query assistance for arXiv
             queryAssistanceViewModel.setSource(.arxiv)
             await QueryAssistanceService.shared.register(ArXivQueryAssistant())
+        }
+        .onAppear {
+            if let feedID = editingFeedID {
+                loadFeedForEditing(feedID)
+            }
         }
         .onChange(of: searchViewModel.arxivFormState.searchTerms) { _, _ in
             updateQueryAssistance()
@@ -421,6 +455,87 @@ public struct ArXivAdvancedSearchFormView: View {
 
     private func clearForm() {
         searchViewModel.arxivFormState.clear()
+    }
+
+    // MARK: - Feed Settings
+
+    @ViewBuilder
+    private var feedSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Feed Settings").font(.headline)
+            TextField("Feed Name", text: $feedName).textFieldStyle(.roundedBorder)
+            Picker("Refresh Interval", selection: $refreshPreset) {
+                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+            .frame(width: 200)
+        }
+    }
+
+    // MARK: - Feed Actions
+
+    private func createFeed() {
+        guard !isFormEmpty else { return }
+        isCreating = true
+        let state = searchViewModel.arxivFormState
+        let query = SearchFormQueryBuilder.buildArXivAdvancedQuery(
+            searchTerms: state.searchTerms,
+            categories: state.selectedCategories,
+            includeCrossListed: state.includeCrossListed,
+            dateFilter: state.dateFilter,
+            sortBy: state.sortBy
+        )
+        let name = feedName.isEmpty ? "arXiv: \(query.prefix(40))" : feedName
+
+        Task {
+            let feed = RustStoreAdapter.shared.createInboxFeed(
+                name: name, query: query, sourceIDs: ["arxiv"],
+                refreshIntervalSeconds: Int64(refreshPreset.rawValue)
+            )
+            if let feed {
+                if let fetchService = await InboxCoordinator.shared.paperFetchService {
+                    _ = try? await fetchService.fetchForInbox(smartSearchID: feed.id)
+                }
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                    NotificationCenter.default.post(name: .navigateToSmartSearch, object: feed.id)
+                }
+            }
+            await MainActor.run { isCreating = false }
+        }
+    }
+
+    private func saveFeed() {
+        guard let feedID = editingFeedID, !isFormEmpty else { return }
+        let state = searchViewModel.arxivFormState
+        let query = SearchFormQueryBuilder.buildArXivAdvancedQuery(
+            searchTerms: state.searchTerms,
+            categories: state.selectedCategories,
+            includeCrossListed: state.includeCrossListed,
+            dateFilter: state.dateFilter,
+            sortBy: state.sortBy
+        )
+        let name = feedName.isEmpty ? "arXiv: \(query.prefix(40))" : feedName
+        RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: Int16(state.maxResults))
+        RustStoreAdapter.shared.updateIntField(id: feedID, field: "refresh_interval_seconds", value: Int64(refreshPreset.rawValue))
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+    }
+
+    private func loadFeedForEditing(_ feedID: UUID) {
+        guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return }
+        feedName = feed.name
+        // Load query into arXiv form state - the query is stored as the built query string
+        // For arXiv advanced, we store the raw query; re-parsing into individual fields is complex
+        // so we set the first search term to the full query for editing
+        if searchViewModel.arxivFormState.searchTerms.isEmpty {
+            searchViewModel.arxivFormState.searchTerms.append(ArXivSearchTerm())
+        }
+        searchViewModel.arxivFormState.searchTerms[0].term = feed.query
+        searchViewModel.arxivFormState.maxResults = Int(feed.maxResults)
+        if let preset = RefreshIntervalPreset(rawValue: Int32(feed.refreshIntervalSeconds)) {
+            refreshPreset = preset
+        }
     }
 
     /// Build a URL for opening this search on the arXiv website.

@@ -29,9 +29,12 @@ public actor ADSQueryAssistant: QueryAssistant {
     public nonisolated let knownFields: Set<String> = [
         "author", "first_author", "abs", "abstract", "title",
         "year", "bibcode", "doi", "arxiv", "orcid",
-        "aff", "affiliation", "full", "object", "body",
+        "aff", "affiliation", "inst", "full", "object", "body",
         "ack", "keyword", "identifier", "citations", "references",
-        "property", "doctype", "collection", "bibstem"
+        "property", "doctype", "collection", "bibstem",
+        "arxiv_class", "aff_id", "orcid_pub", "orcid_user", "orcid_other",
+        "pubdate", "volume", "issue", "page", "bibgroup", "grant", "facility",
+        "author_count", "citation_count", "read_count", "vizier", "database"
     ]
 
     private let credentialManager: CredentialManager

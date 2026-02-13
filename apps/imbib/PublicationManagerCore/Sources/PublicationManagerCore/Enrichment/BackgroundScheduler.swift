@@ -205,6 +205,13 @@ public actor BackgroundScheduler {
 
     /// Main scheduler loop.
     private func runSchedulerLoop() async {
+        // Delay first cycle to avoid blocking startup with N+1 queries
+        do {
+            try await Task.sleep(for: .seconds(120))
+        } catch {
+            return  // Task was cancelled during startup delay
+        }
+
         while isRunning && !Task.isCancelled {
             // Check if auto-sync is enabled
             let autoSyncEnabled = await settingsProvider.autoSyncEnabled

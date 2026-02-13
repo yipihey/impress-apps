@@ -311,7 +311,6 @@ public final class LibraryViewModel {
 
     public func markAsRead(id: UUID) async {
         store.setRead(ids: [id], read: true)
-        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
         // Phase 8: SignalCollector still uses CDPublication — will be migrated
         // Task { await SignalCollector.shared.recordRead(publicationId: id) }
     }
@@ -323,14 +322,12 @@ public final class LibraryViewModel {
 
     public func markAsUnread(id: UUID) async {
         store.setRead(ids: [id], read: false)
-        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
     }
 
     public func toggleReadStatus(id: UUID) async {
         let row = store.getPublication(id: id)
         let isCurrentlyRead = row?.isRead ?? false
         store.setRead(ids: [id], read: !isCurrentlyRead)
-        NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: id)
     }
 
     public func markSelectedAsRead() async {
@@ -350,10 +347,6 @@ public final class LibraryViewModel {
             store.setRead(ids: selected.map(\.id), read: false)
         } else {
             store.setRead(ids: selected.map(\.id), read: true)
-        }
-
-        for row in selected {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: row.id)
         }
     }
 
@@ -421,14 +414,12 @@ public final class LibraryViewModel {
         guard !ids.isEmpty else { return }
         store.movePublications(ids: Array(ids), toLibraryId: libraryId)
         Logger.viewModels.infoCapture("Added \(ids.count) publications to library", category: "library")
-        NotificationCenter.default.post(name: .libraryContentDidChange, object: libraryId)
     }
 
     public func addToCollection(_ ids: Set<UUID>, collectionId: UUID) {
         guard !ids.isEmpty else { return }
         store.addToCollection(publicationIds: Array(ids), collectionId: collectionId)
         Logger.viewModels.infoCapture("Added \(ids.count) publications to collection", category: "library")
-        NotificationCenter.default.post(name: .libraryContentDidChange, object: collectionId)
     }
 
     public func removeFromCollection(_ ids: Set<UUID>, collectionId: UUID) {

@@ -433,10 +433,10 @@ struct imbibApp: App {
                 appLogger.info("HTTP automation server started")
             }
 
-            // Auto-build search indexes after a short delay (ADR-022)
-            // This ensures Cmd+K global search works without manual setup
-            try? await Task.sleep(for: .seconds(3))
-            await autoPopulateSearchIndexesOnStartup()
+            // Mark embedding index for lazy build on first Cmd+K press (ADR-022).
+            // Building eagerly at startup blocked the UI for 11+ seconds — deferred
+            // to first use so startup remains fast.
+            await EmbeddingService.shared.setNeedsIndexBuild()
 
             // Cleanup old exploration collections based on retention setting
             await cleanupExplorationCollectionsOnStartup()
@@ -1253,32 +1253,3 @@ struct AppCommands: Commands {
 
 // Note: Notification.Name extensions are now defined in PublicationManagerCore/Notifications.swift
 
-// MARK: - Auto-populate Search Indexes
-
-/// Auto-populate search indexes if needed on startup.
-///
-/// Builds the embedding index for semantic search (Cmd+K global search).
-/// Called a few seconds after startup to avoid blocking the UI.
-private func autoPopulateSearchIndexesOnStartup() async {
-    // Only build if embedding service is available and index is not yet built
-    let embeddingAvailable = await EmbeddingService.shared.isAvailable
-    let hasEmbeddingIndex = await EmbeddingService.shared.hasIndex
-
-    if embeddingAvailable && !hasEmbeddingIndex {
-        logInfo("Auto-building embedding index for global search...", category: "embedding")
-
-        // Fetch all user libraries from Rust store (excluding system libraries)
-        let libraries = await MainActor.run {
-            RustStoreAdapter.shared.listLibraries().filter { lib in
-                let name = lib.name.lowercased()
-                return name != "dismissed" && name != "exploration"
-            }
-        }
-
-        if !libraries.isEmpty {
-            let libraryIDs = libraries.map(\.id)
-            let count = await EmbeddingService.shared.buildIndex(from: libraryIDs)
-            logInfo("Auto-built embedding index with \(count) publications from \(libraries.count) libraries", category: "embedding")
-        }
-    }
-}

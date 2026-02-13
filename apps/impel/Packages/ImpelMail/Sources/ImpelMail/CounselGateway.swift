@@ -52,6 +52,7 @@ public enum CounselIntent: String, Sendable {
     case draft = "draft"
     case analyze = "analyze"
     case review = "review"
+    case saveArtifact = "save_artifact"
     case general = "general"
 
     /// Simple keyword-based intent classification.
@@ -63,6 +64,12 @@ public enum CounselIntent: String, Sendable {
         }
         if text.contains("search") && (text.contains("paper") || text.contains("literature") || text.contains("research")) {
             return .findPapers
+        }
+        if text.contains("save") && (text.contains("artifact") || text.contains("note") || text.contains("webpage") || text.contains("bookmark")) {
+            return .saveArtifact
+        }
+        if text.contains("capture") || (text.contains("add") && text.contains("artifact")) {
+            return .saveArtifact
         }
         if text.contains("summarize") || text.contains("summary") || text.contains("tldr") || text.contains("tl;dr") {
             return .summarize
@@ -88,6 +95,7 @@ public enum CounselIntent: String, Sendable {
         case .draft: return "code"
         case .analyze: return "code"
         case .review: return "review"
+        case .saveArtifact: return "research"
         case .general: return "research"
         }
     }

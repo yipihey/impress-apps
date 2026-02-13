@@ -37,6 +37,8 @@ packages:
     path: ../../packages/ImpressAutomation
   ImpressLogging:
     path: ../../packages/ImpressLogging
+  ImpressKeyboard:
+    path: ../../packages/ImpressKeyboard
 
 targets:
   impel:
@@ -69,6 +71,7 @@ targets:
       - package: ImpressKit
       - package: ImpressAutomation
       - package: ImpressLogging
+      - package: ImpressKeyboard
       - target: impel-Widgets
         embed: true
     info:

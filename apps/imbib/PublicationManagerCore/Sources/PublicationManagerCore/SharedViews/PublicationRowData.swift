@@ -98,6 +98,12 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Tag display data for rendering in the list row
     public let tagDisplays: [TagDisplayData]
 
+    // MARK: - Enrichment
+
+    /// ISO8601 enrichment date string (nil = never enriched). Used by BackgroundScheduler
+    /// to filter stale publications without N+1 getPublicationDetail() calls.
+    public let enrichmentDate: String?
+
     // MARK: - Library Context (for grouped search results)
 
     /// Name of the library this publication belongs to (for grouping in search results)
@@ -130,6 +136,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         primaryCategory: String? = nil,
         categories: [String] = [],
         tagDisplays: [TagDisplayData] = [],
+        enrichmentDate: String? = nil,
         libraryName: String? = nil
     ) {
         self.id = id
@@ -155,6 +162,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.primaryCategory = primaryCategory
         self.categories = categories
         self.tagDisplays = tagDisplays
+        self.enrichmentDate = enrichmentDate
         self.libraryName = libraryName
     }
 }
@@ -162,9 +170,10 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
 // MARK: - MailStyleItem Conformance
 
 extension PublicationRowData: MailStyleItem {
-    public var headerText: String {
-        if let year = year { return "\(authorString) · \(year)" }
-        return authorString
+    public var headerText: String { authorString }
+
+    public var yearText: String? {
+        year.map { String($0) }
     }
 
     public var titleText: String { title }

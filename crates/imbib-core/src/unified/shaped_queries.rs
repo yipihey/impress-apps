@@ -33,6 +33,7 @@ pub struct BibliographyRow {
     pub categories: Vec<String>,
     pub tags: Vec<TagDisplayRow>,
     pub library_name: Option<String>,
+    pub enrichment_date: Option<String>,
 }
 
 /// Tag display data for list rows.
@@ -203,7 +204,8 @@ pub struct CommentRow {
     pub date_created: i64,
     pub date_modified: i64,
     pub parent_comment_id: Option<String>,
-    pub publication_id: String,
+    pub parent_item_id: String,
+    pub parent_schema: Option<String>,
 }
 
 /// Paper assignment.
@@ -368,6 +370,7 @@ pub fn item_to_bibliography_row(
         categories,
         tags,
         library_name: None, // Filled in by the store API layer
+        enrichment_date: get_str(payload, "enrichment_date"),
     }
 }
 
@@ -634,6 +637,9 @@ pub fn item_to_annotation_row(item: &Item) -> AnnotationRow {
 }
 
 /// Convert an Item into a CommentRow.
+///
+/// `parent_schema` is populated from a separate lookup by the caller when
+/// needed; defaults to `None` here.
 pub fn item_to_comment_row(item: &Item) -> CommentRow {
     let payload = &item.payload;
     CommentRow {
@@ -642,10 +648,18 @@ pub fn item_to_comment_row(item: &Item) -> CommentRow {
         author_identifier: get_str(payload, "author_identifier"),
         author_display_name: get_str(payload, "author_display_name"),
         date_created: item.created.timestamp_millis(),
-        date_modified: item.created.timestamp_millis(),
+        date_modified: item.created.timestamp_millis(), // TODO: pass SQL modified column through when available
         parent_comment_id: get_str(payload, "parent_comment_id"),
-        publication_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
+        parent_item_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
+        parent_schema: None,
     }
+}
+
+/// Convert an Item into a CommentRow with a known parent schema.
+pub fn item_to_comment_row_with_schema(item: &Item, parent_schema: Option<String>) -> CommentRow {
+    let mut row = item_to_comment_row(item);
+    row.parent_schema = parent_schema;
+    row
 }
 
 /// Convert an Item into an AssignmentRow.

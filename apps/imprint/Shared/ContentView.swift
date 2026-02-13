@@ -82,7 +82,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
             .focusable()
             .focusEffectDisabled()
-            .onKeyPress { press in
+            .keyboardGuarded { press in
                 handleVimNavigation(press)
             }
         } detail: {
@@ -366,9 +366,7 @@ struct ContentView: View {
 
     /// Handle vim-style navigation keys (h/j/k/l)
     private func handleVimNavigation(_ press: KeyPress) -> KeyPress.Result {
-        // Don't intercept when editing text
-        guard !TextFieldFocusDetection.isTextFieldFocused() else { return .ignored }
-
+        // Text field guarding is handled by .keyboardGuarded at the call site
         switch press.characters.lowercased() {
         case "j":
             // Navigate down in outline

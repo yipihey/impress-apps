@@ -33,6 +33,9 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         static let featureFlags = "cloudKit.sync.featureFlags"
         static let syncLifecycleState = "cloudKit.sync.lifecycleState"
         static let lastResetDate = "cloudKit.sync.lastResetDate"
+        static let commentSyncEnabled = "cloudKit.sync.commentSyncEnabled"
+        static let lastCommentSyncDate = "cloudKit.sync.lastCommentSyncDate"
+        static let commentSyncError = "cloudKit.sync.commentSyncError"
     }
 
     // MARK: - Properties
@@ -174,6 +177,53 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         }
     }
 
+    // MARK: - Comment Sync
+
+    /// Whether comment sync is enabled. Default: true when iCloud is available.
+    public var commentSyncEnabled: Bool {
+        get {
+            // Default to true (key returns false if not set, so invert logic)
+            if defaults.object(forKey: Keys.commentSyncEnabled) == nil {
+                return true
+            }
+            return defaults.bool(forKey: Keys.commentSyncEnabled)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.commentSyncEnabled)
+            Logger.settings.info("Comment sync enabled: \(newValue)")
+        }
+    }
+
+    /// Last successful comment sync date.
+    public var lastCommentSyncDate: Date? {
+        get { defaults.object(forKey: Keys.lastCommentSyncDate) as? Date }
+        set {
+            if let date = newValue {
+                defaults.set(date, forKey: Keys.lastCommentSyncDate)
+            } else {
+                defaults.removeObject(forKey: Keys.lastCommentSyncDate)
+            }
+        }
+    }
+
+    /// Last comment sync error for UI display.
+    public var commentSyncError: String? {
+        get { defaults.string(forKey: Keys.commentSyncError) }
+        set {
+            if let error = newValue {
+                defaults.set(error, forKey: Keys.commentSyncError)
+            } else {
+                defaults.removeObject(forKey: Keys.commentSyncError)
+            }
+        }
+    }
+
+    /// Records a successful comment sync.
+    public func recordSuccessfulCommentSync() {
+        lastCommentSyncDate = Date()
+        commentSyncError = nil
+    }
+
     // MARK: - Reset
 
     /// Resets all CloudKit sync settings to defaults.
@@ -185,6 +235,9 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         defaults.removeObject(forKey: Keys.featureFlags)
         defaults.removeObject(forKey: Keys.syncLifecycleState)
         defaults.removeObject(forKey: Keys.lastResetDate)
+        defaults.removeObject(forKey: Keys.commentSyncEnabled)
+        defaults.removeObject(forKey: Keys.lastCommentSyncDate)
+        defaults.removeObject(forKey: Keys.commentSyncError)
         Logger.settings.info("CloudKit sync settings reset")
     }
 

@@ -12,6 +12,9 @@ import ImpressFTUI
 /// Domain-agnostic — apps bridge their own settings to this type.
 public struct MailStyleRowConfiguration: Equatable, Sendable {
 
+    /// Show the year after the author in the header row
+    public var showYear: Bool
+
     /// Show the relative date in the header row
     public var showDate: Bool
 
@@ -49,6 +52,7 @@ public struct MailStyleRowConfiguration: Equatable, Sendable {
     public var density: MailStyleRowDensity
 
     public init(
+        showYear: Bool = true,
         showDate: Bool = true,
         showTitle: Bool = true,
         showSubtitle: Bool = false,
@@ -62,6 +66,7 @@ public struct MailStyleRowConfiguration: Equatable, Sendable {
         tagPathStyle: TagPathStyle = .leafOnly,
         density: MailStyleRowDensity = .default
     ) {
+        self.showYear = showYear
         self.showDate = showDate
         self.showTitle = showTitle
         self.showSubtitle = showSubtitle

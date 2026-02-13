@@ -2,7 +2,7 @@
 //  CommentService.swift
 //  PublicationManagerCore
 //
-//  Service for managing threaded comments on publications.
+//  Service for managing threaded comments on any item (publications, artifacts, etc.).
 //
 
 import Foundation
@@ -13,11 +13,10 @@ import UIKit
 
 // MARK: - Comment Service
 
-/// Service for managing threaded comments on publications in shared libraries.
+/// Service for managing threaded comments on any item type.
 ///
-/// Comments are only meaningful in shared library contexts -- they enable
-/// discussion about papers among collaborators. For private libraries,
-/// use the existing notes field on publications instead.
+/// Comments can be attached to publications, artifacts, or any future item type.
+/// They enable discussion among collaborators in shared library contexts.
 @MainActor
 public final class CommentService {
 
@@ -29,26 +28,26 @@ public final class CommentService {
         self.store = .shared
     }
 
-    // MARK: - CRUD
+    // MARK: - CRUD (Generic)
 
-    /// Add a comment to a publication.
+    /// Add a comment to any item.
     ///
     /// - Parameters:
     ///   - text: Comment text (supports markdown)
-    ///   - publicationID: The publication to comment on
+    ///   - itemID: The item to comment on (publication, artifact, etc.)
     ///   - parentCommentID: Optional parent comment ID for threading
     /// - Returns: The created comment
     @discardableResult
     public func addComment(
         text: String,
-        to publicationID: UUID,
+        to itemID: UUID,
         parentCommentID: UUID? = nil
     ) -> Comment? {
         let authorName = resolveAuthorName()
         let authorIdentifier = resolveAuthorIdentifier()
 
-        let comment = store.createComment(
-            publicationId: publicationID,
+        let comment = store.createCommentOnItem(
+            itemId: itemID,
             text: text,
             authorIdentifier: authorIdentifier,
             authorDisplayName: authorName,
@@ -59,26 +58,10 @@ public final class CommentService {
             // Post notification
             NotificationCenter.default.post(name: .commentAdded, object: comment)
 
-            // Record activity
-            let pub = store.getPublication(id: publicationID)
-            if let pub {
-                // Try to find a library for this publication to record activity
-                // The publication's library is encoded in its row data
-                if let libraryName = pub.libraryName {
-                    let libraries = store.listLibraries()
-                    if let library = libraries.first(where: { $0.name == libraryName }) {
-                        ActivityFeedService.shared.recordActivity(
-                            type: .commented,
-                            actorName: authorName,
-                            targetTitle: pub.title,
-                            targetID: publicationID,
-                            in: library.id
-                        )
-                    }
-                }
-            }
+            // Record activity if we can determine context
+            recordCommentActivity(comment: comment, authorName: authorName ?? "Unknown")
 
-            Logger.sync.info("Added comment to publication \(publicationID.uuidString)")
+            Logger.sync.info("Added comment to item \(itemID.uuidString)")
         }
 
         return comment
@@ -95,30 +78,44 @@ public final class CommentService {
         NotificationCenter.default.post(name: .commentDeleted, object: commentID)
     }
 
-    // MARK: - Queries
+    // MARK: - Queries (Generic)
 
-    /// Get all comments for a publication, organized for threading.
-    ///
-    /// Returns top-level comments sorted by date, with replies accessible
-    /// via parentCommentID filtering.
-    public func comments(for publicationID: UUID) -> [Comment] {
-        let allComments = store.listComments(publicationId: publicationID)
+    /// Get top-level comments for any item.
+    public func comments(for itemID: UUID) -> [Comment] {
+        let allComments = store.commentsForItem(itemID)
         return allComments.filter { $0.parentCommentID == nil }
     }
 
-    /// All comments including replies for a publication.
-    public func allComments(for publicationID: UUID) -> [Comment] {
-        store.listComments(publicationId: publicationID)
+    /// All comments including replies for any item.
+    public func allComments(for itemID: UUID) -> [Comment] {
+        store.commentsForItem(itemID)
     }
 
-    /// Total comment count for a publication.
-    public func commentCount(for publicationID: UUID) -> Int {
-        store.listComments(publicationId: publicationID).count
+    /// Total comment count for any item.
+    public func commentCount(for itemID: UUID) -> Int {
+        store.commentsForItem(itemID).count
     }
 
     // MARK: - Author Resolution
 
-    private func resolveAuthorName() -> String {
+    /// Cached CloudKit user identity (fetched once per session).
+    private var cachedIdentity: (name: String?, identifier: String)?
+
+    /// Refresh author identity from CloudKit.
+    ///
+    /// Call this once at app launch or when iCloud account changes.
+    /// Falls back to device name when CloudKit is unavailable.
+    public func refreshAuthorIdentity() async {
+        let identity = await LibrarySharingService.shared.currentUserIdentity()
+        cachedIdentity = identity
+        Logger.sync.info("Author identity refreshed: \(identity.name ?? "nil"), id: \(identity.identifier)")
+    }
+
+    private func resolveAuthorName() -> String? {
+        if let cached = cachedIdentity {
+            return cached.name
+        }
+        // Fallback to device name
         #if os(macOS)
         return Host.current().localizedName ?? "Me"
         #else
@@ -127,10 +124,45 @@ public final class CommentService {
     }
 
     private func resolveAuthorIdentifier() -> String? {
+        if let cached = cachedIdentity {
+            return cached.identifier
+        }
+        // Fallback to device name
         #if os(macOS)
         return Host.current().localizedName
         #else
         return UIDevice.current.name
         #endif
+    }
+
+    /// Check if a comment was authored by the current user.
+    public func isOwnComment(_ comment: Comment) -> Bool {
+        guard let currentID = resolveAuthorIdentifier() else { return false }
+        return comment.authorIdentifier == currentID
+    }
+
+    // MARK: - Activity Recording
+
+    private func recordCommentActivity(comment: Comment, authorName: String) {
+        if comment.isOnPublication {
+            let pub = store.getPublication(id: comment.parentItemID)
+            if let pub, let libraryName = pub.libraryName {
+                let libraries = store.listLibraries()
+                if let library = libraries.first(where: { $0.name == libraryName }) {
+                    ActivityFeedService.shared.recordActivity(
+                        type: .commented,
+                        actorName: authorName,
+                        targetTitle: pub.title,
+                        targetID: comment.parentItemID,
+                        in: library.id
+                    )
+                }
+            }
+        } else if comment.isOnArtifact {
+            let artifact = store.getArtifact(id: comment.parentItemID)
+            if let artifact {
+                Logger.sync.info("Comment added to artifact '\(artifact.title)'")
+            }
+        }
     }
 }

@@ -8,7 +8,7 @@
 import Foundation
 import ImbibRustCore
 
-/// A threaded comment on a publication.
+/// A threaded comment on any item (publication, artifact, etc.).
 public struct Comment: Identifiable, Hashable, Sendable {
     public let id: UUID
     public let text: String
@@ -17,7 +17,19 @@ public struct Comment: Identifiable, Hashable, Sendable {
     public let dateCreated: Date
     public let dateModified: Date
     public let parentCommentID: UUID?
-    public let publicationID: UUID
+    public let parentItemID: UUID
+    public let parentSchema: String?
+
+    /// Backward-compatible alias for code that expects `publicationID`.
+    public var publicationID: UUID { parentItemID }
+
+    public var isOnPublication: Bool {
+        parentSchema?.hasPrefix("imbib/bibliography") ?? true
+    }
+
+    public var isOnArtifact: Bool {
+        parentSchema?.hasPrefix("imbib/artifact") ?? false
+    }
 
     public init(from row: CommentRow) {
         self.id = UUID(uuidString: row.id) ?? UUID()
@@ -27,6 +39,7 @@ public struct Comment: Identifiable, Hashable, Sendable {
         self.dateCreated = Date(timeIntervalSince1970: TimeInterval(row.dateCreated) / 1000.0)
         self.dateModified = Date(timeIntervalSince1970: TimeInterval(row.dateModified) / 1000.0)
         self.parentCommentID = row.parentCommentId.flatMap { UUID(uuidString: $0) }
-        self.publicationID = UUID(uuidString: row.publicationId) ?? UUID()
+        self.parentItemID = UUID(uuidString: row.parentItemId) ?? UUID()
+        self.parentSchema = row.parentSchema
     }
 }

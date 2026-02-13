@@ -10,8 +10,8 @@ use uuid::Uuid;
 use crate::event::ItemEvent;
 use crate::item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility};
 use crate::operation::{
-    build_operation_payload, EffectiveState, OperationIntent, OperationSpec, OperationType,
-    StateAsOf,
+    build_operation_payload, inverse_of, undo_description, EffectiveState, OperationIntent,
+    OperationSpec, OperationType, StateAsOf, UndoInfo,
 };
 use crate::query::ItemQuery;
 use crate::reference::{EdgeType, TypedReference};
@@ -84,6 +84,7 @@ impl SqliteItemStore {
     fn init_with_connection(conn: Connection, config: StoreConfig) -> Result<Self, StoreError> {
         Self::init_schema(&conn)?;
         Self::migrate_schema(&conn)?;
+        Self::init_tombstones(&conn)?;
 
         // Initialize or read store metadata
         let origin_id = Self::init_store_metadata(&conn, &config)?;
@@ -443,6 +444,8 @@ impl SqliteItemStore {
     }
 
     /// Apply a single operation: create operation item + materialize change on target.
+    ///
+    /// Captures the previous value of the mutated field for undo support.
     pub fn apply_operation(&self, spec: OperationSpec) -> Result<ItemId, StoreError> {
         let conn = self
             .conn
@@ -465,13 +468,21 @@ impl SqliteItemStore {
             return Err(StoreError::NotFound(spec.target_id));
         }
 
+        // Capture previous value before materializing change
+        let prev = Self::capture_previous_value(&conn, &target_str, &spec.op_type)?;
+
         // Get next logical clock
         let clock = Self::next_clock(&conn)?;
 
-        // Build operation item
+        // Build operation item (with prev for undo)
         let op_id = Uuid::new_v4();
-        let op_payload =
-            build_operation_payload(spec.target_id, &spec.op_type, spec.intent, spec.reason.as_deref());
+        let op_payload = build_operation_payload(
+            spec.target_id,
+            &spec.op_type,
+            spec.intent,
+            spec.reason.as_deref(),
+            prev,
+        );
 
         let op_item = Item {
             id: op_id,
@@ -547,6 +558,9 @@ impl SqliteItemStore {
                 return Err(StoreError::NotFound(spec.target_id));
             }
 
+            // Capture previous value before materializing change
+            let prev = Self::capture_previous_value(&tx, &target_str, &spec.op_type)?;
+
             let clock = Self::next_clock(&tx)?;
             let op_id = Uuid::new_v4();
             let op_payload = build_operation_payload(
@@ -554,6 +568,7 @@ impl SqliteItemStore {
                 &spec.op_type,
                 spec.intent,
                 spec.reason.as_deref(),
+                prev,
             );
 
             let op_item = Item {
@@ -602,6 +617,474 @@ impl SqliteItemStore {
         }
 
         Ok(op_ids)
+    }
+
+    /// Undo a single operation by applying its inverse.
+    ///
+    /// Reads the operation's payload to extract `op_type`, `op_data`, and `prev`,
+    /// computes the inverse, and applies it as a new Correction operation.
+    /// Returns UndoInfo for the inverse operation (which can be used to redo).
+    pub fn undo_operation(&self, operation_id: ItemId) -> Result<UndoInfo, StoreError> {
+        // Load the operation item
+        let op_item = self.get(operation_id)?.ok_or(StoreError::NotFound(operation_id))?;
+
+        if op_item.schema != "core/operation" {
+            return Err(StoreError::Validation(format!(
+                "Item {} is not an operation (schema: {})",
+                operation_id, op_item.schema
+            )));
+        }
+
+        // Extract target_id, op_type, prev from payload
+        let target_id_str = match op_item.payload.get("target_id") {
+            Some(Value::String(s)) => s.clone(),
+            _ => {
+                return Err(StoreError::Validation(
+                    "Operation missing target_id".into(),
+                ))
+            }
+        };
+        let target_id: ItemId = target_id_str
+            .parse()
+            .map_err(|_| StoreError::Validation("Invalid target_id UUID".into()))?;
+
+        let op_type = Self::parse_op_type_from_payload(&op_item.payload)?;
+        let prev = op_item.payload.get("prev").cloned().unwrap_or(Value::Null);
+
+        // Compute inverse
+        let inverse = inverse_of(&op_type, &prev).ok_or_else(|| {
+            StoreError::Validation(format!(
+                "Cannot compute inverse for operation {}",
+                operation_id
+            ))
+        })?;
+
+        let description = undo_description(&op_type, 1);
+
+        // Apply the inverse as a Correction operation
+        let inverse_op_id = self.apply_operation(OperationSpec {
+            target_id,
+            op_type: inverse,
+            intent: OperationIntent::Correction,
+            reason: Some(format!("undo:{}", operation_id)),
+            batch_id: None,
+            author: self.default_author.clone(),
+            author_kind: self.default_author_kind,
+        })?;
+
+        Ok(UndoInfo {
+            operation_ids: vec![inverse_op_id],
+            batch_id: None,
+            description,
+        })
+    }
+
+    /// Undo all operations in a batch by applying their inverses in reverse order.
+    ///
+    /// All inverse operations share a new batch_id with reason "undo_batch:{original}".
+    pub fn undo_batch(&self, batch_id: &str) -> Result<UndoInfo, StoreError> {
+        // Find all operations with this batch_id, ordered by logical_clock DESC (reverse)
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let sql = format!(
+            "SELECT {} FROM items WHERE batch_id = ?1 AND schema_ref = 'core/operation' ORDER BY logical_clock DESC",
+            ITEM_COLUMNS
+        );
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| StoreError::Storage(format!("prepare undo_batch: {}", e)))?;
+
+        let ops: Vec<Item> = stmt
+            .query_map(params![batch_id], |row| Ok(Self::row_to_item(&conn, row)))
+            .map_err(|e| StoreError::Storage(format!("query undo_batch: {}", e)))?
+            .collect::<Result<Result<Vec<_>, _>, _>>()
+            .map_err(|e| StoreError::Storage(format!("collect undo_batch: {}", e)))?
+            ?;
+
+        drop(stmt);
+        drop(conn);
+
+        // Build inverse specs
+        let new_batch_id = Uuid::new_v4().to_string();
+        let mut inverse_specs = Vec::new();
+        let mut first_op_type: Option<OperationType> = None;
+
+        for op_item in &ops {
+            let target_id_str = match op_item.payload.get("target_id") {
+                Some(Value::String(s)) => s.clone(),
+                _ => continue,
+            };
+            let target_id: ItemId = match target_id_str.parse() {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
+
+            let op_type = match Self::parse_op_type_from_payload(&op_item.payload) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let prev = op_item.payload.get("prev").cloned().unwrap_or(Value::Null);
+
+            if first_op_type.is_none() {
+                first_op_type = Some(op_type.clone());
+            }
+
+            if let Some(inverse) = inverse_of(&op_type, &prev) {
+                inverse_specs.push(OperationSpec {
+                    target_id,
+                    op_type: inverse,
+                    intent: OperationIntent::Correction,
+                    reason: Some(format!("undo_batch:{}", batch_id)),
+                    batch_id: Some(new_batch_id.clone()),
+                    author: self.default_author.clone(),
+                    author_kind: self.default_author_kind,
+                });
+            }
+        }
+
+        let count = inverse_specs.len();
+        let description = match &first_op_type {
+            Some(op) => undo_description(op, count),
+            None => "Undo".into(),
+        };
+
+        // Apply all inverses as a batch
+        let (op_ids, actual_batch_id) = if inverse_specs.len() == 1 {
+            let spec = inverse_specs.into_iter().next().unwrap();
+            let bid = spec.batch_id.clone();
+            let op_id = self.apply_operation(spec)?;
+            (vec![op_id], bid)
+        } else {
+            // apply_operation_batch assigns its own batch_id, so read it back
+            let ids = self.apply_operation_batch(inverse_specs)?;
+            let actual_bid = if let Some(first_id) = ids.first() {
+                self.get(*first_id)?
+                    .and_then(|item| item.batch_id)
+            } else {
+                None
+            };
+            (ids, actual_bid)
+        };
+
+        Ok(UndoInfo {
+            operation_ids: op_ids,
+            batch_id: actual_batch_id,
+            description,
+        })
+    }
+
+    /// Parse an OperationType from an operation item's payload.
+    fn parse_op_type_from_payload(
+        payload: &BTreeMap<String, Value>,
+    ) -> Result<OperationType, StoreError> {
+        let op_type_str = match payload.get("op_type") {
+            Some(Value::String(s)) => s.as_str(),
+            _ => return Err(StoreError::Validation("Operation missing op_type".into())),
+        };
+        let op_data = payload.get("op_data").cloned().unwrap_or(Value::Null);
+
+        match op_type_str {
+            "add_tag" => match op_data {
+                Value::String(tag) => Ok(OperationType::AddTag(tag)),
+                _ => Err(StoreError::Validation("Invalid add_tag data".into())),
+            },
+            "remove_tag" => match op_data {
+                Value::String(tag) => Ok(OperationType::RemoveTag(tag)),
+                _ => Err(StoreError::Validation("Invalid remove_tag data".into())),
+            },
+            "set_read" => match op_data {
+                Value::Bool(v) => Ok(OperationType::SetRead(v)),
+                _ => Err(StoreError::Validation("Invalid set_read data".into())),
+            },
+            "set_starred" => match op_data {
+                Value::Bool(v) => Ok(OperationType::SetStarred(v)),
+                _ => Err(StoreError::Validation("Invalid set_starred data".into())),
+            },
+            "set_flag" => match &op_data {
+                Value::Object(m) => {
+                    let color = match m.get("color") {
+                        Some(Value::String(c)) => c.clone(),
+                        _ => return Err(StoreError::Validation("Invalid flag color".into())),
+                    };
+                    Ok(OperationType::SetFlag(Some(FlagState {
+                        color,
+                        style: m.get("style").and_then(|v| {
+                            if let Value::String(s) = v { Some(s.clone()) } else { None }
+                        }),
+                        length: m.get("length").and_then(|v| {
+                            if let Value::String(s) = v { Some(s.clone()) } else { None }
+                        }),
+                    })))
+                }
+                Value::Null => Ok(OperationType::SetFlag(None)),
+                _ => Err(StoreError::Validation("Invalid set_flag data".into())),
+            },
+            "set_priority" => match op_data {
+                Value::String(s) => s
+                    .parse::<Priority>()
+                    .map(OperationType::SetPriority)
+                    .map_err(|_| StoreError::Validation("Invalid priority".into())),
+                _ => Err(StoreError::Validation("Invalid set_priority data".into())),
+            },
+            "set_visibility" => match op_data {
+                Value::String(s) => s
+                    .parse::<Visibility>()
+                    .map(OperationType::SetVisibility)
+                    .map_err(|_| StoreError::Validation("Invalid visibility".into())),
+                _ => Err(StoreError::Validation("Invalid set_visibility data".into())),
+            },
+            "set_payload" => match &op_data {
+                Value::Object(m) => {
+                    let field = match m.get("field") {
+                        Some(Value::String(f)) => f.clone(),
+                        _ => {
+                            return Err(StoreError::Validation(
+                                "Invalid set_payload field".into(),
+                            ))
+                        }
+                    };
+                    let value = m.get("value").cloned().unwrap_or(Value::Null);
+                    Ok(OperationType::SetPayload(field, value))
+                }
+                _ => Err(StoreError::Validation("Invalid set_payload data".into())),
+            },
+            "remove_payload" => match op_data {
+                Value::String(field) => Ok(OperationType::RemovePayload(field)),
+                _ => Err(StoreError::Validation("Invalid remove_payload data".into())),
+            },
+            "patch_payload" => match op_data {
+                Value::Object(fields) => Ok(OperationType::PatchPayload(fields)),
+                _ => Err(StoreError::Validation("Invalid patch_payload data".into())),
+            },
+            "set_parent" => match &op_data {
+                Value::Null => Ok(OperationType::SetParent(None)),
+                Value::String(s) => {
+                    let id = s.parse::<Uuid>().map_err(|_| {
+                        StoreError::Validation("Invalid parent UUID".into())
+                    })?;
+                    Ok(OperationType::SetParent(Some(id)))
+                }
+                _ => Err(StoreError::Validation("Invalid set_parent data".into())),
+            },
+            "add_reference" => {
+                match &op_data {
+                    Value::Object(m) => {
+                        let target_str = match m.get("target") {
+                            Some(Value::String(s)) => s,
+                            _ => return Err(StoreError::Validation("Invalid ref target".into())),
+                        };
+                        let target: Uuid = target_str.parse().map_err(|_| {
+                            StoreError::Validation("Invalid ref target UUID".into())
+                        })?;
+                        let edge_str = match m.get("edge_type") {
+                            Some(Value::String(s)) => s,
+                            _ => return Err(StoreError::Validation("Invalid edge_type".into())),
+                        };
+                        let edge_type: EdgeType = serde_json::from_str(edge_str).map_err(|_| {
+                            StoreError::Validation("Invalid edge_type JSON".into())
+                        })?;
+                        let metadata = m.get("metadata").and_then(|v| {
+                            if let Value::String(s) = v {
+                                serde_json::from_str(s).ok()
+                            } else {
+                                None
+                            }
+                        });
+                        Ok(OperationType::AddReference(TypedReference {
+                            target,
+                            edge_type,
+                            metadata,
+                        }))
+                    }
+                    _ => Err(StoreError::Validation("Invalid add_reference data".into())),
+                }
+            }
+            "remove_reference" => {
+                match &op_data {
+                    Value::Object(m) => {
+                        let target_str = match m.get("target") {
+                            Some(Value::String(s)) => s,
+                            _ => return Err(StoreError::Validation("Invalid ref target".into())),
+                        };
+                        let target: Uuid = target_str.parse().map_err(|_| {
+                            StoreError::Validation("Invalid ref target UUID".into())
+                        })?;
+                        let edge_str = match m.get("edge_type") {
+                            Some(Value::String(s)) => s,
+                            _ => return Err(StoreError::Validation("Invalid edge_type".into())),
+                        };
+                        let edge_type: EdgeType = serde_json::from_str(edge_str).map_err(|_| {
+                            StoreError::Validation("Invalid edge_type JSON".into())
+                        })?;
+                        Ok(OperationType::RemoveReference(target, edge_type))
+                    }
+                    _ => Err(StoreError::Validation("Invalid remove_reference data".into())),
+                }
+            }
+            other => {
+                if let Some(name) = other.strip_prefix("custom:") {
+                    Ok(OperationType::Custom(name.to_string(), op_data))
+                } else {
+                    Err(StoreError::Validation(format!(
+                        "Unknown operation type: {}",
+                        other
+                    )))
+                }
+            }
+        }
+    }
+
+    /// Capture the previous value of the field being changed, for undo support.
+    ///
+    /// Returns `Some(Value)` for operations where the previous state is needed,
+    /// or `None` for symmetric operations (AddTag/RemoveTag are their own inverses).
+    fn capture_previous_value(
+        conn: &Connection,
+        target_id_str: &str,
+        op_type: &OperationType,
+    ) -> Result<Option<Value>, StoreError> {
+        match op_type {
+            OperationType::SetRead(_) => {
+                let prev: i32 = conn
+                    .query_row(
+                        "SELECT is_read FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev is_read: {}", e)))?;
+                Ok(Some(Value::Bool(prev != 0)))
+            }
+            OperationType::SetStarred(_) => {
+                let prev: i32 = conn
+                    .query_row(
+                        "SELECT is_starred FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev is_starred: {}", e)))?;
+                Ok(Some(Value::Bool(prev != 0)))
+            }
+            OperationType::SetFlag(_) => {
+                let (color, style, length): (Option<String>, Option<String>, Option<String>) = conn
+                    .query_row(
+                        "SELECT flag_color, flag_style, flag_length FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev flag: {}", e)))?;
+                match color {
+                    Some(c) => {
+                        let mut m = BTreeMap::new();
+                        m.insert("color".into(), Value::String(c));
+                        if let Some(s) = style {
+                            m.insert("style".into(), Value::String(s));
+                        }
+                        if let Some(l) = length {
+                            m.insert("length".into(), Value::String(l));
+                        }
+                        Ok(Some(Value::Object(m)))
+                    }
+                    None => Ok(Some(Value::Null)),
+                }
+            }
+            OperationType::SetPriority(_) => {
+                let prev: String = conn
+                    .query_row(
+                        "SELECT priority FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev priority: {}", e)))?;
+                Ok(Some(Value::String(prev)))
+            }
+            OperationType::SetVisibility(_) => {
+                let prev: String = conn
+                    .query_row(
+                        "SELECT visibility FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev visibility: {}", e)))?;
+                Ok(Some(Value::String(prev)))
+            }
+            OperationType::SetPayload(field, _) => {
+                Self::capture_payload_field(conn, target_id_str, field)
+            }
+            OperationType::RemovePayload(field) => {
+                Self::capture_payload_field(conn, target_id_str, field)
+            }
+            OperationType::PatchPayload(fields) => {
+                // Capture all fields being patched
+                let mut prev_map = BTreeMap::new();
+                for field in fields.keys() {
+                    if let Some(val) = Self::capture_payload_field(conn, target_id_str, field)? {
+                        prev_map.insert(field.clone(), val);
+                    } else {
+                        prev_map.insert(field.clone(), Value::Null);
+                    }
+                }
+                Ok(Some(Value::Object(prev_map)))
+            }
+            OperationType::SetParent(_) => {
+                let prev: Option<String> = conn
+                    .query_row(
+                        "SELECT parent_id FROM items WHERE id = ?1",
+                        params![target_id_str],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("capture prev parent: {}", e)))?;
+                match prev {
+                    Some(p) => Ok(Some(Value::String(p))),
+                    None => Ok(Some(Value::Null)),
+                }
+            }
+            // Symmetric operations — no previous value needed
+            OperationType::AddTag(_) | OperationType::RemoveTag(_) => Ok(None),
+            // Reference operations — no previous value (add/remove are symmetric)
+            OperationType::AddReference(_) | OperationType::RemoveReference(_, _) => Ok(None),
+            // Custom operations — no standard previous value
+            OperationType::Custom(_, _) => Ok(None),
+        }
+    }
+
+    /// Capture a single payload field value using json_extract, handling all SQLite types.
+    fn capture_payload_field(
+        conn: &Connection,
+        target_id_str: &str,
+        field: &str,
+    ) -> Result<Option<Value>, StoreError> {
+        let path = format!("$.{}", field);
+        // Read the raw SQLite value, then convert to our Value type.
+        // json_extract returns native SQLite types (INTEGER, REAL, TEXT, NULL),
+        // so we handle each variant.
+        let prev: rusqlite::types::Value = conn
+            .query_row(
+                "SELECT json_extract(payload, ?1) FROM items WHERE id = ?2",
+                params![path, target_id_str],
+                |row| row.get::<_, rusqlite::types::Value>(0),
+            )
+            .map_err(|e| StoreError::Storage(format!("capture prev payload: {}", e)))?;
+        match prev {
+            rusqlite::types::Value::Null => Ok(Some(Value::Null)),
+            rusqlite::types::Value::Integer(i) => Ok(Some(Value::Int(i))),
+            rusqlite::types::Value::Real(f) => Ok(Some(Value::Float(f))),
+            rusqlite::types::Value::Text(s) => {
+                // Try parsing as JSON first (for objects/arrays stored as text)
+                if s.starts_with('{') || s.starts_with('[') {
+                    match serde_json::from_str::<Value>(&s) {
+                        Ok(val) => Ok(Some(val)),
+                        Err(_) => Ok(Some(Value::String(s))),
+                    }
+                } else {
+                    Ok(Some(Value::String(s)))
+                }
+            }
+            rusqlite::types::Value::Blob(_) => Ok(Some(Value::Null)),
+        }
     }
 
     /// Materialize an operation's effect on the target item's SQL columns.
@@ -1259,6 +1742,191 @@ impl SqliteItemStore {
         .map_err(|e| StoreError::Storage(format!("migrate tags: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Apply mutations to an item and return UndoInfo for undo/redo registration.
+    ///
+    /// This is the preferred method for FFI callers that need undo support.
+    /// The trait's `update()` delegates here but discards the UndoInfo.
+    pub fn update_with_undo(
+        &self,
+        id: ItemId,
+        mutations: Vec<FieldMutation>,
+    ) -> Result<UndoInfo, StoreError> {
+        let batch_id = if mutations.len() > 1 {
+            Some(Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+
+        let mut op_ids = Vec::new();
+        let mut first_op_type: Option<OperationType> = None;
+
+        for mutation in mutations {
+            let op_type: OperationType = mutation.into();
+            if first_op_type.is_none() {
+                first_op_type = Some(op_type.clone());
+            }
+            let op_id = self.apply_operation(OperationSpec {
+                target_id: id,
+                op_type,
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: batch_id.clone(),
+                author: self.default_author.clone(),
+                author_kind: self.default_author_kind,
+            })?;
+            op_ids.push(op_id);
+        }
+
+        let description = match &first_op_type {
+            Some(op) => undo_description(op, 1),
+            None => "Update".into(),
+        };
+
+        Ok(UndoInfo {
+            operation_ids: op_ids,
+            batch_id,
+            description,
+        })
+    }
+
+    // --- Sync support (direct column updates, not operations) ---
+
+    /// Set the origin field on an item (bypasses operation log).
+    pub fn set_origin(&self, id: ItemId, origin: &str) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let rows = conn
+            .execute(
+                "UPDATE items SET origin = ?1 WHERE id = ?2",
+                params![origin, id.to_string()],
+            )
+            .map_err(|e| StoreError::Storage(format!("set_origin: {}", e)))?;
+        if rows == 0 {
+            return Err(StoreError::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Set the canonical_id field on an item (bypasses operation log).
+    pub fn set_canonical_id(&self, id: ItemId, canonical_id: &str) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let rows = conn
+            .execute(
+                "UPDATE items SET canonical_id = ?1 WHERE id = ?2",
+                params![canonical_id, id.to_string()],
+            )
+            .map_err(|e| StoreError::Storage(format!("set_canonical_id: {}", e)))?;
+        if rows == 0 {
+            return Err(StoreError::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Find an item by its canonical_id.
+    pub fn find_by_canonical_id(&self, canonical_id: &str) -> Result<Option<Item>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {} FROM items WHERE canonical_id = ?1 LIMIT 1",
+                ITEM_COLUMNS
+            ))
+            .map_err(|e| StoreError::Storage(format!("prepare find_by_canonical_id: {}", e)))?;
+
+        let item = stmt
+            .query_row(params![canonical_id], |row| {
+                Ok(Self::row_to_item(&conn, row))
+            })
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("query find_by_canonical_id: {}", e)))?;
+
+        match item {
+            Some(Ok(item)) => Ok(Some(item)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    // --- Tombstones for sync delete tracking ---
+
+    /// Initialize tombstones table (called from init_schema/migrate_schema).
+    fn init_tombstones(conn: &Connection) -> Result<(), StoreError> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tombstones (
+                id TEXT PRIMARY KEY,
+                schema_ref TEXT NOT NULL,
+                deleted_at INTEGER NOT NULL,
+                origin TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_tombstones_deleted ON tombstones(deleted_at);",
+        )
+        .map_err(|e| StoreError::Storage(format!("init_tombstones: {}", e)))?;
+        Ok(())
+    }
+
+    /// Record a tombstone for a deleted item.
+    pub fn record_tombstone(&self, id: ItemId, schema: &str) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT OR REPLACE INTO tombstones (id, schema_ref, deleted_at, origin) VALUES (?1, ?2, ?3, ?4)",
+            params![id.to_string(), schema, now, &self.origin_id],
+        )
+        .map_err(|e| StoreError::Storage(format!("record_tombstone: {}", e)))?;
+        Ok(())
+    }
+
+    /// List tombstones since a given timestamp (milliseconds since epoch).
+    pub fn list_tombstones_since(&self, since_ms: i64) -> Result<Vec<(String, String, i64)>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, schema_ref, deleted_at FROM tombstones WHERE deleted_at > ?1 ORDER BY deleted_at ASC")
+            .map_err(|e| StoreError::Storage(format!("prepare list_tombstones: {}", e)))?;
+        let rows = stmt
+            .query_map(params![since_ms], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|e| StoreError::Storage(format!("query list_tombstones: {}", e)))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| StoreError::Storage(format!("row: {}", e)))?);
+        }
+        Ok(result)
+    }
+
+    /// Clean up tombstones older than the given number of days.
+    pub fn cleanup_tombstones(&self, max_age_days: u32) -> Result<usize, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let cutoff = Utc::now().timestamp_millis() - (max_age_days as i64 * 86_400_000);
+        let rows = conn
+            .execute(
+                "DELETE FROM tombstones WHERE deleted_at < ?1",
+                params![cutoff],
+            )
+            .map_err(|e| StoreError::Storage(format!("cleanup_tombstones: {}", e)))?;
+        Ok(rows)
     }
 }
 
@@ -2315,5 +2983,268 @@ mod tests {
         // The migration only targets tags WITHOUT a /
         // "methods/sims" contains / so stays as-is
         // "imbib/already-namespaced" contains / so stays as-is
+    }
+
+    // --- Undo/Redo tests ---
+
+    #[test]
+    fn undo_set_read() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        // Initially unread
+        assert!(!store.get(id).unwrap().unwrap().is_read);
+
+        // Mark as read
+        store.update(id, vec![FieldMutation::SetRead(true)]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().is_read);
+
+        // Find the operation
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        // Undo → should be unread again
+        let undo_info = store.undo_operation(op_id).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().is_read);
+        assert_eq!(undo_info.description, "Mark as Read");
+
+        // Redo (undo the undo) → should be read again
+        let redo_info = store.undo_operation(undo_info.operation_ids[0]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().is_read);
+        assert_eq!(redo_info.description, "Mark as Unread");
+    }
+
+    #[test]
+    fn undo_set_starred() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        store.update(id, vec![FieldMutation::SetStarred(true)]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().is_starred);
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        let info = store.undo_operation(op_id).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().is_starred);
+        assert_eq!(info.description, "Star Paper");
+    }
+
+    #[test]
+    fn undo_set_flag() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        let flag = Some(FlagState { color: "red".into(), style: None, length: None });
+        store.update(id, vec![FieldMutation::SetFlag(flag)]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().flag.is_some());
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        store.undo_operation(op_id).unwrap();
+        assert!(store.get(id).unwrap().unwrap().flag.is_none());
+    }
+
+    #[test]
+    fn undo_add_tag() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        store.update(id, vec![FieldMutation::AddTag("methods/sims".into())]).unwrap();
+        assert!(store.get(id).unwrap().unwrap().tags.contains(&"methods/sims".to_string()));
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        store.undo_operation(op_id).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().tags.contains(&"methods/sims".to_string()));
+    }
+
+    #[test]
+    fn undo_remove_tag() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        store.update(id, vec![FieldMutation::AddTag("methods/sims".into())]).unwrap();
+        store.update(id, vec![FieldMutation::RemoveTag("methods/sims".into())]).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().tags.contains(&"methods/sims".to_string()));
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        store.undo_operation(op_id).unwrap();
+        assert!(store.get(id).unwrap().unwrap().tags.contains(&"methods/sims".to_string()));
+    }
+
+    #[test]
+    fn undo_set_payload() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Original Title");
+        let id = store.insert(item).unwrap();
+
+        store.update(id, vec![FieldMutation::SetPayload(
+            "title".into(), Value::String("New Title".into()),
+        )]).unwrap();
+        let got = store.get(id).unwrap().unwrap();
+        assert_eq!(got.payload.get("title"), Some(&Value::String("New Title".into())));
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        store.undo_operation(op_id).unwrap();
+        let got2 = store.get(id).unwrap().unwrap();
+        assert_eq!(got2.payload.get("title"), Some(&Value::String("Original Title".into())));
+    }
+
+    #[test]
+    fn undo_set_parent() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let lib1 = make_item("library", "Library 1");
+        let lib2 = make_item("library", "Library 2");
+        let lib1_id = store.insert(lib1).unwrap();
+        let lib2_id = store.insert(lib2).unwrap();
+
+        let mut paper = make_item("test", "Paper");
+        paper.parent = Some(lib1_id);
+        let id = store.insert(paper).unwrap();
+
+        store.update(id, vec![FieldMutation::SetParent(Some(lib2_id))]).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().parent, Some(lib2_id));
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op_id = ops.last().unwrap().id;
+
+        store.undo_operation(op_id).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().parent, Some(lib1_id));
+    }
+
+    #[test]
+    fn undo_batch() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item1 = make_item("test", "Paper 1");
+        let item2 = make_item("test", "Paper 2");
+        let item3 = make_item("test", "Paper 3");
+        let id1 = store.insert(item1).unwrap();
+        let id2 = store.insert(item2).unwrap();
+        let id3 = store.insert(item3).unwrap();
+
+        // Apply a batch: star all three papers
+        let specs = vec![
+            OperationSpec {
+                target_id: id1,
+                op_type: OperationType::SetStarred(true),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test".into(),
+                author_kind: ActorKind::Human,
+            },
+            OperationSpec {
+                target_id: id2,
+                op_type: OperationType::SetStarred(true),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test".into(),
+                author_kind: ActorKind::Human,
+            },
+            OperationSpec {
+                target_id: id3,
+                op_type: OperationType::SetStarred(true),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test".into(),
+                author_kind: ActorKind::Human,
+            },
+        ];
+        let op_ids = store.apply_operation_batch(specs).unwrap();
+        assert_eq!(op_ids.len(), 3);
+
+        // All three should be starred
+        assert!(store.get(id1).unwrap().unwrap().is_starred);
+        assert!(store.get(id2).unwrap().unwrap().is_starred);
+        assert!(store.get(id3).unwrap().unwrap().is_starred);
+
+        // Get the batch_id from one of the operations
+        let op = store.get(op_ids[0]).unwrap().unwrap();
+        let batch_id = op.batch_id.expect("operation should have batch_id");
+
+        // Undo the batch
+        let undo_info = store.undo_batch(&batch_id).unwrap();
+        assert_eq!(undo_info.operation_ids.len(), 3);
+
+        // All three should be unstarred
+        assert!(!store.get(id1).unwrap().unwrap().is_starred);
+        assert!(!store.get(id2).unwrap().unwrap().is_starred);
+        assert!(!store.get(id3).unwrap().unwrap().is_starred);
+
+        // Redo the batch (undo the undo)
+        let redo_info = store.undo_batch(&undo_info.batch_id.unwrap()).unwrap();
+        assert_eq!(redo_info.operation_ids.len(), 3);
+
+        // All three should be starred again
+        assert!(store.get(id1).unwrap().unwrap().is_starred);
+        assert!(store.get(id2).unwrap().unwrap().is_starred);
+        assert!(store.get(id3).unwrap().unwrap().is_starred);
+    }
+
+    #[test]
+    fn prev_value_captured_in_operation_payload() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        // Initial state: is_read = false
+        store.update(id, vec![FieldMutation::SetRead(true)]).unwrap();
+
+        let ops = store.operations_for(id, None).unwrap();
+        let op = ops.last().unwrap();
+        assert_eq!(op.payload.get("prev"), Some(&Value::Bool(false)));
+
+        // Now set read again (prev should be true)
+        store.update(id, vec![FieldMutation::SetRead(false)]).unwrap();
+        let ops2 = store.operations_for(id, None).unwrap();
+        let op2 = ops2.last().unwrap();
+        assert_eq!(op2.payload.get("prev"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn update_with_undo_returns_info() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        let info = store
+            .update_with_undo(id, vec![FieldMutation::SetRead(true)])
+            .unwrap();
+        assert_eq!(info.operation_ids.len(), 1);
+        assert!(info.batch_id.is_none());
+        assert_eq!(info.description, "Mark as Read");
+    }
+
+    #[test]
+    fn update_with_undo_multi_mutation_returns_batch() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test", "Paper");
+        let id = store.insert(item).unwrap();
+
+        let info = store
+            .update_with_undo(
+                id,
+                vec![
+                    FieldMutation::SetRead(true),
+                    FieldMutation::SetStarred(true),
+                ],
+            )
+            .unwrap();
+        assert_eq!(info.operation_ids.len(), 2);
+        assert!(info.batch_id.is_some());
     }
 }

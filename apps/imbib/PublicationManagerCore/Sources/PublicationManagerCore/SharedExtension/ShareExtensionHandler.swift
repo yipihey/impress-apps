@@ -86,6 +86,8 @@ public final class ShareExtensionHandler {
                     try await importDocsSelectionFromSharedItem(item)
                 case .openArxivSearch:
                     openArxivSearchInterface(item)
+                case .artifact:
+                    try await importArtifactFromSharedItem(item)
                 }
                 ShareExtensionService.shared.removeItem(item)
                 Logger.shareExtension.infoCapture("Successfully processed shared item: \(item.type.rawValue)", category: "shareext")
@@ -340,6 +342,38 @@ public final class ShareExtensionHandler {
             return bibcode
         }
         return nil
+    }
+
+    /// Import a URL as a research artifact from a shared item
+    private func importArtifactFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
+        let title = item.name ?? item.url.host ?? item.url.absoluteString
+        let artifactType = item.artifactTypeRaw.flatMap { ArtifactType(rawValue: $0) } ?? .webpage
+        let notes = item.query  // Notes stored in query field for artifact items
+
+        Logger.shareExtension.infoCapture(
+            "Importing artifact: '\(title)' as \(artifactType.displayName)",
+            category: "shareext"
+        )
+
+        // Create artifact directly with the correct type (importURL defaults to .webpage)
+        let artifact = RustStoreAdapter.shared.createArtifact(
+            type: artifactType,
+            title: title,
+            sourceURL: item.url.absoluteString,
+            notes: notes
+        )
+
+        if let artifact {
+            Logger.shareExtension.infoCapture(
+                "Created artifact '\(title)' (id: \(artifact.id))",
+                category: "shareext"
+            )
+        } else {
+            Logger.shareExtension.errorCapture(
+                "Failed to create artifact from shared URL: \(item.url.absoluteString)",
+                category: "shareext"
+            )
+        }
     }
 
     /// Open the arXiv search interface with a category pre-filled.

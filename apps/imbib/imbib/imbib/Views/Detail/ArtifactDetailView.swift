@@ -8,6 +8,9 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI
+#if canImport(WebKit)
+import WebKit
+#endif
 
 /// Detail view for a single research artifact.
 struct ArtifactDetailView: View {
@@ -17,6 +20,8 @@ struct ArtifactDetailView: View {
     @State private var artifact: ResearchArtifact?
     @State private var isEditing = false
     @State private var editedNotes = ""
+    @State private var hasArchive = false
+    @State private var showArchiveViewer = false
 
     private var store: RustStoreAdapter { RustStoreAdapter.shared }
 
@@ -30,10 +35,15 @@ struct ArtifactDetailView: View {
                         if artifact.fileName != nil {
                             fileSection(artifact)
                         }
+                        if hasArchive {
+                            archiveSection(artifact)
+                        }
                         notesSection(artifact)
                         if !artifact.tags.isEmpty {
                             tagsSection(artifact)
                         }
+                        Divider()
+                        CommentSectionView(itemID: artifact.id, itemTitle: artifact.title)
                     }
                     .padding()
                     .padding(.top, 40)
@@ -50,9 +60,16 @@ struct ArtifactDetailView: View {
         .task(id: artifactID) {
             loadArtifact()
         }
-        .onChange(of: store.dataVersion) { _, _ in
+        .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { _ in
             loadArtifact()
         }
+        #if os(macOS)
+        .sheet(isPresented: $showArchiveViewer) {
+            if let archiveURL = WebArchiver.shared.archiveURL(for: artifactID) {
+                WebArchiveViewer(archiveURL: archiveURL, title: artifact?.title ?? "Archived Page")
+            }
+        }
+        #endif
     }
 
     // MARK: - Sections
@@ -179,6 +196,40 @@ struct ArtifactDetailView: View {
     }
 
     @ViewBuilder
+    private func archiveSection(_ artifact: ResearchArtifact) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Archived Page")
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                Image(systemName: "archivebox.fill")
+                    .foregroundStyle(.secondary)
+                Text("Offline copy saved")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+
+                #if os(macOS)
+                Button("View") {
+                    showArchiveViewer = true
+                }
+                .controlSize(.small)
+
+                Button("Reveal") {
+                    if let url = WebArchiver.shared.archiveURL(for: artifact.id) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                .controlSize(.small)
+                #endif
+            }
+            .padding(8)
+            .background(.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    @ViewBuilder
     private func notesSection(_ artifact: ResearchArtifact) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -241,6 +292,7 @@ struct ArtifactDetailView: View {
 
     private func loadArtifact() {
         artifact = store.getArtifact(id: artifactID)
+        hasArchive = WebArchiver.shared.archiveURL(for: artifactID) != nil
     }
 
     private func saveNotes() {
@@ -261,6 +313,54 @@ struct ArtifactDetailView: View {
     }
     #endif
 }
+
+// MARK: - Web Archive Viewer
+
+#if os(macOS)
+/// Sheet view that displays an archived webpage using WKWebView.
+private struct WebArchiveViewer: View {
+    let archiveURL: URL
+    let title: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider()
+
+            WebArchiveWebView(archiveURL: archiveURL)
+        }
+        .frame(minWidth: 700, minHeight: 500)
+    }
+}
+
+/// NSViewRepresentable wrapper for WKWebView that loads a .webarchive file.
+private struct WebArchiveWebView: NSViewRepresentable {
+    let archiveURL: URL
+
+    func makeNSView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        if let data = try? Data(contentsOf: archiveURL) {
+            webView.load(data, mimeType: "application/x-webarchive", characterEncodingName: "utf-8", baseURL: archiveURL)
+        }
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+#endif
 
 // MARK: - Flow Layout (reusable)
 

@@ -81,22 +81,6 @@ struct BibTeXTab: View {
         }
         // Half-page scrolling support (macOS)
         .halfPageScrollable()
-        // Keyboard navigation: h/l for pane cycling (j/k handled centrally by ContentView)
-        .focusable()
-        .onKeyPress { press in
-            let store = KeyboardShortcutsStore.shared
-            // Cycle pane focus left (default: h)
-            if store.matches(press, action: "cycleFocusLeft") {
-                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
-                return .handled
-            }
-            // Cycle pane focus right (default: l)
-            if store.matches(press, action: "cycleFocusRight") {
-                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
-                return .handled
-            }
-            return .ignored
-        }
     }
 
     @ViewBuilder

@@ -144,6 +144,31 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
 
     /// Default settings matching the original MailStylePublicationRow behavior
     public static let `default` = ListViewSettings()
+
+    // MARK: - Resilient Codable
+
+    /// Custom decoder that handles missing keys gracefully.
+    /// This prevents settings from being lost when new fields are added.
+    public init(from decoder: Decoder) throws {
+        let defaults = ListViewSettings.default
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        showYear = (try? container.decode(Bool.self, forKey: .showYear)) ?? defaults.showYear
+        showTitle = (try? container.decode(Bool.self, forKey: .showTitle)) ?? defaults.showTitle
+        showVenue = (try? container.decode(Bool.self, forKey: .showVenue)) ?? defaults.showVenue
+        showCitationCount = (try? container.decode(Bool.self, forKey: .showCitationCount)) ?? defaults.showCitationCount
+        showUnreadIndicator = (try? container.decode(Bool.self, forKey: .showUnreadIndicator)) ?? defaults.showUnreadIndicator
+        showAttachmentIndicator = (try? container.decode(Bool.self, forKey: .showAttachmentIndicator)) ?? defaults.showAttachmentIndicator
+        showCategories = (try? container.decode(Bool.self, forKey: .showCategories)) ?? defaults.showCategories
+        showDateAdded = (try? container.decode(Bool.self, forKey: .showDateAdded)) ?? defaults.showDateAdded
+        abstractLineLimit = (try? container.decode(Int.self, forKey: .abstractLineLimit)) ?? defaults.abstractLineLimit
+        showFlagStripe = (try? container.decode(Bool.self, forKey: .showFlagStripe)) ?? defaults.showFlagStripe
+        tagDisplayStyle = (try? container.decode(TagDisplayStyle.self, forKey: .tagDisplayStyle)) ?? defaults.tagDisplayStyle
+        tagPathStyle = (try? container.decode(TagPathStyle.self, forKey: .tagPathStyle)) ?? defaults.tagPathStyle
+        importKeywordsAsTags = (try? container.decode(Bool.self, forKey: .importKeywordsAsTags)) ?? defaults.importKeywordsAsTags
+        keywordTagPrefix = (try? container.decode(String.self, forKey: .keywordTagPrefix)) ?? defaults.keywordTagPrefix
+        rowDensity = (try? container.decode(RowDensity.self, forKey: .rowDensity)) ?? defaults.rowDensity
+    }
 }
 
 // MARK: - MailStyleRowConfiguration Bridge
@@ -152,6 +177,7 @@ extension ListViewSettings {
     /// Convert to a domain-agnostic ``MailStyleRowConfiguration`` for use with ``MailStyleRow``.
     public var mailStyleConfiguration: MailStyleRowConfiguration {
         MailStyleRowConfiguration(
+            showYear: showYear,
             showDate: showDateAdded,
             showTitle: showTitle,
             showSubtitle: showVenue,

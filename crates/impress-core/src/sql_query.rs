@@ -213,6 +213,16 @@ fn field_to_column(field: &str) -> String {
         "flag_style" => "flag_style".to_string(),
         "flag_length" => "flag_length".to_string(),
         "parent_id" | "parent" => "parent_id".to_string(),
+        "logical_clock" => "logical_clock".to_string(),
+        "origin" => "origin".to_string(),
+        "canonical_id" => "canonical_id".to_string(),
+        "priority" => "priority".to_string(),
+        "visibility" => "visibility".to_string(),
+        "message_type" => "message_type".to_string(),
+        "produced_by" => "produced_by".to_string(),
+        "version" => "version".to_string(),
+        "batch_id" => "batch_id".to_string(),
+        "op_target_id" => "op_target_id".to_string(),
         // payload.field → json_extract(payload, '$.field')
         f if f.starts_with("payload.") => {
             let json_path = format!("$.{}", &f["payload.".len()..]);

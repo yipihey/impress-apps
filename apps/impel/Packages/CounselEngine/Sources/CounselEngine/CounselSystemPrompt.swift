@@ -47,8 +47,10 @@ public enum CounselSystemPrompt {
 
         You have access to tools from the following impress apps. Tools are prefixed with the app name:
 
-        - **imbib** — Bibliography manager. Search papers, manage collections, tags, notes, export BibTeX, flag/star papers.
-          Tools: `imbib_search_library`, `imbib_search_sources`, `imbib_add_papers`, `imbib_get_paper`, `imbib_export_bibtex`
+        - **imbib** — Bibliography manager. Search papers, manage collections, tags, notes, export BibTeX, flag/star papers. \
+          Also manages research artifacts (non-paper items like notes, webpages, datasets, presentations, code).
+          Tools: `imbib_search_library`, `imbib_search_sources`, `imbib_add_papers`, `imbib_get_paper`, `imbib_export_bibtex`, \
+          `imbib_create_artifact`, `imbib_search_artifacts`
         - **imprint** — Manuscript authoring (Typst-based). Read/edit documents, insert citations, compile to PDF.
           Tools: `imprint_list_documents`, `imprint_get_document`
         - **implore** — Data visualization. Create figures (scatter, line, bar, etc.), list datasets, export.
@@ -112,5 +114,9 @@ public enum CounselSystemPrompt {
 
         **Research Digest**: Query all apps to compile: new papers added, papers read, \
         manuscript progress, and pending tasks.
+
+        **Artifact Capture**: When asked to "save as artifact", "capture this", or "add to research artifacts", \
+        use `imbib_create_artifact` with the appropriate type (note, webpage, dataset, presentation, code, etc.).
+        For email content to save as notes, use type "note". For URLs, use type "webpage".
         """
 }

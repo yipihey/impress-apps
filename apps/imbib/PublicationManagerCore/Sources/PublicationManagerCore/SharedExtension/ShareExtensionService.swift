@@ -13,7 +13,7 @@ import OSLog
 /// Uses `UserDefaults(suiteName:)` to share data between the extension and main app.
 /// The main app should call `processPendingSharedURLs()` on launch and when receiving
 /// the `sharedURLReceived` notification.
-public final class ShareExtensionService: Sendable {
+nonisolated public final class ShareExtensionService: Sendable {
 
     // MARK: - Singleton
 
@@ -41,6 +41,7 @@ public final class ShareExtensionService: Sendable {
         public let name: String?
         public let query: String?  // The actual query to use (from page title via JS preprocessing)
         public let libraryID: UUID?
+        public let artifactTypeRaw: String?  // ArtifactType.rawValue for .artifact items
         public let createdAt: Date
 
         public enum ItemType: String, Codable, Sendable {
@@ -48,6 +49,7 @@ public final class ShareExtensionService: Sendable {
             case paper
             case docsSelection  // Temporary paper selection to import to Inbox
             case openArxivSearch  // Open imbib's arXiv search with pre-filled category
+            case artifact  // Non-paper research artifact
         }
 
         public init(
@@ -57,6 +59,7 @@ public final class ShareExtensionService: Sendable {
             name: String?,
             query: String? = nil,
             libraryID: UUID?,
+            artifactTypeRaw: String? = nil,
             createdAt: Date = Date()
         ) {
             self.id = id
@@ -65,6 +68,7 @@ public final class ShareExtensionService: Sendable {
             self.name = name
             self.query = query
             self.libraryID = libraryID
+            self.artifactTypeRaw = artifactTypeRaw
             self.createdAt = createdAt
         }
     }
@@ -179,6 +183,29 @@ public final class ShareExtensionService: Sendable {
         Logger.shareExtension.infoCapture("arXiv search open queued successfully", category: "shareext")
     }
 
+    /// Queue a URL for import as a research artifact.
+    ///
+    /// Called from the share extension when the URL is not recognized as an academic paper.
+    ///
+    /// - Parameters:
+    ///   - url: The shared URL
+    ///   - title: Optional title (from page title)
+    ///   - artifactType: The type of artifact to create
+    public func queueArtifact(url: URL, title: String?, artifactType: ArtifactType) {
+        Logger.shareExtension.infoCapture("Queueing artifact: \(url.absoluteString) as \(artifactType.displayName)", category: "shareext")
+        let item = SharedItem(
+            url: url,
+            type: .artifact,
+            name: title,
+            libraryID: nil,
+            artifactTypeRaw: artifactType.rawValue,
+            createdAt: Date()
+        )
+        appendItem(item)
+        postNotification()
+        Logger.shareExtension.infoCapture("Artifact queued successfully", category: "shareext")
+    }
+
     // MARK: - Main App API
 
     /// Get all pending shared items.
@@ -273,7 +300,7 @@ public final class ShareExtensionService: Sendable {
 ///
 /// This is used to populate the library picker in the extension UI without
 /// needing full Core Data access.
-public struct SharedLibraryInfo: Codable, Identifiable, Sendable, Equatable {
+nonisolated public struct SharedLibraryInfo: Codable, Identifiable, Sendable, Equatable {
     public let id: UUID
     public let name: String
     public let isDefault: Bool
@@ -285,7 +312,7 @@ public struct SharedLibraryInfo: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-extension ShareExtensionService {
+nonisolated extension ShareExtensionService {
 
     /// Key for storing available libraries
     private static let librariesKey = "availableLibraries"

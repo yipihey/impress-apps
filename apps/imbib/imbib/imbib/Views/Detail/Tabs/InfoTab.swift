@@ -131,8 +131,8 @@ struct InfoTab: View {
                     }
 
                     // MARK: - Comments Section
-                    if let pub = publication, !pub.libraryIDs.isEmpty {
-                        CommentSectionView(publicationID: pub.id)
+                    if let pub = publication {
+                        CommentSectionView(itemID: pub.id, itemTitle: pub.title)
                         Divider()
                     }
 
@@ -236,22 +236,6 @@ struct InfoTab: View {
             if let error = explorationError {
                 Text(error)
             }
-        }
-        // Keyboard navigation: h/l for pane cycling
-        .focusable()
-        .onKeyPress { press in
-            let store = KeyboardShortcutsStore.shared
-            // Cycle pane focus left (default: h)
-            if store.matches(press, action: "cycleFocusLeft") {
-                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
-                return .handled
-            }
-            // Cycle pane focus right (default: l)
-            if store.matches(press, action: "cycleFocusRight") {
-                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
-                return .handled
-            }
-            return .ignored
         }
     }
 

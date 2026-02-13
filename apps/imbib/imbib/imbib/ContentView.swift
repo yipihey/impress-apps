@@ -65,6 +65,7 @@ struct ContentView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.undoManager) private var undoManager
 
     // MARK: - State
 
@@ -145,6 +146,40 @@ struct ContentView: View {
     var body: some View {
         let _ = contentLogger.info("⏱ ContentView.body START")
         tabSidebarContent
+            .onAppear {
+                UndoCoordinator.shared.undoManager = undoManager
+            }
+            .task {
+                // Only dedup on startup if papers were imported since last launch.
+                // This avoids an 86-second FTS rebuild every single startup.
+                let defaults = UserDefaults.standard
+                guard defaults.bool(forKey: "needsStartupDedup") else { return }
+                defaults.set(false, forKey: "needsStartupDedup")
+
+                let store = RustStoreAdapter.shared
+                var totalRemoved = 0
+                for lib in store.listLibraries() {
+                    let removed = store.deduplicateLibrary(id: lib.id)
+                    if removed > 0 {
+                        logInfo("Startup dedup: removed \(removed) duplicates from library '\(lib.name)'", category: "dedup")
+                        totalRemoved += removed
+                    }
+                }
+                // Rebuild FTS index if duplicates were removed (stale entries would cause search failures)
+                if totalRemoved > 0 {
+                    // Wait for FTS to be initialized (it's set up in background init)
+                    for _ in 0..<60 {
+                        let available = await FullTextSearchService.shared.isAvailable
+                        if available { break }
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                    logInfo("Rebuilding FTS index after dedup (\(totalRemoved) entries removed)", category: "search")
+                    await FullTextSearchService.shared.rebuildIndex()
+                }
+            }
+            .onChange(of: undoManager) { _, newValue in
+                UndoCoordinator.shared.undoManager = newValue
+            }
     }
 
     /// Tab sidebar content — the sole sidebar implementation
@@ -211,6 +246,9 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
                 showCommandPalette = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showGlobalSearch)) { _ in
+                showGlobalSearch = true
+            }
             .overlay {
                 if showGlobalSearch {
                     GlobalSearchPaletteView(
@@ -233,6 +271,12 @@ struct ContentView: View {
                     showGlobalSearch = true
                 }
                 .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+
+                Button("Filter") {
+                    NotificationCenter.default.post(name: .activateFilter, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .opacity(0)
             }
             .alert("Paper Not Found", isPresented: $showStaleIndexAlert) {
@@ -312,27 +356,19 @@ struct ContentView: View {
     /// Finds the library containing the publication and navigates to it.
     /// Shows an alert if the publication can't be found (stale index).
     func navigateToPublication(_ publicationID: UUID) {
-        guard let publication = libraryViewModel.publication(for: publicationID) else {
+        guard libraryViewModel.publication(for: publicationID) != nil else {
             contentLogger.warning("Cannot navigate to publication \(publicationID): not found (stale index)")
             showStaleIndexAlert = true
             return
         }
 
-        // Note: With Rust-backed store, library membership is tracked differently.
-        // If the publication exists in the viewModel, it's in an active library.
-        // Skip the explicit library membership check.
-
-        // Select the publication after a brief delay to let the list load
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
-            selectedPublicationIDs = [publicationID]
-            displayedPublicationID = publicationID
-
-            try? await Task.sleep(for: .milliseconds(50))
-            NotificationCenter.default.post(name: .scrollToSelection, object: nil)
-        }
-
-        contentLogger.info("Navigated to publication: \(publication.citeKey ?? "unknown")")
+        // Post notification — SectionContentView handles sidebar navigation,
+        // publication selection, and scrolling.
+        NotificationCenter.default.post(
+            name: .navigateToPublication,
+            object: nil,
+            userInfo: ["publicationID": publicationID]
+        )
     }
 
     /// Rebuild the search indexes (fulltext and semantic) when they become stale.
@@ -451,7 +487,6 @@ struct ContentView: View {
         let count = importedIDs.count
 
         await libraryViewModel.loadPublications()
-        NotificationCenter.default.post(name: .libraryContentDidChange, object: nil, userInfo: ["libraryID": libraryID])
 
         return count
     }

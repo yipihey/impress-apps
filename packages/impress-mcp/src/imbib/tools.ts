@@ -6,6 +6,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   ImbibClient,
   type Paper,
+  type Artifact,
   type Participant,
   type Activity,
   type Comment,
@@ -571,6 +572,80 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_list_item_comments",
+    description:
+      "List comments on any item by UUID (publication, artifact, or other item type).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemID: {
+          type: "string",
+          description: "UUID of the item to get comments for",
+        },
+      },
+      required: ["itemID"],
+    },
+  },
+  {
+    name: "imbib_add_item_comment",
+    description:
+      "Add a comment to any item by UUID (publication, artifact, or other item type).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemID: {
+          type: "string",
+          description: "UUID of the item to comment on",
+        },
+        text: {
+          type: "string",
+          description: "Comment text (supports markdown)",
+        },
+        parentCommentID: {
+          type: "string",
+          description: "Optional parent comment UUID for threaded replies",
+        },
+      },
+      required: ["itemID", "text"],
+    },
+  },
+  {
+    name: "imbib_edit_comment",
+    description: "Edit the text of an existing comment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        commentID: {
+          type: "string",
+          description: "UUID of the comment to edit",
+        },
+        text: {
+          type: "string",
+          description: "New comment text",
+        },
+      },
+      required: ["commentID", "text"],
+    },
+  },
+  {
+    name: "imbib_sync_comments",
+    description:
+      "Trigger a manual CloudKit comment sync cycle. Pushes local changes and pulls remote changes.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "imbib_sync_status",
+    description:
+      "Get the current sync status including last sync date, errors, and pending upload count.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "imbib_list_assignments",
     description:
       "List paper reading assignments in a library. Shows who is assigned to read which papers.",
@@ -809,6 +884,163 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["citeKey"],
     },
   },
+  // --------------------------------------------------------------------------
+  // Research Artifact Operations
+  // --------------------------------------------------------------------------
+  {
+    name: "imbib_create_artifact",
+    description:
+      "Create a research artifact in imbib. Artifacts are non-paper items: notes, webpages, datasets, presentations, posters, media, code, or general files.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: [
+            "impress/artifact/presentation",
+            "impress/artifact/poster",
+            "impress/artifact/dataset",
+            "impress/artifact/webpage",
+            "impress/artifact/note",
+            "impress/artifact/media",
+            "impress/artifact/code",
+            "impress/artifact/general",
+          ],
+          description:
+            "The artifact type schema URI",
+        },
+        title: {
+          type: "string",
+          description: "Title of the artifact",
+        },
+        sourceURL: {
+          type: "string",
+          description: "Source URL (e.g., webpage URL)",
+        },
+        notes: {
+          type: "string",
+          description: "Free-form notes about the artifact",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: 'Tags to apply (e.g., ["meeting-notes", "project/thesis"])',
+        },
+      },
+      required: ["type", "title"],
+    },
+  },
+  {
+    name: "imbib_search_artifacts",
+    description:
+      "Search research artifacts by title, notes, or other metadata. Returns matching artifacts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query (matches title, notes, source URL)",
+        },
+        type: {
+          type: "string",
+          description:
+            "Optional type filter (e.g., 'impress/artifact/webpage')",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "imbib_list_artifacts",
+    description:
+      "List research artifacts, optionally filtered by type. Returns recent artifacts sorted by creation date.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          description:
+            "Optional type filter (e.g., 'impress/artifact/note')",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of results (default: 50)",
+        },
+        offset: {
+          type: "number",
+          description: "Pagination offset (default: 0)",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_get_artifact",
+    description:
+      "Get detailed information about a specific research artifact by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "Artifact UUID",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "imbib_delete_artifact",
+    description:
+      "Delete a research artifact. This permanently removes it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "Artifact UUID to delete",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "imbib_tag_artifact",
+    description:
+      "Add a tag to a research artifact. Tags use hierarchical paths like 'project/thesis'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "Artifact UUID",
+        },
+        tag: {
+          type: "string",
+          description: "Tag path to add",
+        },
+      },
+      required: ["id", "tag"],
+    },
+  },
+  {
+    name: "imbib_link_artifact_to_paper",
+    description:
+      "Link a research artifact to a paper in the bibliography. Creates a bidirectional relationship.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        artifactID: {
+          type: "string",
+          description: "Artifact UUID",
+        },
+        citeKey: {
+          type: "string",
+          description: "Cite key of the paper to link to",
+        },
+      },
+      required: ["artifactID", "citeKey"],
+    },
+  },
 ];
 
 export class ImbibTools {
@@ -882,6 +1114,16 @@ export class ImbibTools {
         return this.addComment(args);
       case "imbib_delete_comment":
         return this.deleteComment(args);
+      case "imbib_list_item_comments":
+        return this.listItemComments(args);
+      case "imbib_add_item_comment":
+        return this.addItemComment(args);
+      case "imbib_edit_comment":
+        return this.editComment(args);
+      case "imbib_sync_comments":
+        return this.syncComments();
+      case "imbib_sync_status":
+        return this.getSyncStatus();
       case "imbib_list_assignments":
         return this.listAssignments(args);
       case "imbib_list_paper_assignments":
@@ -908,6 +1150,22 @@ export class ImbibTools {
         return this.getNotes(args);
       case "imbib_update_notes":
         return this.updateNotes(args);
+
+      // Artifact operations
+      case "imbib_create_artifact":
+        return this.createArtifact(args);
+      case "imbib_search_artifacts":
+        return this.searchArtifacts(args);
+      case "imbib_list_artifacts":
+        return this.listArtifactsHandler(args);
+      case "imbib_get_artifact":
+        return this.getArtifact(args);
+      case "imbib_delete_artifact":
+        return this.deleteArtifact(args);
+      case "imbib_tag_artifact":
+        return this.tagArtifact(args);
+      case "imbib_link_artifact_to_paper":
+        return this.linkArtifactToPaper(args);
 
       default:
         return {
@@ -1809,6 +2067,129 @@ export class ImbibTools {
     };
   }
 
+  private async listItemComments(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const itemID = args?.itemID as string | undefined;
+    if (!itemID) {
+      return {
+        content: [{ type: "text", text: "Error: itemID is required" }],
+      };
+    }
+
+    const result = await this.client.listItemComments(itemID);
+    if (!result.comments || result.comments.length === 0) {
+      return {
+        content: [{ type: "text", text: "No comments found for this item." }],
+      };
+    }
+
+    const lines = result.comments.map((c: Record<string, unknown>) => {
+      const replies = (c.replies as Array<Record<string, unknown>>) || [];
+      const replyText = replies.length > 0
+        ? `\n  ${replies.map((r: Record<string, unknown>) => `  ↳ ${r.authorDisplayName || "Unknown"}: ${r.text}`).join("\n  ")}`
+        : "";
+      return `• ${c.authorDisplayName || "Unknown"} (${c.dateCreated}): ${c.text}${replyText}`;
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${result.total} comment(s):\n\n${lines.join("\n\n")}`,
+        },
+      ],
+    };
+  }
+
+  private async addItemComment(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const itemID = args?.itemID as string | undefined;
+    const text = args?.text as string | undefined;
+    const parentCommentID = args?.parentCommentID as string | undefined;
+
+    if (!itemID || !text) {
+      return {
+        content: [{ type: "text", text: "Error: itemID and text are required" }],
+      };
+    }
+
+    const result = await this.client.addItemComment(itemID, text, parentCommentID);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Comment added (ID: ${result.comment?.id || "unknown"})`,
+        },
+      ],
+    };
+  }
+
+  private async editComment(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const commentID = args?.commentID as string | undefined;
+    const text = args?.text as string | undefined;
+
+    if (!commentID || !text) {
+      return {
+        content: [{ type: "text", text: "Error: commentID and text are required" }],
+      };
+    }
+
+    const result = await this.client.editComment(commentID, text);
+    return {
+      content: [
+        {
+          type: "text",
+          text: result.updated ? "Comment updated" : "Failed to update comment",
+        },
+      ],
+    };
+  }
+
+  private async syncComments(): Promise<{
+    content: Array<{ type: string; text: string }>;
+  }> {
+    const result = await this.client.syncComments();
+    const status = (result as Record<string, unknown>).syncStatus as Record<string, unknown> | undefined;
+    const parts: string[] = ["Comment sync triggered."];
+    if (status?.lastSyncDate) parts.push(`Last sync: ${status.lastSyncDate}`);
+    if (status?.lastError) parts.push(`Error: ${status.lastError}`);
+    if (status?.pendingUploadCount !== undefined) parts.push(`Pending uploads: ${status.pendingUploadCount}`);
+
+    return {
+      content: [{ type: "text", text: parts.join("\n") }],
+    };
+  }
+
+  private async getSyncStatus(): Promise<{
+    content: Array<{ type: string; text: string }>;
+  }> {
+    const result = await this.client.getSyncStatus();
+    const cs = (result as Record<string, unknown>).commentSync as Record<string, unknown> | undefined ?? {};
+    const gs = (result as Record<string, unknown>).generalSync as Record<string, unknown> | undefined ?? {};
+
+    const lines = [
+      "## Comment Sync",
+      `  Enabled: ${cs.enabled}`,
+      `  Running: ${cs.isRunning}`,
+      `  Last sync: ${cs.lastSyncDate || "never"}`,
+      `  Error: ${cs.lastError || "none"}`,
+      `  Pending: ${cs.pendingUploadCount || 0}`,
+      "",
+      "## General Sync",
+      `  Enabled: ${gs.enabled}`,
+      `  Last sync: ${gs.lastSyncDate || "never"}`,
+      `  Error: ${gs.lastError || "none"}`,
+      `  State: ${gs.lifecycleState}`,
+    ];
+
+    return {
+      content: [{ type: "text", text: lines.join("\n") }],
+    };
+  }
+
   private async listAssignments(
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }> }> {
@@ -2007,6 +2388,243 @@ export class ImbibTools {
         },
       ],
     };
+  }
+
+  // --------------------------------------------------------------------------
+  // Artifact Operations
+  // --------------------------------------------------------------------------
+
+  private async createArtifact(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const artifactType = args?.type as string | undefined;
+    const title = args?.title as string | undefined;
+
+    if (!artifactType) {
+      return {
+        content: [{ type: "text", text: "Error: type is required" }],
+      };
+    }
+    if (!title) {
+      return {
+        content: [{ type: "text", text: "Error: title is required" }],
+      };
+    }
+
+    const artifact = await this.client.createArtifact(artifactType, title, {
+      sourceURL: args?.sourceURL as string | undefined,
+      notes: args?.notes as string | undefined,
+      tags: args?.tags as string[] | undefined,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Created ${artifact.typeName} artifact: **${artifact.title}**\n\nID: ${artifact.id}`,
+        },
+      ],
+    };
+  }
+
+  private async searchArtifacts(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const query = String(args?.query || "");
+    if (!query) {
+      return {
+        content: [{ type: "text", text: "Error: query is required" }],
+      };
+    }
+
+    const artifactType = args?.type as string | undefined;
+    const artifacts = await this.client.listArtifacts({
+      query,
+      type: artifactType,
+    });
+
+    if (artifacts.length === 0) {
+      return {
+        content: [
+          { type: "text", text: `No artifacts found matching "${query}"` },
+        ],
+      };
+    }
+
+    const list = this.formatArtifactList(artifacts);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Found ${artifacts.length} artifacts matching "${query}":\n\n${list}`,
+        },
+      ],
+    };
+  }
+
+  private async listArtifactsHandler(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const artifactType = args?.type as string | undefined;
+    const limit = args?.limit as number | undefined;
+    const offset = args?.offset as number | undefined;
+
+    const artifacts = await this.client.listArtifacts({
+      type: artifactType,
+      limit: limit ?? 50,
+      offset,
+    });
+
+    if (artifacts.length === 0) {
+      const typeInfo = artifactType ? ` of type ${artifactType}` : "";
+      return {
+        content: [{ type: "text", text: `No artifacts found${typeInfo}` }],
+      };
+    }
+
+    const list = this.formatArtifactList(artifacts);
+    const typeInfo = artifactType ? ` (${artifactType})` : "";
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# Artifacts${typeInfo} (${artifacts.length})\n\n${list}`,
+        },
+      ],
+    };
+  }
+
+  private async getArtifact(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const id = args?.id as string | undefined;
+    if (!id) {
+      return {
+        content: [{ type: "text", text: "Error: id is required" }],
+      };
+    }
+
+    const artifact = await this.client.getArtifact(id);
+    if (!artifact) {
+      return {
+        content: [{ type: "text", text: `Artifact not found: ${id}` }],
+      };
+    }
+
+    const info = [
+      `# ${artifact.title}`,
+      "",
+      `**Type:** ${artifact.typeName}`,
+      `**ID:** ${artifact.id}`,
+      `**Created:** ${new Date(artifact.created).toLocaleString()}`,
+      artifact.sourceURL ? `**Source:** ${artifact.sourceURL}` : null,
+      artifact.originalAuthor ? `**Author:** ${artifact.originalAuthor}` : null,
+      artifact.fileName ? `**File:** ${artifact.fileName}` : null,
+      artifact.fileSize
+        ? `**Size:** ${(artifact.fileSize / 1024).toFixed(1)} KB`
+        : null,
+      artifact.tags.length > 0
+        ? `**Tags:** ${artifact.tags.join(", ")}`
+        : null,
+      "",
+      artifact.notes ? `## Notes\n\n${artifact.notes}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    return {
+      content: [{ type: "text", text: info }],
+    };
+  }
+
+  private async deleteArtifact(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const id = args?.id as string | undefined;
+    if (!id) {
+      return {
+        content: [{ type: "text", text: "Error: id is required" }],
+      };
+    }
+
+    const result = await this.client.deleteArtifact(id);
+    return {
+      content: [
+        {
+          type: "text",
+          text: result.deleted
+            ? "Artifact deleted"
+            : "Artifact not found",
+        },
+      ],
+    };
+  }
+
+  private async tagArtifact(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const id = args?.id as string | undefined;
+    const tag = args?.tag as string | undefined;
+
+    if (!id) {
+      return {
+        content: [{ type: "text", text: "Error: id is required" }],
+      };
+    }
+    if (!tag) {
+      return {
+        content: [{ type: "text", text: "Error: tag is required" }],
+      };
+    }
+
+    await this.client.tagArtifact(id, tag);
+    return {
+      content: [
+        { type: "text", text: `Added tag "${tag}" to artifact ${id}` },
+      ],
+    };
+  }
+
+  private async linkArtifactToPaper(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const artifactID = args?.artifactID as string | undefined;
+    const citeKey = args?.citeKey as string | undefined;
+
+    if (!artifactID) {
+      return {
+        content: [{ type: "text", text: "Error: artifactID is required" }],
+      };
+    }
+    if (!citeKey) {
+      return {
+        content: [{ type: "text", text: "Error: citeKey is required" }],
+      };
+    }
+
+    await this.client.linkArtifactToPaper(artifactID, citeKey);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Linked artifact ${artifactID} to paper ${citeKey}`,
+        },
+      ],
+    };
+  }
+
+  private formatArtifactList(artifacts: Artifact[]): string {
+    return artifacts
+      .map((a) => {
+        const tags =
+          a.tags.length > 0 ? ` {${a.tags.join(", ")}}` : "";
+        const source = a.sourceURL ? `\n  Source: ${a.sourceURL}` : "";
+        const file = a.fileName ? `\n  File: ${a.fileName}` : "";
+        const starred = a.isStarred ? " *" : "";
+        const date = new Date(a.created).toLocaleDateString();
+        return `- **${a.title}** [${a.typeName}]${starred} (${date})\n  ID: ${a.id}${source}${file}${tags}`;
+      })
+      .join("\n\n");
   }
 
   // --------------------------------------------------------------------------

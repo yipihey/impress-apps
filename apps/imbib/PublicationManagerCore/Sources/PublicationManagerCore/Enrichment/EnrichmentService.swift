@@ -52,6 +52,10 @@ public actor EnrichmentService {
     /// The app layer sets this to persist enrichment data to Core Data.
     public var onEnrichmentComplete: ((UUID, EnrichmentResult) async -> Void)?
 
+    /// Called with ALL successful results from a batch. If set, replaces per-item `onEnrichmentComplete`
+    /// calls during batch processing, enabling one outer batch mutation for all saves.
+    public var onBatchEnrichmentComplete: (([(UUID, EnrichmentResult)]) async -> Void)?
+
     // MARK: - Initialization
 
     /// Create an enrichment service with the given plugins.
@@ -331,20 +335,17 @@ public actor EnrichmentService {
             // Process results
             var successCount = 0
             var failureCount = 0
+            var successfulResults: [(UUID, EnrichmentResult)] = []
 
             for (publicationID, result) in results {
                 processedCount += 1
                 switch result {
                 case .success(let enrichmentResult):
                     successCount += 1
+                    successfulResults.append((publicationID, enrichmentResult))
                     Logger.enrichment.debug(
                         "Background enriched \(publicationID.uuidString.prefix(8))... - citations: \(enrichmentResult.data.citationCount ?? 0)"
                     )
-
-                    // Persist the enrichment result to Core Data
-                    if let callback = onEnrichmentComplete {
-                        await callback(publicationID, enrichmentResult)
-                    }
 
                 case .failure(let error):
                     failureCount += 1
@@ -352,6 +353,15 @@ public actor EnrichmentService {
                         "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)",
                         category: "enrichment"
                     )
+                }
+            }
+
+            // Persist results: prefer batch callback (one notification) over per-item
+            if let batchCallback = onBatchEnrichmentComplete, !successfulResults.isEmpty {
+                await batchCallback(successfulResults)
+            } else if let callback = onEnrichmentComplete {
+                for (publicationID, enrichmentResult) in successfulResults {
+                    await callback(publicationID, enrichmentResult)
                 }
             }
 

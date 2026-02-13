@@ -8,6 +8,7 @@
 #if os(macOS)
 import SwiftUI
 import PublicationManagerCore
+import ImpressKeyboard
 import OSLog
 
 // MARK: - Detached PDF View
@@ -57,7 +58,7 @@ struct DetachedPDFView: View {
         // Keyboard navigation for PDF reading
         .focusable()
         .focused($isFocused)
-        .onKeyPress { press in handleKeyPress(press) }
+        .keyboardGuarded { press in handleKeyPress(press) }
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
             pdfDarkModeEnabled = PDFSettingsStore.loadSettingsSync().darkModeEnabled
         }

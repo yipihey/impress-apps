@@ -530,6 +530,8 @@ public final class SearchViewModel {
             return
         }
 
+        Logger.viewModels.infoCapture("SearchViewModel.search() starting for query: \(query)", category: "search")
+
         guard let manager = libraryManager else {
             Logger.viewModels.errorCapture("No library manager available for search", category: "search")
             return
@@ -541,9 +543,6 @@ public final class SearchViewModel {
         }
 
         let collectionId = collectionModel.id
-
-        Logger.viewModels.entering()
-        defer { Logger.viewModels.exiting() }
 
         isSearching = true
         error = nil
@@ -571,6 +570,8 @@ public final class SearchViewModel {
             let store = RustStoreAdapter.shared
             var importedCount = 0
             var existingCount = 0
+            let libraryId = libraryManager?.activeLibrary?.id
+            var collectionMemberIds: [UUID] = []
 
             for result in deduped {
                 // Check for existing publication by identifiers
@@ -580,32 +581,32 @@ public final class SearchViewModel {
                     bibcode: result.primary.bibcode
                 )
                 if let existingPub = existingPubs.first {
-                    // Add existing publication to Last Search collection
-                    store.addToCollection(publicationIds: [existingPub.id], collectionId: collectionId)
+                    collectionMemberIds.append(existingPub.id)
                     existingCount += 1
                 } else {
-                    // Import new publication via BibTeX and add to collection
-                    let bibtex = result.primary.toBibTeX(abstractOverride: result.bestAbstract)
-                    let libraryId = libraryManager?.activeLibrary?.id
+                    // Import new publication via BibTeX
                     guard let libraryId else { continue }
+                    let bibtex = result.primary.toBibTeX(abstractOverride: result.bestAbstract)
                     let ids = store.importBibTeX(bibtex, libraryId: libraryId)
                     if let newId = ids.first {
-                        store.addToCollection(publicationIds: [newId], collectionId: collectionId)
+                        collectionMemberIds.append(newId)
                     }
                     importedCount += 1
                 }
             }
 
-            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
+            // Batch-add all results to the Last Search collection
+            if !collectionMemberIds.isEmpty {
+                store.addToCollection(publicationIds: collectionMemberIds, collectionId: collectionId)
+            }
 
-            // Get imported publication IDs from the collection
-            let collectionPubIds = store.listCollectionMembers(collectionId: collectionId).map(\.id)
+            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing to collection", category: "search")
 
             // Create exploration smart search for sidebar display
             await createExplorationSearch(
                 query: query,
                 sourceIDs: sourceIDs,
-                publicationIds: collectionPubIds,
+                publicationIds: collectionMemberIds,
                 maxResults: maxResults
             )
 
@@ -657,6 +658,11 @@ public final class SearchViewModel {
         if let existing = existingSmartSearches.first(where: { $0.query == query }) {
             Logger.viewModels.infoCapture("Found existing exploration search: \(existing.name), navigating to it", category: "search")
 
+            // Update Contains edges so the smart search shows current results
+            if !publicationIds.isEmpty {
+                store.addToCollection(publicationIds: publicationIds, collectionId: existing.id)
+            }
+
             // Index publications for global search (Cmd+F) after a short delay
             let capturedIds = publicationIds
             Task {
@@ -688,6 +694,12 @@ public final class SearchViewModel {
         guard let smartSearch else {
             Logger.viewModels.errorCapture("Failed to create exploration search", category: "search")
             return
+        }
+
+        // Link publications to the smart search via Contains edges so
+        // queryPublications(for: .smartSearch(id)) can find them.
+        if !publicationIds.isEmpty {
+            store.addToCollection(publicationIds: publicationIds, collectionId: smartSearch.id)
         }
 
         Logger.viewModels.infoCapture("Created exploration search: \(searchName) with \(publicationIds.count) results", category: "search")

@@ -95,9 +95,8 @@ final class ImbibSidebarViewModel {
         // Seed expansion state from collapsed sections
         initializeExpansionState()
 
-        // Select allInbox by default
-        let inboxNodeID = ImbibSidebarNodeID.allInbox
-        selectedNodeID = inboxNodeID
+        // Select inbox section by default — resolveSelectedTab maps this to .inbox
+        selectedNodeID = ImbibSidebarNodeID.section(.inbox)
 
         bumpDataVersion()
     }
@@ -107,6 +106,14 @@ final class ImbibSidebarViewModel {
     func bumpDataVersion() {
         dataVersion += 1
         rebuildTabMap()
+    }
+
+    /// Called when `RustStoreAdapter.shared.dataVersion` changes.
+    /// Refreshes sidebar counts and triggers NSOutlineView reload.
+    func refreshFromStore() {
+        libraryManager?.loadLibraries()
+        refreshFlagCounts()
+        bumpDataVersion()
     }
 
     // MARK: - Outline Configuration
@@ -140,7 +147,18 @@ final class ImbibSidebarViewModel {
             canAcceptDrop: { [weak self] dragged, target in
                 self?.canAcceptDrop(dragged, target: target) ?? false
             },
-            isGroupItem: { $0.isGroup }
+            isGroupItem: { $0.isGroup },
+            shouldSelectItem: { node in
+                // Group items are not selectable except for inbox section
+                if node.isGroup {
+                    if case .section(.inbox) = node.nodeType { return true }
+                    return false
+                }
+                return true
+            },
+            sectionMenu: { [weak self] node in
+                self?.buildSectionHeaderMenu(for: node)
+            }
         )
     }
 
@@ -272,16 +290,6 @@ final class ImbibSidebarViewModel {
     private func inboxChildren() -> [ImbibSidebarNode] {
         var nodes: [ImbibSidebarNode] = []
 
-        // All Inbox row
-        let unread = InboxManager.shared.unreadCount
-        nodes.append(ImbibSidebarNode(
-            id: ImbibSidebarNodeID.allInbox,
-            nodeType: .allInbox,
-            displayName: "All Inbox",
-            iconName: "tray",
-            displayCount: unread > 0 ? unread : nil
-        ))
-
         // Top-level feeds (no parent collection — feeds don't have parent collection in domain model)
         let feeds = fetchInboxFeeds()
         for feed in feeds {
@@ -359,12 +367,14 @@ final class ImbibSidebarViewModel {
                 let collections = store.listCollections(libraryId: library.id)
                 let hasCollections = !collections.isEmpty
                 let count = library.publicationCount
+                let starred = store.countStarred(parentId: library.id)
                 return ImbibSidebarNode(
                     id: library.id,
                     nodeType: .library(libraryID: library.id),
                     displayName: library.name,
                     iconName: "book.closed",
                     displayCount: count > 0 ? count : nil,
+                    starCount: starred > 0 ? starred : nil,
                     hasTreeChildren: hasCollections
                 )
             }
@@ -577,12 +587,14 @@ final class ImbibSidebarViewModel {
         guard let lib = libraryManager?.dismissedLibrary else { return [] }
         let count = lib.publicationCount
         guard count > 0 else { return [] }
+        let starred = store.countStarred(parentId: lib.id)
         return [ImbibSidebarNode(
             id: ImbibSidebarNodeID.dismissed,
             nodeType: .dismissed,
             displayName: "Dismissed",
             iconName: "xmark.circle",
-            displayCount: count
+            displayCount: count,
+            starCount: starred > 0 ? starred : nil
         )]
     }
 
@@ -590,12 +602,16 @@ final class ImbibSidebarViewModel {
 
     private func capabilities(of node: ImbibSidebarNode) -> TreeNodeCapabilities {
         switch node.nodeType {
+        case .section(.inbox):
+            return [.draggable, .droppable]
         case .section:
             return .draggable
         case .library:
             return [.draggable, .droppable, .renamable, .deletable]
         case .libraryCollection:
             return [.draggable, .droppable, .renamable, .deletable]
+        case .inboxFeed:
+            return [.renamable, .deletable]
         case .inboxCollection:
             return [.renamable, .deletable]
         case .searchForm:
@@ -608,6 +624,8 @@ final class ImbibSidebarViewModel {
             return .draggable
         case .explorationCollection:
             return [.draggable, .deletable]
+        case .allArtifacts, .artifactType:
+            return .droppable
         default:
             return .readOnly
         }
@@ -640,6 +658,11 @@ final class ImbibSidebarViewModel {
         case (.explorationSearch, .section(.exploration)):
             return true
         case (.explorationCollection, .section(.exploration)):
+            return true
+        // Drag exploration search → Inbox to create a scheduled feed
+        case (.explorationSearch, .section(.inbox)):
+            return true
+        case (.explorationSearch, .inboxCollection):
             return true
         default:
             return false
@@ -747,6 +770,22 @@ final class ImbibSidebarViewModel {
     }
 
     private func handleReparent(_ node: ImbibSidebarNode, newParent: ImbibSidebarNode?) {
+        // Handle exploration search → inbox feed conversion
+        if case .explorationSearch(let searchID) = node.nodeType,
+           let newParent = newParent {
+            let isInboxTarget: Bool
+            switch newParent.nodeType {
+            case .section(.inbox), .inboxCollection:
+                isInboxTarget = true
+            default:
+                isInboxTarget = false
+            }
+            if isInboxTarget {
+                convertExplorationToFeed(searchID: searchID)
+                return
+            }
+        }
+
         guard case .libraryCollection(let collectionID, let sourceLibraryID) = node.nodeType else { return }
 
         if let newParent = newParent {
@@ -780,6 +819,27 @@ final class ImbibSidebarViewModel {
         }
     }
 
+    /// Convert an exploration smart search into an inbox feed.
+    private func convertExplorationToFeed(searchID: UUID) {
+        guard let search = store.getSmartSearch(id: searchID) else { return }
+
+        // Create new inbox feed with the exploration search's properties
+        let feed = store.createInboxFeed(
+            name: search.name,
+            query: search.query,
+            sourceIDs: search.sourceIDs,
+            refreshIntervalSeconds: Int64(RefreshIntervalPreset.daily.rawValue)
+        )
+
+        if feed != nil {
+            // Delete the original exploration search (move semantics)
+            store.deleteItem(id: searchID)
+            Self.logger.info("Converted exploration search '\(search.name)' to inbox feed")
+        }
+
+        bumpDataVersion()
+    }
+
     /// Check if `ancestorID` is an ancestor of `descendantID` in the collection tree.
     private func isAncestor(_ ancestorID: UUID, of descendantID: UUID, in collections: [CollectionModel]) -> Bool {
         var currentID: UUID? = descendantID
@@ -803,10 +863,49 @@ final class ImbibSidebarViewModel {
             }
         }
 
+        // Handle web URL drops (from browser address bar)
+        if pasteboard.types?.contains(.URL) == true,
+           let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           let url = urls.first, !url.isFileURL, let target = target {
+            if isArtifactNode(target) {
+                // Route web URLs on artifact nodes to artifact import
+                Task { @MainActor in
+                    _ = await ArtifactImportHandler.shared.importURL(url, tags: [])
+                }
+                return true
+            }
+            if let dropTarget = dropTarget(for: target) {
+                let provider = NSItemProvider(object: url as NSURL)
+                let info = DragDropInfo(providers: [provider])
+                Task {
+                    _ = await dragDropCoordinator.performDrop(info, target: dropTarget)
+                }
+                return true
+            }
+        }
+
         // Handle file URL drops
         if pasteboard.types?.contains(.fileURL) == true, let target = target {
             guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] else {
                 return false
+            }
+
+            // Route drops on artifact nodes to artifact import
+            if isArtifactNode(target) {
+                let artifactType = artifactTypeForNode(target)
+                Task { @MainActor in
+                    for url in urls {
+                        if url.isFileURL {
+                            _ = await ArtifactImportHandler.shared.importFile(
+                                at: url,
+                                type: artifactType
+                            )
+                        } else {
+                            _ = await ArtifactImportHandler.shared.importURL(url, tags: [])
+                        }
+                    }
+                }
+                return true
             }
 
             let bibExtensions = ["bib", "bibtex", "ris"]
@@ -820,7 +919,46 @@ final class ImbibSidebarViewModel {
                 return true
             }
 
-            // Route to general file drop handler
+            // Handle PDFs directly — bypass NSItemProvider wrapping which loses file URLs.
+            // Copy to temp dir synchronously (while drag session URLs are valid), then escape
+            // the NSOutlineView drag tracking run loop mode before starting async work.
+            let pdfURLs = urls.filter { $0.pathExtension.lowercased() == "pdf" }
+            if !pdfURLs.isEmpty {
+                if let dropTarget = dropTarget(for: target) {
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("imbib-pdf-drop-\(UUID().uuidString)", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                    var tempURLs: [URL] = []
+                    for url in pdfURLs {
+                        let dest = tempDir.appendingPathComponent(url.lastPathComponent)
+                        if let _ = try? FileManager.default.copyItem(at: url, to: dest) {
+                            tempURLs.append(dest)
+                        }
+                    }
+                    if !tempURLs.isEmpty {
+                        let coordinator = dragDropCoordinator
+                        let capturedTarget = dropTarget
+                        // Delay to escape the drag tracking run loop mode — URLSession
+                        // completions are not delivered while AppKit is in drag tracking mode,
+                        // causing @MainActor async calls to deadlock.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            Task {
+                                let previews = await PDFImportHandler.shared.preparePDFImport(urls: tempURLs, target: capturedTarget)
+                                if !previews.isEmpty {
+                                    coordinator.pendingDropTarget = capturedTarget
+                                    coordinator.pendingPreview = .pdfImport(previews)
+                                }
+                                // Don't clean up tempDir here — the preview's sourceURL
+                                // points to the temp file and is needed when the user confirms.
+                                // The OS cleans /tmp periodically.
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+
+            // Route to general file drop handler for other file types
             let targetDropTarget = dropTarget(for: target)
             if let dropTarget = targetDropTarget {
                 let info = DragDropInfo(providers: urls.map { NSItemProvider(contentsOf: $0)! })
@@ -840,7 +978,7 @@ final class ImbibSidebarViewModel {
             return .library(libraryID: id)
         case .libraryCollection(let colID, let libID):
             return .collection(collectionID: colID, libraryID: libID)
-        case .allInbox:
+        case .section(.inbox):
             return .inbox
         default:
             return nil
@@ -865,6 +1003,20 @@ final class ImbibSidebarViewModel {
             object: nil,
             userInfo: userInfo
         )
+    }
+
+    private func isArtifactNode(_ node: ImbibSidebarNode) -> Bool {
+        switch node.nodeType {
+        case .allArtifacts, .artifactType: return true
+        default: return false
+        }
+    }
+
+    private func artifactTypeForNode(_ node: ImbibSidebarNode) -> ArtifactType? {
+        switch node.nodeType {
+        case .artifactType(let rawValue): return ArtifactType(rawValue: rawValue)
+        default: return nil  // allArtifacts → nil means auto-detect
+        }
     }
 
     private func decodePublicationUUIDs(from data: Data) -> [UUID] {
@@ -908,9 +1060,21 @@ final class ImbibSidebarViewModel {
             return
         }
 
-        guard let node = findNode(id), let tab = node.imbibTab else {
-            return
+        guard let node = findNode(id) else { return }
+
+        // Section headers: map inbox section to .inbox tab directly
+        if case .section(let sectionType) = node.nodeType {
+            switch sectionType {
+            case .inbox:
+                selectedTab = .inbox
+                ExplorationService.shared.currentExplorationCollectionID = nil
+                return
+            default:
+                return // Other sections not selectable
+            }
         }
+
+        guard let tab = node.imbibTab else { return }
         selectedTab = tab
 
         // Set exploration context
@@ -936,6 +1100,10 @@ final class ImbibSidebarViewModel {
             store.updateField(id: colID, field: "name", value: trimmed)
             bumpDataVersion()
 
+        case .inboxFeed(let feedID):
+            store.updateField(id: feedID, field: "name", value: trimmed)
+            bumpDataVersion()
+
         default:
             break
         }
@@ -955,6 +1123,9 @@ final class ImbibSidebarViewModel {
 
         case .libraryCollection(let colID, let libID):
             buildCollectionContextMenu(menu, collectionID: colID, libraryID: libID)
+
+        case .inboxFeed(let feedID):
+            buildInboxFeedContextMenu(menu, feedID: feedID)
 
         case .inboxCollection(let colID):
             buildInboxCollectionContextMenu(menu, collectionID: colID)
@@ -981,6 +1152,16 @@ final class ImbibSidebarViewModel {
 
     private func buildSectionContextMenu(_ menu: NSMenu, section: SidebarSectionType) {
         switch section {
+        case .inbox:
+            let addFeedItem = NSMenuItem(title: "Add Feed...", action: #selector(ContextMenuActions.addInboxFeed(_:)), keyEquivalent: "")
+            addFeedItem.target = ContextMenuActions.shared
+            menu.addItem(addFeedItem)
+
+            let newColItem = NSMenuItem(title: "New Collection", action: #selector(ContextMenuActions.createTopLevelInboxCollection(_:)), keyEquivalent: "")
+            newColItem.target = ContextMenuActions.shared
+            menu.addItem(newColItem)
+            menu.addItem(.separator())
+
         case .libraries:
             let newLibItem = NSMenuItem(title: "New Library", action: #selector(ContextMenuActions.createLibrary(_:)), keyEquivalent: "")
             newLibItem.target = ContextMenuActions.shared
@@ -1082,6 +1263,30 @@ final class ImbibSidebarViewModel {
         menu.addItem(deleteItem)
     }
 
+    private func buildInboxFeedContextMenu(_ menu: NSMenu, feedID: UUID) {
+        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
+        renameItem.target = ContextMenuActions.shared
+        renameItem.representedObject = feedID
+        menu.addItem(renameItem)
+
+        let editItem = NSMenuItem(title: "Edit Feed...", action: #selector(ContextMenuActions.editFeed(_:)), keyEquivalent: "")
+        editItem.target = ContextMenuActions.shared
+        editItem.representedObject = feedID
+        menu.addItem(editItem)
+
+        let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(ContextMenuActions.refreshFeed(_:)), keyEquivalent: "")
+        refreshItem.target = ContextMenuActions.shared
+        refreshItem.representedObject = feedID
+        menu.addItem(refreshItem)
+
+        menu.addItem(.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteFeed(_:)), keyEquivalent: "")
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = feedID
+        menu.addItem(deleteItem)
+    }
+
     private func buildInboxCollectionContextMenu(_ menu: NSMenu, collectionID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
         renameItem.target = ContextMenuActions.shared
@@ -1131,7 +1336,7 @@ final class ImbibSidebarViewModel {
 
     private func sectionTypeForNode(_ node: ImbibSidebarNode) -> SidebarSectionType? {
         switch node.nodeType {
-        case .allInbox, .inboxFeed, .inboxCollection: return .inbox
+        case .inboxFeed, .inboxCollection: return .inbox
         case .sharedLibrary: return .sharedWithMe
         case .scixLibrary: return .scixLibraries
         case .anyFlag, .flagColor: return .flagged
@@ -1264,6 +1469,96 @@ final class ImbibSidebarViewModel {
         // Use the feed's library ID to count unread
         guard let libraryID = feed.libraryID else { return 0 }
         return store.countUnread(parentId: libraryID)
+    }
+
+    // MARK: - Feed Management
+
+    func addInboxFeed() {
+        selectedTab = .addFeed
+    }
+
+    func editFeed(_ feedID: UUID) {
+        selectedTab = .editFeed(feedID)
+    }
+
+    func refreshFeed(_ feedID: UUID) {
+        Task {
+            await SmartSearchRefreshService.shared.queueRefreshByID(feedID, priority: .high)
+        }
+    }
+
+    func deleteFeed(_ feedID: UUID) {
+        // Clear selection if this feed is selected
+        if case .inboxFeed(let id) = selectedTab, id == feedID {
+            selectedNodeID = ImbibSidebarNodeID.section(.inbox)
+        }
+        store.deleteItem(id: feedID)
+        bumpDataVersion()
+    }
+
+    // MARK: - Section Header Menus
+
+    private func buildSectionHeaderMenu(for node: ImbibSidebarNode) -> NSMenu? {
+        guard case .section(let sectionType) = node.nodeType else { return nil }
+
+        switch sectionType {
+        case .inbox:
+            return buildInboxSectionHeaderMenu()
+        case .exploration:
+            return buildExplorationSectionHeaderMenu()
+        default:
+            return nil
+        }
+    }
+
+    private func buildInboxSectionHeaderMenu() -> NSMenu {
+        let menu = NSMenu()
+
+        // Retention submenu
+        let retentionSubmenu = NSMenu()
+        let currentRetention = InboxRetentionStore.shared.retentionDays
+        for preset in InboxRetentionStore.RetentionPreset.allCases {
+            let item = NSMenuItem(title: preset.displayName, action: #selector(ContextMenuActions.setInboxRetention(_:)), keyEquivalent: "")
+            item.target = ContextMenuActions.shared
+            item.representedObject = preset.rawValue
+            item.state = preset.rawValue == currentRetention ? .on : .off
+            retentionSubmenu.addItem(item)
+        }
+        let retentionItem = NSMenuItem(title: "Keep Papers For...", action: nil, keyEquivalent: "")
+        retentionItem.submenu = retentionSubmenu
+        menu.addItem(retentionItem)
+
+        // Auto-remove read toggle
+        let autoRemoveItem = NSMenuItem(
+            title: "Auto-Remove Read Papers",
+            action: #selector(ContextMenuActions.toggleInboxAutoRemoveRead(_:)),
+            keyEquivalent: ""
+        )
+        autoRemoveItem.target = ContextMenuActions.shared
+        autoRemoveItem.state = InboxRetentionStore.shared.autoRemoveRead ? .on : .off
+        menu.addItem(autoRemoveItem)
+
+        return menu
+    }
+
+    private func buildExplorationSectionHeaderMenu() -> NSMenu {
+        let menu = NSMenu()
+
+        // Retention submenu
+        let retentionSubmenu = NSMenu()
+        let currentRetention = ExplorationRetentionStore.shared.retentionDays
+        for preset in ExplorationRetentionStore.RetentionPreset.allCases {
+            let item = NSMenuItem(title: preset.displayName, action: #selector(ContextMenuActions.setExplorationRetention(_:)), keyEquivalent: "")
+            item.target = ContextMenuActions.shared
+            item.representedObject = preset.rawValue
+            item.state = preset.rawValue == currentRetention ? .on : .off
+            retentionSubmenu.addItem(item)
+        }
+        let retentionItem = NSMenuItem(title: "Keep Explorations For...", action: nil, keyEquivalent: "")
+        retentionItem.submenu = retentionSubmenu
+        menu.addItem(retentionItem)
+
+        return menu
     }
 
     // MARK: - Creation Helpers
@@ -1513,6 +1808,47 @@ final class ContextMenuActions: NSObject {
     @objc func moveSectionDown(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String else { return }
         viewModel?.moveSectionDown(rawValue)
+    }
+
+    // MARK: - Inbox Feed Actions
+
+    @objc func editFeed(_ sender: NSMenuItem) {
+        guard let feedID = sender.representedObject as? UUID else { return }
+        viewModel?.editFeed(feedID)
+    }
+
+    @objc func refreshFeed(_ sender: NSMenuItem) {
+        guard let feedID = sender.representedObject as? UUID else { return }
+        viewModel?.refreshFeed(feedID)
+    }
+
+    @objc func deleteFeed(_ sender: NSMenuItem) {
+        guard let feedID = sender.representedObject as? UUID else { return }
+        viewModel?.deleteFeed(feedID)
+    }
+
+    @objc func addInboxFeed(_ sender: NSMenuItem) {
+        viewModel?.addInboxFeed()
+    }
+
+    @objc func createTopLevelInboxCollection(_ sender: NSMenuItem) {
+        viewModel?.createInboxCollection()
+    }
+
+    // MARK: - Retention Settings
+
+    @objc func setInboxRetention(_ sender: NSMenuItem) {
+        guard let days = sender.representedObject as? Int else { return }
+        InboxRetentionStore.shared.retentionDays = days
+    }
+
+    @objc func toggleInboxAutoRemoveRead(_ sender: NSMenuItem) {
+        InboxRetentionStore.shared.autoRemoveRead.toggle()
+    }
+
+    @objc func setExplorationRetention(_ sender: NSMenuItem) {
+        guard let days = sender.representedObject as? Int else { return }
+        ExplorationRetentionStore.shared.retentionDays = days
     }
 }
 

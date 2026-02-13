@@ -9,12 +9,14 @@ import SwiftUI
 
 // MARK: - Comment Section
 
-/// Threaded comment section for publications in shared libraries.
+/// Threaded comment section for any item (publications, artifacts, etc.).
 ///
 /// Shows a flat list with indentation for replies, a text input field,
 /// and author attribution per comment.
 public struct CommentSectionView: View {
-    let publicationID: UUID
+    let itemID: UUID
+    let itemTitle: String?
+    let libraryID: UUID?
 
     @State private var comments: [Comment] = []
     @State private var newCommentText = ""
@@ -23,9 +25,21 @@ public struct CommentSectionView: View {
     @State private var editText = ""
     @State private var showDeleteConfirmation = false
     @State private var commentToDelete: Comment?
+    @State private var participants: [ShareParticipant] = []
+    @State private var showShareManagement = false
 
+    /// Initialize with any item ID.
+    public init(itemID: UUID, itemTitle: String? = nil, libraryID: UUID? = nil) {
+        self.itemID = itemID
+        self.itemTitle = itemTitle
+        self.libraryID = libraryID
+    }
+
+    /// Backward-compatible initializer for publication-specific usage.
     public init(publicationID: UUID) {
-        self.publicationID = publicationID
+        self.itemID = publicationID
+        self.itemTitle = nil
+        self.libraryID = nil
     }
 
     private var topLevelComments: [Comment] {
@@ -54,8 +68,11 @@ public struct CommentSectionView: View {
                 }
             }
 
+            // Participants bar
+            participantsBar
+
             if comments.isEmpty {
-                Text("No comments yet. Start a discussion about this paper.")
+                Text("No comments yet. Start a discussion.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -75,7 +92,22 @@ public struct CommentSectionView: View {
             commentInput
         }
         .onAppear {
-            comments = RustStoreAdapter.shared.comments(for: publicationID)
+            comments = RustStoreAdapter.shared.commentsForItem(itemID)
+        }
+        .task {
+            if let libraryID {
+                do {
+                    participants = try await LibrarySharingService.shared.participants(for: libraryID)
+                } catch {
+                    // Not shared or CloudKit unavailable — that's fine
+                    participants = []
+                }
+            }
+        }
+        .sheet(isPresented: $showShareManagement) {
+            if let libraryID {
+                ShareManagementView(libraryID: libraryID)
+            }
         }
         .confirmationDialog(
             "Delete Comment?",
@@ -85,7 +117,7 @@ public struct CommentSectionView: View {
             Button("Delete", role: .destructive) {
                 if let comment = commentToDelete {
                     RustStoreAdapter.shared.deleteComment(comment.id)
-                    comments = RustStoreAdapter.shared.comments(for: publicationID)
+                    comments = RustStoreAdapter.shared.commentsForItem(itemID)
                     commentToDelete = nil
                 }
             }
@@ -219,13 +251,13 @@ public struct CommentSectionView: View {
         let text = newCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        RustStoreAdapter.shared.addComment(
+        RustStoreAdapter.shared.addCommentToItem(
             text: text,
-            to: publicationID,
+            itemID: itemID,
             parentCommentID: replyingTo?.id
         )
 
-        comments = RustStoreAdapter.shared.comments(for: publicationID)
+        comments = RustStoreAdapter.shared.commentsForItem(itemID)
         newCommentText = ""
         replyingTo = nil
     }
@@ -234,17 +266,59 @@ public struct CommentSectionView: View {
         let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         RustStoreAdapter.shared.editComment(comment.id, newText: text)
-        comments = RustStoreAdapter.shared.comments(for: publicationID)
+        comments = RustStoreAdapter.shared.commentsForItem(itemID)
         editingComment = nil
     }
 
     private func isOwnComment(_ comment: Comment) -> Bool {
-        #if os(macOS)
-        let currentName = Host.current().localizedName ?? ""
-        #else
-        let currentName = UIDevice.current.name
-        #endif
-        return comment.authorDisplayName == currentName
+        CommentService.shared.isOwnComment(comment)
+    }
+
+    // MARK: - Participants Bar
+
+    @ViewBuilder
+    private var participantsBar: some View {
+        if !participants.isEmpty {
+            HStack(spacing: 6) {
+                // Participant initials
+                ForEach(participants.prefix(5)) { participant in
+                    Text(participant.initials)
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(participant.isCurrentUser ? .blue : .gray)
+                        .clipShape(Circle())
+                        .help(participant.displayLabel)
+                }
+
+                if participants.count > 5 {
+                    Text("+\(participants.count - 5)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Shared")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Manage") {
+                    showShareManagement = true
+                }
+                .font(.caption)
+                .controlSize(.small)
+            }
+            .padding(.vertical, 4)
+        } else if libraryID != nil {
+            HStack(spacing: 4) {
+                Image(systemName: "lock")
+                    .font(.caption2)
+                Text("Private — only visible on your devices")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+        }
     }
 }
 

@@ -109,7 +109,8 @@ public struct TagInput: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-        .onAppear {
+        .task {
+            try? await Task.sleep(for: .milliseconds(100))
             isFocused = true
         }
     }

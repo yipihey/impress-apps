@@ -302,18 +302,40 @@ public struct GlobalSearchPaletteView: View {
     }
 
     private var emptyPromptView: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: viewModel.effectiveContext.iconName)
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text(emptyPromptText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("Use keywords or describe what you're looking for")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+
+            // Search tips
+            VStack(alignment: .leading, spacing: 4) {
+                searchTip("gevolution", "partial words match automatically")
+                searchTip("dark matter", "AND by default (both words must match)")
+                searchTip("dark OR matter", "match either term")
+                searchTip("\"dark matter\"", "exact phrase")
+                searchTip("title:gevolution", "search specific field (title, authors, abstract)")
+                searchTip("cosmo*", "wildcard prefix")
+                searchTip("-excluded", "exclude a term")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func searchTip(_ query: String, _ description: String) -> some View {
+        HStack(spacing: 6) {
+            Text(query)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.7))
+                .frame(width: 160, alignment: .trailing)
+            Text(description)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
     }
 
     private var emptyPromptText: String {

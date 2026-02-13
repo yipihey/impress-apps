@@ -79,6 +79,14 @@ public struct MailStyleRow<Item: MailStyleItem, TrailingHeader: View>: View {
                         .foregroundStyle(MailStyleTokens.primaryTextColor(from: colors))
                         .lineLimit(MailStyleTokens.authorLineLimit)
 
+                    if configuration.showYear, let yearText = item.yearText {
+                        Text("· \(yearText)")
+                            .font(MailStyleTokens.authorFont(scale: fontScale))
+                            .foregroundStyle(MailStyleTokens.secondaryTextColor(from: colors))
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
+
                     Spacer()
 
                     if configuration.showDate {

@@ -28,9 +28,21 @@ public struct VagueMemorySearchFormView: View {
 
     @State private var showingQueryPreview = false
 
+    // MARK: - Mode & Feed Properties
+
+    public let mode: SearchFormMode
+    public let editingFeedID: UUID?
+
+    @State private var feedName: String = ""
+    @State private var refreshPreset: RefreshIntervalPreset = .daily
+    @State private var isCreating: Bool = false
+
     // MARK: - Initialization
 
-    public init() {}
+    public init(mode: SearchFormMode = .explorationSearch, editingFeedID: UUID? = nil) {
+        self.mode = mode
+        self.editingFeedID = editingFeedID
+    }
 
     // MARK: - Body
 
@@ -43,6 +55,12 @@ public struct VagueMemorySearchFormView: View {
                 headerWithEasterEgg
 
                 Divider()
+
+                // Feed settings (shown when creating a feed)
+                if mode == .inboxFeed {
+                    feedSettingsSection
+                    Divider()
+                }
 
                 // Decade picker
                 decadePickerSection
@@ -72,6 +90,11 @@ public struct VagueMemorySearchFormView: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .task {
             searchViewModel.setLibraryManager(libraryManager)
+        }
+        .onAppear {
+            if let feedID = editingFeedID {
+                loadFeedForEditing(feedID)
+            }
         }
     }
 
@@ -429,24 +452,37 @@ public struct VagueMemorySearchFormView: View {
 
             Spacer()
 
-            if let url = buildADSWebURL() {
-                Button {
-                    openInBrowser(url)
-                } label: {
-                    Label("Browser", systemImage: "safari")
+            if editingFeedID != nil {
+                Button("Save Feed") { saveFeed() }
+                    .buttonStyle(.borderedProminent).disabled(searchViewModel.vagueMemoryFormState.isEmpty)
+                    .keyboardShortcut(.return, modifiers: .command)
+            } else if mode == .inboxFeed {
+                Button { createFeed() } label: {
+                    if isCreating { ProgressView().controlSize(.small) }
+                    else { Text("Create Feed") }
                 }
-                .buttonStyle(.bordered)
-                .help("Open this search on ADS website")
-            }
+                .buttonStyle(.borderedProminent).disabled(searchViewModel.vagueMemoryFormState.isEmpty || isCreating)
+                .keyboardShortcut(.return, modifiers: .command)
+            } else {
+                if let url = buildADSWebURL() {
+                    Button {
+                        openInBrowser(url)
+                    } label: {
+                        Label("Browser", systemImage: "safari")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Open this search on ADS website")
+                }
 
-            Button {
-                performSearch()
-            } label: {
-                Label("Search ADS", systemImage: "magnifyingglass")
+                Button {
+                    performSearch()
+                } label: {
+                    Label("Search ADS", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(searchViewModel.vagueMemoryFormState.isEmpty)
+                .keyboardShortcut(.return, modifiers: .command)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(searchViewModel.vagueMemoryFormState.isEmpty)
-            .keyboardShortcut(.return, modifiers: .command)
         }
     }
 
@@ -482,6 +518,66 @@ public struct VagueMemorySearchFormView: View {
     /// Open a URL in the default browser.
     private func openInBrowser(_ url: URL) {
         NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - Feed Settings
+
+    @ViewBuilder
+    private var feedSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Feed Settings").font(.headline)
+            TextField("Feed Name", text: $feedName).textFieldStyle(.roundedBorder)
+            Picker("Refresh Interval", selection: $refreshPreset) {
+                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+            .frame(width: 200)
+        }
+    }
+
+    // MARK: - Feed Actions
+
+    private func createFeed() {
+        guard !searchViewModel.vagueMemoryFormState.isEmpty else { return }
+        isCreating = true
+        let query = VagueMemoryQueryBuilder.buildQuery(from: searchViewModel.vagueMemoryFormState)
+        let name = feedName.isEmpty ? "Memory: \(query.prefix(40))" : feedName
+
+        Task {
+            let feed = RustStoreAdapter.shared.createInboxFeed(
+                name: name, query: query, sourceIDs: ["ads"],
+                refreshIntervalSeconds: Int64(refreshPreset.rawValue)
+            )
+            if let feed {
+                if let fetchService = await InboxCoordinator.shared.paperFetchService {
+                    _ = try? await fetchService.fetchForInbox(smartSearchID: feed.id)
+                }
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                    NotificationCenter.default.post(name: .navigateToSmartSearch, object: feed.id)
+                }
+            }
+            await MainActor.run { isCreating = false }
+        }
+    }
+
+    private func saveFeed() {
+        guard let feedID = editingFeedID, !searchViewModel.vagueMemoryFormState.isEmpty else { return }
+        let query = VagueMemoryQueryBuilder.buildQuery(from: searchViewModel.vagueMemoryFormState)
+        let name = feedName.isEmpty ? "Memory: \(query.prefix(40))" : feedName
+        RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: Int16(searchViewModel.vagueMemoryFormState.maxResults))
+        RustStoreAdapter.shared.updateIntField(id: feedID, field: "refresh_interval_seconds", value: Int64(refreshPreset.rawValue))
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+    }
+
+    private func loadFeedForEditing(_ feedID: UUID) {
+        guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return }
+        feedName = feed.name
+        searchViewModel.vagueMemoryFormState.vagueMemory = feed.query
+        if let preset = RefreshIntervalPreset(rawValue: Int32(feed.refreshIntervalSeconds)) {
+            refreshPreset = preset
+        }
     }
 }
 

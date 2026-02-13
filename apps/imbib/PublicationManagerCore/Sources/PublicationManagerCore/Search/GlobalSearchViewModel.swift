@@ -168,16 +168,18 @@ public final class GlobalSearchViewModel {
     private func performFulltextSearch() async -> [FullTextSearchResult] {
         let isAvailable = await FullTextSearchService.shared.isAvailable
         guard isAvailable else {
-            logger.debug("Fulltext search unavailable (service not initialized or index not ready)")
+            logInfo("FTS unavailable for query '\(query)'", category: "search")
             return []
         }
         let results = await FullTextSearchService.shared.search(query: query, limit: 100) ?? []
-        logger.debug("Fulltext search returned \(results.count) results")
+        logInfo("FTS '\(query)' → \(results.count) hits", category: "search")
         return results
     }
 
     /// Perform semantic search using embeddings.
     private func performSemanticSearch() async -> [SimilarityResult] {
+        // Lazy-build the embedding index on first Cmd+K use (deferred from startup)
+        await EmbeddingService.shared.ensureIndexReady()
         let hasIndex = await EmbeddingService.shared.hasIndex
         guard hasIndex else {
             logger.debug("Semantic search unavailable (embedding index not built)")
@@ -198,6 +200,8 @@ public final class GlobalSearchViewModel {
         fts: [FullTextSearchResult],
         semantic: [SimilarityResult]
     ) -> [GlobalSearchResult] {
+        let store = RustStoreAdapter.shared
+
         // Build lookup maps
         var ftsMap: [UUID: FullTextSearchResult] = [:]
         for result in fts {
@@ -215,6 +219,16 @@ public final class GlobalSearchViewModel {
         var allIDs = Set(ftsMap.keys)
         allIDs.formUnion(semanticMap.keys)
 
+        // Pre-build library membership map ONCE for all results (avoids O(N*M*P) per-result lookup)
+        let allLibraries = store.listLibraries()
+        var pubToLibraryNames: [UUID: [String]] = [:]
+        for library in allLibraries {
+            let members = store.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false)
+            for member in members {
+                pubToLibraryNames[member.id, default: []].append(library.name)
+            }
+        }
+
         // Build merged results
         var merged: [GlobalSearchResult] = []
 
@@ -222,8 +236,8 @@ public final class GlobalSearchViewModel {
             let ftsResult = ftsMap[id]
             let semanticResult = semanticMap[id]
 
-            // Always fetch complete metadata from the store to ensure we have title, authors, etc.
-            let metadata = fetchFullPublicationMetadata(id: id)
+            // Fetch metadata — library names come from pre-built map
+            let metadata = fetchFullPublicationMetadata(id: id, libraryNames: pubToLibraryNames[id]?.sorted() ?? [])
 
             // Skip results where publication no longer exists or has no meaningful metadata
             // This can happen if the search index is stale or publication was deleted
@@ -242,13 +256,29 @@ public final class GlobalSearchViewModel {
                 matchType = .semantic
             }
 
-            // Calculate combined score
-            // Weight fulltext higher since it's more precise
+            // Calculate combined score with field-priority boosting.
+            // FTS (direct text) results should always rank above semantic-only results.
+            // Within FTS, prioritize by field: Author > Title > Abstract > full text.
             var score: Float = 0
             if let fts = ftsResult {
-                score += fts.score * 1.5  // FTS boost
+                // Base FTS score ensures FTS results always outrank semantic-only
+                score += 100.0 + fts.score
+
+                // Field-priority boost: check which fields contain the query
+                let q = query.lowercased()
+                if metadata.authors.lowercased().contains(q) {
+                    score += 40  // Author match — highest priority
+                }
+                if metadata.title.lowercased().contains(q) {
+                    score += 30  // Title match
+                }
+                if let citeKey = metadata.citeKey.lowercased() as String?,
+                   citeKey.contains(q) {
+                    score += 25  // Cite key match
+                }
             }
             if let sem = semanticResult {
+                // Semantic results get similarity (0–1 range), always below FTS base of 100
                 score += sem.similarity
             }
 
@@ -499,7 +529,7 @@ public final class GlobalSearchViewModel {
     }
 
     /// Fetch full publication metadata including sorting fields from the Rust store.
-    private func fetchFullPublicationMetadata(id: UUID) -> PublicationMetadata {
+    private func fetchFullPublicationMetadata(id: UUID, libraryNames: [String] = []) -> PublicationMetadata {
         let store = RustStoreAdapter.shared
 
         guard let pub = store.getPublication(id: id) else {
@@ -510,27 +540,12 @@ public final class GlobalSearchViewModel {
             )
         }
 
-        let title = pub.title
-        let citeKey = pub.citeKey
-        let authors = pub.authorString
-        let year: String? = pub.year.map { String($0) }
-
-        // Get library names from the store
-        let allLibraries = store.listLibraries()
-        var libraryNames: [String] = []
-        for library in allLibraries {
-            let members = store.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false)
-            if members.contains(where: { $0.id == id }) {
-                libraryNames.append(library.name)
-            }
-        }
-
         return PublicationMetadata(
-            title: title,
-            citeKey: citeKey,
-            authors: authors,
-            year: year,
-            libraryNames: libraryNames.sorted(),
+            title: pub.title,
+            citeKey: pub.citeKey,
+            authors: pub.authorString,
+            year: pub.year.map { String($0) },
+            libraryNames: libraryNames,
             dateAdded: pub.dateAdded,
             dateModified: pub.dateModified,
             citationCount: pub.citationCount,

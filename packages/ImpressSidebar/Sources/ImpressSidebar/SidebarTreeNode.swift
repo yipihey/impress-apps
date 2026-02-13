@@ -32,6 +32,9 @@ public protocol SidebarTreeNode: Identifiable where ID == UUID {
     /// Optional count to display in a badge (nil = no badge)
     var displayCount: Int? { get }
 
+    /// Optional starred count to display as a star badge (nil = no badge)
+    var starCount: Int? { get }
+
     /// Depth in the tree hierarchy (0 = root level)
     var treeDepth: Int { get }
 
@@ -56,6 +59,9 @@ public protocol SidebarTreeNode: Identifiable where ID == UUID {
 public extension SidebarTreeNode {
     /// Default: no count badge
     var displayCount: Int? { nil }
+
+    /// Default: no star count badge
+    var starCount: Int? { nil }
 
     /// Default: no parent
     var parentID: UUID? { nil }

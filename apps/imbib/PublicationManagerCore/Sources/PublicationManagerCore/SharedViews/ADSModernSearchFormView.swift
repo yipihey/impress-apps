@@ -24,9 +24,21 @@ public struct ADSModernSearchFormView: View {
     @State private var queryAssistanceViewModel = QueryAssistanceViewModel()
     @FocusState private var isSearchFocused: Bool
 
+    // MARK: - Mode & Feed Properties
+
+    public let mode: SearchFormMode
+    public let editingFeedID: UUID?
+
+    @State private var feedName: String = ""
+    @State private var refreshPreset: RefreshIntervalPreset = .daily
+    @State private var isCreating: Bool = false
+
     // MARK: - Initialization
 
-    public init() {}
+    public init(mode: SearchFormMode = .explorationSearch, editingFeedID: UUID? = nil) {
+        self.mode = mode
+        self.editingFeedID = editingFeedID
+    }
 
     // MARK: - Body
 
@@ -45,6 +57,11 @@ public struct ADSModernSearchFormView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 8)
+
+                // Feed settings (shown when creating a feed)
+                if mode == .inboxFeed {
+                    feedSettingsSection
+                }
 
                 // Search field
                 VStack(alignment: .leading, spacing: 8) {
@@ -169,23 +186,32 @@ public struct ADSModernSearchFormView: View {
 
                     Spacer()
 
-                    if searchViewModel.isEditMode {
-                        // Edit mode: Save button
-                        Button("Save") {
-                            searchViewModel.saveToSmartSearch()
+                    if editingFeedID != nil {
+                        Button("Save Feed") { saveFeed() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isFormEmpty)
+                            .keyboardShortcut(.return, modifiers: .command)
+                    } else if searchViewModel.isEditMode {
+                        Button("Save") { searchViewModel.saveToSmartSearch() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isFormEmpty)
+                            .keyboardShortcut(.return, modifiers: .command)
+                    } else if mode == .inboxFeed {
+                        Button {
+                            createFeed()
+                        } label: {
+                            if isCreating { ProgressView().controlSize(.small) }
+                            else { Text("Create Feed") }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isFormEmpty)
+                        .disabled(isFormEmpty || isCreating)
                         .keyboardShortcut(.return, modifiers: .command)
                     } else {
-                        // Normal mode: Search button only
-                        Button("Search") {
-                            performSearch()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isFormEmpty)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .accessibilityIdentifier(AccessibilityID.Search.searchButton)
+                        Button("Search") { performSearch() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isFormEmpty)
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .accessibilityIdentifier(AccessibilityID.Search.searchButton)
                     }
                 }
             }
@@ -201,6 +227,9 @@ public struct ADSModernSearchFormView: View {
         }
         .onAppear {
             isSearchFocused = true
+            if let feedID = editingFeedID {
+                loadFeedForEditing(feedID)
+            }
         }
     }
 
@@ -214,6 +243,24 @@ public struct ADSModernSearchFormView: View {
                 .frame(width: 160, alignment: .leading)
             Text("—")
             Text(description)
+        }
+    }
+
+    @ViewBuilder
+    private var feedSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Feed Settings")
+                .font(.headline)
+
+            TextField("Feed Name", text: $feedName)
+                .textFieldStyle(.roundedBorder)
+
+            Picker("Refresh Interval", selection: $refreshPreset) {
+                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+            .frame(width: 200)
         }
     }
 
@@ -238,6 +285,81 @@ public struct ADSModernSearchFormView: View {
     private func clearForm() {
         searchViewModel.modernFormState.clear()
         searchViewModel.clearSourceSelection()
+    }
+
+    private func createFeed() {
+        guard !isFormEmpty else { return }
+        isCreating = true
+
+        let query = searchViewModel.modernFormState.searchText
+        let sourceIDs = Array(searchViewModel.selectedSourceIDs)
+        let name = feedName.isEmpty ? "ADS: \(query.prefix(40))" : feedName
+        let maxResults: Int16? = searchViewModel.modernFormState.maxResults > 0 ? Int16(searchViewModel.modernFormState.maxResults) : nil
+
+        Task {
+            let feed = RustStoreAdapter.shared.createInboxFeed(
+                name: name,
+                query: query,
+                sourceIDs: sourceIDs.isEmpty ? ["ads"] : sourceIDs,
+                maxResults: maxResults,
+                refreshIntervalSeconds: Int64(refreshPreset.rawValue)
+            )
+            if let feed {
+                // Run initial fetch
+                if let fetchService = await InboxCoordinator.shared.paperFetchService {
+                    _ = try? await fetchService.fetchForInbox(smartSearchID: feed.id)
+                }
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                    NotificationCenter.default.post(name: .navigateToSmartSearch, object: feed.id)
+                    clearForm()
+                }
+            }
+            await MainActor.run { isCreating = false }
+        }
+    }
+
+    private func saveFeed() {
+        guard let feedID = editingFeedID, !isFormEmpty else { return }
+        let query = searchViewModel.modernFormState.searchText
+        let sourceIDs = Array(searchViewModel.selectedSourceIDs)
+        let name = feedName.isEmpty ? "ADS: \(query.prefix(40))" : feedName
+        let maxResults: Int16 = searchViewModel.modernFormState.maxResults > 0 ? Int16(searchViewModel.modernFormState.maxResults) : 0
+
+        RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: maxResults)
+
+        // Update source IDs
+        let sourceIdsJson: String? = sourceIDs.isEmpty ? nil : {
+            if let data = try? JSONEncoder().encode(sourceIDs) {
+                return String(data: data, encoding: .utf8)
+            }
+            return nil
+        }()
+        if let json = sourceIdsJson {
+            RustStoreAdapter.shared.updateField(id: feedID, field: "source_ids_json", value: json)
+        }
+
+        // Update refresh interval
+        RustStoreAdapter.shared.updateIntField(id: feedID, field: "refresh_interval_seconds", value: Int64(refreshPreset.rawValue))
+
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+    }
+
+    private func loadFeedForEditing(_ feedID: UUID) {
+        guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return }
+        feedName = feed.name
+        searchViewModel.modernFormState.searchText = feed.query
+        searchViewModel.modernFormState.maxResults = Int(feed.maxResults)
+
+        // Load source IDs
+        for sourceID in feed.sourceIDs {
+            searchViewModel.selectedSourceIDs.insert(sourceID)
+        }
+
+        // Load refresh interval
+        if let preset = RefreshIntervalPreset(rawValue: Int32(feed.refreshIntervalSeconds)) {
+            refreshPreset = preset
+        }
     }
 }
 

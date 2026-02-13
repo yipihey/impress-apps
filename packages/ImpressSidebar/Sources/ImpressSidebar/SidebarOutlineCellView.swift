@@ -23,6 +23,8 @@ public final class SidebarOutlineCellView: NSTableCellView {
     private let nameField = NSTextField(labelWithString: "")
     private let badgeLabel = NSTextField(labelWithString: "")
     private let badgeContainer = NSView()
+    private let starBadgeLabel = NSTextField(labelWithString: "")
+    private let starBadgeContainer = NSView()
 
     /// Tree line labels for indentation levels.
     private var treeLineLabels: [NSTextField] = []
@@ -97,6 +99,27 @@ public final class SidebarOutlineCellView: NSTableCellView {
             badgeLabel.bottomAnchor.constraint(equalTo: badgeContainer.bottomAnchor, constant: -1),
         ])
 
+        // Star badge: pill shape (amber tinted)
+        starBadgeLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        starBadgeLabel.alignment = .center
+        starBadgeLabel.isBordered = false
+        starBadgeLabel.isEditable = false
+        starBadgeLabel.drawsBackground = false
+        starBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        starBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        starBadgeContainer.wantsLayer = true
+        starBadgeContainer.layer?.cornerRadius = 7
+        starBadgeContainer.translatesAutoresizingMaskIntoConstraints = false
+        starBadgeContainer.addSubview(starBadgeLabel)
+
+        NSLayoutConstraint.activate([
+            starBadgeLabel.leadingAnchor.constraint(equalTo: starBadgeContainer.leadingAnchor, constant: 5),
+            starBadgeLabel.trailingAnchor.constraint(equalTo: starBadgeContainer.trailingAnchor, constant: -5),
+            starBadgeLabel.topAnchor.constraint(equalTo: starBadgeContainer.topAnchor, constant: 1),
+            starBadgeLabel.bottomAnchor.constraint(equalTo: starBadgeContainer.bottomAnchor, constant: -1),
+        ])
+
         self.textField = nameField
         self.imageView = iconView
     }
@@ -119,6 +142,7 @@ public final class SidebarOutlineCellView: NSTableCellView {
         iconName: String,
         iconColor: NSColor?,
         displayCount: Int?,
+        starCount: Int?,
         treeDepth: Int,
         isLastChild: Bool,
         ancestorHasSiblingsBelow: [Bool],
@@ -179,6 +203,23 @@ public final class SidebarOutlineCellView: NSTableCellView {
         } else {
             badgeContainer.isHidden = true
         }
+
+        // Star badge
+        if let stars = starCount, stars > 0 {
+            let starSpacer = NSView()
+            starSpacer.translatesAutoresizingMaskIntoConstraints = false
+            starSpacer.widthAnchor.constraint(equalToConstant: 4).isActive = true
+            stackView.addArrangedSubview(starSpacer)
+
+            starBadgeLabel.stringValue = "\u{2605}\(stars)"
+            starBadgeLabel.textColor = .systemOrange
+            starBadgeContainer.layer?.backgroundColor = NSColor.systemOrange
+                .withAlphaComponent(0.25).cgColor
+            starBadgeContainer.isHidden = false
+            stackView.addArrangedSubview(starBadgeContainer)
+        } else {
+            starBadgeContainer.isHidden = true
+        }
     }
 
     // MARK: - Group Item Configuration
@@ -187,7 +228,8 @@ public final class SidebarOutlineCellView: NSTableCellView {
     ///
     /// Displays bold uppercase text with secondary color, no icon or badge.
     /// Matches NSOutlineView source list group row styling.
-    public func configureAsGroup(displayName: String) {
+    /// Optionally shows a trailing menu button when `menu` is non-nil.
+    public func configureAsGroup(displayName: String, menu: NSMenu? = nil) {
         for view in stackView.arrangedSubviews {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -198,6 +240,11 @@ public final class SidebarOutlineCellView: NSTableCellView {
             label.removeFromSuperview()
         }
         treeLineLabels.removeAll()
+
+        // Remove old section menu button
+        sectionMenuButton?.removeFromSuperview()
+        sectionMenuButton = nil
+        sectionMenu = nil
 
         // Leading spacer — enough room after the left-side disclosure chevron
         let leadingSpacer = NSView()
@@ -211,7 +258,52 @@ public final class SidebarOutlineCellView: NSTableCellView {
         nameField.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(nameField)
 
+        // Trailing menu button
+        if let menu = menu {
+            sectionMenu = menu
+
+            let trailingSpacer = NSView()
+            trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+            trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            stackView.addArrangedSubview(trailingSpacer)
+
+            let button = NSButton(frame: .zero)
+            button.bezelStyle = .accessoryBarAction
+            button.isBordered = false
+            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "Section settings")?
+                .withSymbolConfiguration(config)
+            button.contentTintColor = .secondaryLabelColor
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 20),
+                button.heightAnchor.constraint(equalToConstant: 16),
+            ])
+            button.target = self
+            button.action = #selector(sectionMenuButtonClicked(_:))
+            sectionMenuButton = button
+            stackView.addArrangedSubview(button)
+
+            // Trailing padding
+            let trailingPad = NSView()
+            trailingPad.translatesAutoresizingMaskIntoConstraints = false
+            trailingPad.widthAnchor.constraint(equalToConstant: 4).isActive = true
+            stackView.addArrangedSubview(trailingPad)
+        }
+
         badgeContainer.isHidden = true
+        starBadgeContainer.isHidden = true
+    }
+
+    // MARK: - Section Menu
+
+    private var sectionMenuButton: NSButton?
+    private var sectionMenu: NSMenu?
+
+    @objc private func sectionMenuButtonClicked(_ sender: NSButton) {
+        guard let menu = sectionMenu else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 2), in: sender)
     }
 
     // MARK: - Tree Lines
@@ -285,6 +377,10 @@ public final class SidebarOutlineCellView: NSTableCellView {
         nameField.isEditable = false
         nameField.isSelectable = false
         badgeContainer.isHidden = true
+        starBadgeContainer.isHidden = true
+        sectionMenuButton?.removeFromSuperview()
+        sectionMenuButton = nil
+        sectionMenu = nil
         for label in treeLineLabels {
             stackView.removeArrangedSubview(label)
             label.removeFromSuperview()

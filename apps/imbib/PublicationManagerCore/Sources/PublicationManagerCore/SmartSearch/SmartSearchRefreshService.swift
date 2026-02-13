@@ -49,7 +49,7 @@ public actor SmartSearchRefreshService {
 
     private let maxConcurrentRefreshes = 1
     private let delayBetweenRefreshes: TimeInterval = 3.0
-    private let startupGracePeriod: TimeInterval = 5.0
+    private let startupGracePeriod: TimeInterval = 60.0
     private let maxQueueSize = 20
 
     // MARK: - Dependencies

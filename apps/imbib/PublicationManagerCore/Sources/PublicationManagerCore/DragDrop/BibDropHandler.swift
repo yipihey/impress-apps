@@ -89,7 +89,9 @@ public final class BibDropHandler {
     /// - Parameters:
     ///   - preview: The import preview to commit
     ///   - libraryID: Target library UUID
-    public func commitImport(_ preview: BibImportPreview, to libraryID: UUID) async throws {
+    /// - Returns: IDs of successfully imported publications
+    @discardableResult
+    public func commitImport(_ preview: BibImportPreview, to libraryID: UUID) async throws -> [UUID] {
         Logger.files.infoCapture("Committing bib import: \(preview.entries.filter { $0.isSelected }.count) entries", category: "files")
 
         guard store.getLibrary(id: libraryID) != nil else {
@@ -97,7 +99,7 @@ public final class BibDropHandler {
         }
 
         // Import selected entries
-        var imported = 0
+        var importedIDs: [UUID] = []
         for entry in preview.entries where entry.isSelected {
             if entry.isDuplicate {
                 // Skip duplicates unless explicitly enabled
@@ -105,8 +107,8 @@ public final class BibDropHandler {
             }
 
             do {
-                try importEntry(entry, preview: preview, to: libraryID)
-                imported += 1
+                let ids = try importEntry(entry, preview: preview, to: libraryID)
+                importedIDs.append(contentsOf: ids)
             } catch {
                 Logger.files.errorCapture("Failed to import \(entry.citeKey): \(error.localizedDescription)", category: "files")
             }
@@ -114,7 +116,8 @@ public final class BibDropHandler {
 
         currentPreview = nil
 
-        Logger.files.infoCapture("Imported \(imported) entries from \(preview.sourceURL.lastPathComponent)", category: "files")
+        Logger.files.infoCapture("Imported \(importedIDs.count) entries from \(preview.sourceURL.lastPathComponent)", category: "files")
+        return importedIDs
     }
 
     // MARK: - Private Methods
@@ -198,7 +201,8 @@ public final class BibDropHandler {
     }
 
     /// Import a single entry via BibTeX import into the Rust store.
-    private func importEntry(_ entry: BibImportEntry, preview: BibImportPreview, to libraryID: UUID) throws {
+    @discardableResult
+    private func importEntry(_ entry: BibImportEntry, preview: BibImportPreview, to libraryID: UUID) throws -> [UUID] {
         // Build BibTeX string for the entry
         let bibtex: String
         if let rawContent = entry.rawContent, preview.format == .bibtex {
@@ -222,6 +226,7 @@ public final class BibDropHandler {
         if importedIDs.isEmpty {
             throw DragDropError.importFailed
         }
+        return importedIDs
     }
 
     /// Parse authors from BibTeX author field.

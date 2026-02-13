@@ -61,7 +61,10 @@ public struct FlagInput: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-        .onAppear {
+        .task {
+            // Delay focus request slightly so the view is in the responder chain
+            // (immediate focus in .onAppear can fail during transition animations)
+            try? await Task.sleep(for: .milliseconds(100))
             isFocused = true
         }
     }

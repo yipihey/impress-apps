@@ -87,6 +87,38 @@ public actor EmbeddingService {
         isIndexBuilt
     }
 
+    /// Whether a lazy index build has been requested but not yet completed.
+    private var needsLazyBuild = false
+
+    /// Mark that the index should be built lazily (on first Cmd+K press).
+    /// Called at startup instead of eagerly building the index.
+    public func setNeedsIndexBuild() {
+        needsLazyBuild = true
+    }
+
+    /// Ensure the index is ready, building it if needed (lazy build on first use).
+    /// Returns true if the index is available.
+    @discardableResult
+    public func ensureIndexReady() async -> Bool {
+        if isIndexBuilt { return true }
+        guard needsLazyBuild, isAvailable, !isBuilding else { return false }
+        needsLazyBuild = false
+
+        Logger.embeddingService.infoCapture("Lazy-building embedding index on first use...", category: "embedding")
+
+        let libraries = await MainActor.run {
+            RustStoreAdapter.shared.listLibraries().filter { lib in
+                let name = lib.name.lowercased()
+                return name != "dismissed" && name != "exploration"
+            }
+        }
+
+        guard !libraries.isEmpty else { return false }
+        let count = await buildIndex(from: libraries.map(\.id))
+        Logger.embeddingService.infoCapture("Lazy-built embedding index with \(count) publications", category: "embedding")
+        return count > 0
+    }
+
     /// Get the number of indexed publications.
     public func indexedCount() async -> Int {
         await annIndex?.count() ?? 0

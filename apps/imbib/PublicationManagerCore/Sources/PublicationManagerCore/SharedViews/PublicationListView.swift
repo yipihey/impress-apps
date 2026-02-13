@@ -12,7 +12,7 @@ import ImpressFTUI
 // MARK: - Filter Scope
 
 /// Scope for filtering publications in the search field
-public enum FilterScope: String, CaseIterable, Identifiable {
+nonisolated public enum FilterScope: String, CaseIterable, Identifiable {
     case current = "Current"
     case allLibraries = "All Libraries"
     case inbox = "Inbox"
@@ -24,15 +24,12 @@ public enum FilterScope: String, CaseIterable, Identifiable {
 // MARK: - Filter Cache
 
 /// Cache key for memoizing filtered row data
-private struct FilterCacheKey: Equatable {
+nonisolated private struct FilterCacheKey: Equatable {
     let rowDataVersion: Int
     let showUnreadOnly: Bool
     let disableUnreadFilter: Bool
-    let searchQuery: String
     let sortOrder: LibrarySortOrder
     let sortAscending: Bool  // Direction toggle
-    let searchInPDFs: Bool
-    let pdfMatchCount: Int  // Track PDF matches by count (Set isn't Equatable for hash)
     let recommendationScoreVersion: Int  // ADR-020: Track recommendation score updates
 }
 
@@ -50,6 +47,14 @@ private final class FilteredRowDataCache {
     func cache(_ result: [PublicationRowData], for key: FilterCacheKey) {
         cachedKey = key
         cachedResult = result
+    }
+
+    /// Update a single row in the cached sorted array without full invalidation.
+    /// O(n) scan but avoids O(n log n) re-sort. No-op if cache is empty.
+    func updateRow(_ id: UUID, with data: PublicationRowData) {
+        guard let result = cachedResult,
+              let index = result.firstIndex(where: { $0.id == id }) else { return }
+        cachedResult?[index] = data
     }
 
     func invalidate() {
@@ -221,6 +226,9 @@ public struct PublicationListView: View {
     /// Called when a category chip is tapped (e.g., to search for that category)
     public var onCategoryTap: ((String) -> Void)?
 
+    /// Called when global search should be shown (magnifying glass or Cmd+F)
+    public var onGlobalSearch: (() -> Void)?
+
     /// Called when refresh is requested (for smart searches and feeds)
     public var onRefresh: (() async -> Void)?
 
@@ -253,17 +261,12 @@ public struct PublicationListView: View {
     /// Whether a refresh is in progress (shows loading indicator)
     public var isRefreshing: Bool = false
 
-    /// Version counter bumped by parent when publication data changes without count change
-    /// (e.g., flag set/cleared, tag added/removed). Forces row data cache rebuild.
-    public var dataVersion: Int = 0
-
     /// External triage flash trigger (for keyboard shortcuts from parent view)
     /// When set by parent, triggers flash animation on the specified row
     @Binding public var externalTriageFlash: (id: UUID, color: Color)?
 
     // MARK: - Internal State
 
-    @State private var searchQuery: String = ""
     @State private var showUnreadOnly: Bool = false
     @State private var hasLoadedState: Bool = false
 
@@ -275,21 +278,6 @@ public struct PublicationListView: View {
     /// Minimum interval between recommendation score updates (30 minutes)
     /// Prevents list order from changing while user is browsing
     private static let recommendationUpdateInterval: TimeInterval = 30 * 60
-
-    /// Whether to include PDF content in search (uses Spotlight on macOS, PDFKit on iOS)
-    @State private var searchInPDFs: Bool = false
-
-    /// Publication IDs that match the PDF content search (async populated)
-    @State private var pdfSearchMatches: Set<UUID> = []
-
-    /// Task for ongoing PDF search (cancelled when query changes)
-    @State private var pdfSearchTask: Task<Void, Never>?
-
-    /// Whether PDF search is in progress
-    @State private var isPDFSearching: Bool = false
-
-    /// Whether the search field is expanded (collapsed shows only magnifying glass icon)
-    @State private var isSearchExpanded: Bool = false
 
     /// Cached row data - rebuilt when publications change
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
@@ -347,11 +335,8 @@ public struct PublicationListView: View {
             rowDataVersion: rowDataCache.count,
             showUnreadOnly: showUnreadOnly,
             disableUnreadFilter: disableUnreadFilter,
-            searchQuery: searchQuery,
             sortOrder: sortOrder,
             sortAscending: sortAscending,
-            searchInPDFs: searchInPDFs,
-            pdfMatchCount: pdfSearchMatches.count,
             recommendationScoreVersion: recommendationScores.count  // ADR-020
         )
 
@@ -369,71 +354,14 @@ public struct PublicationListView: View {
             result = result.filter { !$0.isRead }
         }
 
-        // Filter by search query (metadata + notes + optionally PDF content)
-        if !searchQuery.isEmpty {
-            let query = searchQuery.lowercased()
-            result = result.filter { rowData in
-                // Always check metadata fields including notes
-                let matchesMetadata = rowData.title.lowercased().contains(query) ||
-                    rowData.authorString.lowercased().contains(query) ||
-                    rowData.citeKey.lowercased().contains(query) ||
-                    (rowData.note?.lowercased().contains(query) ?? false)
-
-                // If PDF search is enabled, also include PDF content matches
-                if searchInPDFs && pdfSearchMatches.contains(rowData.id) {
-                    return true
-                }
-
-                return matchesMetadata
-            }
-        }
-
         // Sort using data already in PublicationRowData - no managed object lookups needed
-        // Each case returns the "default direction" comparison, then we flip if sortAscending differs
-        // IMPORTANT: Use stable tie-breaker for recommendation sort to match wrapper's computeVisualOrder()
+        // Uses stable UUID tie-breaker so order is deterministic across calls.
+        // MUST match UnifiedPublicationListWrapper.computeVisualOrder() exactly.
         let sorted = result.sorted { lhs, rhs in
-            // For recommendation sort, handle tie-breaking specially
-            if sortOrder == .recommended {
-                let lhsScore = recommendationScores[lhs.id] ?? 0
-                let rhsScore = recommendationScores[rhs.id] ?? 0
-                if lhsScore != rhsScore {
-                    let result = lhsScore > rhsScore
-                    return sortAscending == sortOrder.defaultAscending ? result : !result
-                }
-                // Tie-breaker: dateAdded descending (newest first)
-                if lhs.dateAdded != rhs.dateAdded {
-                    let result = lhs.dateAdded > rhs.dateAdded
-                    return sortAscending == sortOrder.defaultAscending ? result : !result
-                }
-                // Final tie-breaker: id for absolute stability
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-
-            let defaultComparison: Bool = switch sortOrder {
-            case .dateAdded:
-                lhs.dateAdded > rhs.dateAdded  // Default descending (newest first)
-            case .dateModified:
-                lhs.dateModified > rhs.dateModified  // Default descending (newest first)
-            case .title:
-                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending  // Default ascending (A-Z)
-            case .year:
-                (lhs.year ?? 0) > (rhs.year ?? 0)  // Default descending (newest first)
-            case .citeKey:
-                lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending  // Default ascending (A-Z)
-            case .citationCount:
-                lhs.citationCount > rhs.citationCount  // Default descending (highest first)
-            case .starred:
-                // Starred first, then by dateAdded as tie-breaker
-                if lhs.isStarred != rhs.isStarred {
-                    lhs.isStarred  // Starred papers first (true > false)
-                } else {
-                    lhs.dateAdded > rhs.dateAdded  // Tie-breaker: newest first
-                }
-            case .recommended:
-                true  // Handled above, this won't be reached
-            }
-            // Flip result if sortAscending differs from the field's default direction
-            return sortAscending == sortOrder.defaultAscending ? defaultComparison : !defaultComparison
+            let primary = Self.primarySortComparison(lhs, rhs, sortOrder: sortOrder, sortAscending: sortAscending, recommendationScores: recommendationScores)
+            if primary != .orderedSame { return primary == .orderedAscending }
+            // Stable tie-breaker: UUID string comparison
+            return lhs.id.uuidString < rhs.id.uuidString
         }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -450,31 +378,71 @@ public struct PublicationListView: View {
         var id: String { name }
     }
 
-    /// Group filtered results by library name for sectioned display
-    private var groupedFilteredRowData: [LibraryGroup] {
-        // Only group when searching (filter scope is everything and has query)
-        guard !searchQuery.isEmpty else { return [] }
+    /// Grouped display is no longer needed — global search handles cross-library results
+    private var groupedFilteredRowData: [LibraryGroup] { [] }
 
-        // Group by library name
-        var groups: [String: [PublicationRowData]] = [:]
-        for row in filteredRowData {
-            let libraryName = row.libraryName ?? "Current"
-            groups[libraryName, default: []].append(row)
+    /// Whether to show grouped display (always false — grouped display moved to global search)
+    private var shouldShowGroupedDisplay: Bool { false }
+
+    /// Primary sort comparison — returns .orderedSame when items are equal on the sort key.
+    /// Static so it can be called from sorted() closures without capturing self.
+    /// MUST match UnifiedPublicationListWrapper.primarySortComparison() logic exactly.
+    private static func primarySortComparison(
+        _ lhs: PublicationRowData, _ rhs: PublicationRowData,
+        sortOrder: LibrarySortOrder, sortAscending: Bool,
+        recommendationScores: [UUID: Double]
+    ) -> ComparisonResult {
+        let ascending = sortAscending == sortOrder.defaultAscending
+
+        switch sortOrder {
+        case .recommended:
+            let lhsScore = recommendationScores[lhs.id] ?? 0
+            let rhsScore = recommendationScores[rhs.id] ?? 0
+            if lhsScore != rhsScore {
+                let result: ComparisonResult = lhsScore > rhsScore ? .orderedAscending : .orderedDescending
+                return ascending ? result : result.flipped
+            }
+            if lhs.dateAdded != rhs.dateAdded {
+                let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
+                return ascending ? result : result.flipped
+            }
+            return .orderedSame
+        case .dateAdded:
+            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
+            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .dateModified:
+            if lhs.dateModified == rhs.dateModified { return .orderedSame }
+            let result: ComparisonResult = lhs.dateModified > rhs.dateModified ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .title:
+            let cmp = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+            if cmp == .orderedSame { return .orderedSame }
+            let result: ComparisonResult = cmp == .orderedAscending ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .year:
+            let ly = lhs.year ?? 0, ry = rhs.year ?? 0
+            if ly == ry { return .orderedSame }
+            let result: ComparisonResult = ly > ry ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .citeKey:
+            let cmp = lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey)
+            if cmp == .orderedSame { return .orderedSame }
+            let result: ComparisonResult = cmp == .orderedAscending ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .citationCount:
+            if lhs.citationCount == rhs.citationCount { return .orderedSame }
+            let result: ComparisonResult = lhs.citationCount > rhs.citationCount ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
+        case .starred:
+            if lhs.isStarred != rhs.isStarred {
+                let result: ComparisonResult = lhs.isStarred ? .orderedAscending : .orderedDescending
+                return ascending ? result : result.flipped
+            }
+            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
+            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
         }
-
-        // Sort groups: "Current" first, then alphabetically
-        return groups.keys.sorted { lhs, rhs in
-            if lhs == "Current" { return true }
-            if rhs == "Current" { return false }
-            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-        }.map { name in
-            LibraryGroup(name: name, rows: groups[name] ?? [])
-        }
-    }
-
-    /// Whether to show grouped display (when searching across all libraries)
-    private var shouldShowGroupedDisplay: Bool {
-        !searchQuery.isEmpty && groupedFilteredRowData.count > 1
     }
 
     /// Create a binding for section expansion state
@@ -548,11 +516,11 @@ public struct PublicationListView: View {
         onMutePaper: ((UUID) -> Void)? = nil,
         // Category tap callback
         onCategoryTap: ((String) -> Void)? = nil,
+        // Global search callback
+        onGlobalSearch: (() -> Void)? = nil,
         // Refresh callback and state
         onRefresh: (() async -> Void)? = nil,
         isRefreshing: Bool = false,
-        // Data version counter (bumped by parent on in-place mutations like flag/tag changes)
-        dataVersion: Int = 0,
         // External flash trigger
         externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil),
         // Enhanced context menu callbacks
@@ -608,11 +576,11 @@ public struct PublicationListView: View {
         self.onMutePaper = onMutePaper
         // Category tap
         self.onCategoryTap = onCategoryTap
+        // Global search
+        self.onGlobalSearch = onGlobalSearch
         // Refresh
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
-        // Data version
-        self.dataVersion = dataVersion
         // External flash
         self._externalTriageFlash = externalTriageFlash
         // Enhanced context menu
@@ -628,15 +596,12 @@ public struct PublicationListView: View {
 
     // MARK: - Change Detection
 
-    /// Lightweight fingerprint for the publications array. Avoids allocating a `[UUID]`
-    /// on every SwiftUI evaluation while still detecting same-count array swaps
-    /// (e.g., switching from Red flags to Grey flags with the same count).
+    /// Content-aware fingerprint for the publications array.
+    /// Hashes full PublicationRowData (which conforms to Hashable), detecting both
+    /// structural changes (add/remove/reorder) AND in-place mutations (read/flag/tag).
     private var publicationsFingerprint: Int {
         var hasher = Hasher()
-        hasher.combine(publications.count)
-        hasher.combine(publications.first?.id)
-        hasher.combine(publications.last?.id)
-        for pub in publications { hasher.combine(pub.id) }
+        for pub in publications { hasher.combine(pub) }
         return hasher.finalize()
     }
 
@@ -690,68 +655,13 @@ public struct PublicationListView: View {
                     .help("Import BibTeX")
                 }
 
-                // Search section
-                if isSearchExpanded {
-                    HStack(spacing: 8) {
-                        Button {
-                            searchInPDFs.toggle()
-                            if searchInPDFs && !searchQuery.isEmpty {
-                                triggerPDFSearch()
-                            } else if !searchInPDFs {
-                                pdfSearchMatches.removeAll()
-                                filterCache.invalidate()
-                            }
-                        } label: {
-                            HStack(spacing: 2) {
-                                Image(systemName: "doc.text.magnifyingglass")
-                                if isPDFSearching {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                }
-                            }
-                        }
-                        .foregroundStyle(searchInPDFs ? .blue : .secondary)
-                        .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
-
-                        HStack {
-                            TextField("Search", text: $searchQuery)
-                                .textFieldStyle(.plain)
-                            if !searchQuery.isEmpty {
-                                Button {
-                                    searchQuery = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(4)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                        .frame(minWidth: 120, maxWidth: 200)
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSearchExpanded = false
-                                if searchQuery.isEmpty { searchInPDFs = false }
-                            }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.blue)
-                        }
-                        .help("Collapse search")
-                    }
-                } else {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchExpanded = true
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(searchQuery.isEmpty && !searchInPDFs ? Color.secondary : Color.blue)
-                    }
-                    .help("Search")
+                // Global search button (opens Cmd+F modal)
+                Button {
+                    onGlobalSearch?()
+                } label: {
+                    Image(systemName: "magnifyingglass")
                 }
+                .help("Search (\u{2318}F)")
 
                 // Sort menu
                 if showSortMenu {
@@ -796,23 +706,46 @@ public struct PublicationListView: View {
             // Rebuild row data when publications change (add/delete/source switch)
             rebuildRowData()
         }
-        .onChange(of: dataVersion) { _, _ in
-            // Rebuild row data when parent signals content change (flag/tag mutations)
-            rebuildRowData()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { notification in
-            // Smart update: only rebuild the changed row (O(1) instead of O(n))
-            if let changedID = notification.object as? UUID {
+        .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { notification in
+            // Smart update: only rebuild changed rows (O(k) instead of O(n))
+            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
+                for id in ids { updateSingleRowData(for: id) }
+            } else if let changedID = notification.object as? UUID {
                 updateSingleRowData(for: changedID)
             } else {
-                // Fallback: unknown change, rebuild all
                 rebuildRowData()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
-            // Rebuild the changed row to pick up new flag state (O(1))
-            if let changedID = notification.object as? UUID {
+            // Rebuild changed rows to pick up new flag state (O(k))
+            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
+                for id in ids { updateSingleRowData(for: id) }
+            } else if let changedID = notification.object as? UUID {
                 updateSingleRowData(for: changedID)
+            } else {
+                rebuildRowData()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .starDidChange)) { notification in
+            // Rebuild changed rows to pick up new star state (O(k))
+            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
+                for id in ids { updateSingleRowData(for: id) }
+            } else {
+                rebuildRowData()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
+            // Rebuild changed rows to pick up new tag state (O(k))
+            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
+                for id in ids { updateSingleRowData(for: id) }
+            } else {
+                rebuildRowData()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fieldDidChange)) { notification in
+            // Rebuild changed rows to pick up new field values (O(k))
+            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
+                for id in ids { updateSingleRowData(for: id) }
             } else {
                 rebuildRowData()
             }
@@ -849,9 +782,6 @@ public struct PublicationListView: View {
                     if showUnreadOnly {
                         showUnreadOnly = false
                     }
-                    if !searchQuery.isEmpty {
-                        searchQuery = ""
-                    }
                     // Invalidate cache since we changed filters
                     filterCache.invalidate()
                 }
@@ -885,48 +815,6 @@ public struct PublicationListView: View {
                 debouncedSaveState()
             }
         }
-        .onChange(of: searchQuery) { oldQuery, newQuery in
-            // Auto-switch to "everything" scope when search is active
-            if !newQuery.isEmpty && filterScope != .everything {
-                filterScope = .everything
-            } else if newQuery.isEmpty && oldQuery.isEmpty == false {
-                // Switch back to "current" when search is cleared
-                filterScope = .current
-            }
-
-            // Trigger PDF search if enabled and query changed
-            if searchInPDFs && !newQuery.isEmpty {
-                triggerPDFSearch()
-            } else if newQuery.isEmpty {
-                // Clear PDF matches when query is cleared
-                pdfSearchMatches.removeAll()
-            }
-
-            // Validate selection when search filter changes to remove orphaned IDs
-            validateSelectionAgainstFilter()
-        }
-    }
-
-    // MARK: - PDF Search
-
-    /// Trigger an async PDF content search
-    /// Note: PDF search requires Core Data objects for file path resolution.
-    /// With pre-shaped data, this is a no-op until a UUID-based search API is available.
-    private func triggerPDFSearch() {
-        // Cancel any existing search
-        pdfSearchTask?.cancel()
-
-        guard !searchQuery.isEmpty else {
-            pdfSearchMatches.removeAll()
-            return
-        }
-
-        // PDF search requires file path resolution not available from PublicationRowData.
-        // With pre-shaped PublicationRowData, this capability is deferred to parent.
-        // For now, PDF search is disabled in this view.
-        isPDFSearching = false
-        pdfSearchMatches.removeAll()
-        filterCache.invalidate()
     }
 
     // MARK: - Recommendation Scoring (ADR-020)
@@ -1003,31 +891,15 @@ public struct PublicationListView: View {
         // This handles the case where selection was set before the row data was available
         if let firstID = selection.first, newRowCache[firstID] != nil {
             // Check if item would be filtered out and clear filters if needed
-            let wouldBeFiltered = (showUnreadOnly && !disableUnreadFilter && (newRowCache[firstID]?.isRead ?? false)) ||
-                                  (!searchQuery.isEmpty && !itemMatchesSearch(newRowCache[firstID]!))
+            let wouldBeFiltered = showUnreadOnly && !disableUnreadFilter && (newRowCache[firstID]?.isRead ?? false)
 
             if wouldBeFiltered {
-                if showUnreadOnly {
-                    showUnreadOnly = false
-                }
-                if !searchQuery.isEmpty {
-                    searchQuery = ""
-                }
+                showUnreadOnly = false
             }
 
             // Set pending scroll target - the retry mechanism will handle the actual scroll
             pendingScrollTarget = firstID
         }
-    }
-
-    /// Check if a row data item matches the current search query
-    private func itemMatchesSearch(_ rowData: PublicationRowData) -> Bool {
-        guard !searchQuery.isEmpty else { return true }
-        let query = searchQuery.lowercased()
-        return rowData.title.lowercased().contains(query) ||
-               rowData.authorString.lowercased().contains(query) ||
-               rowData.citeKey.lowercased().contains(query) ||
-               (rowData.note?.lowercased().contains(query) ?? false)
     }
 
     /// Update a single row in the cache (O(1) instead of full rebuild).
@@ -1045,10 +917,20 @@ public struct PublicationListView: View {
             return
         }
 
+        // Skip if data is already current (e.g., full rebuild just ran)
+        if rowDataCache[publicationID] == updatedData { return }
+
         rowDataCache[publicationID] = updatedData
 
-        // Invalidate filtered data cache - read/flag status change may affect filters
-        filterCache.invalidate()
+        // Try in-place update of the cached sorted array (avoids full re-sort).
+        // Only need a full invalidation if the change affects filter membership
+        // (e.g., read status changed while unread filter is active).
+        let needsFullInvalidation = showUnreadOnly && !disableUnreadFilter
+        if needsFullInvalidation {
+            filterCache.invalidate()
+        } else {
+            filterCache.updateRow(publicationID, with: updatedData)
+        }
     }
 
     // MARK: - State Persistence
@@ -1159,82 +1041,14 @@ public struct PublicationListView: View {
                 .buttonStyle(.plain)
             }
 
-            // Collapsible search section (moved to right side)
-            if isSearchExpanded {
-                // Expanded: show full search field with options
-                HStack(spacing: 8) {
-                    // PDF search toggle
-                    Button {
-                        searchInPDFs.toggle()
-                        if searchInPDFs && !searchQuery.isEmpty {
-                            triggerPDFSearch()
-                        } else if !searchInPDFs {
-                            pdfSearchMatches.removeAll()
-                            filterCache.invalidate()
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Image(systemName: "doc.text.magnifyingglass")
-                            if isPDFSearching {
-                                ProgressView()
-                                    .controlSize(.mini)
-                            }
-                        }
-                    }
-                    .foregroundStyle(searchInPDFs ? .blue : .secondary)
-                    .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
-                    .buttonStyle(.plain)
-
-                    // Search field
-                    HStack {
-                        TextField("Search all libraries", text: $searchQuery)
-                            .textFieldStyle(.plain)
-                            .accessibilityIdentifier(AccessibilityID.List.searchField)
-                        if !searchQuery.isEmpty {
-                            Button {
-                                searchQuery = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Clear search")
-                            .accessibilityIdentifier(AccessibilityID.Search.clearButton)
-                        }
-                    }
-                    .padding(6)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    .help("Filter by title, author, cite key, or notes")
-
-                    // Collapse button
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchExpanded = false
-                            // Clear search when collapsing
-                            if searchQuery.isEmpty {
-                                searchInPDFs = false
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.blue)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Collapse search")
-                }
-            } else {
-                // Collapsed: show magnifying glass icon that expands on tap
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isSearchExpanded = true
-                    }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(searchQuery.isEmpty && !searchInPDFs ? Color.secondary : Color.blue)
-                }
-                .buttonStyle(.plain)
-                .help("Expand search")
+            // Global search button (opens Cmd+F modal)
+            Button {
+                onGlobalSearch?()
+            } label: {
+                Image(systemName: "magnifyingglass")
             }
+            .buttonStyle(.plain)
+            .help("Search")
 
             // Sort menu - click same option again to toggle ascending/descending
             if showSortMenu {
@@ -1280,7 +1094,7 @@ public struct PublicationListView: View {
     private var countDisplay: some View {
         let filteredCount = filteredRowData.count
         let totalCount = publications.count
-        let isFiltered = !searchQuery.isEmpty || showUnreadOnly
+        let isFiltered = showUnreadOnly
 
         return Group {
             if isFiltered && filteredCount != totalCount {
@@ -2128,4 +1942,14 @@ public struct PublicationListView: View {
         filterScope: .constant(.current),
         onImport: { print("Import tapped") }
     )
+}
+
+nonisolated public extension ComparisonResult {
+    var flipped: ComparisonResult {
+        switch self {
+        case .orderedAscending: .orderedDescending
+        case .orderedDescending: .orderedAscending
+        case .orderedSame: .orderedSame
+        }
+    }
 }

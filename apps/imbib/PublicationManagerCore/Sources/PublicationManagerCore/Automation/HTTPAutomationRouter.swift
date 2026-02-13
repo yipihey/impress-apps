@@ -9,10 +9,12 @@
 //
 
 import Foundation
+import CryptoKit
 import ImpressAutomation
+import ImpressKit
 import OSLog
 
-private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRouter")
+nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRouter")
 
 // MARK: - HTTP Automation Router
 
@@ -36,6 +38,8 @@ private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRou
 /// - `GET /api/papers/{citeKey}/annotations` - List PDF annotations for a paper
 /// - `GET /api/papers/{citeKey}/notes` - Get publication notes
 /// - `GET /api/libraries/{id}/assignments` - List assignments in a library
+/// - `GET /api/artifacts` - List/search artifacts (params: type, query, limit, offset)
+/// - `GET /api/artifacts/{id}` - Get single artifact
 ///
 /// API Endpoints (POST):
 /// - `POST /api/papers/add` - Add papers by identifier
@@ -45,6 +49,8 @@ private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRou
 /// - `POST /api/papers/{citeKey}/annotations` - Add PDF annotation
 /// - `POST /api/assignments` - Create an assignment
 /// - `POST /api/libraries/{id}/share` - Share a library
+/// - `POST /api/artifacts` - Create artifact (JSON body)
+/// - `POST /api/artifacts/{id}/link` - Link artifact to publication
 ///
 /// API Endpoints (PUT):
 /// - `PUT /api/papers/read` - Mark papers read/unread
@@ -54,6 +60,7 @@ private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRou
 /// - `PUT /api/papers/{citeKey}/notes` - Update publication notes
 /// - `PUT /api/collections/{id}/papers` - Add/remove papers from collection
 /// - `PUT /api/libraries/{id}/participants/{participantID}` - Set participant permission
+/// - `PUT /api/artifacts/{id}/tags` - Add tag to artifact
 ///
 /// API Endpoints (DELETE):
 /// - `DELETE /api/papers` - Delete papers
@@ -62,6 +69,8 @@ private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRou
 /// - `DELETE /api/annotations/{id}` - Delete a PDF annotation
 /// - `DELETE /api/assignments/{id}` - Delete an assignment
 /// - `DELETE /api/libraries/{id}/share` - Unshare a library
+/// - `DELETE /api/artifacts/{id}` - Delete artifact
+/// - `DELETE /api/artifacts/{id}/tags/{tag}` - Remove tag from artifact
 ///
 /// - `OPTIONS /*` - CORS preflight
 public actor HTTPAutomationRouter: HTTPRouter {
@@ -121,6 +130,29 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/comments") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/comments".count))
             return await handleListComments(citeKey: citeKey)
+        }
+
+        // GET /api/items/{id}/comments — comments for any item
+        if path.hasPrefix("/api/items/") && path.hasSuffix("/comments") {
+            let segment = String(originalPath.dropFirst("/api/items/".count).dropLast("/comments".count))
+            guard let itemID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid item ID")
+            }
+            return await handleListItemComments(itemID: itemID)
+        }
+
+        // GET /api/artifacts/{id}/comments — comments for an artifact
+        if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/comments") {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count).dropLast("/comments".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleListItemComments(itemID: artifactID)
+        }
+
+        // GET /api/sync/status — sync status
+        if path == "/api/sync/status" {
+            return await handleSyncStatus()
         }
 
         // GET /api/papers/{citeKey}/assignments
@@ -210,6 +242,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return handleCommands()
         }
 
+        // GET /api/artifacts/{id}
+        if path.hasPrefix("/api/artifacts/") {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleGetArtifact(id: artifactID)
+        }
+
+        // GET /api/artifacts (list/search)
+        if path == "/api/artifacts" {
+            return await handleListArtifacts(request)
+        }
+
         // Root path - return API info
         if path == "/" || path == "/api" {
             return handleAPIInfo()
@@ -255,6 +301,29 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleAddComment(citeKey: citeKey, request: request)
         }
 
+        // POST /api/items/{id}/comments — add comment to any item
+        if path.hasPrefix("/api/items/") && path.hasSuffix("/comments") {
+            let segment = String(request.path.dropFirst("/api/items/".count).dropLast("/comments".count))
+            guard let itemID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid item ID")
+            }
+            return await handleAddItemComment(itemID: itemID, request: request)
+        }
+
+        // POST /api/artifacts/{id}/comments — add comment to artifact
+        if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/comments") {
+            let segment = String(request.path.dropFirst("/api/artifacts/".count).dropLast("/comments".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleAddItemComment(itemID: artifactID, request: request)
+        }
+
+        // POST /api/sync/comments — trigger comment sync
+        if path == "/api/sync/comments" {
+            return await handleTriggerCommentSync()
+        }
+
         // POST /api/papers/{citeKey}/annotations
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/annotations") {
             let citeKey = String(request.path.dropFirst("/api/papers/".count).dropLast("/annotations".count))
@@ -268,6 +337,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid library ID")
             }
             return await handleShareLibrary(libraryID: libraryID)
+        }
+
+        // POST /api/artifacts/{id}/link
+        if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/link") {
+            let segment = String(request.path.dropFirst("/api/artifacts/".count).dropLast("/link".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleLinkArtifact(artifactID: artifactID, request: request)
+        }
+
+        // POST /api/artifacts
+        if path == "/api/artifacts" {
+            return await handleCreateArtifact(request)
         }
 
         return .notFound("Unknown POST endpoint: \(path)")
@@ -305,6 +388,24 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid collection ID")
             }
             return await handleUpdateCollectionPapers(collectionID: collectionID, request: request)
+        }
+
+        // PUT /api/comments/{id} — edit comment
+        if path.hasPrefix("/api/comments/") && !path.contains("/tags") {
+            let segment = String(originalPath.dropFirst("/api/comments/".count))
+            guard let commentID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid comment ID")
+            }
+            return await handleEditComment(commentID: commentID, request: request)
+        }
+
+        // PUT /api/artifacts/{id}/tags
+        if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/tags") {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count).dropLast("/tags".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleAddArtifactTag(artifactID: artifactID, request: request)
         }
 
         // PUT /api/libraries/{id}/participants/{participantID}
@@ -365,6 +466,28 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid library ID")
             }
             return await handleUnshareLibrary(libraryID: libraryID, request: request)
+        }
+
+        // DELETE /api/artifacts/{id}/tags/{tag}
+        if path.hasPrefix("/api/artifacts/") && path.contains("/tags/") {
+            let withoutPrefix = String(originalPath.dropFirst("/api/artifacts/".count))
+            let parts = withoutPrefix.components(separatedBy: "/tags/")
+            guard parts.count == 2,
+                  let artifactID = UUID(uuidString: parts[0]),
+                  !parts[1].isEmpty else {
+                return .badRequest("Invalid artifact ID or tag")
+            }
+            let tag = parts[1].removingPercentEncoding ?? parts[1]
+            return await handleRemoveArtifactTag(artifactID: artifactID, tag: tag)
+        }
+
+        // DELETE /api/artifacts/{id}
+        if path.hasPrefix("/api/artifacts/") {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleDeleteArtifact(id: artifactID)
         }
 
         // DELETE /api/collections/{id}
@@ -683,6 +806,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
                 "GET /api/commands": "List available commands for universal command palette",
+                // Artifact endpoints
+                "GET /api/artifacts": "List/search artifacts (params: type, query, limit, offset)",
+                "GET /api/artifacts/{id}": "Get single artifact by ID",
+                "POST /api/artifacts": "Create artifact (body: type, title, sourceURL?, notes?, tags?)",
+                "DELETE /api/artifacts/{id}": "Delete an artifact",
+                "PUT /api/artifacts/{id}/tags": "Add tag to artifact (body: tag)",
+                "DELETE /api/artifacts/{id}/tags/{tag}": "Remove tag from artifact",
+                "POST /api/artifacts/{id}/link": "Link artifact to publication (body: citeKey)",
                 // Collaboration GET endpoints
                 "GET /api/libraries/{id}/participants": "List library participants",
                 "GET /api/libraries/{id}/activity": "Get library activity feed (params: limit)",
@@ -1193,6 +1324,127 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
+    // MARK: - Generalized Comment Handlers
+
+    /// GET /api/items/{id}/comments — list comments for any item
+    private func handleListItemComments(itemID: UUID) async -> HTTPResponse {
+        let comments = await MainActor.run { RustStoreAdapter.shared.commentsForItem(itemID) }
+
+        let topLevel = comments.filter { $0.parentCommentID == nil }
+        let formatter = ISO8601DateFormatter()
+        let commentDicts: [[String: Any]] = topLevel.map { comment in
+            let replies = comments.filter { $0.parentCommentID == comment.id }
+            return [
+                "id": comment.id.uuidString,
+                "text": comment.text,
+                "authorDisplayName": comment.authorDisplayName as Any,
+                "authorIdentifier": comment.authorIdentifier as Any,
+                "dateCreated": formatter.string(from: comment.dateCreated),
+                "dateModified": formatter.string(from: comment.dateModified),
+                "parentCommentID": comment.parentCommentID?.uuidString as Any,
+                "parentSchema": comment.parentSchema as Any,
+                "replies": replies.map { reply in
+                    [
+                        "id": reply.id.uuidString,
+                        "text": reply.text,
+                        "authorDisplayName": reply.authorDisplayName as Any,
+                        "authorIdentifier": reply.authorIdentifier as Any,
+                        "dateCreated": formatter.string(from: reply.dateCreated),
+                        "dateModified": formatter.string(from: reply.dateModified),
+                        "parentCommentID": reply.parentCommentID?.uuidString as Any,
+                    ] as [String: Any]
+                }
+            ]
+        }
+
+        return .json(["status": "ok", "comments": commentDicts, "total": comments.count])
+    }
+
+    /// POST /api/items/{id}/comments — add comment to any item
+    private func handleAddItemComment(itemID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let text = json["text"] as? String, !text.isEmpty else {
+            return .badRequest("Missing or empty 'text' field")
+        }
+        let parentCommentIDStr = json["parentCommentID"] as? String
+        let parentCommentID = parentCommentIDStr.flatMap { UUID(uuidString: $0) }
+
+        await MainActor.run {
+            RustStoreAdapter.shared.addCommentToItem(text: text, itemID: itemID, parentCommentID: parentCommentID)
+        }
+
+        // Fetch the latest comment for the response
+        let comments = await MainActor.run { RustStoreAdapter.shared.commentsForItem(itemID) }
+        let latest = comments.last
+
+        return .json([
+            "status": "ok",
+            "comment": [
+                "id": latest?.id.uuidString ?? "",
+                "text": latest?.text ?? text,
+                "dateCreated": latest.map { ISO8601DateFormatter().string(from: $0.dateCreated) } as Any,
+                "authorDisplayName": latest?.authorDisplayName as Any,
+                "authorIdentifier": latest?.authorIdentifier as Any,
+            ] as [String: Any]
+        ])
+    }
+
+    /// PUT /api/comments/{id} — edit comment
+    private func handleEditComment(commentID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let text = json["text"] as? String, !text.isEmpty else {
+            return .badRequest("Missing or empty 'text' field")
+        }
+
+        await MainActor.run {
+            RustStoreAdapter.shared.editComment(commentID, newText: text)
+        }
+
+        return .json(["status": "ok", "updated": true])
+    }
+
+    // MARK: - Sync Handlers
+
+    /// POST /api/sync/comments — trigger manual comment sync
+    private func handleTriggerCommentSync() async -> HTTPResponse {
+        await CommentCloudKitEngine.shared.sync()
+        let status = await CommentCloudKitEngine.shared.status()
+        return .json([
+            "status": "ok",
+            "syncStatus": [
+                "lastSyncDate": status.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
+                "lastError": status.lastError as Any,
+                "pendingUploadCount": status.pendingUploadCount,
+            ] as [String: Any]
+        ])
+    }
+
+    /// GET /api/sync/status — sync status
+    private func handleSyncStatus() async -> HTTPResponse {
+        let commentStatus = await CommentCloudKitEngine.shared.status()
+        let settings = CloudKitSyncSettingsStore.shared
+        return .json([
+            "status": "ok",
+            "commentSync": [
+                "enabled": settings.commentSyncEnabled,
+                "isRunning": commentStatus.isRunning,
+                "lastSyncDate": commentStatus.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
+                "lastError": commentStatus.lastError as Any,
+                "pendingUploadCount": commentStatus.pendingUploadCount,
+            ] as [String: Any],
+            "generalSync": [
+                "enabled": settings.shouldAttemptSync,
+                "lastSyncDate": settings.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
+                "lastError": settings.lastError as Any,
+                "lifecycleState": settings.syncLifecycleState.rawValue,
+            ] as [String: Any]
+        ])
+    }
+
     /// DELETE /api/assignments/{id}
     private func handleDeleteAssignment(assignmentID: UUID) async -> HTTPResponse {
         do {
@@ -1319,28 +1571,19 @@ public actor HTTPAutomationRouter: HTTPRouter {
     /// GET /api/libraries/{id}/participants
     private func handleListParticipants(libraryID: UUID) async -> HTTPResponse {
         do {
-            let participants = try await automationService.listParticipants(libraryID: libraryID)
-            let participantDicts = participants.map { p -> [String: Any] in
-                var dict: [String: Any] = [
+            let participants = try await LibrarySharingService.shared.participants(for: libraryID)
+            let dicts: [[String: Any]] = participants.map { p in
+                [
                     "id": p.id,
-                    "permission": p.permission,
+                    "displayName": p.displayName as Any,
+                    "emailAddress": p.emailAddress as Any,
+                    "permission": p.permission.rawValue,
+                    "acceptanceStatus": p.acceptanceStatus.rawValue,
                     "isOwner": p.isOwner,
-                    "status": p.status
+                    "isCurrentUser": p.isCurrentUser,
                 ]
-                if let displayName = p.displayName {
-                    dict["displayName"] = displayName
-                }
-                if let email = p.email {
-                    dict["email"] = email
-                }
-                return dict
             }
-            return .json([
-                "status": "ok",
-                "libraryID": libraryID.uuidString,
-                "count": participants.count,
-                "participants": participantDicts
-            ])
+            return .json(["status": "ok", "participants": dicts])
         } catch {
             return mapError(error)
         }
@@ -1589,10 +1832,235 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
+    // MARK: - Artifact Handlers
+
+    /// GET /api/artifacts?type=...&query=...&limit=...&offset=...
+    @MainActor
+    private func handleListArtifacts(_ request: HTTPRequest) async -> HTTPResponse {
+        let typeFilter = request.queryParams["type"]
+        let query = request.queryParams["query"]
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) }
+        let offset = request.queryParams["offset"].flatMap { UInt32($0) }
+
+        let artifactType = typeFilter.flatMap { ArtifactType(rawValue: $0) }
+
+        let artifacts: [ResearchArtifact]
+        if let query, !query.isEmpty {
+            artifacts = RustStoreAdapter.shared.searchArtifacts(query: query, type: artifactType)
+        } else {
+            artifacts = RustStoreAdapter.shared.listArtifacts(
+                type: artifactType,
+                limit: limit ?? 50,
+                offset: offset
+            )
+        }
+
+        let artifactDicts = artifacts.map { artifactToDict($0) }
+
+        return .json([
+            "status": "ok",
+            "count": artifacts.count,
+            "artifacts": artifactDicts
+        ])
+    }
+
+    /// GET /api/artifacts/{id}
+    @MainActor
+    private func handleGetArtifact(id: UUID) async -> HTTPResponse {
+        guard let artifact = RustStoreAdapter.shared.getArtifact(id: id) else {
+            return .notFound("Artifact not found: \(id.uuidString)")
+        }
+
+        return .json([
+            "status": "ok",
+            "artifact": artifactToDict(artifact)
+        ])
+    }
+
+    /// POST /api/artifacts
+    ///
+    /// Accepts all artifact fields. If `sharedFileName` is provided, the file is
+    /// moved from the SharedContainer's shared-artifacts directory into imbib's
+    /// artifact storage, and the file hash is computed automatically.
+    @MainActor
+    private func handleCreateArtifact(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let typeStr = json["type"] as? String else {
+            return .badRequest("Missing 'type' field")
+        }
+        guard let artifactType = ArtifactType(rawValue: typeStr) else {
+            return .badRequest("Invalid artifact type: \(typeStr). Valid types: \(ArtifactType.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
+        guard let title = json["title"] as? String, !title.isEmpty else {
+            return .badRequest("Missing 'title' field")
+        }
+
+        let sourceURL = json["sourceURL"] as? String
+        let notes = json["notes"] as? String
+        let tags = json["tags"] as? [String] ?? []
+        let originalAuthor = json["originalAuthor"] as? String
+        let captureContext = json["captureContext"] as? String
+        let eventName = json["eventName"] as? String
+        let eventDate = json["eventDate"] as? String
+
+        // File fields — either from direct JSON fields or via SharedContainer import
+        var fileName = json["fileName"] as? String
+        var fileSize = (json["fileSize"] as? NSNumber)?.int64Value
+        let fileMimeType = json["fileMimeType"] as? String
+        var fileHash: String? = nil
+
+        // If sharedFileName is provided, import the file from SharedContainer
+        if let sharedFileName = json["sharedFileName"] as? String {
+            let sharedDir = ImpressKit.SharedContainer.sharedArtifactsDirectory
+            let sourceFile = sharedDir.appendingPathComponent(sharedFileName)
+
+            if FileManager.default.fileExists(atPath: sourceFile.path) {
+                // Read file data for hash computation
+                if let fileData = try? Data(contentsOf: sourceFile) {
+                    // Compute SHA-256 hash
+                    fileHash = sha256Hex(fileData)
+                    fileSize = Int64(fileData.count)
+
+                    // Use the shared filename as the artifact filename if not explicitly set
+                    if fileName == nil { fileName = sharedFileName }
+                }
+
+                // Clean up the shared file after reading
+                try? FileManager.default.removeItem(at: sourceFile)
+            }
+        }
+
+        let artifact = RustStoreAdapter.shared.createArtifact(
+            type: artifactType,
+            title: title,
+            sourceURL: sourceURL,
+            notes: notes,
+            fileName: fileName,
+            fileHash: fileHash,
+            fileSize: fileSize,
+            fileMimeType: fileMimeType,
+            captureContext: captureContext,
+            originalAuthor: originalAuthor,
+            eventName: eventName,
+            eventDate: eventDate,
+            tags: tags
+        )
+
+        guard let artifact else {
+            return .serverError("Failed to create artifact")
+        }
+
+        return .json([
+            "status": "ok",
+            "artifact": artifactToDict(artifact)
+        ], status: 201)
+    }
+
+    /// Compute SHA-256 hex digest of data.
+    private nonisolated func sha256Hex(_ data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// DELETE /api/artifacts/{id}
+    @MainActor
+    private func handleDeleteArtifact(id: UUID) async -> HTTPResponse {
+        guard RustStoreAdapter.shared.getArtifact(id: id) != nil else {
+            return .notFound("Artifact not found: \(id.uuidString)")
+        }
+        RustStoreAdapter.shared.deleteArtifact(id: id)
+        return .json(["status": "ok", "deleted": true])
+    }
+
+    /// PUT /api/artifacts/{id}/tags
+    @MainActor
+    private func handleAddArtifactTag(artifactID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let tag = json["tag"] as? String, !tag.isEmpty else {
+            return .badRequest("Missing 'tag' field")
+        }
+        guard RustStoreAdapter.shared.getArtifact(id: artifactID) != nil else {
+            return .notFound("Artifact not found: \(artifactID.uuidString)")
+        }
+
+        RustStoreAdapter.shared.addArtifactTag(ids: [artifactID], tagPath: tag)
+        return .json(["status": "ok", "updated": true])
+    }
+
+    /// DELETE /api/artifacts/{id}/tags/{tag}
+    @MainActor
+    private func handleRemoveArtifactTag(artifactID: UUID, tag: String) async -> HTTPResponse {
+        guard RustStoreAdapter.shared.getArtifact(id: artifactID) != nil else {
+            return .notFound("Artifact not found: \(artifactID.uuidString)")
+        }
+
+        RustStoreAdapter.shared.removeArtifactTag(ids: [artifactID], tagPath: tag)
+        return .json(["status": "ok", "updated": true])
+    }
+
+    /// POST /api/artifacts/{id}/link
+    @MainActor
+    private func handleLinkArtifact(artifactID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let citeKey = json["citeKey"] as? String, !citeKey.isEmpty else {
+            return .badRequest("Missing 'citeKey' field")
+        }
+
+        guard RustStoreAdapter.shared.getArtifact(id: artifactID) != nil else {
+            return .notFound("Artifact not found: \(artifactID.uuidString)")
+        }
+
+        // Look up publication by cite key
+        do {
+            let identifier = PaperIdentifier.citeKey(citeKey)
+            guard let paper = try await automationService.getPaper(identifier: identifier) else {
+                return .notFound("Paper not found: \(citeKey)")
+            }
+            RustStoreAdapter.shared.linkArtifactToPublication(artifactID: artifactID, publicationID: paper.id)
+            return .json(["status": "ok", "linked": true])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    /// Convert a ResearchArtifact to a dictionary for JSON serialization.
+    @MainActor
+    private func artifactToDict(_ artifact: ResearchArtifact) -> [String: Any] {
+        let iso8601 = ISO8601DateFormatter()
+        var dict: [String: Any] = [
+            "id": artifact.id.uuidString,
+            "type": artifact.schema.rawValue,
+            "typeName": artifact.schema.displayName,
+            "title": artifact.title,
+            "isRead": artifact.isRead,
+            "isStarred": artifact.isStarred,
+            "created": iso8601.string(from: artifact.created),
+            "tags": artifact.tags.map(\.path)
+        ]
+
+        if let sourceURL = artifact.sourceURL { dict["sourceURL"] = sourceURL }
+        if let notes = artifact.notes { dict["notes"] = notes }
+        if let fileName = artifact.fileName { dict["fileName"] = fileName }
+        if let fileSize = artifact.fileSize { dict["fileSize"] = fileSize }
+        if let fileMimeType = artifact.fileMimeType { dict["fileMimeType"] = fileMimeType }
+        if let originalAuthor = artifact.originalAuthor { dict["originalAuthor"] = originalAuthor }
+        if let captureContext = artifact.captureContext { dict["captureContext"] = captureContext }
+        if let eventName = artifact.eventName { dict["eventName"] = eventName }
+        if let flagColor = artifact.flagColor { dict["flagColor"] = flagColor }
+
+        return dict
+    }
+
     // MARK: - Helpers
 
     /// Parse JSON body from an HTTP request.
-    private func parseJSONBody(_ request: HTTPRequest) -> [String: Any]? {
+    private nonisolated func parseJSONBody(_ request: HTTPRequest) -> [String: Any]? {
         guard let body = request.body, !body.isEmpty,
               let data = body.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -1799,7 +2267,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
 // MARK: - API Response Types
 
 /// Standard API response wrapper.
-public struct APIResponse<T: Codable>: Codable, Sendable where T: Sendable {
+nonisolated public struct APIResponse<T: Codable>: Codable, Sendable where T: Sendable {
     public let status: String
     public let data: T?
     public let error: String?
@@ -1818,7 +2286,7 @@ public struct APIResponse<T: Codable>: Codable, Sendable where T: Sendable {
 }
 
 /// Status response.
-public struct StatusResponse: Codable, Sendable {
+nonisolated public struct StatusResponse: Codable, Sendable {
     public let version: String
     public let libraryCount: Int
     public let collectionCount: Int
@@ -1826,7 +2294,7 @@ public struct StatusResponse: Codable, Sendable {
 }
 
 /// Search response.
-public struct SearchResponse: Codable, Sendable {
+nonisolated public struct SearchResponse: Codable, Sendable {
     public let query: String
     public let count: Int
     public let limit: Int
@@ -1835,7 +2303,7 @@ public struct SearchResponse: Codable, Sendable {
 }
 
 /// Export response.
-public struct ExportResponse: Codable, Sendable {
+nonisolated public struct ExportResponse: Codable, Sendable {
     public let format: String
     public let paperCount: Int
     public let content: String

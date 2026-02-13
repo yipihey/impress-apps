@@ -40,7 +40,7 @@ public struct FilterInput: View {
         HStack(spacing: 6) {
             ModeIndicator("FILTER", color: .purple)
 
-            TextField("flag:r-h tags:methods unread...", text: $text)
+            TextField("f:r t:methods unread search text...", text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, design: .monospaced))
                 .focused($isFocused)
@@ -76,7 +76,8 @@ public struct FilterInput: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-        .onAppear {
+        .task {
+            try? await Task.sleep(for: .milliseconds(100))
             isFocused = true
         }
     }

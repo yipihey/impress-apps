@@ -97,7 +97,20 @@ public actor EnrichmentCoordinator {
 
         Logger.enrichment.infoCapture("Starting EnrichmentCoordinator", category: "enrichment")
 
-        // Wire up the persistence callback
+        // Wire up the persistence callbacks.
+        // The batch callback wraps all saves in one outer beginBatchMutation/endBatchMutation,
+        // so only ONE .fieldDidChange + .storeDidMutate notification fires per batch of 50.
+        await service.setOnBatchEnrichmentComplete { results in
+            await MainActor.run {
+                let store = RustStoreAdapter.shared
+                store.beginBatchMutation()
+                for (publicationID, result) in results {
+                    Self.saveEnrichmentResult(publicationID: publicationID, result: result)
+                }
+                store.endBatchMutation()
+            }
+        }
+        // Keep per-item callback as fallback
         await service.setOnEnrichmentComplete { publicationID, result in
             await Self.saveEnrichmentResult(publicationID: publicationID, result: result)
         }
@@ -286,13 +299,18 @@ public actor EnrichmentCoordinator {
         // Use ADS batch enrichment (single API call)
         let results = await adsSource.enrichBatch(requests: requests)
 
-        // Save successful results
+        // Save all successful results in one batch (one notification instead of N)
         var successCount = 0
-        for (pubID, result) in results {
-            if case .success(let enrichment) = result {
-                await Self.saveEnrichmentResult(publicationID: pubID, result: enrichment)
-                successCount += 1
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            store.beginBatchMutation()
+            for (pubID, result) in results {
+                if case .success(let enrichment) = result {
+                    Self.saveEnrichmentResult(publicationID: pubID, result: enrichment)
+                    successCount += 1
+                }
             }
+            store.endBatchMutation()
         }
 
         Logger.enrichment.infoCapture(
@@ -314,12 +332,23 @@ extension EnrichmentService {
     public func setOnEnrichmentComplete(_ callback: @escaping (UUID, EnrichmentResult) async -> Void) {
         self.onEnrichmentComplete = callback
     }
+
+    /// Set the batch enrichment completion callback.
+    ///
+    /// When set, this replaces per-item `onEnrichmentComplete` during batch processing,
+    /// enabling the caller to wrap all saves in one outer batch mutation.
+    public func setOnBatchEnrichmentComplete(_ callback: @escaping ([(UUID, EnrichmentResult)]) async -> Void) {
+        self.onBatchEnrichmentComplete = callback
+    }
 }
 
 // MARK: - Rust Store Publication Provider
 
 /// StalePublicationProvider backed by RustStoreAdapter.
 /// Queries all libraries for publications with missing or stale enrichment data.
+///
+/// Uses `PublicationRowData.enrichmentDate` (from BibliographyRow) to filter in-memory,
+/// avoiding N+1 `getPublicationDetail()` FFI calls that previously blocked startup for 32+ seconds.
 struct RustStorePublicationProvider: StalePublicationProvider {
 
     private static let isoFormatter: ISO8601DateFormatter = {
@@ -328,87 +357,71 @@ struct RustStorePublicationProvider: StalePublicationProvider {
         return f
     }()
 
+    /// Parse an enrichment_date string to Date, trying fractional seconds first, then plain ISO8601.
+    private static func parseEnrichmentDate(_ dateStr: String) -> Date? {
+        isoFormatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr)
+    }
+
+    /// Collect all unique publications with identifiers from all libraries.
+    private static func allPublicationsWithIdentifiers() async -> [PublicationRowData] {
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var result: [PublicationRowData] = []
+            var seen = Set<UUID>()
+
+            for library in libraries {
+                let pubs = store.queryPublications(parentId: library.id)
+                for pub in pubs {
+                    guard !seen.contains(pub.id) else { continue }
+                    seen.insert(pub.id)
+                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
+                    result.append(pub)
+                }
+            }
+            return result
+        }
+    }
+
+    /// Build identifier map for a publication from its row data (no detail query needed).
+    private static func identifiers(from pub: PublicationRowData) -> [IdentifierType: String] {
+        var ids: [IdentifierType: String] = [:]
+        if let doi = pub.doi { ids[.doi] = doi }
+        if let arxiv = pub.arxivID { ids[.arxiv] = arxiv }
+        if let bibcode = pub.bibcode { ids[.bibcode] = bibcode }
+        return ids
+    }
+
     func findStalePublications(
         olderThan date: Date,
         limit: Int
     ) async -> [(id: UUID, identifiers: [IdentifierType: String])] {
-        await MainActor.run {
-            let store = RustStoreAdapter.shared
-            let libraries = store.listLibraries()
-            var results: [(id: UUID, identifiers: [IdentifierType: String])] = []
-            var seen = Set<UUID>()
+        let allPubs = await Self.allPublicationsWithIdentifiers()
+        var results: [(id: UUID, identifiers: [IdentifierType: String])] = []
 
-            for library in libraries {
-                guard results.count < limit else { break }
-                let pubs = store.queryPublications(parentId: library.id)
-                for pub in pubs {
-                    guard results.count < limit else { break }
-                    guard !seen.contains(pub.id) else { continue }
-                    seen.insert(pub.id)
+        for pub in allPubs {
+            guard results.count < limit else { break }
 
-                    // Must have at least one identifier for enrichment
-                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
-
-                    // Check enrichment_date via detail fields
-                    guard let detail = store.getPublicationDetail(id: pub.id) else { continue }
-                    let enrichmentDate = detail.fields["enrichment_date"]
-                        .flatMap { Self.isoFormatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }
-
-                    if enrichmentDate == nil || enrichmentDate! < date {
-                        results.append((id: pub.id, identifiers: detail.enrichmentIdentifiers))
-                    }
-                }
+            let enrichmentDate = pub.enrichmentDate.flatMap { Self.parseEnrichmentDate($0) }
+            if enrichmentDate == nil || enrichmentDate! < date {
+                results.append((id: pub.id, identifiers: Self.identifiers(from: pub)))
             }
-
-            return results
         }
+
+        return results
     }
 
     func countNeverEnriched() async -> Int {
-        await MainActor.run {
-            let store = RustStoreAdapter.shared
-            let libraries = store.listLibraries()
-            var count = 0
-            var seen = Set<UUID>()
-
-            for library in libraries {
-                let pubs = store.queryPublications(parentId: library.id)
-                for pub in pubs {
-                    guard !seen.contains(pub.id) else { continue }
-                    seen.insert(pub.id)
-                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
-                    if let detail = store.getPublicationDetail(id: pub.id),
-                       detail.fields["enrichment_date"] == nil {
-                        count += 1
-                    }
-                }
-            }
-            return count
-        }
+        let allPubs = await Self.allPublicationsWithIdentifiers()
+        return allPubs.filter { $0.enrichmentDate == nil }.count
     }
 
     func countStale(olderThan date: Date) async -> Int {
-        await MainActor.run {
-            let store = RustStoreAdapter.shared
-            let libraries = store.listLibraries()
-            var count = 0
-            var seen = Set<UUID>()
-
-            for library in libraries {
-                let pubs = store.queryPublications(parentId: library.id)
-                for pub in pubs {
-                    guard !seen.contains(pub.id) else { continue }
-                    seen.insert(pub.id)
-                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
-                    if let detail = store.getPublicationDetail(id: pub.id),
-                       let dateStr = detail.fields["enrichment_date"],
-                       let enrichmentDate = Self.isoFormatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr),
-                       enrichmentDate < date {
-                        count += 1
-                    }
-                }
-            }
-            return count
-        }
+        let allPubs = await Self.allPublicationsWithIdentifiers()
+        return allPubs.filter { pub in
+            guard let dateStr = pub.enrichmentDate,
+                  let enrichmentDate = Self.parseEnrichmentDate(dateStr) else { return false }
+            return enrichmentDate < date
+        }.count
     }
 }

@@ -35,6 +35,9 @@ public final class DragDropCoordinator {
     /// Pending preview data for user confirmation
     public var pendingPreview: DropPreviewData?
 
+    /// The drop target associated with `pendingPreview` (used for collection assignment after import)
+    public var pendingDropTarget: DropTarget?
+
     /// Current target being hovered
     public var currentTarget: DropTarget?
 
@@ -371,6 +374,7 @@ public final class DragDropCoordinator {
             if previews.isEmpty {
                 throw DragDropError.noFilesFound
             }
+            pendingDropTarget = target
             pendingPreview = .pdfImport(previews)
             return .needsConfirmation
 
@@ -382,6 +386,7 @@ public final class DragDropCoordinator {
             if previews.isEmpty {
                 throw DragDropError.noFilesFound
             }
+            pendingDropTarget = .inbox
             pendingPreview = .pdfImport(previews)
             return .needsConfirmation
 
@@ -399,6 +404,7 @@ public final class DragDropCoordinator {
         }
 
         let preview = try await bibDropHandler.prepareBibImport(url: url, target: target)
+        pendingDropTarget = target
         pendingPreview = .bibImport(preview)
         return .needsConfirmation
     }
@@ -543,6 +549,118 @@ public final class DragDropCoordinator {
             }
         }
 
+        // Try extracting DOI from publisher URLs
+        if let doi = extractDOIFromURL(url) {
+            return ParsedPaperURL(query: doi, sourceIDs: ["crossref", "ads"])
+        }
+
+        return nil
+    }
+
+    /// Extract a DOI from a publisher URL using known host→prefix mappings and path patterns.
+    private func extractDOIFromURL(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        let path = url.path
+
+        // Known publisher host → DOI prefix mappings
+        // Nature: nature.com/articles/{doi-suffix} → 10.1038/{doi-suffix}
+        if host.hasSuffix("nature.com") {
+            let prefix = "/articles/"
+            if path.hasPrefix(prefix) {
+                let suffix = String(path.dropFirst(prefix.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if !suffix.isEmpty {
+                    return "10.1038/\(suffix)"
+                }
+            }
+        }
+
+        // Science: science.org/doi/{full-doi}
+        if host.hasSuffix("science.org"), path.hasPrefix("/doi/") {
+            let doiPart = String(path.dropFirst("/doi/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            // Remove action prefix (abs/, full/, pdf/) if present
+            let cleanDOI: String
+            if let slashRange = doiPart.range(of: "/"),
+               let afterSlash = doiPart.range(of: "10.", options: .literal) {
+                cleanDOI = String(doiPart[afterSlash.lowerBound...])
+            } else {
+                cleanDOI = doiPart
+            }
+            if cleanDOI.hasPrefix("10.") {
+                return cleanDOI
+            }
+        }
+
+        // Springer: link.springer.com/article/{doi}
+        if host.hasSuffix("springer.com"), path.hasPrefix("/article/") {
+            let doiPart = String(path.dropFirst("/article/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if doiPart.hasPrefix("10.") {
+                return doiPart
+            }
+        }
+
+        // Wiley: onlinelibrary.wiley.com/doi/{doi}
+        if host.hasSuffix("wiley.com"), path.hasPrefix("/doi/") {
+            let doiPart = String(path.dropFirst("/doi/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            // Remove action prefix (abs/, full/, pdf/) if present
+            let cleanDOI: String
+            if let doiStart = doiPart.range(of: "10.", options: .literal) {
+                cleanDOI = String(doiPart[doiStart.lowerBound...])
+            } else {
+                cleanDOI = doiPart
+            }
+            if cleanDOI.hasPrefix("10.") {
+                return cleanDOI
+            }
+        }
+
+        // PNAS: pnas.org/doi/{doi}
+        if host.hasSuffix("pnas.org"), path.hasPrefix("/doi/") {
+            let doiPart = String(path.dropFirst("/doi/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let cleanDOI: String
+            if let doiStart = doiPart.range(of: "10.", options: .literal) {
+                cleanDOI = String(doiPart[doiStart.lowerBound...])
+            } else {
+                cleanDOI = doiPart
+            }
+            if cleanDOI.hasPrefix("10.") {
+                return cleanDOI
+            }
+        }
+
+        // APS (Physical Review): journals.aps.org/{journal}/abstract/{doi}
+        if host.hasSuffix("aps.org"), path.contains("/abstract/") {
+            if let abstractRange = path.range(of: "/abstract/") {
+                let doiPart = String(path[abstractRange.upperBound...])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if doiPart.hasPrefix("10.") {
+                    return doiPart
+                }
+            }
+        }
+
+        // bioRxiv/medRxiv: (bio|med)rxiv.org/content/{doi}
+        if host.hasSuffix("biorxiv.org") || host.hasSuffix("medrxiv.org"),
+           path.hasPrefix("/content/") {
+            let doiPart = String(path.dropFirst("/content/".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if doiPart.hasPrefix("10.") {
+                // Strip trailing version suffixes like .v1, .full, .pdf
+                let cleaned = doiPart
+                    .replacingOccurrences(of: #"\.(v\d+|full|pdf|abstract)$"#, with: "", options: .regularExpression)
+                return cleaned
+            }
+        }
+
+        // Generic fallback: try extracting DOI pattern from the full URL string
+        if let doi = IdentifierExtractor.extractDOIFromText(url.absoluteString) {
+            return doi
+        }
+
         return nil
     }
 
@@ -552,9 +670,11 @@ public final class DragDropCoordinator {
     @discardableResult
     public func confirmPDFImport(_ previews: [PDFImportPreview], to libraryID: UUID) async throws -> [UUID] {
         isProcessing = true
+        let dropTarget = pendingDropTarget
         defer {
             isProcessing = false
             pendingPreview = nil
+            pendingDropTarget = nil
         }
 
         var importedIDs: [UUID] = []
@@ -563,6 +683,12 @@ public final class DragDropCoordinator {
             if let pubID = try await pdfImportHandler.commitImport(preview, to: libraryID) {
                 importedIDs.append(pubID)
             }
+        }
+
+        // If the drop target was a collection, add imported publications to it
+        if case .collection(let collectionID, _) = dropTarget, !importedIDs.isEmpty {
+            store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
+            Logger.files.infoCapture("Added \(importedIDs.count) imported publications to collection \(collectionID)", category: "files")
         }
 
         if !importedIDs.isEmpty {
@@ -578,17 +704,26 @@ public final class DragDropCoordinator {
     /// Confirm and execute a pending BibTeX/RIS import.
     public func confirmBibImport(_ preview: BibImportPreview, to libraryID: UUID) async throws {
         isProcessing = true
+        let dropTarget = pendingDropTarget
         defer {
             isProcessing = false
             pendingPreview = nil
+            pendingDropTarget = nil
         }
 
-        try await bibDropHandler.commitImport(preview, to: libraryID)
+        let importedIDs = try await bibDropHandler.commitImport(preview, to: libraryID)
+
+        // If the drop target was a collection, add imported publications to it
+        if case .collection(let collectionID, _) = dropTarget, !importedIDs.isEmpty {
+            store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
+            Logger.files.infoCapture("Added \(importedIDs.count) imported entries to collection \(collectionID)", category: "files")
+        }
     }
 
     /// Cancel a pending import.
     public func cancelImport() {
         pendingPreview = nil
+        pendingDropTarget = nil
     }
 
     // MARK: - Metadata Lookup

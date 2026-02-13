@@ -243,7 +243,7 @@ struct PDFKitViewRepresentable: NSViewRepresentable {
     }
 }
 
-/// Custom PDFView subclass that can suppress context menus in annotation mode
+/// Custom PDFView subclass that can suppress context menus in annotation mode.
 class AnnotationModePDFView: PDFView {
     var isAnnotationMode: Bool = false
 
@@ -452,9 +452,42 @@ struct ControlledPDFKitView: NSViewRepresentable {
     class Coordinator: NSObject {
         var parent: ControlledPDFKitView
         weak var pdfView: AnnotationModePDFView?
+        var scrollZoomMonitor: Any?
 
         init(_ parent: ControlledPDFKitView) {
             self.parent = parent
+            super.init()
+            installScrollZoomMonitor()
+        }
+
+        deinit {
+            if let monitor = scrollZoomMonitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        /// Intercepts Option+scroll wheel events over the PDFView to zoom in/out.
+        /// PDFView's internal NSScrollView consumes scroll events before they reach
+        /// our PDFView subclass, so we use a local event monitor instead.
+        private func installScrollZoomMonitor() {
+            scrollZoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, let pdfView = self.pdfView else { return event }
+
+                // Only handle Option+scroll
+                guard event.modifierFlags.contains(.option) else { return event }
+
+                // Only handle when the scroll is over our PDFView
+                let locationInView = pdfView.convert(event.locationInWindow, from: nil)
+                guard pdfView.bounds.contains(locationInView) else { return event }
+
+                let delta = event.scrollingDeltaY
+                guard abs(delta) > 0.01 else { return nil }
+
+                let zoomFactor = 1.0 + (delta * 0.01)
+                let newScale = max(0.25, min(4.0, pdfView.scaleFactor * zoomFactor))
+                pdfView.scaleFactor = newScale
+                return nil  // consume the event
+            }
         }
 
         @objc func pageChanged(_ notification: Notification) {

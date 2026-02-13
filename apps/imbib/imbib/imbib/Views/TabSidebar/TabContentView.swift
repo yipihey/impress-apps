@@ -95,13 +95,8 @@ struct TabContentView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { _ in
-            viewModel.refreshFlagCounts()
-            viewModel.bumpDataVersion()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .libraryContentDidChange)) { _ in
-            libraryManager.loadLibraries()
-            viewModel.bumpDataVersion()
+        .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { _ in
+            viewModel.refreshFromStore()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             if let collectionID = notification.userInfo?["collectionID"] as? UUID {
@@ -132,10 +127,10 @@ struct TabContentView: View {
         } message: { library in
             Text("Are you sure you want to delete \"\(library.name)\"? This cannot be undone.")
         }
-        // Phase 8: CloudKit sharing sheet removed — will be replaced with Rust-backed sync
-        // #if os(macOS)
-        // .sheet(item: $viewModel.itemToShareViaICloud) { ... }
-        // #endif
+        .task {
+            // Run retention cleanup on launch
+            RetentionCleanupService.shared.performCleanup()
+        }
     }
 
 }

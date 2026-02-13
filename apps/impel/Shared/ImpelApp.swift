@@ -17,6 +17,8 @@ struct ImpelApp: App {
     @StateObject private var client = ImpelClient()
     @StateObject private var mailGatewayState = MailGatewayState()
     @State private var navigateToTab: DashboardTab?
+    @State private var captureGateway: CaptureGateway?
+    @State private var emlWatcher: EMLFolderWatcher?
 
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
@@ -83,6 +85,22 @@ struct ImpelApp: App {
                         if let engine = mailGatewayState.counselEngine,
                            let store = await mailGatewayState.messageStore {
                             await engine.rehydrateMailStore(store: store)
+                        }
+
+                        // Start capture@ gateway for email-to-artifact pipeline
+                        if mailGatewayState.captureEnabled,
+                           let store = await mailGatewayState.messageStore {
+                            let capture = CaptureGateway(store: store)
+                            await capture.start()
+                            captureGateway = capture
+                        }
+
+                        // Start EML folder watcher
+                        if mailGatewayState.emlWatcherEnabled,
+                           let store = await mailGatewayState.messageStore {
+                            let watcher = EMLFolderWatcher(store: store)
+                            await watcher.start()
+                            emlWatcher = watcher
                         }
                     }
                 }
@@ -246,6 +264,8 @@ class MailGatewayState: ObservableObject {
     @AppStorage("counselSMTPPort") var smtpPort = 2525
     @AppStorage("counselIMAPPort") var imapPort = 1143
     @AppStorage("counselSystemPrompt") var counselSystemPrompt = ""
+    @AppStorage("captureGatewayEnabled") var captureEnabled = true
+    @AppStorage("emlWatcherEnabled") var emlWatcherEnabled = true
 
     @Published var smtpRunning = false
     @Published var imapRunning = false

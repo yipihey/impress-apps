@@ -39,22 +39,53 @@ public actor MessageStore {
     /// Incoming messages from the PI, kept for thread reference.
     private var incoming: [String: MailMessage] = [:]
 
-    /// Callback invoked when a new message arrives (for the gateway to pick up).
+    /// Default callback invoked when no prefix-based handler matches.
     private var onIncomingMessage: (@Sendable (MailMessage) async -> Void)?
 
-    /// Set a handler for incoming messages (from SMTP).
+    /// Prefix-based handlers: local-part prefix → handler.
+    /// e.g., "capture" handles capture@impress.local
+    private var prefixHandlers: [String: @Sendable (MailMessage) async -> Void] = [:]
+
+    /// Set the default handler for incoming messages (from SMTP).
+    /// Used as fallback when no prefix-based handler matches.
     public func setIncomingHandler(_ handler: @escaping @Sendable (MailMessage) async -> Void) {
         onIncomingMessage = handler
     }
 
+    /// Register a handler for a specific address prefix.
+    ///
+    /// When a message arrives addressed to `{prefix}@...`, this handler fires
+    /// instead of the default incoming handler.
+    ///
+    /// - Parameters:
+    ///   - prefix: The local-part prefix to match (e.g., "capture" matches capture@impress.local).
+    ///   - handler: Async handler receiving the matched message.
+    public func addIncomingHandler(forPrefix prefix: String, handler: @escaping @Sendable (MailMessage) async -> Void) {
+        prefixHandlers[prefix.lowercased()] = handler
+    }
+
     // MARK: - SMTP Side (PI sends to counsel)
 
-    /// Store an incoming message from SMTP and notify the gateway.
+    /// Store an incoming message from SMTP and notify the appropriate handler.
+    ///
+    /// Checks envelope recipients against registered prefix handlers first.
+    /// Falls back to the default incoming handler if no prefix matches.
     public func receiveIncoming(_ message: MailMessage) async {
         incoming[message.messageID] = message
 
         logger.info("Received message from \(message.from): \(message.subject)")
 
+        // Check envelope recipients for prefix-based routing
+        let recipients = message.envelopeRecipients.isEmpty ? message.to : message.envelopeRecipients
+        for recipient in recipients {
+            let localPart = recipient.components(separatedBy: "@").first?.lowercased() ?? ""
+            if let handler = prefixHandlers[localPart] {
+                await handler(message)
+                return
+            }
+        }
+
+        // No prefix match — use default handler
         await onIncomingMessage?(message)
     }
 

@@ -112,6 +112,26 @@ export interface Annotation {
   dateModified: string;
 }
 
+export interface Artifact {
+  id: string;
+  type: string;   // e.g. "impress/artifact/webpage"
+  typeName: string;  // e.g. "Web Page"
+  title: string;
+  isRead: boolean;
+  isStarred: boolean;
+  created: string;
+  tags: string[];
+  sourceURL?: string;
+  notes?: string;
+  fileName?: string;
+  fileSize?: number;
+  fileMimeType?: string;
+  originalAuthor?: string;
+  captureContext?: string;
+  eventName?: string;
+  flagColor?: string;
+}
+
 export interface ShareResult {
   libraryID: string;
   shareURL?: string;
@@ -762,6 +782,86 @@ export class ImbibClient {
   }
 
   /**
+   * List comments for any item by UUID.
+   */
+  async listItemComments(
+    itemID: string
+  ): Promise<{ comments: Record<string, unknown>[]; total: number }> {
+    const response = await fetch(`${this.baseURL}/api/items/${itemID}/comments`);
+    if (!response.ok) {
+      throw new Error(`List item comments failed: ${response.statusText}`);
+    }
+    return (await response.json()) as {
+      comments: Record<string, unknown>[];
+      total: number;
+    };
+  }
+
+  /**
+   * Add a comment to any item by UUID.
+   */
+  async addItemComment(
+    itemID: string,
+    text: string,
+    parentCommentID?: string
+  ): Promise<{ comment: Record<string, unknown> }> {
+    const body: Record<string, string> = { text };
+    if (parentCommentID) body.parentCommentID = parentCommentID;
+
+    const response = await fetch(`${this.baseURL}/api/items/${itemID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Add item comment failed: ${response.statusText}`);
+    }
+    return (await response.json()) as { comment: Record<string, unknown> };
+  }
+
+  /**
+   * Edit an existing comment.
+   */
+  async editComment(
+    commentID: string,
+    text: string
+  ): Promise<{ updated: boolean }> {
+    const response = await fetch(`${this.baseURL}/api/comments/${commentID}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      throw new Error(`Edit comment failed: ${response.statusText}`);
+    }
+    return (await response.json()) as { updated: boolean };
+  }
+
+  /**
+   * Trigger a manual comment sync.
+   */
+  async syncComments(): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.baseURL}/api/sync/comments`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`Sync comments failed: ${response.statusText}`);
+    }
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  /**
+   * Get sync status.
+   */
+  async getSyncStatus(): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.baseURL}/api/sync/status`);
+    if (!response.ok) {
+      throw new Error(`Get sync status failed: ${response.statusText}`);
+    }
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  /**
    * List assignments in a library.
    */
   async listLibraryAssignments(libraryID: string): Promise<Assignment[]> {
@@ -979,5 +1079,143 @@ export class ImbibClient {
     }
     const data = (await response.json()) as { status: string; notes: string | null };
     return { notes: data.notes };
+  }
+
+  // --------------------------------------------------------------------------
+  // Artifact Operations
+  // --------------------------------------------------------------------------
+
+  /**
+   * List or search artifacts.
+   */
+  async listArtifacts(options: {
+    type?: string;
+    query?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<Artifact[]> {
+    const params = new URLSearchParams();
+    if (options.type) params.set("type", options.type);
+    if (options.query) params.set("query", options.query);
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.offset) params.set("offset", String(options.offset));
+
+    const query = params.toString();
+    const url = query
+      ? `${this.baseURL}/api/artifacts?${query}`
+      : `${this.baseURL}/api/artifacts`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`List artifacts failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; artifacts: Artifact[] };
+    return data.artifacts;
+  }
+
+  /**
+   * Get a single artifact by ID.
+   */
+  async getArtifact(id: string): Promise<Artifact | null> {
+    const response = await fetch(`${this.baseURL}/api/artifacts/${id}`);
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error(`Get artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; artifact: Artifact };
+    return data.artifact;
+  }
+
+  /**
+   * Create a new artifact.
+   */
+  async createArtifact(
+    type: string,
+    title: string,
+    options: { sourceURL?: string; notes?: string; tags?: string[] } = {}
+  ): Promise<Artifact> {
+    const response = await fetch(`${this.baseURL}/api/artifacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        title,
+        sourceURL: options.sourceURL,
+        notes: options.notes,
+        tags: options.tags,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Create artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; artifact: Artifact };
+    return data.artifact;
+  }
+
+  /**
+   * Delete an artifact.
+   */
+  async deleteArtifact(id: string): Promise<{ deleted: boolean }> {
+    const response = await fetch(`${this.baseURL}/api/artifacts/${id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`Delete artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; deleted: boolean };
+    return { deleted: data.deleted };
+  }
+
+  /**
+   * Add a tag to an artifact.
+   */
+  async tagArtifact(id: string, tag: string): Promise<{ updated: boolean }> {
+    const response = await fetch(`${this.baseURL}/api/artifacts/${id}/tags`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag }),
+    });
+    if (!response.ok) {
+      throw new Error(`Tag artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; updated: boolean };
+    return { updated: data.updated };
+  }
+
+  /**
+   * Remove a tag from an artifact.
+   */
+  async untagArtifact(id: string, tag: string): Promise<{ updated: boolean }> {
+    const response = await fetch(
+      `${this.baseURL}/api/artifacts/${id}/tags/${encodeURIComponent(tag)}`,
+      { method: "DELETE" }
+    );
+    if (!response.ok) {
+      throw new Error(`Untag artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; updated: boolean };
+    return { updated: data.updated };
+  }
+
+  /**
+   * Link an artifact to a publication by cite key.
+   */
+  async linkArtifactToPaper(
+    artifactID: string,
+    citeKey: string
+  ): Promise<{ linked: boolean }> {
+    const response = await fetch(
+      `${this.baseURL}/api/artifacts/${artifactID}/link`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ citeKey }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Link artifact failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; linked: boolean };
+    return { linked: data.linked };
   }
 }

@@ -282,7 +282,7 @@ impl SearchIndex {
         let searcher = self.reader.searcher();
 
         // Build query parser for multiple fields
-        let query_parser = QueryParser::for_index(
+        let mut query_parser = QueryParser::for_index(
             &self.index,
             vec![
                 self.title_field,
@@ -292,8 +292,27 @@ impl SearchIndex {
                 self.notes_field,
             ],
         );
+        // All terms must match (AND semantics) for multi-word queries
+        query_parser.set_conjunction_by_default();
 
-        let text_query = query_parser.parse_query(query_str)?;
+        // Enable prefix matching: append * to the last token so partial words match.
+        // This makes "gevolutio" match "gevolution" as the user types.
+        // Only do this for plain queries (no special Tantivy syntax characters).
+        let effective_query = if !query_str.is_empty()
+            && !query_str.contains(|c: char| "+-\"*~^:(){}[]".contains(c))
+        {
+            let trimmed = query_str.trim();
+            // Append * to the last word for prefix matching
+            if let Some(last_space) = trimmed.rfind(' ') {
+                format!("{} {}*", &trimmed[..last_space], &trimmed[last_space + 1..])
+            } else {
+                format!("{}*", trimmed)
+            }
+        } else {
+            query_str.to_string()
+        };
+
+        let text_query = query_parser.parse_query(&effective_query)?;
 
         // Optionally filter by library
         let final_query: Box<dyn tantivy::query::Query> = if let Some(lib_id) = library_id {

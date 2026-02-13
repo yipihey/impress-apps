@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UniformTypeIdentifiers
 import OSLog
 import CommonCrypto
 
@@ -81,6 +82,36 @@ public actor ArtifactImportHandler {
                 tags: tags
             )
 
+            // Rename storage directory to match the store-assigned ID
+            // (createArtifact generates its own UUID, which may differ from our local artifactID)
+            if let artifact, artifact.id != artifactID {
+                let finalDir = artifactStorageURL.appendingPathComponent(artifact.id.uuidString, isDirectory: true)
+                try FileManager.default.moveItem(at: destDir, to: finalDir)
+                Logger.library.infoCapture(
+                    "Renamed artifact dir \(artifactID) -> \(artifact.id)",
+                    category: "artifacts"
+                )
+            }
+
+            // OCR: If the file is an image, extract text in background
+            if let artifact,
+               let utType = UTType(filenameExtension: sourceURL.pathExtension),
+               utType.conforms(to: .image) {
+                let storeArtifactID = artifact.id
+                Task { @MainActor in
+                    if let ocrText = await ArtifactMetadataExtractor.extractOCRText(
+                        from: self.storageURL(for: storeArtifactID).appendingPathComponent(sourceURL.lastPathComponent)
+                    ) {
+                        let existingNotes = RustStoreAdapter.shared.getArtifact(id: storeArtifactID)?.notes ?? ""
+                        let updatedNotes = existingNotes.isEmpty
+                            ? "--- OCR Text ---\n\(ocrText)"
+                            : "\(existingNotes)\n\n--- OCR Text ---\n\(ocrText)"
+                        RustStoreAdapter.shared.updateArtifact(id: storeArtifactID, notes: updatedNotes)
+                        Logger.library.infoCapture("OCR text appended to artifact \(storeArtifactID)", category: "artifacts")
+                    }
+                }
+            }
+
             return artifact
         } catch {
             Logger.library.errorCapture("Failed to import artifact file: \(error)", category: "artifacts")
@@ -91,6 +122,9 @@ public actor ArtifactImportHandler {
     }
 
     /// Import a URL as a webpage artifact.
+    ///
+    /// Creates the artifact immediately with metadata, then kicks off
+    /// web archival in the background for offline viewing.
     @MainActor
     public func importURL(
         _ url: URL,
@@ -113,6 +147,25 @@ public actor ArtifactImportHandler {
             originalAuthor: metadata.originalAuthor,
             tags: tags
         )
+
+        // Kick off web archival in background
+        if let artifact {
+            let artifactID = artifact.id
+            let archiveURL = url
+            Task { @MainActor in
+                Logger.library.infoCapture("Starting web archive for artifact \(artifactID)", category: "artifacts")
+                if let result = await WebArchiver.shared.archive(url: archiveURL, artifactID: artifactID) {
+                    RustStoreAdapter.shared.updateArtifact(
+                        id: artifactID,
+                        title: result.title  // Update title if archive extracted a better one
+                    )
+                    Logger.library.infoCapture(
+                        "Web archive complete for artifact \(artifactID) (\(ByteCountFormatter.string(fromByteCount: result.byteSize, countStyle: .file)))",
+                        category: "artifacts"
+                    )
+                }
+            }
+        }
 
         return artifact
     }

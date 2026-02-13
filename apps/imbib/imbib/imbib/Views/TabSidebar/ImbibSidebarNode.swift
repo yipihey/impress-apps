@@ -49,6 +49,7 @@ struct ImbibSidebarNode: SidebarTreeNode {
     let displayName: String
     let iconName: String
     var displayCount: Int?
+    var starCount: Int?
     var iconColor: Color?
     var treeDepth: Int = 0
     var hasTreeChildren: Bool = false

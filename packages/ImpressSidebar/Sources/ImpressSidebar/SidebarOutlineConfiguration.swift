@@ -57,8 +57,17 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     public var canAcceptDrop: ((Node, Node?) -> Bool)?
 
     /// Returns whether a node should be rendered as a group item (section header).
-    /// Group items are displayed as bold uppercase text without icon, and are not selectable.
+    /// Group items are displayed as bold uppercase text without icon, and are not selectable
+    /// (unless `shouldSelectItem` returns true for them).
     public var isGroupItem: ((Node) -> Bool)?
+
+    /// Optional override for selectability. When nil, group items are not selectable.
+    /// When provided, this callback determines selectability (even for group items).
+    public var shouldSelectItem: ((Node) -> Bool)?
+
+    /// Optional callback to build a menu for section header trailing buttons.
+    /// Return nil to hide the button for that section.
+    public var sectionMenu: ((Node) -> NSMenu?)?
 
     public init(
         rootNodes: [Node],
@@ -72,7 +81,9 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         onRename: ((Node, String) -> Void)? = nil,
         contextMenu: ((Node) -> NSMenu?)? = nil,
         canAcceptDrop: ((Node, Node?) -> Bool)? = nil,
-        isGroupItem: ((Node) -> Bool)? = nil
+        isGroupItem: ((Node) -> Bool)? = nil,
+        shouldSelectItem: ((Node) -> Bool)? = nil,
+        sectionMenu: ((Node) -> NSMenu?)? = nil
     ) {
         self.rootNodes = rootNodes
         self.childrenOf = childrenOf
@@ -86,6 +97,8 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         self.contextMenu = contextMenu
         self.canAcceptDrop = canAcceptDrop
         self.isGroupItem = isGroupItem
+        self.shouldSelectItem = shouldSelectItem
+        self.sectionMenu = sectionMenu
     }
 }
 #endif

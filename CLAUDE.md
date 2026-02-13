@@ -177,6 +177,40 @@ This three-point trace makes async timing bugs immediately visible (as seen abov
 
 Use `mutableSetValue(forKey:)` for to-many relationship mutations, not direct property assignment. See [imbib CLAUDE.md](apps/imbib/CLAUDE.md) for details.
 
+### Keyboard Shortcuts Must Not Steal Text Field Input
+
+All impress apps use vim-style single-key shortcuts (h, j, k, l, s, d, etc.) for navigation. These **must not fire when the user is typing in a text field, TextEditor, or search field.**
+
+**The rule: Always use `.keyboardGuarded {}` instead of `.onKeyPress {}` for any handler that matches unmodified character keys.**
+
+The `ImpressKeyboard` package provides the solution:
+- `TextFieldFocusDetection.isTextFieldFocused()` — checks if an editable NSTextView/NSTextField is the first responder
+- `.keyboardGuarded { press in ... }` — view modifier that wraps `.onKeyPress` with the text field guard
+
+```swift
+// CORRECT — shortcuts are suppressed when user is typing
+.keyboardGuarded { press in
+    if press.characters == "j" { navigateDown(); return .handled }
+    if press.characters == "k" { navigateUp(); return .handled }
+    return .ignored
+}
+
+// WRONG — "j" and "k" get intercepted while typing in a comment field
+.onKeyPress { press in
+    if press.characters == "j" { navigateDown(); return .handled }
+    ...
+}
+```
+
+**When `.onKeyPress` is still OK:**
+- Handlers that only match special keys (Escape, Return, arrows, Tab) — these don't conflict with text input
+- Handlers that only match modified keys (Cmd+1, Shift+Cmd+R) — modifiers prevent conflict
+- Handlers inside focused text input components (CommandPalette, FilterInput) that manage their own focus
+
+**Every app must depend on `ImpressKeyboard`** and use `.keyboardGuarded` for character-key handlers. Currently wired in: imbib, imprint, implore, impel, impart.
+
+**Do NOT put `.focusable()` on views that contain text editors.** A `.focusable()` wrapper on a parent view creates a SwiftUI focus target that can intercept key events before they reach an AppKit NSTextView (TextEditor, HelixTextView) inside. Even when `.keyboardGuarded` returns `.ignored`, the `.focusable()` wrapper may consume the event from the AppKit responder chain. Place `.focusable().keyboardGuarded` on the outermost container only (e.g., the detail view wrapping all tabs), not on individual child views containing text input. In imbib, `DetailView` handles h/l pane cycling for all tabs — individual tabs (NotesTab, InfoTab, BibTeXTab) must NOT have their own `.focusable()` wrappers.
+
 ### macOS Toolbar & Split View Layout
 
 These rules apply to any impress app using `NavigationSplitView` with an inner `HSplitView` (e.g., imbib's list + detail split). The macOS toolbar system has undocumented limitations that cause hours of debugging.

@@ -23,6 +23,7 @@ public struct ShareExtensionView: View {
         case categoryFeed(category: String, sourceID: String)
         case broadCategoryFeed(category: String, sourceID: String)  // Category without subcategory
         case docsSelection(query: String)
+        case artifact(url: URL, suggestedTitle: String?, inferredType: ArtifactType)
     }
 
     // MARK: - Properties
@@ -48,6 +49,11 @@ public struct ShareExtensionView: View {
     @State private var selectedLibraryID: UUID?
     @State private var addToInbox: Bool = true
     @State private var isProcessing: Bool = false
+
+    // Artifact capture state
+    @State private var artifactTitle: String = ""
+    @State private var artifactType: ArtifactType = .webpage
+    @State private var artifactNotes: String = ""
 
     // MARK: - Environment
 
@@ -87,9 +93,11 @@ public struct ShareExtensionView: View {
                     broadCategoryForm(category: category)
                 case .docsSelection(let query):
                     docsSelectionForm(query: query)
+                case .artifact:
+                    artifactCaptureForm
                 }
             } else {
-                invalidURLView
+                artifactCaptureForm
             }
         }
         .onAppear {
@@ -107,6 +115,14 @@ public struct ShareExtensionView: View {
                 // For category feeds, create a descriptive name
                 smartSearchName = "arXiv \(category)"
                 smartSearchQuery = "cat:\(category)"
+            } else if case .artifact(_, let suggestedTitle, let inferredType) = parsedURL {
+                artifactTitle = suggestedTitle ?? sharedURL.host ?? ""
+                artifactType = inferredType
+            }
+            // Initialize artifact state for nil parsedURL (also shows artifact form)
+            if parsedURL == nil {
+                artifactTitle = pageTitle ?? sharedURL.host ?? ""
+                artifactType = .webpage
             }
             // Default to first library
             selectedLibraryID = availableLibraries.first(where: { $0.isDefault })?.id
@@ -150,7 +166,9 @@ public struct ShareExtensionView: View {
             }
         }
 
-        return nil
+        // Not a recognized academic URL — offer artifact capture
+        let suggestedTitle = pageTitle ?? url.host
+        return .artifact(url: url, suggestedTitle: suggestedTitle, inferredType: .webpage)
     }
 
     // MARK: - Smart Search Form
@@ -435,34 +453,77 @@ public struct ShareExtensionView: View {
         .frame(minWidth: 300, minHeight: 200)
     }
 
-    // MARK: - Invalid URL View
+    // MARK: - Artifact Capture Form
 
-    private var invalidURLView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.largeTitle)
-                .foregroundStyle(.orange)
-
-            Text("Unsupported URL")
+    private var artifactCaptureForm: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            Label("Save as Artifact", systemImage: "archivebox")
                 .font(.headline)
 
-            Text("This URL is not a recognized ADS or arXiv URL.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
+            // URL display
             Text(sharedURL.absoluteString)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+                .truncationMode(.middle)
 
-            Button("Close") {
-                onCancel()
+            // Title field
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Title")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TextField("Artifact title", text: $artifactTitle)
+                    .textFieldStyle(.roundedBorder)
             }
-            .keyboardShortcut(.cancelAction)
+
+            // Type picker
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Type")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Picker("Type", selection: $artifactType) {
+                    ForEach(ArtifactType.allCases, id: \.self) { type in
+                        Label(type.displayName, systemImage: type.iconName)
+                            .tag(type)
+                    }
+                }
+                .labelsHidden()
+                #if os(macOS)
+                .pickerStyle(.menu)
+                #endif
+            }
+
+            // Notes field (optional)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TextField("Optional notes", text: $artifactNotes, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
+            }
+
+            Spacer()
+
+            // Buttons
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Save") {
+                    confirmArtifact()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(artifactTitle.isEmpty || isProcessing)
+            }
         }
         .padding()
-        .frame(minWidth: 300, minHeight: 200)
+        .frame(minWidth: 300, minHeight: 300)
     }
 
     // MARK: - Actions
@@ -508,6 +569,22 @@ public struct ShareExtensionView: View {
             name: nil,
             query: query,
             libraryID: nil,  // Always to Inbox
+            createdAt: Date()
+        )
+
+        onConfirm(item)
+    }
+
+    private func confirmArtifact() {
+        isProcessing = true
+
+        let item = ShareExtensionService.SharedItem(
+            url: sharedURL,
+            type: .artifact,
+            name: artifactTitle,
+            query: artifactNotes.isEmpty ? nil : artifactNotes,
+            libraryID: nil,
+            artifactTypeRaw: artifactType.rawValue,
             createdAt: Date()
         )
 
@@ -565,12 +642,17 @@ public struct ShareExtensionView: View {
     )
 }
 
-#Preview("Invalid URL") {
+#Preview("Non-Academic URL (Artifact Capture)") {
     ShareExtensionView(
-        sharedURL: URL(string: "https://example.com")!,
+        sharedURL: URL(string: "https://example.com/interesting-article")!,
+        pageTitle: "An Interesting Research Article",
         availableLibraries: [],
-        onConfirm: { _ in },
-        onCancel: {}
+        onConfirm: { item in
+            print("Confirmed: \(item)")
+        },
+        onCancel: {
+            print("Cancelled")
+        }
     )
 }
 

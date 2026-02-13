@@ -1,4 +1,5 @@
 import SwiftUI
+import ImpressKeyboard
 #if os(macOS)
 import AppKit
 import ImpressHelixCore
@@ -20,7 +21,7 @@ struct ContentView: View {
                 .accessibilityIdentifier("sidebar.container")
                 .focusable()
                 .focusEffectDisabled()
-                .onKeyPress { press in
+                .keyboardGuarded { press in
                     handleVimNavigation(press, appState: appState, libraryManager: libraryManager)
                 }
         } detail: {
@@ -500,29 +501,10 @@ struct GrammarEditorRepresentable: NSViewRepresentable {
 
 // MARK: - Vim Navigation
 
-/// Check if an editable text field currently has keyboard focus
-private func isTextFieldFocused() -> Bool {
-    #if os(macOS)
-    guard let window = NSApp.keyWindow,
-          let firstResponder = window.firstResponder else {
-        return false
-    }
-    // NSTextView is used by TextEditor, TextField, and other text controls
-    if let textView = firstResponder as? NSTextView {
-        return textView.isEditable
-    }
-    return false
-    #else
-    return false
-    #endif
-}
-
 /// Handle vim-style navigation keys (h/j/k/l) for figure library
 @MainActor
 private func handleVimNavigation(_ press: KeyPress, appState: AppState, libraryManager: LibraryManager) -> KeyPress.Result {
-    // Don't intercept when editing text
-    guard !isTextFieldFocused() else { return .ignored }
-
+    // Text field guarding is handled by .keyboardGuarded at the call site
     let figures = libraryManager.library.figures
     guard !figures.isEmpty else { return .ignored }
 

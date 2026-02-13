@@ -40,27 +40,67 @@ public actor DeduplicationService {
 
         guard !results.isEmpty else { return [] }
 
-        // Group results by shared identifiers
+        // Fast path: single-source results don't need cross-source dedup.
+        // Each source already deduplicates internally.
+        let sourceIDs = Set(results.map(\.sourceID))
+        if sourceIDs.count <= 1 {
+            let deduplicated = results.map { result in
+                DeduplicatedResult(
+                    primary: result,
+                    alternates: [],
+                    identifiers: Dictionary(
+                        result.allIdentifiers.map { ($0.key, $0.value) },
+                        uniquingKeysWith: { _, last in last }
+                    )
+                )
+            }
+            Logger.deduplication.info("Single-source fast path: \(results.count) results (no dedup needed)")
+            return deduplicated
+        }
+
+        // Multi-source: use identifier indices for O(n) grouping
+        // Build identifier → group index mappings
+        var groupForResult: [String: Int] = [:]  // result.id → group index
         var groups: [[SearchResult]] = []
-        var processed = Set<String>()
+
+        var doiToGroup: [String: Int] = [:]
+        var arxivToGroup: [String: Int] = [:]
+        var pmidToGroup: [String: Int] = [:]
+        var bibcodeToGroup: [String: Int] = [:]
 
         for result in results {
-            if processed.contains(result.id) { continue }
+            // Check if this result matches an existing group via any identifier
+            var targetGroup: Int?
 
-            // Find all results that share an identifier with this one
-            var group: [SearchResult] = [result]
-            processed.insert(result.id)
-
-            for other in results {
-                if processed.contains(other.id) { continue }
-
-                if sharesIdentifier(result, other) || fuzzyMatch(result, other) {
-                    group.append(other)
-                    processed.insert(other.id)
-                }
+            if let doi = result.doi {
+                targetGroup = targetGroup ?? doiToGroup[normalizeDOI(doi)]
+            }
+            if let arxiv = result.arxivID {
+                targetGroup = targetGroup ?? arxivToGroup[normalizeArXiv(arxiv)]
+            }
+            if let pmid = result.pmid {
+                targetGroup = targetGroup ?? pmidToGroup[pmid]
+            }
+            if let bibcode = result.bibcode {
+                targetGroup = targetGroup ?? bibcodeToGroup[bibcode]
             }
 
-            groups.append(group)
+            let groupIdx: Int
+            if let existing = targetGroup {
+                groups[existing].append(result)
+                groupIdx = existing
+            } else {
+                groupIdx = groups.count
+                groups.append([result])
+            }
+
+            groupForResult[result.id] = groupIdx
+
+            // Register all identifiers for this group
+            if let doi = result.doi { doiToGroup[normalizeDOI(doi)] = groupIdx }
+            if let arxiv = result.arxivID { arxivToGroup[normalizeArXiv(arxiv)] = groupIdx }
+            if let pmid = result.pmid { pmidToGroup[pmid] = groupIdx }
+            if let bibcode = result.bibcode { bibcodeToGroup[bibcode] = groupIdx }
         }
 
         // Convert groups to DeduplicatedResult

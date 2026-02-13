@@ -107,7 +107,7 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         // Register for drag-drop
         let pasteboardType = configuration.pasteboardType
-        var dragTypes: [NSPasteboard.PasteboardType] = [pasteboardType, .fileURL]
+        var dragTypes: [NSPasteboard.PasteboardType] = [pasteboardType, .fileURL, .URL]
         dragTypes.append(contentsOf: configuration.additionalDragTypes)
         outlineView.registerForDraggedTypes(dragTypes)
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
@@ -161,7 +161,7 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             )
 
             // Update drag types in case pasteboard type changed
-            var dragTypes: [NSPasteboard.PasteboardType] = [configuration.pasteboardType, .fileURL]
+            var dragTypes: [NSPasteboard.PasteboardType] = [configuration.pasteboardType, .fileURL, .URL]
             dragTypes.append(contentsOf: configuration.additionalDragTypes)
             outlineView.registerForDraggedTypes(dragTypes)
 
@@ -401,6 +401,10 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             guard let node = node(for: item) else { return true }
+            // Custom selectability override takes precedence
+            if let shouldSelect = configuration.shouldSelectItem {
+                return shouldSelect(node)
+            }
             if configuration.isGroupItem?(node) == true { return false }
             return true
         }
@@ -421,7 +425,8 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                     cell = SidebarOutlineCellView(frame: .zero)
                     cell.identifier = cellID
                 }
-                cell.configureAsGroup(displayName: node.displayName)
+                let sectionMenu = configuration.sectionMenu?(node)
+                cell.configureAsGroup(displayName: node.displayName, menu: sectionMenu)
                 return cell
             }
 
@@ -447,6 +452,7 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                 iconName: node.iconName,
                 iconColor: iconNSColor,
                 displayCount: node.displayCount,
+                starCount: node.starCount,
                 treeDepth: node.treeDepth,
                 isLastChild: info.isLastChild,
                 ancestorHasSiblingsBelow: info.ancestorHasSiblingsBelow,
@@ -506,9 +512,10 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         ) -> NSDragOperation {
             let pasteboard = info.draggingPasteboard
 
-            // External drops (files or additional registered types like publication IDs)
+            // External drops (files, URLs, or additional registered types like publication IDs)
             if configuration.onExternalDrop != nil {
                 let hasExternalType = pasteboard.types?.contains(.fileURL) == true
+                    || pasteboard.types?.contains(.URL) == true
                     || configuration.additionalDragTypes.contains(where: { pasteboard.types?.contains($0) == true })
                 if hasExternalType {
                     return .copy
@@ -578,9 +585,10 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         ) -> Bool {
             let pasteboard = info.draggingPasteboard
 
-            // Handle external drops (files or additional registered types)
+            // Handle external drops (files, URLs, or additional registered types)
             if let onExternalDrop = configuration.onExternalDrop {
                 let hasExternalType = pasteboard.types?.contains(.fileURL) == true
+                    || pasteboard.types?.contains(.URL) == true
                     || configuration.additionalDragTypes.contains(where: { pasteboard.types?.contains($0) == true })
                 if hasExternalType {
                     let targetNode = node(for: item)

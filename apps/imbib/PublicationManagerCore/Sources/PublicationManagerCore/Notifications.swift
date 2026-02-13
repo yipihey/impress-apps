@@ -98,20 +98,41 @@ public extension Notification.Name {
     /// Show search view
     static let showSearch = Notification.Name("showSearch")
 
-    // MARK: - Publication Actions
+    // MARK: - Publication Actions (Command Dispatch)
 
     /// Toggle read/unread status of selected publications
     static let toggleReadStatus = Notification.Name("toggleReadStatus")
 
-    /// Read status changed (for UI updates)
+    // MARK: - Store Mutation Signal
+
+    /// Posted by RustStoreAdapter.didMutate() on every write.
+    /// Use `.onReceive` instead of `.onChange(of: store.dataVersion)` to avoid
+    /// creating an @Observable tracking dependency that causes spurious body re-evaluations.
+    static let storeDidMutate = Notification.Name("storeDidMutate")
+
+    // MARK: - State Change Signals (adapter → row-level cache updates)
+    // These carry publication IDs in userInfo["publicationIDs"] for O(1) row updates.
+    // The store.dataVersion observation handles full list/sidebar refresh;
+    // these are performance optimizations for surgical row data rebuilds.
+
+    /// Read status changed on one or more publications.
+    /// userInfo: ["publicationIDs": [UUID]]
     static let readStatusDidChange = Notification.Name("readStatusDidChange")
 
-    /// Flag state changed on a publication (for row data cache invalidation)
+    /// Flag state changed on one or more publications.
+    /// userInfo: ["publicationIDs": [UUID]]
     static let flagDidChange = Notification.Name("flagDidChange")
 
-    /// Library content changed (papers added/removed from library or collection)
-    /// Used to refresh sidebar publication counts
-    static let libraryContentDidChange = Notification.Name("libraryContentDidChange")
+    /// Star state changed on one or more publications.
+    static let starDidChange = Notification.Name("starDidChange")
+
+    /// Tag added/removed on one or more publications.
+    /// userInfo: ["publicationIDs": [UUID]]
+    static let tagDidChange = Notification.Name("tagDidChange")
+
+    /// A field (title, year, abstract, etc.) changed on one or more publications.
+    /// userInfo: ["publicationIDs": [UUID]]
+    static let fieldDidChange = Notification.Name("fieldDidChange")
 
     // MARK: - Clipboard Operations
 
@@ -327,6 +348,10 @@ public extension Notification.Name {
     /// Navigate to a smart search in the sidebar (object = UUID of smart search)
     static let navigateToSmartSearch = Notification.Name("navigateToSmartSearch")
 
+    /// Navigate to a specific publication: switch to its library, select it, scroll to it
+    /// userInfo: ["publicationID": UUID]
+    static let navigateToPublication = Notification.Name("navigateToPublication")
+
     // MARK: - Search Form Navigation
 
     /// Reset search form view to show input form instead of results
@@ -408,6 +433,12 @@ public extension Notification.Name {
 
     /// Show the command palette (⇧⌘P)
     static let showCommandPalette = Notification.Name("showCommandPalette")
+
+    /// Show the global search palette (⌘F)
+    static let showGlobalSearch = Notification.Name("showGlobalSearch")
+
+    /// Activate the filter input (⇧⌘F or /)
+    static let activateFilter = Notification.Name("activateFilter")
 
     // MARK: - Help
 

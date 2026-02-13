@@ -118,12 +118,144 @@ pub enum StateAsOf {
     Timestamp(DateTime<Utc>),
 }
 
+/// Information returned after a mutation, enabling undo/redo registration.
+#[derive(Debug, Clone)]
+pub struct UndoInfo {
+    /// The operation IDs created by this mutation.
+    pub operation_ids: Vec<ItemId>,
+    /// If multiple operations share a batch, this is their shared batch ID.
+    pub batch_id: Option<String>,
+    /// Human-readable description for the Edit menu (e.g., "Star 3 Papers").
+    pub description: String,
+}
+
+/// Compute the inverse operation type given the original operation and its
+/// captured previous value. Returns the OperationType that undoes the original.
+pub fn inverse_of(op_type: &OperationType, prev: &Value) -> Option<OperationType> {
+    match op_type {
+        OperationType::SetRead(_) => match prev {
+            Value::Bool(v) => Some(OperationType::SetRead(*v)),
+            _ => None,
+        },
+        OperationType::SetStarred(_) => match prev {
+            Value::Bool(v) => Some(OperationType::SetStarred(*v)),
+            _ => None,
+        },
+        OperationType::SetFlag(_) => match prev {
+            Value::Null => Some(OperationType::SetFlag(None)),
+            Value::Object(m) => {
+                let color = match m.get("color") {
+                    Some(Value::String(c)) => c.clone(),
+                    _ => return None,
+                };
+                Some(OperationType::SetFlag(Some(FlagState {
+                    color,
+                    style: m
+                        .get("style")
+                        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None }),
+                    length: m
+                        .get("length")
+                        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None }),
+                })))
+            }
+            _ => None,
+        },
+        OperationType::SetPriority(_) => match prev {
+            Value::String(s) => s.parse::<Priority>().ok().map(OperationType::SetPriority),
+            _ => None,
+        },
+        OperationType::SetVisibility(_) => match prev {
+            Value::String(s) => s.parse::<Visibility>().ok().map(OperationType::SetVisibility),
+            _ => None,
+        },
+        OperationType::SetPayload(field, _) => match prev {
+            Value::Null => Some(OperationType::RemovePayload(field.clone())),
+            other => Some(OperationType::SetPayload(field.clone(), other.clone())),
+        },
+        OperationType::RemovePayload(field) => match prev {
+            Value::Null => None, // field didn't exist before, nothing to undo
+            other => Some(OperationType::SetPayload(field.clone(), other.clone())),
+        },
+        OperationType::PatchPayload(_) => match prev {
+            Value::Object(prev_fields) => {
+                // Restore each field to its previous value
+                Some(OperationType::PatchPayload(prev_fields.clone()))
+            }
+            _ => None,
+        },
+        OperationType::SetParent(_) => match prev {
+            Value::Null => Some(OperationType::SetParent(None)),
+            Value::String(s) => {
+                let id = s.parse::<uuid::Uuid>().ok()?;
+                Some(OperationType::SetParent(Some(id)))
+            }
+            _ => None,
+        },
+        // Symmetric operations: inverse is the opposite
+        OperationType::AddTag(tag) => Some(OperationType::RemoveTag(tag.clone())),
+        OperationType::RemoveTag(tag) => Some(OperationType::AddTag(tag.clone())),
+        OperationType::AddReference(r) => {
+            Some(OperationType::RemoveReference(r.target, r.edge_type.clone()))
+        }
+        OperationType::RemoveReference(target, edge) => Some(OperationType::AddReference(
+            TypedReference {
+                target: *target,
+                edge_type: edge.clone(),
+                metadata: None,
+            },
+        )),
+        OperationType::Custom(_, _) => None,
+    }
+}
+
+/// Generate a human-readable description of an operation for the Edit menu.
+pub fn undo_description(op_type: &OperationType, count: usize) -> String {
+    let noun = if count == 1 { "Paper" } else { "Papers" };
+    match op_type {
+        OperationType::SetRead(true) => {
+            if count == 1 { "Mark as Read".into() } else { format!("Mark {} {} as Read", count, noun) }
+        }
+        OperationType::SetRead(false) => {
+            if count == 1 { "Mark as Unread".into() } else { format!("Mark {} {} as Unread", count, noun) }
+        }
+        OperationType::SetStarred(true) => {
+            if count == 1 { "Star Paper".into() } else { format!("Star {} {}", count, noun) }
+        }
+        OperationType::SetStarred(false) => {
+            if count == 1 { "Unstar Paper".into() } else { format!("Unstar {} {}", count, noun) }
+        }
+        OperationType::SetFlag(Some(_)) => {
+            if count == 1 { "Flag Paper".into() } else { format!("Flag {} {}", count, noun) }
+        }
+        OperationType::SetFlag(None) => {
+            if count == 1 { "Remove Flag".into() } else { format!("Remove Flag from {} {}", count, noun) }
+        }
+        OperationType::AddTag(tag) => format!("Add Tag '{}'", tag),
+        OperationType::RemoveTag(tag) => format!("Remove Tag '{}'", tag),
+        OperationType::SetPayload(field, _) => format!("Edit {}", field),
+        OperationType::RemovePayload(field) => format!("Clear {}", field),
+        OperationType::PatchPayload(_) => "Edit Fields".into(),
+        OperationType::SetParent(_) => {
+            if count == 1 { "Move Paper".into() } else { format!("Move {} {}", count, noun) }
+        }
+        OperationType::SetPriority(_) => "Set Priority".into(),
+        OperationType::SetVisibility(_) => "Set Visibility".into(),
+        OperationType::AddReference(_) => "Add to Collection".into(),
+        OperationType::RemoveReference(_, _) => "Remove from Collection".into(),
+        OperationType::Custom(name, _) => name.clone(),
+    }
+}
+
 /// Build the operation payload (stored as the operation item's payload).
+///
+/// If `prev` is provided, it captures the previous state of the field being changed,
+/// enabling O(1) undo without replay.
 pub fn build_operation_payload(
     target_id: ItemId,
     op_type: &OperationType,
     intent: OperationIntent,
     reason: Option<&str>,
+    prev: Option<Value>,
 ) -> BTreeMap<String, Value> {
     let mut payload = BTreeMap::new();
     payload.insert("target_id".into(), Value::String(target_id.to_string()));
@@ -136,6 +268,10 @@ pub fn build_operation_payload(
     let (op_type_str, op_data) = serialize_op_type(op_type);
     payload.insert("op_type".into(), Value::String(op_type_str));
     payload.insert("op_data".into(), op_data);
+
+    if let Some(prev_val) = prev {
+        payload.insert("prev".into(), prev_val);
+    }
 
     payload
 }
@@ -263,6 +399,7 @@ mod tests {
             &OperationType::AddTag("methods/sims".into()),
             OperationIntent::Routine,
             Some("testing"),
+            None,
         );
         assert_eq!(
             payload.get("target_id"),

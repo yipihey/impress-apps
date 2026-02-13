@@ -18,6 +18,18 @@ public struct LocalFilter: Equatable, Sendable {
     public var tagQueries: [TagFilterQuery] = []
     public var readState: ReadStateFilter?
 
+    public init(
+        textTerms: [String] = [],
+        flagQuery: FlagFilterQuery? = nil,
+        tagQueries: [TagFilterQuery] = [],
+        readState: ReadStateFilter? = nil
+    ) {
+        self.textTerms = textTerms
+        self.flagQuery = flagQuery
+        self.tagQueries = tagQueries
+        self.readState = readState
+    }
+
     public var isEmpty: Bool {
         textTerms.isEmpty && flagQuery == nil && tagQueries.isEmpty && readState == nil
     }
@@ -58,7 +70,25 @@ public final class LocalFilterService {
         let tokens = tokenize(input)
 
         for token in tokens {
-            // Flag queries
+            // Flag queries (f: shortcut for flag:)
+            if token.hasPrefix("f:") || token.hasPrefix("-f:") {
+                let expanded = token.replacingOccurrences(of: "f:", with: "flag:")
+                if let fq = parseFlagQuery(expanded) {
+                    filter.flagQuery = fq
+                    continue
+                }
+            }
+
+            // Tag queries (t: shortcut for tags:)
+            if token.hasPrefix("t:") || token.hasPrefix("-t:") {
+                let expanded = token.replacingOccurrences(of: "t:", with: "tags:")
+                if let tq = parseTagQuery(expanded) {
+                    filter.tagQueries.append(tq)
+                    continue
+                }
+            }
+
+            // Flag queries (full prefix)
             if token.hasPrefix("flag:") || token.hasPrefix("-flag:") {
                 if let fq = parseFlagQuery(token) {
                     filter.flagQuery = fq
@@ -66,7 +96,7 @@ public final class LocalFilterService {
                 }
             }
 
-            // Tag queries
+            // Tag queries (full prefix)
             if token.hasPrefix("tags:") || token.hasPrefix("-tags:") {
                 if let tq = parseTagQuery(token) {
                     filter.tagQueries.append(tq)

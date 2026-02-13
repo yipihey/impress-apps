@@ -302,10 +302,12 @@ final class SMTPConnection: Sendable {
         // Undo dot-stuffing (lines starting with ".." become ".")
         rawData = rawData.replacingOccurrences(of: "\r\n..", with: "\r\n.")
 
+        let envelopeRecipients = state.rcptTo
         let message = EmailParser.parse(
             rawData: rawData,
             from: state.mailFrom ?? "unknown",
-            to: state.rcptTo
+            to: state.rcptTo,
+            envelopeRecipients: envelopeRecipients
         )
 
         state.inDataMode = false

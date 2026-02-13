@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressKeyboard
 import OSLog
 #if os(macOS)
 import AppKit
@@ -130,7 +131,7 @@ struct PDFTab: View {
         }
         // Keyboard navigation for PDF reading
         .focusable()
-        .onKeyPress { press in handleKeyPress(press) }
+        .keyboardGuarded { press in handleKeyPress(press) }
     }
 
     // MARK: - PDF Viewer Only (no notes panel)
@@ -146,7 +147,7 @@ struct PDFTab: View {
 
             PDFViewerWithControls(
                 linkedFile: linked,
-                libraryID: libraryManager.activeLibrary?.id,
+                libraryID: pub.libraryIDs.first ?? libraryManager.activeLibrary?.id,
                 publicationID: pub.id,
                 onCorruptPDF: { corruptFile in
                     Task {
@@ -575,9 +576,10 @@ struct PDFTab: View {
 
             logger.info("[PDFTab] PDF header validation PASSED")
 
-            // Import into library using PDFManager
-            guard let library = libraryManager.activeLibrary else {
-                logger.error("[PDFTab] No active library for PDF import")
+            // Import into the publication's own library (consistent with viewer path resolution)
+            let storageLibraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
+            guard let libraryID = storageLibraryID else {
+                logger.error("[PDFTab] No library for PDF import")
                 throw PDFDownloadError.noActiveLibrary
             }
 
@@ -596,11 +598,11 @@ struct PDFTab: View {
                     return
                 case .noDuplicate(let hash):
                     logger.info("[PDFTab] No duplicate found, importing with precomputed hash")
-                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: library.id, precomputedHash: hash)
+                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: libraryID, precomputedHash: hash)
                 }
             } else {
                 logger.info("[PDFTab] Importing PDF via PDFManager...")
-                try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: library.id)
+                try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: libraryID)
             }
             logger.info("[PDFTab] PDF import SUCCESS")
 
@@ -644,14 +646,14 @@ struct PDFTab: View {
 
             Task {
                 do {
-                    // Import PDF using PDFManager
-                    guard let library = libraryManager.activeLibrary else {
-                        logger.error("[PDFTab] No active library for PDF import")
+                    // Import into the publication's own library
+                    let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
+                    guard let libraryID else {
+                        logger.error("[PDFTab] No library for PDF import")
                         return
                     }
 
-                    // Import the PDF - AttachmentManager now takes UUIDs
-                    try AttachmentManager.shared.importPDF(from: url, for: pub.id, in: library.id)
+                    try AttachmentManager.shared.importPDF(from: url, for: pub.id, in: libraryID)
 
                     // Refresh to show the new PDF
                     await MainActor.run {
@@ -676,19 +678,17 @@ struct PDFTab: View {
     #if os(macOS)
     private func openPDFBrowser() async {
         guard let pub = publication else { return }
-        guard let library = libraryManager.activeLibrary else { return }
+        let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
+        guard let libraryID else { return }
 
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
-            libraryID: library.id
-        ) { [weak libraryManager] data in
-            // This is called when user saves the detected PDF
-            guard let libraryID = libraryManager?.activeLibrary?.id else { return }
+            libraryID: libraryID
+        ) { data in
             do {
                 try AttachmentManager.shared.importPDF(data: data, for: pub.id, in: libraryID)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
-                // Post notification to refresh PDF view
                 await MainActor.run {
                     NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.id)
                 }
@@ -701,22 +701,20 @@ struct PDFTab: View {
     /// Open the built-in PDF browser with a specific URL (used for fallback URLs)
     private func openPDFBrowserWithURL(_ url: URL) async {
         guard let pub = publication else { return }
-        guard let library = libraryManager.activeLibrary else { return }
+        let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
+        guard let libraryID else { return }
 
         logger.info("[PDFTab] Opening built-in browser with fallback URL: \(url.absoluteString)")
 
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
             startURL: url,
-            libraryID: library.id
-        ) { [weak libraryManager] data in
-            // This is called when user saves the detected PDF
-            guard let libraryID = libraryManager?.activeLibrary?.id else { return }
+            libraryID: libraryID
+        ) { data in
             do {
                 try AttachmentManager.shared.importPDF(data: data, for: pub.id, in: libraryID)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
-                // Post notification to refresh PDF view
                 await MainActor.run {
                     NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.id)
                 }
@@ -739,7 +737,8 @@ struct PDFTab: View {
 
         do {
             // 1. Delete corrupt file from disk and store
-            try AttachmentManager.shared.delete(corruptFile, in: libraryManager.activeLibrary?.id)
+            let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
+            try AttachmentManager.shared.delete(corruptFile, in: libraryID)
 
             // 2. Reset state and trigger re-download
             await MainActor.run {
@@ -842,15 +841,7 @@ struct PDFTab: View {
             return .handled
         }
 
-        // Pane cycling (h/l)
-        if store.matches(press, action: "cycleFocusLeft") {
-            NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
-            return .handled
-        }
-        if store.matches(press, action: "cycleFocusRight") {
-            NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
-            return .handled
-        }
+        // h/l pane cycling handled by parent DetailView
 
         return .ignored
     }

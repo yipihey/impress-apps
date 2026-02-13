@@ -2,6 +2,7 @@ import SwiftUI
 import ImpelCore
 import ImpelMail
 import CounselEngine
+import ImpressKeyboard
 
 /// Main content view showing the impel dashboard
 struct ContentView: View {
@@ -32,7 +33,7 @@ struct ContentView: View {
         }
         .focusable()
         .focusEffectDisabled()
-        .onKeyPress { press in
+        .keyboardGuarded { press in
             handleKeyPress(press)
         }
         .sheet(isPresented: $showKeyboardHelp) {

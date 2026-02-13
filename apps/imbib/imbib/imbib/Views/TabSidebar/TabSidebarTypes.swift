@@ -37,6 +37,8 @@ enum ImbibTab: Hashable {
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
+    case addFeed                 // Navigate to search form picker for feed creation
+    case editFeed(UUID)          // Navigate to search form to edit an existing feed
 }
 
 // MARK: - Flag Counts

@@ -20,6 +20,12 @@ public struct MailMessage: Identifiable, Sendable {
     public let references: [String]
     public let headers: [String: String]
 
+    /// Parsed MIME parts (populated for multipart messages).
+    public let mimeParts: ParsedMIMEMessage?
+
+    /// Envelope recipients from SMTP RCPT TO (may differ from To header).
+    public let envelopeRecipients: [String]
+
     /// IMAP flags
     public var flags: Set<IMAPFlag>
 
@@ -37,6 +43,8 @@ public struct MailMessage: Identifiable, Sendable {
         inReplyTo: String? = nil,
         references: [String] = [],
         headers: [String: String] = [:],
+        mimeParts: ParsedMIMEMessage? = nil,
+        envelopeRecipients: [String] = [],
         flags: Set<IMAPFlag> = [],
         sequenceNumber: Int = 0
     ) {
@@ -50,6 +58,8 @@ public struct MailMessage: Identifiable, Sendable {
         self.inReplyTo = inReplyTo
         self.references = references
         self.headers = headers
+        self.mimeParts = mimeParts
+        self.envelopeRecipients = envelopeRecipients
         self.flags = flags
         self.sequenceNumber = sequenceNumber
     }
@@ -115,20 +125,8 @@ public enum IMAPFlag: String, Sendable, Hashable {
 public enum EmailParser {
 
     /// Parse raw email data received via SMTP DATA command.
-    public static func parse(rawData: String, from: String, to: [String]) -> MailMessage {
+    public static func parse(rawData: String, from: String, to: [String], envelopeRecipients: [String] = []) -> MailMessage {
         let (headers, rawBody) = splitHeadersAndBody(rawData)
-
-        // Decode body based on Content-Transfer-Encoding
-        let encoding = headers["content-transfer-encoding"]?.trimmingCharacters(in: .whitespaces).lowercased() ?? "7bit"
-        let body: String
-        switch encoding {
-        case "quoted-printable":
-            body = decodeQuotedPrintable(rawBody)
-        case "base64":
-            body = decodeBase64(rawBody)
-        default:
-            body = rawBody
-        }
 
         // Decode subject if it uses RFC 2047 encoded-words (=?UTF-8?Q?...?= or =?UTF-8?B?...?=)
         let subject = decodeRFC2047(headers["subject"] ?? "(no subject)")
@@ -146,6 +144,31 @@ public enum EmailParser {
         // Use header From if available, fall back to envelope From
         let headerFrom = headers["from"] ?? from
 
+        // Check if this is a multipart message — if so, delegate to MIMEParser
+        let contentType = headers["content-type"] ?? ""
+        let isMultipart = contentType.lowercased().contains("multipart/")
+
+        let mimeParts: ParsedMIMEMessage?
+        let body: String
+
+        if isMultipart {
+            let parsed = MIMEParser.parse(headers: headers, body: rawBody)
+            mimeParts = parsed
+            body = parsed.bestTextBody ?? rawBody
+        } else {
+            mimeParts = nil
+            // Decode body based on Content-Transfer-Encoding
+            let encoding = headers["content-transfer-encoding"]?.trimmingCharacters(in: .whitespaces).lowercased() ?? "7bit"
+            switch encoding {
+            case "quoted-printable":
+                body = decodeQuotedPrintable(rawBody)
+            case "base64":
+                body = decodeBase64(rawBody)
+            default:
+                body = rawBody
+            }
+        }
+
         return MailMessage(
             from: headerFrom,
             to: to,
@@ -156,6 +179,8 @@ public enum EmailParser {
             inReplyTo: inReplyTo,
             references: references,
             headers: headers,
+            mimeParts: mimeParts,
+            envelopeRecipients: envelopeRecipients,
             flags: [.recent]
         )
     }

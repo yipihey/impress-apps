@@ -9,9 +9,10 @@ import Foundation
 import UniformTypeIdentifiers
 import OSLog
 import CoreGraphics
+import ImageIO
 
 /// Extracted metadata from a file or URL, ready for artifact creation.
-public struct ArtifactMetadata: Sendable {
+nonisolated public struct ArtifactMetadata: Sendable {
     public var title: String?
     public var sourceURL: String?
     public var notes: String?
@@ -24,7 +25,7 @@ public struct ArtifactMetadata: Sendable {
 }
 
 /// Extracts metadata from files and URLs for research artifact capture.
-public enum ArtifactMetadataExtractor {
+nonisolated public enum ArtifactMetadataExtractor {
 
     /// Extract metadata from a local file URL.
     public static func extractFromFile(url: URL) -> ArtifactMetadata {
@@ -156,6 +157,42 @@ public enum ArtifactMetadataExtractor {
         }
 
         return .general
+    }
+
+    // MARK: - OCR Extraction
+
+    /// Extract text from an image file using Vision OCR.
+    /// Returns nil if the file is not an image or OCR fails.
+    public static func extractOCRText(from imageURL: URL) async -> String? {
+        let ext = imageURL.pathExtension.lowercased()
+        let utType = UTType(filenameExtension: ext)
+
+        // Only process image files
+        guard let utType, utType.conforms(to: .image) else {
+            return nil
+        }
+
+        guard let imageSource = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            Logger.library.infoCapture("OCR: Could not load image from \(imageURL.lastPathComponent)", category: "artifacts")
+            return nil
+        }
+
+        do {
+            let result = try await RemarkableOCRService.shared.recognizeText(from: cgImage)
+            if result.text.isEmpty {
+                Logger.library.infoCapture("OCR: No text found in \(imageURL.lastPathComponent)", category: "artifacts")
+                return nil
+            }
+            Logger.library.infoCapture(
+                "OCR: Extracted \(result.text.count) chars (confidence: \(String(format: "%.2f", result.confidence))) from \(imageURL.lastPathComponent)",
+                category: "artifacts"
+            )
+            return result.text
+        } catch {
+            Logger.library.infoCapture("OCR failed for \(imageURL.lastPathComponent): \(error.localizedDescription)", category: "artifacts")
+            return nil
+        }
     }
 
     // MARK: - Private Helpers

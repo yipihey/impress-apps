@@ -173,28 +173,6 @@ struct NotesTab: View {
         }
         // Half-page scrolling support (macOS) - scrolls the notes panel
         .halfPageScrollable()
-        // Keyboard navigation: h/l for pane cycling (j/k handled centrally by ContentView)
-        .focusable()
-        .onKeyPress { press in
-            #if os(macOS)
-            // Don't intercept keys when a text view has focus (user is editing notes)
-            if NSApp.keyWindow?.firstResponder is NSTextView {
-                return .ignored
-            }
-            #endif
-            let store = KeyboardShortcutsStore.shared
-            // Cycle pane focus left (default: h)
-            if store.matches(press, action: "cycleFocusLeft") {
-                NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
-                return .handled
-            }
-            // Cycle pane focus right (default: l)
-            if store.matches(press, action: "cycleFocusRight") {
-                NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
-                return .handled
-            }
-            return .ignored
-        }
     }
 
     private func persistPanelSize() {
@@ -206,7 +184,7 @@ struct NotesTab: View {
         if let linked = linkedFile {
             PDFViewerWithControls(
                 linkedFile: linked,
-                libraryID: libraryManager.activeLibrary?.id,
+                libraryID: publication.libraryIDs.first ?? libraryManager.activeLibrary?.id,
                 publicationID: publication.id,
                 onCorruptPDF: { _ in }
             )

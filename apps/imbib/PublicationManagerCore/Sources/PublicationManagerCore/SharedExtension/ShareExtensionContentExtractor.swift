@@ -9,7 +9,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 /// Result of extracting shared content from an extension context.
-public struct SharedContent: Sendable {
+nonisolated public struct SharedContent: Sendable {
     /// The shared URL
     public let url: URL
 
@@ -82,6 +82,9 @@ public final class ShareExtensionContentExtractor {
             ShareExtensionService.shared.queueOpenArxivSearch(
                 category: item.query ?? ""
             )
+        case .artifact:
+            // Artifacts are handled through the capture panel, not share extension
+            break
         }
     }
 

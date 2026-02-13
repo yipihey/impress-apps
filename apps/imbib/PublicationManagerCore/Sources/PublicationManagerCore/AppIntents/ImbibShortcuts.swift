@@ -163,5 +163,29 @@ public struct ImbibShortcuts: AppShortcutsProvider {
             shortTitle: "Refresh",
             systemImageName: "arrow.clockwise"
         )
+
+        // Create Artifact
+        AppShortcut(
+            intent: CreateArtifactIntent(),
+            phrases: [
+                "Create artifact in \(.applicationName)",
+                "Save research artifact in \(.applicationName)",
+                "Capture artifact with \(.applicationName)"
+            ],
+            shortTitle: "Create Artifact",
+            systemImageName: "archivebox.fill"
+        )
+
+        // Search Artifacts
+        AppShortcut(
+            intent: SearchArtifactsIntent(),
+            phrases: [
+                "Search artifacts in \(.applicationName)",
+                "Find research artifacts in \(.applicationName)"
+            ],
+            shortTitle: "Search Artifacts",
+            systemImageName: "magnifyingglass"
+        )
+
     }
 }

@@ -56,6 +56,9 @@ public protocol MailStyleItem: Identifiable, Hashable, Sendable where ID == UUID
 
     /// Tag display data for the tag line
     var tagDisplays: [TagDisplayData] { get }
+
+    /// Year text shown after the header (e.g., "2024"), controlled by configuration.showYear
+    var yearText: String? { get }
 }
 
 // MARK: - Default Implementations
@@ -69,4 +72,5 @@ public extension MailStyleItem {
     var hasSecondaryAttachment: Bool { false }
     var flag: PublicationFlag? { nil }
     var tagDisplays: [TagDisplayData] { [] }
+    var yearText: String? { nil }
 }
