@@ -34,6 +34,10 @@ public final class RustStoreAdapter {
     /// The underlying Rust store.
     private let store: ImbibStore
 
+    /// Thread-safe handle for background (non-main-actor) read-only FFI calls.
+    /// ImbibStore uses Arc<Mutex<Connection>> internally, so concurrent reads are safe.
+    public nonisolated(unsafe) let imbibStore: ImbibStore
+
     /// Whether the Rust store is enabled (feature flag for gradual rollout).
     public static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: "useRustStore")
@@ -42,21 +46,37 @@ public final class RustStoreAdapter {
     /// Bumped on every mutation. Views observe this to trigger updates.
     public private(set) var dataVersion: Int = 0
 
+    /// Batch mutation depth counter. When > 0, `didMutate()` bumps `dataVersion`
+    /// but suppresses notification posting. One consolidated notification fires
+    /// when the outermost batch ends.
+    private var batchDepth: Int = 0
+    /// Tracks whether any structural mutation occurred during the current batch.
+    private var batchHadStructural: Bool = false
+    /// Accumulates publication IDs with field changes during a batch, so one coalesced
+    /// `.fieldDidChange` notification fires at `endBatchMutation()` instead of per-field.
+    private var batchChangedFieldIDs: Set<UUID> = []
+
     // MARK: - Initialization
 
     private init() throws {
         let dbPath = Self.databasePath()
-        self.store = try ImbibStore.open(path: dbPath)
+        let s = try ImbibStore.open(path: dbPath)
+        self.store = s
+        self.imbibStore = s
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
     }
 
     /// For testing with in-memory store.
     init(inMemory: Bool) throws {
         if inMemory {
-            self.store = try ImbibStore.openInMemory()
+            let s = try ImbibStore.openInMemory()
+            self.store = s
+            self.imbibStore = s
         } else {
             let dbPath = Self.databasePath()
-            self.store = try ImbibStore.open(path: dbPath)
+            let s = try ImbibStore.open(path: dbPath)
+            self.store = s
+            self.imbibStore = s
         }
     }
 
@@ -67,8 +87,56 @@ public final class RustStoreAdapter {
         return appDir.appendingPathComponent("imbib.sqlite").path
     }
 
-    private func didMutate() {
+    /// Signal that the store was mutated.
+    ///
+    /// - Parameter structural: `true` (default) for mutations that add, remove, or move
+    ///   publications (requiring a full list refresh). `false` for in-place field changes
+    ///   (read/star/flag/tag) that are handled by row-level notifications (O(1) updates).
+    private func didMutate(structural: Bool = true) {
         dataVersion += 1
+        if batchDepth > 0 {
+            if structural { batchHadStructural = true }
+            return  // notification deferred until endBatchMutation()
+        }
+        NotificationCenter.default.post(
+            name: .storeDidMutate,
+            object: nil,
+            userInfo: ["structural": structural]
+        )
+    }
+
+    /// Begin a batch mutation. While a batch is active, individual `didMutate()` calls
+    /// suppress notification posting. Call `endBatchMutation()` when done — one
+    /// consolidated notification fires at the end. Supports nesting.
+    public func beginBatchMutation() {
+        batchDepth += 1
+    }
+
+    /// End a batch mutation. When the outermost batch ends, posts a single
+    /// `.storeDidMutate` notification and a coalesced `.fieldDidChange` notification
+    /// summarizing all mutations in the batch.
+    public func endBatchMutation() {
+        precondition(batchDepth > 0, "endBatchMutation called without matching beginBatchMutation")
+        batchDepth -= 1
+        if batchDepth == 0 {
+            // Post coalesced field changes (one notification instead of per-field)
+            if !batchChangedFieldIDs.isEmpty {
+                NotificationCenter.default.post(
+                    name: .fieldDidChange,
+                    object: nil,
+                    userInfo: ["publicationIDs": Array(batchChangedFieldIDs)]
+                )
+                batchChangedFieldIDs.removeAll()
+            }
+
+            let structural = batchHadStructural
+            batchHadStructural = false
+            NotificationCenter.default.post(
+                name: .storeDidMutate,
+                object: nil,
+                userInfo: ["structural": structural]
+            )
+        }
     }
 
     // MARK: - Publication Queries
@@ -92,6 +160,17 @@ public final class RustStoreAdapter {
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("queryPublications failed: \(error)")
+            return []
+        }
+    }
+
+    /// Query just the IDs of publications in a library (fast — skips full row conversion).
+    public func queryPublicationIDs(parentId: UUID) -> Set<UUID> {
+        do {
+            let ids = try store.queryPublicationIds(parentId: parentId.uuidString)
+            return Set(ids.compactMap { UUID(uuidString: $0) })
+        } catch {
+            Logger.library.error("queryPublicationIDs failed: \(error)")
             return []
         }
     }
@@ -278,6 +357,23 @@ public final class RustStoreAdapter {
         }
     }
 
+    /// Deduplicate publications in a library, keeping the oldest copy.
+    /// Returns the number of duplicates removed.
+    @discardableResult
+    public func deduplicateLibrary(id: UUID) -> Int {
+        do {
+            let count = try store.deduplicateLibrary(libraryId: id.uuidString)
+            if count > 0 {
+                didMutate()
+                Logger.library.infoCapture("Deduplicated library \(id): removed \(count) duplicates", category: "dedup")
+            }
+            return Int(count)
+        } catch {
+            Logger.library.error("deduplicateLibrary failed: \(error)")
+            return 0
+        }
+    }
+
     // MARK: - Publication Mutations
 
     /// Import BibTeX into a library.
@@ -285,6 +381,7 @@ public final class RustStoreAdapter {
         do {
             let ids = try store.importBibtex(bibtex: bibtex, libraryId: libraryId.uuidString)
             didMutate()
+            UserDefaults.standard.set(true, forKey: "needsStartupDedup")
             return ids.compactMap { UUID(uuidString: $0) }
         } catch {
             Logger.library.error("importBibTeX failed: \(error)")
@@ -297,6 +394,7 @@ public final class RustStoreAdapter {
         do {
             let count = try store.importFromBibtexFile(path: path, libraryId: libraryId.uuidString)
             didMutate()
+            UserDefaults.standard.set(true, forKey: "needsStartupDedup")
             return count
         } catch {
             Logger.library.error("importFromBibTeXFile failed: \(error)")
@@ -307,8 +405,11 @@ public final class RustStoreAdapter {
     /// Set read state for publications.
     public func setRead(ids: [UUID], read: Bool) {
         do {
-            try store.setRead(ids: ids.map(\.uuidString), read: read)
-            didMutate()
+            let info = try store.setRead(ids: ids.map(\.uuidString), read: read)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            NotificationCenter.default.post(name: .readStatusDidChange, object: nil,
+                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("setRead failed: \(error)")
         }
@@ -317,8 +418,10 @@ public final class RustStoreAdapter {
     /// Set starred state for publications.
     public func setStarred(ids: [UUID], starred: Bool) {
         do {
-            try store.setStarred(ids: ids.map(\.uuidString), starred: starred)
-            didMutate()
+            let info = try store.setStarred(ids: ids.map(\.uuidString), starred: starred)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            NotificationCenter.default.post(name: .starDidChange, object: nil)
         } catch {
             Logger.library.error("setStarred failed: \(error)")
         }
@@ -327,8 +430,11 @@ public final class RustStoreAdapter {
     /// Set flag on publications.
     public func setFlag(ids: [UUID], color: String?, style: String? = nil, length: String? = nil) {
         do {
-            try store.setFlag(ids: ids.map(\.uuidString), color: color, style: style, length: length)
-            didMutate()
+            let info = try store.setFlag(ids: ids.map(\.uuidString), color: color, style: style, length: length)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            NotificationCenter.default.post(name: .flagDidChange, object: nil,
+                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("setFlag failed: \(error)")
         }
@@ -337,8 +443,15 @@ public final class RustStoreAdapter {
     /// Update a single string field on a publication.
     public func updateField(id: UUID, field: String, value: String?) {
         do {
-            try store.updateField(id: id.uuidString, field: field, value: value)
-            didMutate()
+            let info = try store.updateField(id: id.uuidString, field: field, value: value)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            if batchDepth > 0 {
+                batchChangedFieldIDs.insert(id)
+            } else {
+                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
+                    userInfo: ["publicationIDs": [id]])
+            }
         } catch {
             Logger.library.error("updateField failed: \(error)")
         }
@@ -347,8 +460,15 @@ public final class RustStoreAdapter {
     /// Update a boolean field on any item.
     public func updateBoolField(id: UUID, field: String, value: Bool) {
         do {
-            try store.updateBoolField(id: id.uuidString, field: field, value: value)
-            didMutate()
+            let info = try store.updateBoolField(id: id.uuidString, field: field, value: value)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            if batchDepth > 0 {
+                batchChangedFieldIDs.insert(id)
+            } else {
+                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
+                    userInfo: ["publicationIDs": [id]])
+            }
         } catch {
             Logger.library.error("updateBoolField failed: \(error)")
         }
@@ -357,8 +477,15 @@ public final class RustStoreAdapter {
     /// Update an integer field on any item.
     public func updateIntField(id: UUID, field: String, value: Int64?) {
         do {
-            try store.updateIntField(id: id.uuidString, field: field, value: value)
-            didMutate()
+            let info = try store.updateIntField(id: id.uuidString, field: field, value: value)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            if batchDepth > 0 {
+                batchChangedFieldIDs.insert(id)
+            } else {
+                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
+                    userInfo: ["publicationIDs": [id]])
+            }
         } catch {
             Logger.library.error("updateIntField failed: \(error)")
         }
@@ -387,8 +514,9 @@ public final class RustStoreAdapter {
     /// Move publications between libraries.
     public func movePublications(ids: [UUID], toLibraryId: UUID) {
         do {
-            try store.movePublications(ids: ids.map(\.uuidString), toLibraryId: toLibraryId.uuidString)
+            let info = try store.movePublications(ids: ids.map(\.uuidString), toLibraryId: toLibraryId.uuidString)
             didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.error("movePublications failed: \(error)")
         }
@@ -522,8 +650,9 @@ public final class RustStoreAdapter {
     /// Add publications to a collection.
     public func addToCollection(publicationIds: [UUID], collectionId: UUID) {
         do {
-            try store.addToCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
+            let info = try store.addToCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
             didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.error("addToCollection failed: \(error)")
         }
@@ -532,8 +661,9 @@ public final class RustStoreAdapter {
     /// Remove publications from a collection.
     public func removeFromCollection(publicationIds: [UUID], collectionId: UUID) {
         do {
-            try store.removeFromCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
+            let info = try store.removeFromCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
             didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.error("removeFromCollection failed: \(error)")
         }
@@ -582,8 +712,11 @@ public final class RustStoreAdapter {
     /// Add a tag to publications.
     public func addTag(ids: [UUID], tagPath: String) {
         do {
-            try store.addTag(ids: ids.map(\.uuidString), tagPath: tagPath)
-            didMutate()
+            let info = try store.addTag(ids: ids.map(\.uuidString), tagPath: tagPath)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            NotificationCenter.default.post(name: .tagDidChange, object: nil,
+                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("addTag failed: \(error)")
         }
@@ -592,8 +725,11 @@ public final class RustStoreAdapter {
     /// Remove a tag from publications.
     public func removeTag(ids: [UUID], tagPath: String) {
         do {
-            try store.removeTag(ids: ids.map(\.uuidString), tagPath: tagPath)
-            didMutate()
+            let info = try store.removeTag(ids: ids.map(\.uuidString), tagPath: tagPath)
+            didMutate(structural: false)
+            UndoCoordinator.shared.registerUndo(info: info)
+            NotificationCenter.default.post(name: .tagDidChange, object: nil,
+                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("removeTag failed: \(error)")
         }
@@ -626,6 +762,32 @@ public final class RustStoreAdapter {
             didMutate()
         } catch {
             Logger.library.error("updateTag failed: \(error)")
+        }
+    }
+
+    // MARK: - Undo/Redo
+
+    /// Undo a single operation. Returns UndoInfo for the redo action, or nil on failure.
+    public func undoOperation(operationId: String) -> UndoInfo? {
+        do {
+            let info = try store.undoOperation(operationId: operationId)
+            didMutate()
+            return info
+        } catch {
+            Logger.library.error("undoOperation failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Undo all operations in a batch. Returns UndoInfo for the redo action, or nil on failure.
+    public func undoBatch(batchId: String) -> UndoInfo? {
+        do {
+            let info = try store.undoBatch(batchId: batchId)
+            didMutate()
+            return info
+        } catch {
+            Logger.library.error("undoBatch failed: \(error)")
+            return nil
         }
     }
 
@@ -673,6 +835,8 @@ public final class RustStoreAdapter {
                 isPdf: isPdf
             )
             didMutate()
+            NotificationCenter.default.post(name: .attachmentDidChange, object: nil,
+                userInfo: ["publicationID": publicationId])
             return LinkedFileModel(from: row)
         } catch {
             Logger.library.error("addLinkedFile failed: \(error)")
@@ -762,17 +926,23 @@ public final class RustStoreAdapter {
 
     // MARK: - Comment Operations
 
-    /// List comments for a publication.
+    /// List comments for a publication (backward-compatible).
     public func listComments(publicationId: UUID) -> [Comment] {
+        listCommentsForItem(itemId: publicationId)
+    }
+
+    /// List comments for any item (publication, artifact, etc.).
+    public func listCommentsForItem(itemId: UUID) -> [Comment] {
         do {
-            return try store.listComments(publicationId: publicationId.uuidString).map { Comment(from: $0) }
+            // The Rust listComments accepts any parent item ID
+            return try store.listComments(publicationId: itemId.uuidString).map { Comment(from: $0) }
         } catch {
-            Logger.library.error("listComments failed: \(error)")
+            Logger.library.error("listCommentsForItem failed: \(error)")
             return []
         }
     }
 
-    /// Create a comment.
+    /// Create a comment on a publication (backward-compatible).
     public func createComment(
         publicationId: UUID,
         text: String,
@@ -780,9 +950,27 @@ public final class RustStoreAdapter {
         authorDisplayName: String? = nil,
         parentCommentId: UUID? = nil
     ) -> Comment? {
+        createCommentOnItem(
+            itemId: publicationId,
+            text: text,
+            authorIdentifier: authorIdentifier,
+            authorDisplayName: authorDisplayName,
+            parentCommentId: parentCommentId
+        )
+    }
+
+    /// Create a comment on any item (publication, artifact, etc.).
+    public func createCommentOnItem(
+        itemId: UUID,
+        text: String,
+        authorIdentifier: String? = nil,
+        authorDisplayName: String? = nil,
+        parentCommentId: UUID? = nil
+    ) -> Comment? {
         do {
+            // The Rust createComment accepts any parent item ID
             let row = try store.createComment(
-                publicationId: publicationId.uuidString,
+                publicationId: itemId.uuidString,
                 text: text,
                 authorIdentifier: authorIdentifier,
                 authorDisplayName: authorDisplayName,
@@ -791,7 +979,7 @@ public final class RustStoreAdapter {
             didMutate()
             return Comment(from: row)
         } catch {
-            Logger.library.error("createComment failed: \(error)")
+            Logger.library.error("createCommentOnItem failed: \(error)")
             return nil
         }
     }
@@ -1020,6 +1208,26 @@ public final class RustStoreAdapter {
         }
     }
 
+    /// Count publications (SELECT COUNT — no row deserialization).
+    public func countPublications(parentId: UUID? = nil) -> Int {
+        do {
+            return Int(try store.countPublications(parentId: parentId?.uuidString))
+        } catch {
+            Logger.library.error("countPublications failed: \(error)")
+            return 0
+        }
+    }
+
+    /// Count starred publications.
+    public func countStarred(parentId: UUID? = nil) -> Int {
+        do {
+            return try store.queryStarred(parentId: parentId?.uuidString).count
+        } catch {
+            Logger.library.error("countStarred failed: \(error)")
+            return 0
+        }
+    }
+
     // MARK: - Activity Records
 
     /// List activity records for a library.
@@ -1159,7 +1367,9 @@ public final class RustStoreAdapter {
         case .inbox(let id):
             return queryPublications(parentId: id, sort: sort, ascending: ascending)
         case .dismissed:
-            return []
+            guard let idStr = UserDefaults.standard.string(forKey: "dismissedLibraryID"),
+                  let dismissedID = UUID(uuidString: idStr) else { return [] }
+            return queryPublications(parentId: dismissedID, sort: sort, ascending: ascending)
         }
     }
 
@@ -1312,18 +1522,28 @@ public final class RustStoreAdapter {
 
     /// List comments for a publication.
     public func comments(for publicationID: UUID) -> [Comment] {
-        listComments(publicationId: publicationID)
+        listCommentsForItem(itemId: publicationID)
+    }
+
+    /// List comments for any item (publication, artifact, etc.).
+    public func commentsForItem(_ itemID: UUID) -> [Comment] {
+        listCommentsForItem(itemId: itemID)
     }
 
     /// Add a comment to a publication.
     public func addComment(text: String, to publicationID: UUID, parentCommentID: UUID? = nil) {
+        addCommentToItem(text: text, itemID: publicationID, parentCommentID: parentCommentID)
+    }
+
+    /// Add a comment to any item (publication, artifact, etc.).
+    public func addCommentToItem(text: String, itemID: UUID, parentCommentID: UUID? = nil) {
         #if os(macOS)
         let authorName = Host.current().localizedName
         #else
         let authorName: String? = UIDevice.current.name
         #endif
-        _ = createComment(
-            publicationId: publicationID,
+        _ = createCommentOnItem(
+            itemId: itemID,
             text: text,
             authorDisplayName: authorName,
             parentCommentId: parentCommentID
@@ -1338,6 +1558,36 @@ public final class RustStoreAdapter {
     /// Delete a comment.
     public func deleteComment(_ id: UUID) {
         deleteItem(id: id)
+    }
+
+    // MARK: - Sync Support (CloudKit)
+
+    /// Set canonical_id on an item (maps to CKRecord.recordID).
+    public func setItemCanonicalId(id: UUID, canonicalId: String) {
+        do {
+            try store.setItemCanonicalId(id: id.uuidString, canonicalId: canonicalId)
+        } catch {
+            Logger.library.error("setItemCanonicalId failed: \(error)")
+        }
+    }
+
+    /// Set origin on an item (for sync provenance tracking).
+    public func setItemOrigin(id: UUID, origin: String) {
+        do {
+            try store.setItemOrigin(id: id.uuidString, origin: origin)
+        } catch {
+            Logger.library.error("setItemOrigin failed: \(error)")
+        }
+    }
+
+    /// Find an item by its canonical_id.
+    public func findByCanonicalId(canonicalId: String) -> String? {
+        do {
+            return try store.findByCanonicalId(canonicalId: canonicalId)
+        } catch {
+            Logger.library.error("findByCanonicalId failed: \(error)")
+            return nil
+        }
     }
 
     /// List all assignments for a library.
@@ -1503,7 +1753,7 @@ extension RustStoreAdapter {
         eventDate: String? = nil
     ) {
         do {
-            try store.updateArtifact(
+            let info = try store.updateArtifact(
                 id: id.uuidString,
                 title: title,
                 sourceUrl: sourceURL,
@@ -1515,6 +1765,7 @@ extension RustStoreAdapter {
                 eventDate: eventDate
             )
             didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.errorCapture("Failed to update artifact \(id): \(error)", category: "artifacts")
         }
@@ -1534,11 +1785,12 @@ extension RustStoreAdapter {
     /// Link an artifact to a publication.
     public func linkArtifactToPublication(artifactID: UUID, publicationID: UUID) {
         do {
-            try store.linkArtifactToPublication(
+            let info = try store.linkArtifactToPublication(
                 artifactId: artifactID.uuidString,
                 publicationId: publicationID.uuidString
             )
             didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.errorCapture("Failed to link artifact: \(error)", category: "artifacts")
         }
@@ -1594,9 +1846,59 @@ extension RustStoreAdapter {
     }
 }
 
+// MARK: - Background (nonisolated) Read Methods
+
+extension RustStoreAdapter {
+
+    /// Batch find by identifiers — runs off the main thread via the thread-safe imbibStore handle.
+    /// Returns all publications matching any of the given DOIs, arXiv IDs, or bibcodes in a single query.
+    nonisolated public func findByIdentifiersBatchBackground(
+        dois: [String],
+        arxivIds: [String],
+        bibcodes: [String]
+    ) -> [PublicationRowData] {
+        do {
+            let rows = try imbibStore.findByIdentifiersBatch(
+                dois: dois,
+                arxivIds: arxivIds,
+                bibcodes: bibcodes
+            )
+            return rows.compactMap { PublicationRowData(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// Check if a paper has been dismissed — runs off the main thread.
+    nonisolated public func isPaperDismissedBackground(
+        doi: String? = nil,
+        arxivId: String? = nil,
+        bibcode: String? = nil
+    ) -> Bool {
+        do {
+            return try imbibStore.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode)
+        } catch {
+            return false
+        }
+    }
+
+    /// Find by cite key — runs off the main thread.
+    nonisolated public func findByCiteKeyBackground(
+        citeKey: String,
+        libraryId: UUID? = nil
+    ) -> PublicationRowData? {
+        do {
+            guard let row = try imbibStore.findByCiteKey(citeKey: citeKey, libraryId: libraryId?.uuidString) else { return nil }
+            return PublicationRowData(from: row)
+        } catch {
+            return nil
+        }
+    }
+}
+
 // MARK: - PublicationRowData Extension
 
-extension PublicationRowData {
+nonisolated extension PublicationRowData {
 
     /// Initialize from Rust-shaped BibliographyRow — direct field mapping, no Core Data.
     public init?(from row: BibliographyRow) {
@@ -1648,6 +1950,7 @@ extension PublicationRowData {
             )
         }
 
+        self.enrichmentDate = row.enrichmentDate
         self.libraryName = row.libraryName
     }
 }

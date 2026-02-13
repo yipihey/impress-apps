@@ -601,9 +601,9 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func addLinkedFile(publicationId: String, filename: String, relativePath: String?, fileType: String?, fileSize: Int64, sha256: String?, isPdf: Bool) throws  -> LinkedFileRow
     
-    func addTag(ids: [String], tagPath: String) throws 
+    func addTag(ids: [String], tagPath: String) throws  -> UndoInfo
     
-    func addToCollection(publicationIds: [String], collectionId: String) throws 
+    func addToCollection(publicationIds: [String], collectionId: String) throws  -> UndoInfo
     
     func addToScixLibrary(publicationIds: [String], scixLibraryId: String) throws 
     
@@ -617,6 +617,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     func countArtifacts(schemaFilter: String?) throws  -> UInt32
     
     func countPdfs(publicationId: String) throws  -> UInt32
+    
+    /**
+     * Count publications, optionally within a parent library. Uses SELECT COUNT(*)
+     * instead of deserializing all rows — much faster for widget badge counts.
+     */
+    func countPublications(parentId: String?) throws  -> UInt32
     
     func countUnread(parentId: String?) throws  -> UInt32
     
@@ -635,6 +641,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func createComment(publicationId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, parentCommentId: String?) throws  -> CommentRow
     
+    /**
+     * Create a comment on any item (publication, artifact, or any future item type).
+     */
+    func createCommentOnItem(itemId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, parentCommentId: String?) throws  -> CommentRow
+    
     func createInboxLibrary(name: String) throws  -> LibraryRow
     
     func createLibrary(name: String) throws  -> LibraryRow
@@ -648,6 +659,13 @@ public protocol ImbibStoreProtocol : AnyObject {
     func createSmartSearch(name: String, query: String, libraryId: String, sourceIdsJson: String?, maxResults: Int64, feedsToInbox: Bool, autoRefreshEnabled: Bool, refreshIntervalSeconds: Int64) throws  -> SmartSearchRow
     
     func createTag(path: String, colorLight: String?, colorDark: String?) throws 
+    
+    /**
+     * Remove duplicate publications within a library, keeping the oldest copy.
+     *
+     * Returns the number of duplicates removed.
+     */
+    func deduplicateLibrary(libraryId: String) throws  -> UInt32
     
     /**
      * Delete an artifact by ID.
@@ -682,11 +700,23 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func findByBibcode(bibcode: String) throws  -> [BibliographyRow]
     
+    /**
+     * Find an item by its canonical_id (for dedup on CloudKit pull).
+     */
+    func findByCanonicalId(canonicalId: String) throws  -> String?
+    
     func findByCiteKey(citeKey: String, libraryId: String?) throws  -> BibliographyRow?
     
     func findByDoi(doi: String) throws  -> [BibliographyRow]
     
     func findByIdentifiers(doi: String?, arxivId: String?, bibcode: String?, pmid: String?) throws  -> [BibliographyRow]
+    
+    /**
+     * Batch lookup: find all publications matching any of the given DOIs, arXiv IDs, or bibcodes.
+     * Single SQL query instead of N individual calls — prevents main-thread blocking during
+     * feed refresh (500 results × 30ms each = 16s → 1 query ~50ms).
+     */
+    func findByIdentifiersBatch(dois: [String], arxivIds: [String], bibcodes: [String]) throws  -> [BibliographyRow]
     
     func fullTextSearch(query: String, parentId: String?, limit: UInt32?) throws  -> [BibliographyRow]
     
@@ -729,7 +759,7 @@ public protocol ImbibStoreProtocol : AnyObject {
     /**
      * Link an artifact to a publication via RelatesTo edge.
      */
-    func linkArtifactToPublication(artifactId: String, publicationId: String) throws 
+    func linkArtifactToPublication(artifactId: String, publicationId: String) throws  -> UndoInfo
     
     func listActivityRecords(libraryId: String, limit: UInt32?, offset: UInt32?) throws  -> [ActivityRecordRow]
     
@@ -748,6 +778,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     func listCollections(libraryId: String) throws  -> [CollectionRow]
     
     func listComments(publicationId: String) throws  -> [CommentRow]
+    
+    /**
+     * List comments for any item (publication, artifact, etc.).
+     */
+    func listCommentsForItem(itemId: String) throws  -> [CommentRow]
+    
+    /**
+     * List comments created since a given logical clock value (for incremental sync).
+     */
+    func listCommentsSince(itemId: String, sinceClock: UInt64) throws  -> [CommentRow]
     
     func listDismissedPapers(limit: UInt32?, offset: UInt32?) throws  -> [DismissedPaperRow]
     
@@ -768,9 +808,14 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func listTagsWithCounts() throws  -> [TagWithCountRow]
     
-    func movePublications(ids: [String], toLibraryId: String) throws 
+    func movePublications(ids: [String], toLibraryId: String) throws  -> UndoInfo
     
     func queryByTag(tagPath: String, parentId: String?) throws  -> [BibliographyRow]
+    
+    /**
+     * Return just the UUID strings of publications in a library (skips full row conversion).
+     */
+    func queryPublicationIds(parentId: String) throws  -> [String]
     
     func queryPublications(parentId: String, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
@@ -789,9 +834,9 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func queryUnread(parentId: String?) throws  -> [BibliographyRow]
     
-    func removeFromCollection(publicationIds: [String], collectionId: String) throws 
+    func removeFromCollection(publicationIds: [String], collectionId: String) throws  -> UndoInfo
     
-    func removeTag(ids: [String], tagPath: String) throws 
+    func removeTag(ids: [String], tagPath: String) throws  -> UndoInfo
     
     /**
      * Rename a tag (definition + all assignments on publications).
@@ -810,7 +855,19 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func searchPublications(query: String, parentId: String?) throws  -> [BibliographyRow]
     
-    func setFlag(ids: [String], color: String?, style: String?, length: String?) throws 
+    func setFlag(ids: [String], color: String?, style: String?, length: String?) throws  -> UndoInfo
+    
+    /**
+     * Set the canonical_id field on an item (maps to CKRecord.recordID for CloudKit round-trip).
+     * Bypasses the operation log — this is metadata for sync coordination.
+     */
+    func setItemCanonicalId(id: String, canonicalId: String) throws 
+    
+    /**
+     * Set the origin field on an item (records which device created it).
+     * Bypasses the operation log — this is metadata for sync coordination.
+     */
+    func setItemOrigin(id: String, origin: String) throws 
     
     func setLibraryDefault(id: String) throws 
     
@@ -818,28 +875,38 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func setPdfCloudAvailable(id: String, available: Bool) throws 
     
-    func setRead(ids: [String], read: Bool) throws 
+    func setRead(ids: [String], read: Bool) throws  -> UndoInfo
     
-    func setStarred(ids: [String], starred: Bool) throws 
+    func setStarred(ids: [String], starred: Bool) throws  -> UndoInfo
+    
+    /**
+     * Undo all operations in a batch. Returns UndoInfo for the redo batch.
+     */
+    func undoBatch(batchId: String) throws  -> UndoInfo
+    
+    /**
+     * Undo a single operation by ID. Returns UndoInfo for the inverse (redo) operation.
+     */
+    func undoOperation(operationId: String) throws  -> UndoInfo
     
     /**
      * Update an artifact's fields.
      */
-    func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?) throws 
+    func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?) throws  -> UndoInfo
     
     /**
      * Update a boolean payload field on any item.
      */
-    func updateBoolField(id: String, field: String, value: Bool) throws 
+    func updateBoolField(id: String, field: String, value: Bool) throws  -> UndoInfo
     
     func updateComment(id: String, text: String) throws 
     
-    func updateField(id: String, field: String, value: String?) throws 
+    func updateField(id: String, field: String, value: String?) throws  -> UndoInfo
     
     /**
      * Update an integer payload field on any item.
      */
-    func updateIntField(id: String, field: String, value: Int64?) throws 
+    func updateIntField(id: String, field: String, value: Int64?) throws  -> UndoInfo
     
     /**
      * Update tag definition colors.
@@ -936,20 +1003,22 @@ open func addLinkedFile(publicationId: String, filename: String, relativePath: S
 })
 }
     
-open func addTag(ids: [String], tagPath: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func addTag(ids: [String], tagPath: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_add_tag(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(tagPath),$0
     )
-}
+})
 }
     
-open func addToCollection(publicationIds: [String], collectionId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func addToCollection(publicationIds: [String], collectionId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_add_to_collection(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(publicationIds),
         FfiConverterString.lower(collectionId),$0
     )
-}
+})
 }
     
 open func addToScixLibrary(publicationIds: [String], scixLibraryId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -990,6 +1059,18 @@ open func countPdfs(publicationId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_pdfs(self.uniffiClonePointer(),
         FfiConverterString.lower(publicationId),$0
+    )
+})
+}
+    
+    /**
+     * Count publications, optionally within a parent library. Uses SELECT COUNT(*)
+     * instead of deserializing all rows — much faster for widget badge counts.
+     */
+open func countPublications(parentId: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_publications(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(parentId),$0
     )
 })
 }
@@ -1088,6 +1169,21 @@ open func createComment(publicationId: String, text: String, authorIdentifier: S
 })
 }
     
+    /**
+     * Create a comment on any item (publication, artifact, or any future item type).
+     */
+open func createCommentOnItem(itemId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, parentCommentId: String?)throws  -> CommentRow {
+    return try  FfiConverterTypeCommentRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_comment_on_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(itemId),
+        FfiConverterString.lower(text),
+        FfiConverterOptionString.lower(authorIdentifier),
+        FfiConverterOptionString.lower(authorDisplayName),
+        FfiConverterOptionString.lower(parentCommentId),$0
+    )
+})
+}
+    
 open func createInboxLibrary(name: String)throws  -> LibraryRow {
     return try  FfiConverterTypeLibraryRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_create_inbox_library(self.uniffiClonePointer(),
@@ -1159,6 +1255,19 @@ open func createTag(path: String, colorLight: String?, colorDark: String?)throws
         FfiConverterOptionString.lower(colorDark),$0
     )
 }
+}
+    
+    /**
+     * Remove duplicate publications within a library, keeping the oldest copy.
+     *
+     * Returns the number of duplicates removed.
+     */
+open func deduplicateLibrary(libraryId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_deduplicate_library(self.uniffiClonePointer(),
+        FfiConverterString.lower(libraryId),$0
+    )
+})
 }
     
     /**
@@ -1263,6 +1372,17 @@ open func findByBibcode(bibcode: String)throws  -> [BibliographyRow] {
 })
 }
     
+    /**
+     * Find an item by its canonical_id (for dedup on CloudKit pull).
+     */
+open func findByCanonicalId(canonicalId: String)throws  -> String? {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_find_by_canonical_id(self.uniffiClonePointer(),
+        FfiConverterString.lower(canonicalId),$0
+    )
+})
+}
+    
 open func findByCiteKey(citeKey: String, libraryId: String?)throws  -> BibliographyRow? {
     return try  FfiConverterOptionTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_find_by_cite_key(self.uniffiClonePointer(),
@@ -1287,6 +1407,21 @@ open func findByIdentifiers(doi: String?, arxivId: String?, bibcode: String?, pm
         FfiConverterOptionString.lower(arxivId),
         FfiConverterOptionString.lower(bibcode),
         FfiConverterOptionString.lower(pmid),$0
+    )
+})
+}
+    
+    /**
+     * Batch lookup: find all publications matching any of the given DOIs, arXiv IDs, or bibcodes.
+     * Single SQL query instead of N individual calls — prevents main-thread blocking during
+     * feed refresh (500 results × 30ms each = 16s → 1 query ~50ms).
+     */
+open func findByIdentifiersBatch(dois: [String], arxivIds: [String], bibcodes: [String])throws  -> [BibliographyRow] {
+    return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_find_by_identifiers_batch(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(dois),
+        FfiConverterSequenceString.lower(arxivIds),
+        FfiConverterSequenceString.lower(bibcodes),$0
     )
 })
 }
@@ -1432,12 +1567,13 @@ open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?)thro
     /**
      * Link an artifact to a publication via RelatesTo edge.
      */
-open func linkArtifactToPublication(artifactId: String, publicationId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func linkArtifactToPublication(artifactId: String, publicationId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_link_artifact_to_publication(self.uniffiClonePointer(),
         FfiConverterString.lower(artifactId),
         FfiConverterString.lower(publicationId),$0
     )
-}
+})
 }
     
 open func listActivityRecords(libraryId: String, limit: UInt32?, offset: UInt32?)throws  -> [ActivityRecordRow] {
@@ -1511,6 +1647,29 @@ open func listComments(publicationId: String)throws  -> [CommentRow] {
 })
 }
     
+    /**
+     * List comments for any item (publication, artifact, etc.).
+     */
+open func listCommentsForItem(itemId: String)throws  -> [CommentRow] {
+    return try  FfiConverterSequenceTypeCommentRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_comments_for_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(itemId),$0
+    )
+})
+}
+    
+    /**
+     * List comments created since a given logical clock value (for incremental sync).
+     */
+open func listCommentsSince(itemId: String, sinceClock: UInt64)throws  -> [CommentRow] {
+    return try  FfiConverterSequenceTypeCommentRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_comments_since(self.uniffiClonePointer(),
+        FfiConverterString.lower(itemId),
+        FfiConverterUInt64.lower(sinceClock),$0
+    )
+})
+}
+    
 open func listDismissedPapers(limit: UInt32?, offset: UInt32?)throws  -> [DismissedPaperRow] {
     return try  FfiConverterSequenceTypeDismissedPaperRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_dismissed_papers(self.uniffiClonePointer(),
@@ -1575,12 +1734,13 @@ open func listTagsWithCounts()throws  -> [TagWithCountRow] {
 })
 }
     
-open func movePublications(ids: [String], toLibraryId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func movePublications(ids: [String], toLibraryId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_move_publications(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(toLibraryId),$0
     )
-}
+})
 }
     
 open func queryByTag(tagPath: String, parentId: String?)throws  -> [BibliographyRow] {
@@ -1588,6 +1748,17 @@ open func queryByTag(tagPath: String, parentId: String?)throws  -> [Bibliography
     uniffi_imbib_core_fn_method_imbibstore_query_by_tag(self.uniffiClonePointer(),
         FfiConverterString.lower(tagPath),
         FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Return just the UUID strings of publications in a library (skips full row conversion).
+     */
+open func queryPublicationIds(parentId: String)throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_query_publication_ids(self.uniffiClonePointer(),
+        FfiConverterString.lower(parentId),$0
     )
 })
 }
@@ -1646,20 +1817,22 @@ open func queryUnread(parentId: String?)throws  -> [BibliographyRow] {
 })
 }
     
-open func removeFromCollection(publicationIds: [String], collectionId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func removeFromCollection(publicationIds: [String], collectionId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_remove_from_collection(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(publicationIds),
         FfiConverterString.lower(collectionId),$0
     )
-}
+})
 }
     
-open func removeTag(ids: [String], tagPath: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func removeTag(ids: [String], tagPath: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_remove_tag(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(tagPath),$0
     )
-}
+})
 }
     
     /**
@@ -1705,12 +1878,37 @@ open func searchPublications(query: String, parentId: String?)throws  -> [Biblio
 })
 }
     
-open func setFlag(ids: [String], color: String?, style: String?, length: String?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func setFlag(ids: [String], color: String?, style: String?, length: String?)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_set_flag(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterOptionString.lower(color),
         FfiConverterOptionString.lower(style),
         FfiConverterOptionString.lower(length),$0
+    )
+})
+}
+    
+    /**
+     * Set the canonical_id field on an item (maps to CKRecord.recordID for CloudKit round-trip).
+     * Bypasses the operation log — this is metadata for sync coordination.
+     */
+open func setItemCanonicalId(id: String, canonicalId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_set_item_canonical_id(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(canonicalId),$0
+    )
+}
+}
+    
+    /**
+     * Set the origin field on an item (records which device created it).
+     * Bypasses the operation log — this is metadata for sync coordination.
+     */
+open func setItemOrigin(id: String, origin: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_set_item_origin(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(origin),$0
     )
 }
 }
@@ -1738,26 +1936,51 @@ open func setPdfCloudAvailable(id: String, available: Bool)throws  {try rustCall
 }
 }
     
-open func setRead(ids: [String], read: Bool)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func setRead(ids: [String], read: Bool)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_set_read(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(read),$0
     )
-}
+})
 }
     
-open func setStarred(ids: [String], starred: Bool)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func setStarred(ids: [String], starred: Bool)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
     )
+})
 }
+    
+    /**
+     * Undo all operations in a batch. Returns UndoInfo for the redo batch.
+     */
+open func undoBatch(batchId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_undo_batch(self.uniffiClonePointer(),
+        FfiConverterString.lower(batchId),$0
+    )
+})
+}
+    
+    /**
+     * Undo a single operation by ID. Returns UndoInfo for the inverse (redo) operation.
+     */
+open func undoOperation(operationId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_undo_operation(self.uniffiClonePointer(),
+        FfiConverterString.lower(operationId),$0
+    )
+})
 }
     
     /**
      * Update an artifact's fields.
      */
-open func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: String?, artifactSubtype: String?, captureContext: String?, originalAuthor: String?, eventName: String?, eventDate: String?)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_update_artifact(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterOptionString.lower(title),
@@ -1769,19 +1992,20 @@ open func updateArtifact(id: String, title: String?, sourceUrl: String?, notes: 
         FfiConverterOptionString.lower(eventName),
         FfiConverterOptionString.lower(eventDate),$0
     )
-}
+})
 }
     
     /**
      * Update a boolean payload field on any item.
      */
-open func updateBoolField(id: String, field: String, value: Bool)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func updateBoolField(id: String, field: String, value: Bool)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_update_bool_field(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(field),
         FfiConverterBool.lower(value),$0
     )
-}
+})
 }
     
 open func updateComment(id: String, text: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -1792,25 +2016,27 @@ open func updateComment(id: String, text: String)throws  {try rustCallWithError(
 }
 }
     
-open func updateField(id: String, field: String, value: String?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func updateField(id: String, field: String, value: String?)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_update_field(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(field),
         FfiConverterOptionString.lower(value),$0
     )
-}
+})
 }
     
     /**
      * Update an integer payload field on any item.
      */
-open func updateIntField(id: String, field: String, value: Int64?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+open func updateIntField(id: String, field: String, value: Int64?)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_update_int_field(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(field),
         FfiConverterOptionInt64.lower(value),$0
     )
-}
+})
 }
     
     /**
@@ -3672,10 +3898,11 @@ public struct BibliographyRow {
     public var categories: [String]
     public var tags: [TagDisplayRow]
     public var libraryName: String?
+    public var enrichmentDate: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, citeKey: String, title: String, authorString: String, year: Int32?, abstractText: String?, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, hasDownloadedPdf: Bool, hasOtherAttachments: Bool, citationCount: Int32, referenceCount: Int32, doi: String?, arxivId: String?, bibcode: String?, venue: String?, note: String?, dateAdded: Int64, dateModified: Int64, primaryCategory: String?, categories: [String], tags: [TagDisplayRow], libraryName: String?) {
+    public init(id: String, citeKey: String, title: String, authorString: String, year: Int32?, abstractText: String?, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, hasDownloadedPdf: Bool, hasOtherAttachments: Bool, citationCount: Int32, referenceCount: Int32, doi: String?, arxivId: String?, bibcode: String?, venue: String?, note: String?, dateAdded: Int64, dateModified: Int64, primaryCategory: String?, categories: [String], tags: [TagDisplayRow], libraryName: String?, enrichmentDate: String?) {
         self.id = id
         self.citeKey = citeKey
         self.title = title
@@ -3702,6 +3929,7 @@ public struct BibliographyRow {
         self.categories = categories
         self.tags = tags
         self.libraryName = libraryName
+        self.enrichmentDate = enrichmentDate
     }
 }
 
@@ -3787,6 +4015,9 @@ extension BibliographyRow: Equatable, Hashable {
         if lhs.libraryName != rhs.libraryName {
             return false
         }
+        if lhs.enrichmentDate != rhs.enrichmentDate {
+            return false
+        }
         return true
     }
 
@@ -3817,6 +4048,7 @@ extension BibliographyRow: Equatable, Hashable {
         hasher.combine(categories)
         hasher.combine(tags)
         hasher.combine(libraryName)
+        hasher.combine(enrichmentDate)
     }
 }
 
@@ -3853,7 +4085,8 @@ public struct FfiConverterTypeBibliographyRow: FfiConverterRustBuffer {
                 primaryCategory: FfiConverterOptionString.read(from: &buf), 
                 categories: FfiConverterSequenceString.read(from: &buf), 
                 tags: FfiConverterSequenceTypeTagDisplayRow.read(from: &buf), 
-                libraryName: FfiConverterOptionString.read(from: &buf)
+                libraryName: FfiConverterOptionString.read(from: &buf), 
+                enrichmentDate: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -3884,6 +4117,7 @@ public struct FfiConverterTypeBibliographyRow: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.categories, into: &buf)
         FfiConverterSequenceTypeTagDisplayRow.write(value.tags, into: &buf)
         FfiConverterOptionString.write(value.libraryName, into: &buf)
+        FfiConverterOptionString.write(value.enrichmentDate, into: &buf)
     }
 }
 
@@ -4211,11 +4445,12 @@ public struct CommentRow {
     public var dateCreated: Int64
     public var dateModified: Int64
     public var parentCommentId: String?
-    public var publicationId: String
+    public var parentItemId: String
+    public var parentSchema: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, text: String, authorIdentifier: String?, authorDisplayName: String?, dateCreated: Int64, dateModified: Int64, parentCommentId: String?, publicationId: String) {
+    public init(id: String, text: String, authorIdentifier: String?, authorDisplayName: String?, dateCreated: Int64, dateModified: Int64, parentCommentId: String?, parentItemId: String, parentSchema: String?) {
         self.id = id
         self.text = text
         self.authorIdentifier = authorIdentifier
@@ -4223,7 +4458,8 @@ public struct CommentRow {
         self.dateCreated = dateCreated
         self.dateModified = dateModified
         self.parentCommentId = parentCommentId
-        self.publicationId = publicationId
+        self.parentItemId = parentItemId
+        self.parentSchema = parentSchema
     }
 }
 
@@ -4252,7 +4488,10 @@ extension CommentRow: Equatable, Hashable {
         if lhs.parentCommentId != rhs.parentCommentId {
             return false
         }
-        if lhs.publicationId != rhs.publicationId {
+        if lhs.parentItemId != rhs.parentItemId {
+            return false
+        }
+        if lhs.parentSchema != rhs.parentSchema {
             return false
         }
         return true
@@ -4266,7 +4505,8 @@ extension CommentRow: Equatable, Hashable {
         hasher.combine(dateCreated)
         hasher.combine(dateModified)
         hasher.combine(parentCommentId)
-        hasher.combine(publicationId)
+        hasher.combine(parentItemId)
+        hasher.combine(parentSchema)
     }
 }
 
@@ -4285,7 +4525,8 @@ public struct FfiConverterTypeCommentRow: FfiConverterRustBuffer {
                 dateCreated: FfiConverterInt64.read(from: &buf), 
                 dateModified: FfiConverterInt64.read(from: &buf), 
                 parentCommentId: FfiConverterOptionString.read(from: &buf), 
-                publicationId: FfiConverterString.read(from: &buf)
+                parentItemId: FfiConverterString.read(from: &buf), 
+                parentSchema: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -4297,7 +4538,8 @@ public struct FfiConverterTypeCommentRow: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.dateCreated, into: &buf)
         FfiConverterInt64.write(value.dateModified, into: &buf)
         FfiConverterOptionString.write(value.parentCommentId, into: &buf)
-        FfiConverterString.write(value.publicationId, into: &buf)
+        FfiConverterString.write(value.parentItemId, into: &buf)
+        FfiConverterOptionString.write(value.parentSchema, into: &buf)
     }
 }
 
@@ -11491,6 +11733,101 @@ public func FfiConverterTypeThumbnailConfig_lift(_ buf: RustBuffer) throws -> Th
 #endif
 public func FfiConverterTypeThumbnailConfig_lower(_ value: ThumbnailConfig) -> RustBuffer {
     return FfiConverterTypeThumbnailConfig.lower(value)
+}
+
+
+/**
+ * Information returned after a mutation for undo/redo registration.
+ */
+public struct UndoInfo {
+    /**
+     * The operation IDs created by this mutation (as UUID strings).
+     */
+    public var operationIds: [String]
+    /**
+     * If multiple operations share a batch, this is their shared batch ID.
+     */
+    public var batchId: String?
+    /**
+     * Human-readable description for the Edit menu (e.g., "Star 3 Papers").
+     */
+    public var description: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The operation IDs created by this mutation (as UUID strings).
+         */operationIds: [String], 
+        /**
+         * If multiple operations share a batch, this is their shared batch ID.
+         */batchId: String?, 
+        /**
+         * Human-readable description for the Edit menu (e.g., "Star 3 Papers").
+         */description: String) {
+        self.operationIds = operationIds
+        self.batchId = batchId
+        self.description = description
+    }
+}
+
+
+
+extension UndoInfo: Equatable, Hashable {
+    public static func ==(lhs: UndoInfo, rhs: UndoInfo) -> Bool {
+        if lhs.operationIds != rhs.operationIds {
+            return false
+        }
+        if lhs.batchId != rhs.batchId {
+            return false
+        }
+        if lhs.description != rhs.description {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(operationIds)
+        hasher.combine(batchId)
+        hasher.combine(description)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUndoInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UndoInfo {
+        return
+            try UndoInfo(
+                operationIds: FfiConverterSequenceString.read(from: &buf), 
+                batchId: FfiConverterOptionString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UndoInfo, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.operationIds, into: &buf)
+        FfiConverterOptionString.write(value.batchId, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUndoInfo_lift(_ buf: RustBuffer) throws -> UndoInfo {
+    return try FfiConverterTypeUndoInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUndoInfo_lower(_ value: UndoInfo) -> RustBuffer {
+    return FfiConverterTypeUndoInfo.lower(value)
 }
 
 
@@ -19098,10 +19435,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_add_linked_file() != 51536) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_add_tag() != 1568) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_add_tag() != 23877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_add_to_collection() != 18642) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_add_to_collection() != 51821) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_add_to_scix_library() != 36664) {
@@ -19117,6 +19454,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_pdfs() != 36052) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_publications() != 30615) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_unread() != 53670) {
@@ -19140,6 +19480,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_create_comment() != 35033) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_comment_on_item() != 42630) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_inbox_library() != 43625) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19159,6 +19502,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_tag() != 51092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_deduplicate_library() != 62618) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_artifact() != 55877) {
@@ -19197,6 +19543,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_find_by_bibcode() != 50465) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_find_by_canonical_id() != 55555) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_find_by_cite_key() != 47264) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19204,6 +19553,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_find_by_identifiers() != 43382) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_find_by_identifiers_batch() != 4339) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_full_text_search() != 23621) {
@@ -19254,7 +19606,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 19934) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_link_artifact_to_publication() != 22858) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_link_artifact_to_publication() != 6040) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_activity_records() != 10944) {
@@ -19276,6 +19628,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_comments() != 24687) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_comments_for_item() != 10188) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_comments_since() != 65339) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_dismissed_papers() != 49008) {
@@ -19302,10 +19660,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_tags_with_counts() != 43551) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 48812) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 10397) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_by_tag() != 42269) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_publication_ids() != 54620) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_publications() != 38518) {
@@ -19323,10 +19684,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_unread() != 10776) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_collection() != 8513) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_collection() != 19847) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 28145) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 29440) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_rename_tag() != 556) {
@@ -19341,7 +19702,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_search_publications() != 7240) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_set_flag() != 32169) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_flag() != 7218) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_item_canonical_id() != 46281) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_item_origin() != 33337) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_library_default() != 4018) {
@@ -19353,25 +19720,31 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_set_pdf_cloud_available() != 18555) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_set_read() != 58794) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_read() != 413) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 47502) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 26685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_update_artifact() != 43646) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_undo_batch() != 19136) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_update_bool_field() != 1104) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_undo_operation() != 46814) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_artifact() != 15463) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_bool_field() != 59544) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_update_comment() != 25809) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_update_field() != 48599) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_field() != 38282) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_update_int_field() != 7778) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_int_field() != 59374) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_update_tag() != 28360) {

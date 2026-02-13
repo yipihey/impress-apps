@@ -134,27 +134,65 @@ public actor SmartSearchProvider {
                 category: "smartsearch"
             )
 
-            // Find existing publications via RustStoreAdapter
+            // Find existing publications via batch lookup — runs off main thread.
+            // Single SQL query replaces N individual findByIdentifiers calls.
             let findStart = CFAbsoluteTimeGetCurrent()
-            let existingMap: [String: PublicationRowData] = await MainActor.run {
-                let store = RustStoreAdapter.shared
-                var map: [String: PublicationRowData] = [:]
-                for result in limitedResults {
-                    let matches = store.findByIdentifiers(
-                        doi: result.doi,
-                        arxivId: result.arxivID,
-                        bibcode: result.bibcode
-                    )
-                    if let first = matches.first {
-                        map[result.id] = first
-                    }
-                }
-                return map
+            let adapter = await MainActor.run { RustStoreAdapter.shared }
+
+            // Collect all identifiers from search results
+            let allDois = limitedResults.compactMap(\.doi)
+            let allArxivIds = limitedResults.compactMap(\.arxivID)
+            let allBibcodes = limitedResults.compactMap(\.bibcode)
+
+            // Single batch query (runs on SmartSearchProvider actor, NOT main actor)
+            let batchResults = adapter.findByIdentifiersBatchBackground(
+                dois: allDois,
+                arxivIds: allArxivIds,
+                bibcodes: allBibcodes
+            )
+
+            // Build reverse indices for O(1) lookup: identifier → PublicationRowData
+            var doiIndex: [String: PublicationRowData] = [:]
+            var arxivIndex: [String: PublicationRowData] = [:]
+            var bibcodeIndex: [String: PublicationRowData] = [:]
+            for pub_ in batchResults {
+                if let doi = pub_.doi, !doi.isEmpty { doiIndex[doi] = pub_ }
+                if let arxiv = pub_.arxivID, !arxiv.isEmpty { arxivIndex[arxiv] = pub_ }
+                if let bib = pub_.bibcode, !bib.isEmpty { bibcodeIndex[bib] = pub_ }
             }
+
+            // Map each search result to its existing publication
+            var existingMap: [String: PublicationRowData] = [:]
+            var unmatchedResults: [SearchResult] = []
+            for result in limitedResults {
+                if let doi = result.doi, let pub_ = doiIndex[doi] {
+                    existingMap[result.id] = pub_
+                } else if let arxiv = result.arxivID, let pub_ = arxivIndex[arxiv] {
+                    existingMap[result.id] = pub_
+                } else if let bib = result.bibcode, let pub_ = bibcodeIndex[bib] {
+                    existingMap[result.id] = pub_
+                } else {
+                    unmatchedResults.append(result)
+                }
+            }
+
+            // Cite key fallback only for unmatched results (off main thread)
+            for result in unmatchedResults {
+                let citeKey = Self.generateCiteKey(from: result)
+                if !citeKey.isEmpty, let found = adapter.findByCiteKeyBackground(citeKey: citeKey) {
+                    existingMap[result.id] = found
+                }
+            }
+
             let findTime = (CFAbsoluteTimeGetCurrent() - findStart) * 1000
 
             let existingPubs = limitedResults.compactMap { existingMap[$0.id] }
-            let newResults = limitedResults.filter { existingMap[$0.id] == nil }
+            let newResultsRaw = limitedResults.filter { existingMap[$0.id] == nil }
+
+            // Filter dismissed papers from new results (off main thread)
+            let newResults: [SearchResult] = newResultsRaw.filter { result in
+                !adapter.isPaperDismissedBackground(doi: result.doi, arxivId: result.arxivID, bibcode: result.bibcode)
+            }
 
             // Create new publications via BibTeX import
             let createStart = CFAbsoluteTimeGetCurrent()
@@ -192,6 +230,7 @@ public actor SmartSearchProvider {
                     }
 
                     var createdIDs: [UUID] = []
+                    store.beginBatchMutation()
                     for result in newResults {
                         let bibtex = result.toBibTeX()
                         if !bibtex.isEmpty {
@@ -199,6 +238,7 @@ public actor SmartSearchProvider {
                             createdIDs.append(contentsOf: ids)
                         }
                     }
+                    store.endBatchMutation()
                     return createdIDs
                 }
             }
@@ -209,7 +249,10 @@ public actor SmartSearchProvider {
             let allFoundIDs = newPublicationIDs + existingPubs.map(\.id)
             if !allFoundIDs.isEmpty {
                 await MainActor.run {
-                    RustStoreAdapter.shared.addToCollection(publicationIds: allFoundIDs, collectionId: id)
+                    let store = RustStoreAdapter.shared
+                    store.beginBatchMutation()
+                    store.addToCollection(publicationIds: allFoundIDs, collectionId: id)
+                    store.endBatchMutation()
                 }
             }
 
@@ -220,20 +263,19 @@ public actor SmartSearchProvider {
                 // Filter existing pubs: exclude dismissed and already in inbox
                 let existingPubIDsForInbox: [UUID] = await MainActor.run {
                     let store = RustStoreAdapter.shared
+                    // Query inbox member IDs ONCE — O(1) lookups instead of O(N) per paper
+                    let inboxMemberIDs: Set<UUID>
+                    if let inboxLib = store.getInboxLibrary() {
+                        inboxMemberIDs = store.queryPublicationIDs(parentId: inboxLib.id)
+                    } else {
+                        inboxMemberIDs = []
+                    }
                     return existingPubs.compactMap { pub -> UUID? in
-                        let pubID = pub.id
-                        // Check if dismissed
                         if store.isPaperDismissed(doi: pub.doi, arxivId: pub.arxivID, bibcode: pub.bibcode) {
                             return nil
                         }
-                        // Check if already in inbox
-                        if let inboxLib = store.getInboxLibrary() {
-                            let inboxPubs = store.queryPublications(parentId: inboxLib.id)
-                            if inboxPubs.contains(where: { $0.id == pubID }) {
-                                return nil
-                            }
-                        }
-                        return pubID
+                        if inboxMemberIDs.contains(pub.id) { return nil }
+                        return pub.id
                     }
                 }
 
@@ -277,6 +319,20 @@ public actor SmartSearchProvider {
             Logger.smartSearch.errorCapture("Smart search '\(name)' failed: \(error.localizedDescription)", category: "smartsearch")
             throw error
         }
+    }
+
+    // MARK: - Helpers
+
+    /// Generate a cite key from a search result, matching the format used by toBibTeX().
+    private static func generateCiteKey(from result: SearchResult) -> String {
+        let lastName = result.firstAuthorLastName ?? "Unknown"
+        let yearStr = result.year.map { "\($0)" } ?? ""
+        let titleWord = result.title
+            .components(separatedBy: .whitespaces)
+            .first(where: { $0.count > 3 }) ?? "paper"
+        return "\(lastName)\(yearStr)\(titleWord)"
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
     }
 
     // MARK: - Cache State

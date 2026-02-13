@@ -163,7 +163,7 @@ public final class InboxManager {
         )
 
         // Update widget data
-        let totalCount = inboxLibrary.map { store.queryPublications(parentId: $0.id).count } ?? 0
+        let totalCount = inboxLibrary.map { store.countPublications(parentId: $0.id) } ?? 0
         WidgetDataStore.shared.updateInboxStats(unread: unreadCount, total: totalCount)
     }
 
@@ -379,30 +379,29 @@ public final class InboxManager {
         updateUnreadCount()
     }
 
-    /// Add multiple paper IDs to the Inbox in a single batch
+    /// Add multiple paper IDs to the Inbox in a single batch.
+    /// Uses bulk ID query + single batch FFI calls instead of per-paper loops.
     @discardableResult
     public func addToInboxBatch(_ publicationIDs: [UUID]) -> Int {
+        guard !publicationIDs.isEmpty else { return 0 }
         let inbox = getOrCreateInbox()
-        var addedCount = 0
 
-        for pubID in publicationIDs {
-            // Check if already in inbox
-            if let detail = store.getPublicationDetail(id: pubID),
-               detail.libraryIDs.contains(inbox.id) {
-                continue
-            }
+        // Query inbox membership once — O(1) lookups
+        let inboxMemberIDs = store.queryPublicationIDs(parentId: inbox.id)
+        let idsToAdd = publicationIDs.filter { !inboxMemberIDs.contains($0) }
+        guard !idsToAdd.isEmpty else { return 0 }
 
-            store.duplicatePublications(ids: [pubID], toLibraryId: inbox.id)
-            store.setRead(ids: [pubID], read: false)
-            addedCount += 1
-        }
+        // Batch: suppress per-call notifications, fire once at end
+        store.beginBatchMutation()
+        // One FFI call for all duplications (single transaction in Rust)
+        let _ = store.duplicatePublications(ids: idsToAdd, toLibraryId: inbox.id)
+        // One FFI call for all read status resets
+        store.setRead(ids: idsToAdd, read: false)
+        store.endBatchMutation()
 
-        if addedCount > 0 {
-            updateUnreadCount()
-            Logger.inbox.infoCapture("Added \(addedCount) papers to Inbox (batch)", category: "papers")
-        }
-
-        return addedCount
+        updateUnreadCount()
+        Logger.inbox.infoCapture("Added \(idsToAdd.count) papers to Inbox (batch)", category: "papers")
+        return idsToAdd.count
     }
 
     /// Remove a paper from the Inbox (dismiss)

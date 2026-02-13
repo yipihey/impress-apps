@@ -41,12 +41,90 @@ impl From<impress_core::StoreError> for StoreApiError {
     }
 }
 
+/// Information returned after a mutation for undo/redo registration.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct UndoInfo {
+    /// The operation IDs created by this mutation (as UUID strings).
+    pub operation_ids: Vec<String>,
+    /// If multiple operations share a batch, this is their shared batch ID.
+    pub batch_id: Option<String>,
+    /// Human-readable description for the Edit menu (e.g., "Star 3 Papers").
+    pub description: String,
+}
+
+impl From<impress_core::UndoInfo> for UndoInfo {
+    fn from(info: impress_core::UndoInfo) -> Self {
+        Self {
+            operation_ids: info.operation_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id: info.batch_id,
+            description: info.description,
+        }
+    }
+}
+
 /// The main entry point for Swift. Wraps SqliteItemStore + SchemaRegistry.
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct ImbibStore {
     store: SqliteItemStore,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
+}
+
+/// Private helpers (not exported via UniFFI).
+impl ImbibStore {
+    /// Apply a single mutation to multiple item IDs, grouping into a batch for undo.
+    fn apply_mutation_to_ids(
+        &self,
+        ids: &[String],
+        mutation: FieldMutation,
+    ) -> Result<UndoInfo, StoreApiError> {
+        use impress_core::operation::{OperationIntent, OperationSpec, OperationType, undo_description};
+
+        let op_type: OperationType = mutation.clone().into();
+        let count = ids.len();
+        let description = undo_description(&op_type, count);
+
+        if count == 1 {
+            let uuid = parse_uuid(&ids[0])?;
+            let info = self.store.update_with_undo(uuid, vec![mutation])?;
+            return Ok(UndoInfo {
+                operation_ids: info.operation_ids.iter().map(|id| id.to_string()).collect(),
+                batch_id: info.batch_id,
+                description,
+            });
+        }
+
+        // Multiple IDs — build a batch of operation specs
+        let mut specs = Vec::with_capacity(count);
+        for id_str in ids {
+            let uuid = parse_uuid(id_str)?;
+            specs.push(OperationSpec {
+                target_id: uuid,
+                op_type: mutation.clone().into(),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None, // apply_operation_batch assigns its own
+                author: "user:local".into(),
+                author_kind: impress_core::item::ActorKind::Human,
+            });
+        }
+
+        let op_ids = self.store.apply_operation_batch(specs)?;
+
+        // Read back the batch_id assigned by apply_operation_batch
+        let batch_id = if let Some(first_id) = op_ids.first() {
+            self.store.get(*first_id)?.and_then(|item| item.batch_id)
+        } else {
+            None
+        };
+
+        Ok(UndoInfo {
+            operation_ids: op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id,
+            description,
+        })
+    }
 }
 
 #[cfg_attr(feature = "native", uniffi::export)]
@@ -145,11 +223,13 @@ impl ImbibStore {
         &self,
         publication_ids: Vec<String>,
         collection_id: String,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
+        let mut all_op_ids = Vec::new();
+        let mut batch_id = None;
         for pub_id_str in &publication_ids {
             let pub_uuid = parse_uuid(pub_id_str)?;
-            self.store.update(
+            let info = self.store.update_with_undo(
                 coll_uuid,
                 vec![FieldMutation::AddReference(
                     impress_core::reference::TypedReference {
@@ -159,24 +239,42 @@ impl ImbibStore {
                     },
                 )],
             )?;
+            all_op_ids.extend(info.operation_ids);
+            if batch_id.is_none() {
+                batch_id = info.batch_id;
+            }
         }
-        Ok(())
+        Ok(UndoInfo {
+            operation_ids: all_op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id,
+            description: "Add to Collection".into(),
+        })
     }
 
     pub fn remove_from_collection(
         &self,
         publication_ids: Vec<String>,
         collection_id: String,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
+        let mut all_op_ids = Vec::new();
+        let mut batch_id = None;
         for pub_id_str in &publication_ids {
             let pub_uuid = parse_uuid(pub_id_str)?;
-            self.store.update(
+            let info = self.store.update_with_undo(
                 coll_uuid,
                 vec![FieldMutation::RemoveReference(pub_uuid, EdgeType::Contains)],
             )?;
+            all_op_ids.extend(info.operation_ids);
+            if batch_id.is_none() {
+                batch_id = info.batch_id;
+            }
         }
-        Ok(())
+        Ok(UndoInfo {
+            operation_ids: all_op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id,
+            description: "Remove from Collection".into(),
+        })
     }
 
     // --- Publication queries ---
@@ -203,6 +301,21 @@ impl ImbibStore {
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
         self.items_to_bibliography_rows(&items, &tag_defs)
+    }
+
+    /// Return just the UUID strings of publications in a library (skips full row conversion).
+    pub fn query_publication_ids(
+        &self,
+        parent_id: String,
+    ) -> Result<Vec<String>, StoreApiError> {
+        let parent_uuid = parse_uuid(&parent_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::HasParent(parent_uuid)],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        Ok(items.iter().map(|item| item.id.to_string()).collect())
     }
 
     pub fn search_publications(
@@ -287,22 +400,12 @@ impl ImbibStore {
         Ok(ids)
     }
 
-    pub fn set_read(&self, ids: Vec<String>, read: bool) -> Result<(), StoreApiError> {
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::SetRead(read)])?;
-        }
-        Ok(())
+    pub fn set_read(&self, ids: Vec<String>, read: bool) -> Result<UndoInfo, StoreApiError> {
+        self.apply_mutation_to_ids(&ids, FieldMutation::SetRead(read))
     }
 
-    pub fn set_starred(&self, ids: Vec<String>, starred: bool) -> Result<(), StoreApiError> {
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::SetStarred(starred)])?;
-        }
-        Ok(())
+    pub fn set_starred(&self, ids: Vec<String>, starred: bool) -> Result<UndoInfo, StoreApiError> {
+        self.apply_mutation_to_ids(&ids, FieldMutation::SetStarred(starred))
     }
 
     pub fn set_flag(
@@ -311,36 +414,21 @@ impl ImbibStore {
         color: Option<String>,
         style: Option<String>,
         length: Option<String>,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let flag = color.map(|c| FlagState {
             color: c,
             style,
             length,
         });
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::SetFlag(flag.clone())])?;
-        }
-        Ok(())
+        self.apply_mutation_to_ids(&ids, FieldMutation::SetFlag(flag))
     }
 
-    pub fn add_tag(&self, ids: Vec<String>, tag_path: String) -> Result<(), StoreApiError> {
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::AddTag(tag_path.clone())])?;
-        }
-        Ok(())
+    pub fn add_tag(&self, ids: Vec<String>, tag_path: String) -> Result<UndoInfo, StoreApiError> {
+        self.apply_mutation_to_ids(&ids, FieldMutation::AddTag(tag_path))
     }
 
-    pub fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> Result<(), StoreApiError> {
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::RemoveTag(tag_path.clone())])?;
-        }
-        Ok(())
+    pub fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> Result<UndoInfo, StoreApiError> {
+        self.apply_mutation_to_ids(&ids, FieldMutation::RemoveTag(tag_path))
     }
 
     pub fn delete_publications(&self, ids: Vec<String>) -> Result<(), StoreApiError> {
@@ -356,14 +444,13 @@ impl ImbibStore {
         id: String,
         field: String,
         value: Option<String>,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         let mutation = match value {
             Some(v) => FieldMutation::SetPayload(field, Value::String(v)),
             None => FieldMutation::RemovePayload(field),
         };
-        self.store.update(uuid, vec![mutation])?;
-        Ok(())
+        Ok(self.store.update_with_undo(uuid, vec![mutation])?.into())
     }
 
     // --- Tag definitions ---
@@ -484,6 +571,19 @@ impl ImbibStore {
         Ok(ids.len() as u32)
     }
 
+    // --- Undo/Redo ---
+
+    /// Undo a single operation by ID. Returns UndoInfo for the inverse (redo) operation.
+    pub fn undo_operation(&self, operation_id: String) -> Result<UndoInfo, StoreApiError> {
+        let uuid = parse_uuid(&operation_id)?;
+        Ok(self.store.undo_operation(uuid)?.into())
+    }
+
+    /// Undo all operations in a batch. Returns UndoInfo for the redo batch.
+    pub fn undo_batch(&self, batch_id: String) -> Result<UndoInfo, StoreApiError> {
+        Ok(self.store.undo_batch(&batch_id)?.into())
+    }
+
     // --- Generic field helpers ---
 
     /// Delete any item by ID.
@@ -499,14 +599,13 @@ impl ImbibStore {
         id: String,
         field: String,
         value: Option<i64>,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         let mutation = match value {
             Some(v) => FieldMutation::SetPayload(field, Value::Int(v)),
             None => FieldMutation::RemovePayload(field),
         };
-        self.store.update(uuid, vec![mutation])?;
-        Ok(())
+        Ok(self.store.update_with_undo(uuid, vec![mutation])?.into())
     }
 
     /// Update a boolean payload field on any item.
@@ -515,14 +614,12 @@ impl ImbibStore {
         id: String,
         field: String,
         value: bool,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let uuid = parse_uuid(&id)?;
-        self.store
-            .update(
-                uuid,
-                vec![FieldMutation::SetPayload(field, Value::Bool(value))],
-            )?;
-        Ok(())
+        Ok(self.store.update_with_undo(
+            uuid,
+            vec![FieldMutation::SetPayload(field, Value::Bool(value))],
+        )?.into())
     }
 
     // --- Library extensions ---
@@ -1010,6 +1107,108 @@ impl ImbibStore {
         self.items_to_bibliography_rows(&items, &tag_defs)
     }
 
+    /// Batch lookup: find all publications matching any of the given DOIs, arXiv IDs, or bibcodes.
+    /// Single SQL query instead of N individual calls — prevents main-thread blocking during
+    /// feed refresh (500 results × 30ms each = 16s → 1 query ~50ms).
+    pub fn find_by_identifiers_batch(
+        &self,
+        dois: Vec<String>,
+        arxiv_ids: Vec<String>,
+        bibcodes: Vec<String>,
+    ) -> Result<Vec<BibliographyRow>, StoreApiError> {
+        let mut or_preds = Vec::new();
+        if !dois.is_empty() {
+            or_preds.push(Predicate::In(
+                "doi".into(),
+                dois.into_iter().map(Value::String).collect(),
+            ));
+        }
+        if !arxiv_ids.is_empty() {
+            or_preds.push(Predicate::In(
+                "arxiv_id".into(),
+                arxiv_ids.into_iter().map(Value::String).collect(),
+            ));
+        }
+        if !bibcodes.is_empty() {
+            or_preds.push(Predicate::In(
+                "bibcode".into(),
+                bibcodes.into_iter().map(Value::String).collect(),
+            ));
+        }
+        if or_preds.is_empty() {
+            return Ok(vec![]);
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::Or(or_preds)],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        self.items_to_bibliography_rows(&items, &tag_defs)
+    }
+
+    /// Remove duplicate publications within a library, keeping the oldest copy.
+    ///
+    /// Returns the number of duplicates removed.
+    pub fn deduplicate_library(&self, library_id: String) -> Result<u32, StoreApiError> {
+        let parent_uuid = parse_uuid(&library_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::HasParent(parent_uuid)],
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: true,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+
+        let mut seen_cite_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_dois: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_arxiv_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut to_delete = Vec::new();
+
+        for item in &items {
+            let get_str = |key: &str| -> String {
+                match item.payload.get(key) {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => String::new(),
+                }
+            };
+            let cite_key = get_str("cite_key");
+            let doi = get_str("doi");
+            let arxiv_id = get_str("arxiv_id");
+            // Normalize arxiv_id by stripping version suffix
+            let arxiv_base = if arxiv_id.contains('v') {
+                arxiv_id.split('v').next().unwrap_or(&arxiv_id).to_string()
+            } else {
+                arxiv_id.clone()
+            };
+
+            let mut is_dup = false;
+            if !doi.is_empty() && !seen_dois.insert(doi) {
+                is_dup = true;
+            }
+            if !is_dup && !arxiv_base.is_empty() && !seen_arxiv_ids.insert(arxiv_base) {
+                is_dup = true;
+            }
+            if !is_dup && !cite_key.is_empty() && !seen_cite_keys.insert(cite_key) {
+                is_dup = true;
+            }
+
+            if is_dup {
+                to_delete.push(item.id);
+            }
+        }
+
+        let count = to_delete.len() as u32;
+        for id in to_delete {
+            self.store.delete(id)?;
+        }
+        Ok(count)
+    }
+
     // --- Advanced queries ---
 
     pub fn query_unread(
@@ -1036,6 +1235,21 @@ impl ImbibStore {
 
     pub fn count_unread(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
         let mut predicates = vec![Predicate::IsRead(false)];
+        if let Some(pid) = parent_id {
+            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates,
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count publications, optionally within a parent library. Uses SELECT COUNT(*)
+    /// instead of deserializing all rows — much faster for widget badge counts.
+    pub fn count_publications(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
+        let mut predicates = Vec::new();
         if let Some(pid) = parent_id {
             predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
         }
@@ -1374,26 +1588,49 @@ impl ImbibStore {
         author_display_name: Option<String>,
         parent_comment_id: Option<String>,
     ) -> Result<CommentRow, StoreApiError> {
-        let pub_uuid = parse_uuid(&publication_id)?;
+        self.create_comment_on_item(publication_id, text, author_identifier, author_display_name, parent_comment_id)
+    }
+
+    /// Create a comment on any item (publication, artifact, or any future item type).
+    pub fn create_comment_on_item(
+        &self,
+        item_id: String,
+        text: String,
+        author_identifier: Option<String>,
+        author_display_name: Option<String>,
+        parent_comment_id: Option<String>,
+    ) -> Result<CommentRow, StoreApiError> {
+        let parent_uuid = parse_uuid(&item_id)?;
         let item = conversion::comment_to_item(
-            pub_uuid,
+            parent_uuid,
             &text,
             author_identifier.as_deref(),
             author_display_name.as_deref(),
             parent_comment_id.as_deref(),
         );
         self.store.insert(item.clone())?;
-        Ok(item_to_comment_row(&item))
+        // Look up parent schema for the returned row
+        let parent_schema = self.store.get(parent_uuid)?
+            .map(|p| p.schema.to_string());
+        Ok(item_to_comment_row_with_schema(&item, parent_schema))
     }
 
     pub fn list_comments(
         &self,
         publication_id: String,
     ) -> Result<Vec<CommentRow>, StoreApiError> {
-        let pub_uuid = parse_uuid(&publication_id)?;
+        self.list_comments_for_item(publication_id)
+    }
+
+    /// List comments for any item (publication, artifact, etc.).
+    pub fn list_comments_for_item(
+        &self,
+        item_id: String,
+    ) -> Result<Vec<CommentRow>, StoreApiError> {
+        let parent_uuid = parse_uuid(&item_id)?;
         let q = ItemQuery {
             schema: Some("imbib/comment".into()),
-            predicates: vec![Predicate::HasParent(pub_uuid)],
+            predicates: vec![Predicate::HasParent(parent_uuid)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: true,
@@ -1401,7 +1638,10 @@ impl ImbibStore {
             ..Default::default()
         };
         let items = self.store.query(&q)?;
-        Ok(items.iter().map(item_to_comment_row).collect())
+        // Resolve parent schema once for all comments
+        let parent_schema = self.store.get(parent_uuid)?
+            .map(|p| p.schema.to_string());
+        Ok(items.iter().map(|i| item_to_comment_row_with_schema(i, parent_schema.clone())).collect())
     }
 
     pub fn update_comment(&self, id: String, text: String) -> Result<(), StoreApiError> {
@@ -1414,6 +1654,49 @@ impl ImbibStore {
             )],
         )?;
         Ok(())
+    }
+
+    // --- Sync support operations ---
+
+    /// Set the origin field on an item (records which device created it).
+    /// Bypasses the operation log — this is metadata for sync coordination.
+    pub fn set_item_origin(&self, id: String, origin: String) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        self.store.set_origin(uuid, &origin)?;
+        Ok(())
+    }
+
+    /// Set the canonical_id field on an item (maps to CKRecord.recordID for CloudKit round-trip).
+    /// Bypasses the operation log — this is metadata for sync coordination.
+    pub fn set_item_canonical_id(&self, id: String, canonical_id: String) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        self.store.set_canonical_id(uuid, &canonical_id)?;
+        Ok(())
+    }
+
+    /// Find an item by its canonical_id (for dedup on CloudKit pull).
+    pub fn find_by_canonical_id(&self, canonical_id: String) -> Result<Option<String>, StoreApiError> {
+        let item = self.store.find_by_canonical_id(&canonical_id)?;
+        Ok(item.map(|i| i.id.to_string()))
+    }
+
+    /// List comments created since a given logical clock value (for incremental sync).
+    pub fn list_comments_since(&self, item_id: String, since_clock: u64) -> Result<Vec<CommentRow>, StoreApiError> {
+        let parent_uuid = parse_uuid(&item_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/comment".into()),
+            predicates: vec![
+                Predicate::HasParent(parent_uuid),
+                Predicate::Gt("logical_clock".into(), Value::Int(since_clock as i64)),
+            ],
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: true,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        Ok(items.iter().map(item_to_comment_row).collect())
     }
 
     // --- Assignment operations ---
@@ -1765,14 +2048,8 @@ impl ImbibStore {
         &self,
         ids: Vec<String>,
         to_library_id: String,
-    ) -> Result<(), StoreApiError> {
-        let to_uuid = parse_uuid(&to_library_id)?;
-        for id_str in &ids {
-            let uuid = parse_uuid(id_str)?;
-            self.store
-                .update(uuid, vec![FieldMutation::SetParent(Some(to_uuid))])?;
-        }
-        Ok(())
+    ) -> Result<UndoInfo, StoreApiError> {
+        self.apply_mutation_to_ids(&ids, FieldMutation::SetParent(Some(parse_uuid(&to_library_id)?)))
     }
 
     pub fn duplicate_publications(
@@ -1781,18 +2058,23 @@ impl ImbibStore {
         to_library_id: String,
     ) -> Result<Vec<String>, StoreApiError> {
         let to_uuid = parse_uuid(&to_library_id)?;
-        let mut new_ids = Vec::new();
+        // Phase 1: Read all source items and prepare clones
+        let mut items_to_insert = Vec::with_capacity(ids.len());
         for id_str in &ids {
             let uuid = parse_uuid(id_str)?;
             if let Some(mut item) = self.store.get(uuid)? {
                 item.id = Uuid::new_v4();
                 item.parent = Some(to_uuid);
                 item.created = Utc::now();
-                let new_id = self.store.insert(item)?;
-                new_ids.push(new_id.to_string());
+                items_to_insert.push(item);
             }
         }
-        Ok(new_ids)
+        if items_to_insert.is_empty() {
+            return Ok(vec![]);
+        }
+        // Phase 2: Single-transaction batch insert
+        let new_ids = self.store.insert_batch(items_to_insert)?;
+        Ok(new_ids.iter().map(|id| id.to_string()).collect())
     }
     // --- Artifact operations ---
 
@@ -1975,7 +2257,7 @@ impl ImbibStore {
         original_author: Option<String>,
         event_name: Option<String>,
         event_date: Option<String>,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         let mut mutations = Vec::new();
         if let Some(v) = title {
@@ -2003,9 +2285,14 @@ impl ImbibStore {
             mutations.push(FieldMutation::SetPayload("event_date".into(), Value::String(v)));
         }
         if !mutations.is_empty() {
-            self.store.update(uuid, mutations)?;
+            Ok(self.store.update_with_undo(uuid, mutations)?.into())
+        } else {
+            Ok(UndoInfo {
+                operation_ids: vec![],
+                batch_id: None,
+                description: "Update Artifact".into(),
+            })
         }
-        Ok(())
     }
 
     /// Delete an artifact by ID.
@@ -2020,10 +2307,10 @@ impl ImbibStore {
         &self,
         artifact_id: String,
         publication_id: String,
-    ) -> Result<(), StoreApiError> {
+    ) -> Result<UndoInfo, StoreApiError> {
         let art_uuid = parse_uuid(&artifact_id)?;
         let pub_uuid = parse_uuid(&publication_id)?;
-        self.store.update(
+        Ok(self.store.update_with_undo(
             art_uuid,
             vec![FieldMutation::AddReference(
                 impress_core::reference::TypedReference {
@@ -2032,8 +2319,7 @@ impl ImbibStore {
                     metadata: None,
                 },
             )],
-        )?;
-        Ok(())
+        )?.into())
     }
 
     /// Get relations from an artifact to other items.
@@ -2132,6 +2418,21 @@ impl ImbibStore {
                     "arxiv_id".into(),
                     Value::String(arxiv.clone()),
                 ));
+                // Also check without version suffix (e.g., "2602.08929" matches "2602.08929v1")
+                let stripped = arxiv
+                    .trim_end_matches(|c: char| c == 'v' || c.is_ascii_digit())
+                    .to_string();
+                if stripped != *arxiv && !stripped.is_empty() && stripped.ends_with('.') == false {
+                    // Only add if stripping actually removed something and result is valid
+                    let without_version =
+                        arxiv.split('v').next().unwrap_or(arxiv).to_string();
+                    if without_version != *arxiv && !without_version.is_empty() {
+                        or_preds.push(Predicate::Eq(
+                            "arxiv_id".into(),
+                            Value::String(without_version),
+                        ));
+                    }
+                }
             }
         }
         if let Some(ref bibcode) = publication.identifiers.bibcode {
@@ -2141,6 +2442,13 @@ impl ImbibStore {
                     Value::String(bibcode.clone()),
                 ));
             }
+        }
+        // Also check by cite key as a fallback
+        if !publication.cite_key.is_empty() {
+            or_preds.push(Predicate::Eq(
+                "cite_key".into(),
+                Value::String(publication.cite_key.clone()),
+            ));
         }
         if or_preds.is_empty() {
             return Ok(false);
