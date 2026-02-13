@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressKeyboard
 import OSLog
 #if os(macOS)
 import AppKit
@@ -159,11 +160,6 @@ struct DetailView: View {
         .task(id: publicationID) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
-
-            // Auto-enrich on view if needed (for ref/cite counts and other metadata)
-            if let pubID = publicationID {
-                await EnrichmentCoordinator.shared.queueForEnrichment(publicationID: pubID, priority: .recentlyViewed)
-            }
         }
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
         .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in
@@ -190,7 +186,7 @@ struct DetailView: View {
         }
         // Vim-style h/l for global pane focus cycling
         .focusable()
-        .onKeyPress { press in
+        .keyboardGuarded { press in
             // h key: cycle pane focus left
             if press.characters == "h" {
                 NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)

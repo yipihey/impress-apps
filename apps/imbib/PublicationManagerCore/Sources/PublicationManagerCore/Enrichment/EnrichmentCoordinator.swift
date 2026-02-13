@@ -39,6 +39,7 @@ public actor EnrichmentCoordinator {
 
     private let service: EnrichmentService
     private let adsSource: ADSSource
+    private let scheduler: BackgroundScheduler
     private var isStarted = false
 
     /// Public access to the enrichment service for citation explorer and other features
@@ -55,15 +56,25 @@ public actor EnrichmentCoordinator {
         let ads = ADSSource(credentialManager: credentialManager)
         self.adsSource = ads
 
+        let settings = DefaultEnrichmentSettingsProvider(settings: EnrichmentSettings(
+            preferredSource: .ads,
+            sourcePriority: [.ads],
+            autoSyncEnabled: true,
+            refreshIntervalDays: 7
+        ))
+
         // Create service with ADS plugin for references/citations
-        self.service = EnrichmentService(
+        let svc = EnrichmentService(
             plugins: [ads],
-            settingsProvider: DefaultEnrichmentSettingsProvider(settings: EnrichmentSettings(
-                preferredSource: .ads,
-                sourcePriority: [.ads],
-                autoSyncEnabled: true,
-                refreshIntervalDays: 7
-            ))
+            settingsProvider: settings
+        )
+        self.service = svc
+
+        // Create background scheduler for periodic discovery of unenriched/stale papers
+        self.scheduler = BackgroundScheduler(
+            enrichmentService: svc,
+            publicationProvider: RustStorePublicationProvider(),
+            settingsProvider: settings
         )
     }
 
@@ -91,8 +102,12 @@ public actor EnrichmentCoordinator {
             await Self.saveEnrichmentResult(publicationID: publicationID, result: result)
         }
 
-        // Start background sync
+        // Start background sync (processes queued items)
         await service.startBackgroundSync()
+
+        // Start scheduler (periodically discovers unenriched/stale papers and queues them)
+        await scheduler.start()
+
         isStarted = true
 
         Logger.enrichment.infoCapture("EnrichmentCoordinator started", category: "enrichment")
@@ -103,6 +118,7 @@ public actor EnrichmentCoordinator {
         guard isStarted else { return }
 
         Logger.enrichment.infoCapture("Stopping EnrichmentCoordinator", category: "enrichment")
+        await scheduler.stop()
         await service.stopBackgroundSync()
         isStarted = false
     }
@@ -189,6 +205,9 @@ public actor EnrichmentCoordinator {
         let store = RustStoreAdapter.shared
         let data = result.data
 
+        // Batch all field updates — one notification at the end instead of per-field
+        store.beginBatchMutation()
+
         // Save resolved identifiers
         for (idType, value) in result.resolvedIdentifiers {
             switch idType {
@@ -218,6 +237,11 @@ public actor EnrichmentCoordinator {
         if let venue = data.venue {
             store.updateField(id: publicationID, field: "journal", value: venue)
         }
+
+        // Record enrichment timestamp so the scheduler can track staleness
+        store.updateField(id: publicationID, field: "enrichment_date", value: ISO8601DateFormatter().string(from: Date()))
+
+        store.endBatchMutation()
 
         Logger.enrichment.debug("Saved enrichment result for \(publicationID)")
     }
@@ -289,5 +313,102 @@ extension EnrichmentService {
     /// This method allows setting the callback from outside the actor.
     public func setOnEnrichmentComplete(_ callback: @escaping (UUID, EnrichmentResult) async -> Void) {
         self.onEnrichmentComplete = callback
+    }
+}
+
+// MARK: - Rust Store Publication Provider
+
+/// StalePublicationProvider backed by RustStoreAdapter.
+/// Queries all libraries for publications with missing or stale enrichment data.
+struct RustStorePublicationProvider: StalePublicationProvider {
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    func findStalePublications(
+        olderThan date: Date,
+        limit: Int
+    ) async -> [(id: UUID, identifiers: [IdentifierType: String])] {
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var results: [(id: UUID, identifiers: [IdentifierType: String])] = []
+            var seen = Set<UUID>()
+
+            for library in libraries {
+                guard results.count < limit else { break }
+                let pubs = store.queryPublications(parentId: library.id)
+                for pub in pubs {
+                    guard results.count < limit else { break }
+                    guard !seen.contains(pub.id) else { continue }
+                    seen.insert(pub.id)
+
+                    // Must have at least one identifier for enrichment
+                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
+
+                    // Check enrichment_date via detail fields
+                    guard let detail = store.getPublicationDetail(id: pub.id) else { continue }
+                    let enrichmentDate = detail.fields["enrichment_date"]
+                        .flatMap { Self.isoFormatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }
+
+                    if enrichmentDate == nil || enrichmentDate! < date {
+                        results.append((id: pub.id, identifiers: detail.enrichmentIdentifiers))
+                    }
+                }
+            }
+
+            return results
+        }
+    }
+
+    func countNeverEnriched() async -> Int {
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var count = 0
+            var seen = Set<UUID>()
+
+            for library in libraries {
+                let pubs = store.queryPublications(parentId: library.id)
+                for pub in pubs {
+                    guard !seen.contains(pub.id) else { continue }
+                    seen.insert(pub.id)
+                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
+                    if let detail = store.getPublicationDetail(id: pub.id),
+                       detail.fields["enrichment_date"] == nil {
+                        count += 1
+                    }
+                }
+            }
+            return count
+        }
+    }
+
+    func countStale(olderThan date: Date) async -> Int {
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var count = 0
+            var seen = Set<UUID>()
+
+            for library in libraries {
+                let pubs = store.queryPublications(parentId: library.id)
+                for pub in pubs {
+                    guard !seen.contains(pub.id) else { continue }
+                    seen.insert(pub.id)
+                    guard pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil else { continue }
+                    if let detail = store.getPublicationDetail(id: pub.id),
+                       let dateStr = detail.fields["enrichment_date"],
+                       let enrichmentDate = Self.isoFormatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr),
+                       enrichmentDate < date {
+                        count += 1
+                    }
+                }
+            }
+            return count
+        }
     }
 }
