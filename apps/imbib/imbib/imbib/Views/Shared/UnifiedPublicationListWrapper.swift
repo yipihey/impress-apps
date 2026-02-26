@@ -55,6 +55,30 @@ struct UnifiedPublicationListWrapper: View {
     /// Focused pane for vim-style navigation (optional - for focus border display)
     var focusedPane: Binding<FocusedPane?>?
 
+    // MARK: - Init
+
+    init(
+        source: PublicationSource,
+        selectedPublicationID: Binding<UUID?>,
+        selectedPublicationIDs: Binding<Set<UUID>>,
+        initialFilterMode: LibraryFilterMode = .all,
+        onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
+        focusedPane: Binding<FocusedPane?>? = nil
+    ) {
+        self.source = source
+        self._selectedPublicationID = selectedPublicationID
+        self._selectedPublicationIDs = selectedPublicationIDs
+        self.initialFilterMode = initialFilterMode
+        self.onDownloadPDFs = onDownloadPDFs
+        self.focusedPane = focusedPane
+
+        // Eager load: populate publications synchronously so the first render
+        // shows data immediately, eliminating the 5-second empty list on launch.
+        let initialPubs = RustStoreAdapter.shared.queryPublications(for: source)
+        _publications = State(initialValue: initialPubs)
+        _lastRefreshedStoreVersion = State(initialValue: RustStoreAdapter.shared.dataVersion)
+    }
+
     // MARK: - Environment
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
@@ -63,7 +87,7 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Unified State
 
-    @State private var publications: [PublicationRowData] = []
+    @State private var publications: [PublicationRowData]
     // selectedPublicationIDs is now a binding: selectedPublicationIDs
     @State private var isLoading = false
     @State private var error: Error?
@@ -103,7 +127,7 @@ struct UnifiedPublicationListWrapper: View {
     /// Version-based deduplication: tracks the last store version we refreshed at.
     /// Prevents double refreshes when both an explicit call and `.onReceive(.storeDidMutate)`
     /// fire for the same mutation.
-    @State private var lastRefreshedStoreVersion: Int = -1
+    @State private var lastRefreshedStoreVersion: Int
 
     // State for duplicate file alert
     @State private var showDuplicateAlert = false
