@@ -317,15 +317,7 @@ mod cli {
             },
 
             Commands::Serve => {
-                #[cfg(feature = "mcp")]
-                {
-                    ads_client::mcp::run_server(client).await?;
-                }
-                #[cfg(not(feature = "mcp"))]
-                {
-                    eprintln!("MCP server requires the 'mcp' feature. Rebuild with --features mcp");
-                    std::process::exit(1);
-                }
+                ads_client::mcp::run_server(client).await?;
             }
         }
 

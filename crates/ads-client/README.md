@@ -8,7 +8,9 @@ Three ways to use it:
 |------|-------------|
 | **Library** (`ads_client`) | Async Rust crate — add to your `Cargo.toml` |
 | **CLI** (`ads`) | Command-line tool for your terminal |
-| **MCP server** (`ads-mcp`) | Expose ADS tools to Claude, Cursor, Zed, etc. |
+| **MCP server** (`ads serve`) | Expose ADS tools to Claude, Cursor, Zed, etc. |
+
+One binary (`ads`) does everything. The MCP server is `ads serve`.
 
 ## Prerequisites
 
@@ -28,19 +30,12 @@ export ADS_API_TOKEN="your-token-here"
 ### From source (this repo)
 
 ```bash
-# Library only (for use as a dependency)
-cargo build -p ads-client
-
-# CLI binary
+# Build the ads binary (includes CLI + MCP server)
 cargo build -p ads-client --features cli --release
 cp target/release/ads ~/.local/bin/   # or anywhere on your PATH
 
-# MCP server binary
-cargo build -p ads-client --features mcp --release
-cp target/release/ads-mcp ~/.local/bin/
-
-# Both binaries at once
-cargo build -p ads-client --features cli,mcp --release
+# Library only (for use as a Rust dependency, no binary)
+cargo build -p ads-client
 ```
 
 ### As a Rust dependency
@@ -54,12 +49,12 @@ ads-client = { git = "https://github.com/yipihey/impress-apps", version = "0.1" 
 
 ## MCP Server Setup
 
-The `ads-mcp` binary speaks [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) over stdio, giving AI assistants direct access to the ADS API.
+`ads serve` speaks [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) over stdio, giving AI assistants direct access to the ADS API. It's the same `ads` binary — no separate install needed.
 
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add ads-mcp -- /path/to/ads-mcp
+claude mcp add ads -- /path/to/ads serve
 ```
 
 Or add manually to `~/.claude/settings.json`:
@@ -68,7 +63,8 @@ Or add manually to `~/.claude/settings.json`:
 {
   "mcpServers": {
     "ads": {
-      "command": "/path/to/ads-mcp",
+      "command": "/path/to/ads",
+      "args": ["serve"],
       "env": {
         "ADS_API_TOKEN": "your-token-here"
       }
@@ -86,7 +82,8 @@ or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 {
   "mcpServers": {
     "ads": {
-      "command": "/path/to/ads-mcp",
+      "command": "/path/to/ads",
+      "args": ["serve"],
       "env": {
         "ADS_API_TOKEN": "your-token-here"
       }
@@ -101,10 +98,14 @@ In Cursor Settings > MCP, add:
 
 ```json
 {
-  "name": "ads",
-  "command": "/path/to/ads-mcp",
-  "env": {
-    "ADS_API_TOKEN": "your-token-here"
+  "mcpServers": {
+    "ads": {
+      "command": "/path/to/ads",
+      "args": ["serve"],
+      "env": {
+        "ADS_API_TOKEN": "your-token-here"
+      }
+    }
   }
 }
 ```
@@ -118,7 +119,8 @@ In Zed settings (`settings.json`):
   "context_servers": {
     "ads": {
       "command": {
-        "path": "/path/to/ads-mcp",
+        "path": "/path/to/ads",
+        "args": ["serve"],
         "env": {
           "ADS_API_TOKEN": "your-token-here"
         }
@@ -134,7 +136,7 @@ In Zed settings (`settings.json`):
 # Should print the tool list as JSON
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | ADS_API_TOKEN=your-token ads-mcp
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | ADS_API_TOKEN=your-token ads serve
 ```
 
 ### Available MCP Tools
@@ -346,14 +348,14 @@ ads libraries delete abc123def
 ads libraries list --output json
 ```
 
-### Starting the MCP server from the CLI
+### MCP server
 
 ```bash
 # Start MCP server (reads JSON-RPC from stdin, writes to stdout)
 ads serve
 ```
 
-This is equivalent to running `ads-mcp` directly.
+This is the same entry point used by Claude, Cursor, Zed, etc. (see MCP Server Setup above).
 
 ---
 
@@ -501,7 +503,10 @@ The ADS API allows 5,000 requests/day and 5 requests/second. `ads-client` handle
 
 ```
 ┌─────────────────────────────────┐
-│  CLI (ads)  │  MCP (ads-mcp)    │  ← User-facing binaries
+│  ads binary                     │  ← Single binary, one install
+│  ┌────────────┐ ┌────────────┐  │
+│  │ CLI (clap) │ │ MCP server │  │  ads search … / ads serve
+│  └────────────┘ └────────────┘  │
 ├─────────────────────────────────┤
 │  ads_client library             │  ← Async Rust API
 │  ┌──────────┐ ┌──────────────┐  │

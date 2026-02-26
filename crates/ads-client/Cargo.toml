@@ -11,7 +11,6 @@ repository = "https://github.com/yipihey/impress-apps"
 [features]
 default = []
 cli = ["dep:clap", "dep:comfy-table"]
-mcp = []
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
@@ -32,8 +31,3 @@ tokio = { version = "1", features = ["full"] }
 name = "ads"
 path = "src/bin/ads.rs"
 required-features = ["cli"]
-
-[[bin]]
-name = "ads-mcp"
-path = "src/bin/ads_mcp.rs"
-required-features = ["mcp"]

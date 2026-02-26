@@ -4,8 +4,7 @@
 //!
 //! Provides:
 //! - **Library**: Async API client for search, export, metrics, libraries, and more
-//! - **CLI**: `ads` binary for terminal use
-//! - **MCP server**: `ads-mcp` binary for AI agent integration via JSON-RPC
+//! - **CLI**: `ads` binary for terminal use (includes `ads serve` for MCP)
 //!
 //! ## Quick Start
 //!
@@ -58,7 +57,6 @@ pub mod references;
 pub mod search;
 pub mod types;
 
-#[cfg(feature = "mcp")]
 pub mod mcp;
 
 // Re-export key types at the crate root.
