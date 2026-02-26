@@ -82,34 +82,37 @@ if [ ! -f "$FRAMEWORK_DIR/generated/implore_coreFFI.h" ]; then
 
 #endif /* implore_coreFFI_h */
 HEADER
+fi
 
-    # Create minimal modulemap
-    cat > "$FRAMEWORK_DIR/generated/implore_coreFFI.modulemap" << 'MODULEMAP'
+# Create headers directory with unique subdirectory to avoid Xcode conflicts
+# when multiple XCFrameworks are used in the same workspace
+HEADERS_DIR="$FRAMEWORK_DIR/headers/implore_coreFFI"
+mkdir -p "$HEADERS_DIR"
+cp "$FRAMEWORK_DIR/generated/implore_coreFFI.h" "$HEADERS_DIR/"
+
+cat > "$HEADERS_DIR/module.modulemap" << 'MODULEMAP'
 module implore_coreFFI {
     header "implore_coreFFI.h"
     export *
 }
 MODULEMAP
-fi
 
-# Create XCFramework
+# Create XCFramework with subdirectory headers
 echo ""
 echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 xcodebuild -create-xcframework \
     -library "$MACOS_UNIVERSAL_DIR/libimplore_core.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
-# Rename modulemap files for SPM compatibility
 echo ""
-echo "Renaming modulemaps for SPM compatibility..."
+echo "Cleaning up xcframework headers..."
 for dir in "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"/*/Headers; do
-    if [ -f "$dir/implore_coreFFI.modulemap" ]; then
-        mv "$dir/implore_coreFFI.modulemap" "$dir/module.modulemap"
-        echo "  Renamed modulemap in $dir"
-    fi
+    rm -f "$dir"/*/implore_core.swift 2>/dev/null || true
+    rm -f "$dir/implore_core.swift" 2>/dev/null || true
+    echo "  Cleaned $dir"
 done
 
 # Copy Swift bindings if they exist

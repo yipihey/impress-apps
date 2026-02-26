@@ -88,38 +88,39 @@ cargo run --features native --bin uniffi-bindgen generate \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
-# Create module map
-MODULE_MAP="$FRAMEWORK_DIR/module.modulemap"
-cat > "$MODULE_MAP" << 'MODULEMAP'
-module impress_llm {
+# Create headers directory with unique subdirectory to avoid Xcode conflicts
+# when multiple XCFrameworks are used in the same workspace
+HEADERS_DIR="$FRAMEWORK_DIR/headers/impress_llmFFI"
+mkdir -p "$HEADERS_DIR"
+cp "$FRAMEWORK_DIR/generated/impress_llmFFI.h" "$HEADERS_DIR/"
+
+cat > "$HEADERS_DIR/module.modulemap" << 'MODULEMAP'
+module impress_llmFFI {
     header "impress_llmFFI.h"
     export *
 }
 MODULEMAP
 
-# Create XCFramework
+# Create XCFramework with subdirectory headers
 echo ""
 echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 xcodebuild -create-xcframework \
     -library "$MACOS_UNIVERSAL_DIR/libimpress_llm.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -library "$BUILD_DIR/$IOS_TARGET/release/libimpress_llm.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -library "$IOS_SIM_UNIVERSAL_DIR/libimpress_llm.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
-# Rename modulemap files from impress_llmFFI.modulemap to module.modulemap
-# SPM requires the modulemap to be named module.modulemap
 echo ""
-echo "Renaming modulemaps for SPM compatibility..."
+echo "Cleaning up xcframework headers..."
 for dir in "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"/*/Headers; do
-    if [ -f "$dir/impress_llmFFI.modulemap" ]; then
-        mv "$dir/impress_llmFFI.modulemap" "$dir/module.modulemap"
-        echo "  Renamed modulemap in $dir"
-    fi
+    rm -f "$dir"/*/impress_llm.swift 2>/dev/null || true
+    rm -f "$dir/impress_llm.swift" 2>/dev/null || true
+    echo "  Cleaned $dir"
 done
 
 # Copy the single generated Swift bindings file

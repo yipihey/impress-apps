@@ -88,38 +88,42 @@ cargo run --features native --bin uniffi-bindgen generate \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
-# Create module map
-MODULE_MAP="$FRAMEWORK_DIR/module.modulemap"
-cat > "$MODULE_MAP" << 'MODULEMAP'
-module imbib_core {
+# Create headers directory with unique subdirectory to avoid Xcode conflicts
+# when multiple XCFrameworks are used in the same workspace. Without nesting,
+# both imbib_coreFFI and impress_helixFFI produce Headers/module.modulemap
+# which collide in DerivedData/Build/Products/Debug/include/.
+HEADERS_DIR="$FRAMEWORK_DIR/headers/imbib_coreFFI"
+mkdir -p "$HEADERS_DIR"
+cp "$FRAMEWORK_DIR/generated/imbib_coreFFI.h" "$HEADERS_DIR/"
+
+cat > "$HEADERS_DIR/module.modulemap" << 'MODULEMAP'
+module imbib_coreFFI {
     header "imbib_coreFFI.h"
     export *
 }
 MODULEMAP
 
-# Create XCFramework
+# Create XCFramework with subdirectory headers
 echo ""
 echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 xcodebuild -create-xcframework \
     -library "$MACOS_UNIVERSAL_DIR/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -library "$BUILD_DIR/$IOS_TARGET/release/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -library "$IOS_SIM_UNIVERSAL_DIR/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/generated" \
+    -headers "$FRAMEWORK_DIR/headers" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
-# Rename modulemap files from imbib_coreFFI.modulemap to module.modulemap
-# SPM requires the modulemap to be named module.modulemap
 echo ""
-echo "Renaming modulemaps for SPM compatibility..."
+echo "Cleaning up xcframework headers..."
 for dir in "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"/*/Headers; do
-    if [ -f "$dir/imbib_coreFFI.modulemap" ]; then
-        mv "$dir/imbib_coreFFI.modulemap" "$dir/module.modulemap"
-        echo "  Renamed modulemap in $dir"
-    fi
+    # Remove any Swift files from headers - they're not needed there
+    rm -f "$dir"/*/imbib_core.swift 2>/dev/null || true
+    rm -f "$dir/imbib_core.swift" 2>/dev/null || true
+    echo "  Cleaned $dir"
 done
 
 # Copy the single generated Swift bindings file
