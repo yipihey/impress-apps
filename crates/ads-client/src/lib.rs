@@ -59,6 +59,9 @@ pub mod types;
 
 pub mod mcp;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 // Re-export key types at the crate root.
 pub use client::AdsClient;
 pub use error::AdsError;

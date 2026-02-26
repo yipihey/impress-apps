@@ -11,6 +11,7 @@ repository = "https://github.com/yipihey/impress-apps"
 [features]
 default = []
 cli = ["dep:clap", "dep:comfy-table"]
+python = ["dep:pyo3", "dep:pythonize"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
@@ -23,6 +24,10 @@ url = "2"
 # CLI (optional)
 clap = { version = "4", features = ["derive"], optional = true }
 comfy-table = { version = "7", optional = true }
+
+# Python bindings (optional)
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pythonize = { version = "0.23", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

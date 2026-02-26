@@ -2,15 +2,17 @@
 
 A Rust client for the [NASA ADS](https://ui.adsabs.harvard.edu/) (Astrophysics Data System) / [SciX](https://scixplorer.org/) API.
 
-Three ways to use it:
+Four ways to use it:
 
 | Mode | What it does |
 |------|-------------|
-| **Library** (`ads_client`) | Async Rust crate — add to your `Cargo.toml` |
+| **Rust library** (`ads_client`) | Async Rust crate — add to your `Cargo.toml` |
+| **Python library** (`ads_client`) | Native Python module — `pip install .` via maturin |
 | **CLI** (`ads`) | Command-line tool for your terminal |
 | **MCP server** (`ads serve`) | Expose ADS tools to Claude, Cursor, Zed, etc. |
 
 One binary (`ads`) does everything. The MCP server is `ads serve`.
+Python bindings are auto-generated from the Rust types — zero extra maintenance.
 
 ## Prerequisites
 
@@ -27,15 +29,11 @@ export ADS_API_TOKEN="your-token-here"
 
 ## Installation
 
-### From source (this repo)
+### CLI / MCP binary (from source)
 
 ```bash
-# Build the ads binary (includes CLI + MCP server)
 cargo build -p ads-client --features cli --release
 cp target/release/ads ~/.local/bin/   # or anywhere on your PATH
-
-# Library only (for use as a Rust dependency, no binary)
-cargo build -p ads-client
 ```
 
 ### As a Rust dependency
@@ -44,6 +42,19 @@ cargo build -p ads-client
 [dependencies]
 ads-client = { git = "https://github.com/yipihey/impress-apps", version = "0.1" }
 ```
+
+### Python (via maturin)
+
+```bash
+cd crates/ads-client
+pip install maturin
+maturin develop          # install into current virtualenv for development
+# or
+maturin build --release  # build a wheel in target/wheels/
+pip install target/wheels/ads_client-*.whl
+```
+
+Requires Python 3.8+ and a Rust toolchain.
 
 ---
 
@@ -436,6 +447,121 @@ let client = AdsClient::new("my-token")
 
 ---
 
+## Library Usage (Python)
+
+The Python module is auto-generated from the Rust crate via [PyO3](https://pyo3.rs/) + [maturin](https://www.maturin.rs/). All types, fields, and methods are derived directly from the Rust source — no separate Python code to maintain.
+
+### Basic search
+
+```python
+import ads_client
+
+# Create client (reads ADS_API_TOKEN env var)
+client = ads_client.AdsClient()
+# or: client = ads_client.AdsClient("your-token")
+
+results = client.search('author:"Einstein" year:1905', rows=10)
+for paper in results.papers:
+    print(f"{paper.title} ({paper.year}) — {paper.citation_count} citations")
+    for author in paper.authors:
+        print(f"  {author.display_name()}")
+
+print(f"Total: {results.num_found} papers found")
+```
+
+### Query builder
+
+```python
+q = ads_client.QueryBuilder()
+q.author("Weinberg")
+q.and_()
+q.title("cosmological constant")
+q.and_()
+q.property("refereed")
+results = client.search(q.build(), rows=20)
+
+# Static constructors
+q = ads_client.QueryBuilder.citations_of("2023ApJ...123..456A")
+results = client.search(q.build(), rows=100)
+```
+
+### Export citations
+
+```python
+# BibTeX (default)
+bibtex = client.export_bibtex(["2023ApJ...123..456A", "1998AJ....116.1009R"])
+print(bibtex)
+
+# Other formats
+ris = client.export(["2023ApJ...123..456A"], format=ads_client.ExportFormat.Ris)
+```
+
+### References, citations, and metrics
+
+```python
+refs = client.references("2023ApJ...123..456A", rows=50)
+cites = client.citations("2023ApJ...123..456A", rows=50)
+similar = client.similar("2023ApJ...123..456A")
+
+metrics = client.metrics(["2023ApJ...123..456A"])
+if metrics.indicators:
+    print(f"h-index: {metrics.indicators.h}")
+    print(f"g-index: {metrics.indicators.g}")
+```
+
+### Libraries
+
+```python
+# List your libraries
+for lib in client.list_libraries():
+    print(f"{lib.name}: {lib.num_documents} papers")
+
+# Create a library
+lib = client.create_library("My Reading List", description="Papers to read")
+client.add_documents(lib.id, ["2023ApJ...123..456A"])
+```
+
+### Reference and object resolution
+
+```python
+# Resolve free-text references
+resolved = client.resolve_references([
+    "Einstein 1905 Annalen der Physik 17 891",
+    "Perlmutter et al. 1999 ApJ 517 565",
+])
+for ref in resolved:
+    print(f"{ref.reference} → {ref.bibcode}")
+
+# Resolve astronomical objects (returns dict)
+objects = client.resolve_objects(["M31", "Crab Nebula"])
+```
+
+### Sort control
+
+```python
+sort = ads_client.Sort.citation_count_desc()
+results = client.search_with_options("dark matter", sort=sort, rows=20)
+```
+
+### Available types
+
+All types are auto-exposed with read-only field access:
+
+| Python class | Key fields |
+|-------------|------------|
+| `AdsClient` | `search()`, `export()`, `metrics()`, ... |
+| `QueryBuilder` | `author()`, `title()`, `year()`, `build()`, ... |
+| `Paper` | `bibcode`, `title`, `authors`, `year`, `doi`, `arxiv_id`, ... |
+| `Author` | `name`, `family_name`, `given_name`, `display_name()` |
+| `SearchResponse` | `papers`, `num_found` |
+| `ExportFormat` | `BibTeX`, `Ris`, `AasTex`, ... (17 formats) |
+| `Metrics` | `basic_stats`, `citation_stats`, `indicators` |
+| `Indicators` | `h`, `g`, `i10`, `i100`, `m`, `tori`, `riq`, `read10` |
+| `Sort` | `field`, `direction` |
+| `Library` | `id`, `name`, `description`, `num_documents` |
+
+---
+
 ## ADS Query Syntax Quick Reference
 
 | Pattern | Meaning |
@@ -502,22 +628,28 @@ The ADS API allows 5,000 requests/day and 5 requests/second. `ads-client` handle
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  ads binary                     │  ← Single binary, one install
-│  ┌────────────┐ ┌────────────┐  │
-│  │ CLI (clap) │ │ MCP server │  │  ads search … / ads serve
-│  └────────────┘ └────────────┘  │
-├─────────────────────────────────┤
-│  ads_client library             │  ← Async Rust API
-│  ┌──────────┐ ┌──────────────┐  │
-│  │ AdsClient│ │ QueryBuilder │  │
-│  └──────────┘ └──────────────┘  │
-│  ┌──────────┐ ┌──────────────┐  │
-│  │ Parser   │ │ Rate Limiter │  │
-│  └──────────┘ └──────────────┘  │
-├─────────────────────────────────┤
-│  reqwest + tokio                │  ← HTTP + async runtime
-└─────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  ads binary                                  │  ← Single binary
+│  ┌────────────┐ ┌────────────┐               │
+│  │ CLI (clap) │ │ MCP server │               │  ads search … / ads serve
+│  └────────────┘ └────────────┘               │
+├──────────────────────────────────────────────┤
+│  Python bindings (PyO3)                      │  ← import ads_client
+│  ┌───────────────┐ ┌────────────────────┐    │
+│  │ PyAdsClient   │ │ PyQueryBuilder     │    │  Auto-generated from
+│  │ (sync wrapper)│ │ (mutation wrapper) │    │  Rust types via #[pyclass]
+│  └───────────────┘ └────────────────────┘    │
+├──────────────────────────────────────────────┤
+│  ads_client Rust library                     │  ← Async Rust API
+│  ┌──────────┐ ┌──────────────┐               │
+│  │ AdsClient│ │ QueryBuilder │               │
+│  └──────────┘ └──────────────┘               │
+│  ┌──────────┐ ┌──────────────┐               │
+│  │ Parser   │ │ Rate Limiter │               │
+│  └──────────┘ └──────────────┘               │
+├──────────────────────────────────────────────┤
+│  reqwest + tokio                             │  ← HTTP + async runtime
+└──────────────────────────────────────────────┘
          │
          ▼
    ADS API (api.adsabs.harvard.edu/v1)

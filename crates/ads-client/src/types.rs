@@ -2,11 +2,15 @@
 //!
 //! These types are self-contained with no external dependencies beyond serde,
 //! making this crate publishable to crates.io independently.
+//!
+//! When the `python` feature is enabled, all types are exposed to Python
+//! via PyO3 with automatic field access (`get_all`).
 
 use serde::{Deserialize, Serialize};
 
 /// A paper (document) from ADS search results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Paper {
     /// ADS bibcode (primary identifier).
     pub bibcode: String,
@@ -42,6 +46,7 @@ pub struct Paper {
 
 /// An author of a paper.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Author {
     /// Raw name as returned by ADS ("Last, First M.").
     pub name: String,
@@ -98,6 +103,7 @@ impl Author {
 
 /// A link to a PDF of a paper.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct PdfLink {
     /// URL to the PDF or landing page.
     pub url: String,
@@ -109,6 +115,7 @@ pub struct PdfLink {
 
 /// Source type for a PDF link.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq))]
 pub enum PdfLinkType {
     ArXiv,
     Publisher,
@@ -194,6 +201,7 @@ impl PdfLink {
 
 /// Paginated search response from ADS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct SearchResponse {
     /// Matching papers.
     pub papers: Vec<Paper>,
@@ -203,6 +211,7 @@ pub struct SearchResponse {
 
 /// Citation export formats supported by ADS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq))]
 pub enum ExportFormat {
     BibTeX,
     BibTeXAbs,
@@ -280,6 +289,7 @@ impl std::fmt::Display for ExportFormat {
 
 /// Citation metrics for a set of papers.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Metrics {
     /// Basic statistics.
     pub basic_stats: Option<BasicStats>,
@@ -291,6 +301,7 @@ pub struct Metrics {
 
 /// Basic paper statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct BasicStats {
     #[serde(rename = "refereed")]
     pub refereed: Option<BasicStatsEntry>,
@@ -300,6 +311,7 @@ pub struct BasicStats {
 
 /// Basic statistics entry (for refereed or total).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct BasicStatsEntry {
     pub number_of_papers: Option<u32>,
     pub normalized_paper_count: Option<f64>,
@@ -311,6 +323,7 @@ pub struct BasicStatsEntry {
 
 /// Citation statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct CitationStats {
     #[serde(rename = "refereed")]
     pub refereed: Option<CitationStatsEntry>,
@@ -320,6 +333,7 @@ pub struct CitationStats {
 
 /// Citation statistics entry.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct CitationStatsEntry {
     pub number_of_citing_papers: Option<u32>,
     pub total_citations: Option<u32>,
@@ -330,6 +344,7 @@ pub struct CitationStatsEntry {
 
 /// Bibliometric indicators (h-index, g-index, etc.).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Indicators {
     pub h: Option<u32>,
     pub g: Option<u32>,
@@ -343,6 +358,7 @@ pub struct Indicators {
 
 /// An ADS personal library.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Library {
     pub id: String,
     pub name: String,
@@ -356,6 +372,7 @@ pub struct Library {
 
 /// Detailed library including documents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct LibraryDetail {
     pub metadata: Library,
     pub documents: Vec<String>,
@@ -363,6 +380,7 @@ pub struct LibraryDetail {
 
 /// Result of astronomical object resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct ObjectResult {
     pub object: String,
     pub bibcodes: Vec<String>,
@@ -370,6 +388,7 @@ pub struct ObjectResult {
 
 /// Result of free-text reference resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct ResolvedReference {
     pub reference: String,
     pub bibcode: Option<String>,
@@ -378,6 +397,7 @@ pub struct ResolvedReference {
 
 /// Sort specification for search queries.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 pub struct Sort {
     pub field: String,
     pub direction: SortDirection,
@@ -385,6 +405,7 @@ pub struct Sort {
 
 /// Sort direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq))]
 pub enum SortDirection {
     Asc,
     Desc,
