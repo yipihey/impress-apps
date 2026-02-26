@@ -156,25 +156,31 @@ struct ContentView: View {
                 guard defaults.bool(forKey: "needsStartupDedup") else { return }
                 defaults.set(false, forKey: "needsStartupDedup")
 
-                let store = RustStoreAdapter.shared
-                var totalRemoved = 0
-                for lib in store.listLibraries() {
-                    let removed = store.deduplicateLibrary(id: lib.id)
-                    if removed > 0 {
-                        logInfo("Startup dedup: removed \(removed) duplicates from library '\(lib.name)'", category: "dedup")
-                        totalRemoved += removed
+                // Run dedup off the main thread to avoid blocking UI at launch.
+                // The .task closure inherits @MainActor from the view, so we detach.
+                Task.detached(priority: .utility) {
+                    let adapter = await MainActor.run { RustStoreAdapter.shared }
+                    let libraries = adapter.listLibrariesBackground()
+                    var totalRemoved = 0
+                    for lib in libraries {
+                        let removed = adapter.deduplicateLibraryBackground(id: lib.id)
+                        if removed > 0 {
+                            logInfo("Startup dedup: removed \(removed) duplicates from library '\(lib.name)'", category: "dedup")
+                            totalRemoved += removed
+                        }
                     }
-                }
-                // Rebuild FTS index if duplicates were removed (stale entries would cause search failures)
-                if totalRemoved > 0 {
-                    // Wait for FTS to be initialized (it's set up in background init)
-                    for _ in 0..<60 {
-                        let available = await FullTextSearchService.shared.isAvailable
-                        if available { break }
-                        try? await Task.sleep(for: .milliseconds(500))
+                    if totalRemoved > 0 {
+                        // Notify UI of changes from background mutations
+                        await MainActor.run { RustStoreAdapter.shared.notifyMutationFromBackground() }
+                        // Wait for FTS to be initialized (it's set up in background init)
+                        for _ in 0..<60 {
+                            let available = await FullTextSearchService.shared.isAvailable
+                            if available { break }
+                            try? await Task.sleep(for: .milliseconds(500))
+                        }
+                        logInfo("Rebuilding FTS index after dedup (\(totalRemoved) entries removed)", category: "search")
+                        await FullTextSearchService.shared.rebuildIndex()
                     }
-                    logInfo("Rebuilding FTS index after dedup (\(totalRemoved) entries removed)", category: "search")
-                    await FullTextSearchService.shared.rebuildIndex()
                 }
             }
             .onChange(of: undoManager) { _, newValue in

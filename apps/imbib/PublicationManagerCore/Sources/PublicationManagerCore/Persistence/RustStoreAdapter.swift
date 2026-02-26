@@ -1894,6 +1894,140 @@ extension RustStoreAdapter {
             return nil
         }
     }
+
+    // MARK: - Background Mutation Methods (for SmartSearchProvider)
+
+    /// Import BibTeX string off the main thread. Skips undo and notification posting.
+    nonisolated public func importBibTeXBackground(_ bibtex: String, libraryId: UUID) -> [UUID] {
+        do {
+            let ids = try imbibStore.importBibtex(bibtex: bibtex, libraryId: libraryId.uuidString)
+            return ids.compactMap { UUID(uuidString: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// Add publications to a collection off the main thread. Skips undo and notification posting.
+    nonisolated public func addToCollectionBackground(publicationIds: [UUID], collectionId: UUID) {
+        do {
+            _ = try imbibStore.addToCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
+        } catch {
+            // Logged at call site if needed
+        }
+    }
+
+    /// Duplicate publications to a library off the main thread. Skips undo and notification posting.
+    nonisolated public func duplicatePublicationsBackground(ids: [UUID], toLibraryId: UUID) -> [UUID] {
+        do {
+            let newIds = try imbibStore.duplicatePublications(ids: ids.map(\.uuidString), toLibraryId: toLibraryId.uuidString)
+            return newIds.compactMap { UUID(uuidString: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// Set read status off the main thread. Skips undo and notification posting.
+    nonisolated public func setReadBackground(ids: [UUID], read: Bool) {
+        do {
+            _ = try imbibStore.setRead(ids: ids.map(\.uuidString), read: read)
+        } catch {
+            // Logged at call site if needed
+        }
+    }
+
+    /// Query publication IDs in a parent container off the main thread.
+    nonisolated public func queryPublicationIDsBackground(parentId: UUID) -> Set<UUID> {
+        do {
+            let ids = try imbibStore.queryPublicationIds(parentId: parentId.uuidString)
+            return Set(ids.compactMap { UUID(uuidString: $0) })
+        } catch {
+            return []
+        }
+    }
+
+    /// Get the inbox library off the main thread.
+    nonisolated public func getInboxLibraryBackground() -> LibraryModel? {
+        do {
+            guard let row = try imbibStore.getInboxLibrary() else { return nil }
+            return LibraryModel(from: row)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Get a smart search by ID off the main thread.
+    nonisolated public func getSmartSearchBackground(id: UUID) -> SmartSearch? {
+        do {
+            guard let row = try imbibStore.getSmartSearch(id: id.uuidString) else { return nil }
+            return SmartSearch(from: row)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Reparent an item off the main thread. Skips undo and notification posting.
+    nonisolated public func reparentItemBackground(id: UUID, newParentId: UUID) {
+        do {
+            try imbibStore.reparentItem(id: id.uuidString, newParentId: newParentId.uuidString)
+        } catch {
+            // Logged at call site if needed
+        }
+    }
+
+    /// List all libraries off the main thread.
+    nonisolated public func listLibrariesBackground() -> [LibraryModel] {
+        do {
+            return try imbibStore.listLibraries().map { LibraryModel(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// Query publications in a parent container off the main thread.
+    nonisolated public func queryPublicationsBackground(parentId: UUID) -> [PublicationRowData] {
+        do {
+            let rows = try imbibStore.queryPublications(
+                parentId: parentId.uuidString,
+                sortField: "dateAdded",
+                ascending: false,
+                limit: nil,
+                offset: nil
+            )
+            return rows.compactMap { PublicationRowData(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// Get a single publication off the main thread.
+    nonisolated public func getPublicationBackground(id: UUID) -> PublicationRowData? {
+        do {
+            guard let row = try imbibStore.getPublication(id: id.uuidString) else { return nil }
+            return PublicationRowData(from: row)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Deduplicate a library off the main thread. Skips didMutate/notifications.
+    nonisolated public func deduplicateLibraryBackground(id: UUID) -> Int {
+        do {
+            return Int(try imbibStore.deduplicateLibrary(libraryId: id.uuidString))
+        } catch {
+            return 0
+        }
+    }
+
+    /// Bump dataVersion and post a single storeDidMutate notification from background work.
+    /// Must be called on @MainActor after all background mutations are complete.
+    @MainActor public func notifyMutationFromBackground() {
+        dataVersion += 1
+        NotificationCenter.default.post(
+            name: .storeDidMutate,
+            object: nil,
+            userInfo: ["structural": true]
+        )
+    }
 }
 
 // MARK: - PublicationRowData Extension

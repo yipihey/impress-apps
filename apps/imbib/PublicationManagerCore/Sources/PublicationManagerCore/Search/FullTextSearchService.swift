@@ -190,18 +190,31 @@ public actor FullTextSearchService {
 
         Logger.search.infoCapture("Rebuilding search index...", category: "search")
 
-        // Get all libraries, then all publications from the store
-        let libraries = await MainActor.run { RustStoreAdapter.shared.listLibraries() }
-        var allPubIDs: [UUID] = []
+        // Fetch ALL publication data in one batch via background store access.
+        // This avoids 4000 individual MainActor.run hops that blocked startup for ~3 minutes.
+        let adapter = await MainActor.run { RustStoreAdapter.shared }
+        let libraries = adapter.listLibrariesBackground()
+        var allPubs: [PublicationRowData] = []
         for library in libraries {
-            let pubs = await MainActor.run { RustStoreAdapter.shared.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false) }
-            allPubIDs.append(contentsOf: pubs.map(\.id))
+            let pubs = adapter.queryPublicationsBackground(parentId: library.id)
+            allPubs.append(contentsOf: pubs)
         }
 
         var indexedCount = 0
-        for pubID in allPubIDs {
-            await indexPublicationFromStore(id: pubID, using: index, fullText: nil)
-            indexedCount += 1
+        for pub in allPubs {
+            let input = SearchIndexInput(
+                id: pub.id.uuidString,
+                citeKey: pub.citeKey,
+                title: pub.title,
+                authors: pub.authorString,
+                abstractText: pub.abstract
+            )
+            do {
+                try await index.add(input, fullText: nil)
+                indexedCount += 1
+            } catch {
+                Logger.search.error("Failed to index \(pub.citeKey): \(error.localizedDescription)")
+            }
         }
 
         do {
@@ -331,8 +344,8 @@ public actor FullTextSearchService {
     // MARK: - Private Methods
 
     private func indexPublicationFromStore(id: UUID, using index: RustSearchIndexSession, fullText: String? = nil) async {
-        let store = await MainActor.run { RustStoreAdapter.shared }
-        guard let pub = await MainActor.run(body: { store.getPublication(id: id) }) else { return }
+        let adapter = await MainActor.run { RustStoreAdapter.shared }
+        guard let pub = adapter.getPublicationBackground(id: id) else { return }
 
         let input = SearchIndexInput(
             id: id.uuidString,

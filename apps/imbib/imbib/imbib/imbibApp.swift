@@ -384,7 +384,7 @@ struct imbibApp: App {
                 await UITestingConfiguration.seedTestDataIfNeeded()
             }
 
-            // Register File Provider domain
+            // Register File Provider domain (fast, independent)
             do {
                 try await FileProviderDomainManager.shared.registerDomain()
                 appLogger.info("File Provider domain registered")
@@ -392,38 +392,43 @@ struct imbibApp: App {
                 appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
             }
 
-            // Initialize full-text search index
-            await FullTextSearchService.shared.initialize()
-            appLogger.info("Full-text search index initialized")
+            // Run FTS init and source registration IN PARALLEL.
+            // Previously FTS rebuild (3+ min for 4000 pubs) blocked source registration,
+            // InboxCoordinator, SmartSearchRefreshService, and HTTP server startup.
+            async let ftsInit: Void = {
+                await FullTextSearchService.shared.initialize()
+                appLogger.info("Full-text search index initialized")
+            }()
 
-            // Register built-in sources
-            await deps.sourceManager.registerBuiltInSources()
-            DragDropCoordinator.shared.sourceManager = deps.sourceManager
-            await AutomationService.shared.configure(sourceManager: deps.sourceManager)
-            appLogger.info("Built-in sources registered")
+            async let sourcesInit: Void = {
+                // Register built-in sources
+                await deps.sourceManager.registerBuiltInSources()
+                DragDropCoordinator.shared.sourceManager = deps.sourceManager
+                await AutomationService.shared.configure(sourceManager: deps.sourceManager)
+                appLogger.info("Built-in sources registered")
 
-            // Register browser URL providers for interactive PDF downloads
-            // Higher priority = tried first. ArXiv has highest priority (direct PDF, always free)
-            await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
-            await BrowserURLProviderRegistry.shared.register(SciXSource.self, priority: 11)
-            await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
-            appLogger.info("BrowserURLProviders registered")
+                // Register browser URL providers for interactive PDF downloads
+                await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
+                await BrowserURLProviderRegistry.shared.register(SciXSource.self, priority: 11)
+                await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+                appLogger.info("BrowserURLProviders registered")
 
-            // Configure staggered smart search refresh service (before InboxCoordinator)
-            await SmartSearchRefreshService.shared.configure(
-                sourceManager: deps.sourceManager
-            )
-            appLogger.info("SmartSearchRefreshService configured")
+                // These depend on sourceManager being registered, NOT on FTS
+                await SmartSearchRefreshService.shared.configure(
+                    sourceManager: deps.sourceManager
+                )
+                appLogger.info("SmartSearchRefreshService configured")
 
-            // Start background enrichment coordinator
-            await EnrichmentCoordinator.shared.start()
-            appLogger.info("EnrichmentCoordinator started")
+                await EnrichmentCoordinator.shared.start()
+                appLogger.info("EnrichmentCoordinator started")
 
-            // Start Inbox coordinator (scheduling, fetch service)
-            await InboxCoordinator.shared.start()
-            appLogger.info("InboxCoordinator started")
+                await InboxCoordinator.shared.start()
+                appLogger.info("InboxCoordinator started")
+            }()
 
-            // Set up embedding service change observers for reactive index updates (ADR-022)
+            _ = await (ftsInit, sourcesInit)
+
+            // These can run after both FTS and sources are done
             await EmbeddingService.shared.setupChangeObservers()
             appLogger.info("EmbeddingService change observers set up")
 
