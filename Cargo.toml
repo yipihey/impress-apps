@@ -25,6 +25,8 @@ members = [
     "crates/impart-core",
     # impress-core - unified item protocol
     "crates/impress-core",
+    # ads-client - standalone ADS/SciX API client
+    "crates/ads-client",
 ]
 
 [workspace.package]
@@ -60,6 +62,7 @@ imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-llm = { path = "crates/impress-llm" }
+ads-client = { path = "crates/ads-client" }
 
 # implore crates
 implore-core = { path = "crates/implore-core" }
