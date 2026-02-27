@@ -78,6 +78,11 @@ public actor SciXSyncManager {
         await MainActor.run {
             let store = RustStoreAdapter.shared
 
+            // Batch all mutations so only ONE .storeDidMutate notification fires
+            // (without this, each updateField call triggers a full sidebar refresh
+            //  including expensive flag-count queries — 7 × N libraries worth)
+            store.beginBatchMutation()
+
             for remote in remoteLibraries {
                 // Find existing by remoteID or create new
                 let existing = SciXLibraryRepository.shared.findLibrary(remoteID: remote.id)
@@ -116,6 +121,8 @@ public actor SciXSyncManager {
                     store.deleteItem(id: local.id)
                 }
             }
+
+            store.endBatchMutation()
         }
 
         Logger.scix.info("Pulled \(updatedLibraries.count) libraries")
@@ -158,6 +165,9 @@ public actor SciXSyncManager {
                 return
             }
 
+            // Batch all mutations — single notification at end
+            store.beginBatchMutation()
+
             // Import papers via BibTeX and link to library
             var importedIDs: [UUID] = []
             for paper in papers {
@@ -197,6 +207,8 @@ public actor SciXSyncManager {
             store.updateIntField(id: library.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
             store.updateIntField(id: library.id, field: "document_count", value: Int64(papers.count))
             store.updateField(id: library.id, field: "sync_state", value: "synced")
+
+            store.endBatchMutation()
 
             Logger.scix.info("Cached \(papers.count) papers for library \(libraryID)")
         }

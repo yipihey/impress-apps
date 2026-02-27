@@ -1367,17 +1367,14 @@ final class ImbibSidebarViewModel {
     // MARK: - Flag Counts
 
     func refreshFlagCounts() {
-        guard let manager = libraryManager else { return }
+        // Use getFlaggedPublications — returns only flagged rows, avoiding full table scan
+        let flaggedPubs = store.getFlaggedPublications()
         var total = 0
         var byColor: [String: Int] = [:]
-        for library in manager.libraries {
-            // Query publications via Rust store
-            let pubs = store.queryPublications(parentId: library.id, sort: "created", ascending: false, limit: nil, offset: nil)
-            for pubRow in pubs {
-                if let color = pubRow.flag?.color {
-                    total += 1
-                    byColor[color.rawValue, default: 0] += 1
-                }
+        for pubRow in flaggedPubs {
+            if let color = pubRow.flag?.color {
+                total += 1
+                byColor[color.rawValue, default: 0] += 1
             }
         }
         flagCounts = FlagCounts(total: total, byColor: byColor)
