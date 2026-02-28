@@ -18748,6 +18748,21 @@ public func searchIndexAdd(handleId: UInt64, publication: Publication, fullText:
 }
 }
 /**
+ * Add multiple publications to the search index in a single FFI call.
+ * Much faster than calling search_index_add() in a loop because it:
+ * 1. Acquires the registry lock and writer lock once (not N times)
+ * 2. Avoids N FFI round-trips (each has ~0.1ms overhead)
+ * Returns the number of publications successfully indexed.
+ */
+public func searchIndexAddBatch(handleId: UInt64, publications: [Publication])throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSearchIndexError.lift) {
+    uniffi_imbib_core_fn_func_search_index_add_batch(
+        FfiConverterUInt64.lower(handleId),
+        FfiConverterSequenceTypePublication.lower(publications),$0
+    )
+})
+}
+/**
  * Close and release a search index handle
  */
 public func searchIndexClose(handleId: UInt64)throws  {try rustCallWithError(FfiConverterTypeSearchIndexError.lift) {
@@ -19376,6 +19391,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_search_index_add() != 5715) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_search_index_add_batch() != 37761) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_search_index_close() != 59881) {

@@ -21,53 +21,56 @@ nonisolated public enum FilterScope: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
-// MARK: - Filter Cache
-
-/// Cache key for memoizing filtered row data
-nonisolated private struct FilterCacheKey: Equatable {
-    let rowDataVersion: Int
-    let showUnreadOnly: Bool
-    let disableUnreadFilter: Bool
-    let sortOrder: LibrarySortOrder
-    let sortAscending: Bool  // Direction toggle
-    let recommendationScoreVersion: Int  // ADR-020: Track recommendation score updates
-}
-
-/// Memoization cache for filtered row data.
-/// Uses a class to avoid @State changes that would trigger re-renders.
-private final class FilteredRowDataCache {
-    private var cachedKey: FilterCacheKey?
-    private var cachedResult: [PublicationRowData]?
-
-    func getCached(for key: FilterCacheKey) -> [PublicationRowData]? {
-        guard cachedKey == key else { return nil }
-        return cachedResult
-    }
-
-    func cache(_ result: [PublicationRowData], for key: FilterCacheKey) {
-        cachedKey = key
-        cachedResult = result
-    }
-
-    /// Update a single row in the cached sorted array without full invalidation.
-    /// O(n) scan but avoids O(n log n) re-sort. No-op if cache is empty.
-    func updateRow(_ id: UUID, with data: PublicationRowData) {
-        guard let result = cachedResult,
-              let index = result.firstIndex(where: { $0.id == id }) else { return }
-        cachedResult?[index] = data
-    }
-
-    func invalidate() {
-        cachedKey = nil
-        cachedResult = nil
-    }
-}
+// FilteredRowDataCache removed — filteredRowData is now @State, updated explicitly
 
 /// Holds the current selection for drag operations.
 /// Uses a class so rows can read the current value at drag time without closure capture issues.
 @MainActor
 public final class DragSelectionHolder {
     public var selectedIDs: Set<UUID> = []
+
+    public init() {}
+}
+
+/// Holds all callback closures for PublicationListView as a single heap-allocated reference.
+/// This reduces the struct's copy cost from ~33 reference count increments (one per closure)
+/// to 1 pointer copy, eliminating the 12.6ms `initializeWithCopy` overhead per ForEach update.
+@MainActor
+public final class PublicationListActions {
+    public var onDelete: ((Set<UUID>) async -> Void)?
+    public var onToggleRead: ((UUID) async -> Void)?
+    public var onCopy: ((Set<UUID>) async -> Void)?
+    public var onCut: ((Set<UUID>) async -> Void)?
+    public var onPaste: (() async -> Void)?
+    public var onAddToLibrary: ((Set<UUID>, UUID) async -> Void)?
+    public var onAddToCollection: ((Set<UUID>, UUID) async -> Void)?
+    public var onRemoveFromAllCollections: ((Set<UUID>) async -> Void)?
+    public var onImport: (() -> Void)?
+    public var onOpenPDF: ((UUID) -> Void)?
+    public var onFileDrop: ((UUID, [NSItemProvider]) -> Void)?
+    public var onListDrop: (([NSItemProvider], DropTarget) -> Void)?
+    public var onDownloadPDFs: ((Set<UUID>) -> Void)?
+    public var onSendToEInkDevice: ((Set<UUID>) -> Void)?
+    public var onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)?
+    public var onDismiss: ((Set<UUID>) async -> Void)?
+    public var onToggleStar: ((Set<UUID>) async -> Void)?
+    public var onSetFlag: ((Set<UUID>, FlagColor) async -> Void)?
+    public var onClearFlag: ((Set<UUID>) async -> Void)?
+    public var onAddTag: ((Set<UUID>) -> Void)?
+    public var onRemoveTag: ((UUID, UUID) -> Void)?
+    public var onMuteAuthor: ((String) -> Void)?
+    public var onMutePaper: ((UUID) -> Void)?
+    public var onCategoryTap: ((String) -> Void)?
+    public var onGlobalSearch: (() -> Void)?
+    public var onRefresh: (() async -> Void)?
+    public var onOpenInBrowser: ((UUID, BrowserDestination) -> Void)?
+    public var onDownloadPDF: ((UUID) -> Void)?
+    public var onViewEditBibTeX: ((UUID) -> Void)?
+    public var onShare: ((UUID) -> Void)?
+    public var onShareByEmail: ((UUID) -> Void)?
+    public var onExploreReferences: ((UUID) -> Void)?
+    public var onExploreCitations: ((UUID) -> Void)?
+    public var onExploreSimilar: ((UUID) -> Void)?
 
     public init() {}
 }
@@ -150,113 +153,11 @@ public struct PublicationListView: View {
     /// Binding to recommendation scores - owned by parent view for synchronous triage calculations
     @Binding public var recommendationScores: [UUID: Double]
 
-    // MARK: - Callbacks
+    // MARK: - Callbacks (single heap reference to reduce struct copy cost)
 
-    /// Called when delete is requested (via context menu or keyboard)
-    public var onDelete: ((Set<UUID>) async -> Void)?
-
-    /// Called when toggle read is requested
-    public var onToggleRead: ((UUID) async -> Void)?
-
-    /// Called when copy is requested
-    public var onCopy: ((Set<UUID>) async -> Void)?
-
-    /// Called when cut is requested
-    public var onCut: ((Set<UUID>) async -> Void)?
-
-    /// Called when paste is requested
-    public var onPaste: (() async -> Void)?
-
-    /// Called when add to library is requested (publications can belong to multiple libraries)
-    public var onAddToLibrary: ((Set<UUID>, UUID) async -> Void)?
-
-    /// Called when add to collection is requested
-    public var onAddToCollection: ((Set<UUID>, UUID) async -> Void)?
-
-    /// Called when remove from all collections is requested ("All Publications")
-    public var onRemoveFromAllCollections: ((Set<UUID>) async -> Void)?
-
-    /// Called when import is requested (import button clicked)
-    public var onImport: (() -> Void)?
-
-    /// Called when open PDF is requested
-    public var onOpenPDF: ((UUID) -> Void)?
-
-    /// Called when files are dropped onto a publication row
-    public var onFileDrop: ((UUID, [NSItemProvider]) -> Void)?
-
-    /// Called when PDFs are dropped onto the list background (for import)
-    public var onListDrop: (([NSItemProvider], DropTarget) -> Void)?
-
-    /// Called when "Download PDFs" is requested for selected publications
-    public var onDownloadPDFs: ((Set<UUID>) -> Void)?
-
-    /// Called when "Send to E-Ink Device" is requested
-    public var onSendToEInkDevice: ((Set<UUID>) -> Void)?
-
-    // MARK: - Inbox Triage Callbacks
-
-    /// Called when keep to library is requested (Inbox: adds to library AND removes from Inbox)
-    public var onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)?
-
-    /// Called when dismiss is requested (Inbox: remove from Inbox)
-    public var onDismiss: ((Set<UUID>) async -> Void)?
-
-    /// Called when toggle star is requested
-    public var onToggleStar: ((Set<UUID>) async -> Void)?
-
-    /// Called when a flag is set on publications
-    public var onSetFlag: ((Set<UUID>, FlagColor) async -> Void)?
-
-    /// Called when flag is cleared from publications
-    public var onClearFlag: ((Set<UUID>) async -> Void)?
-
-    /// Called when adding a tag to publications is requested
-    public var onAddTag: ((Set<UUID>) -> Void)?
-
-    /// Called when removing a tag from a publication
-    public var onRemoveTag: ((UUID, UUID) -> Void)?
-
-    /// Called when mute author is requested
-    public var onMuteAuthor: ((String) -> Void)?
-
-    /// Called when mute paper is requested (by DOI or bibcode)
-    public var onMutePaper: ((UUID) -> Void)?
-
-    /// Called when a category chip is tapped (e.g., to search for that category)
-    public var onCategoryTap: ((String) -> Void)?
-
-    /// Called when global search should be shown (magnifying glass or Cmd+F)
-    public var onGlobalSearch: (() -> Void)?
-
-    /// Called when refresh is requested (for smart searches and feeds)
-    public var onRefresh: (() async -> Void)?
-
-    // MARK: - Enhanced Context Menu Callbacks
-
-    /// Called when Open in Browser is requested (arXiv, ADS, DOI)
-    public var onOpenInBrowser: ((UUID, BrowserDestination) -> Void)?
-
-    /// Called when Download PDF is requested (for papers without PDF)
-    public var onDownloadPDF: ((UUID) -> Void)?
-
-    /// Called when View/Edit BibTeX is requested
-    public var onViewEditBibTeX: ((UUID) -> Void)?
-
-    /// Called when Share (system share sheet) is requested
-    public var onShare: ((UUID) -> Void)?
-
-    /// Called when Share by Email is requested (with PDF + BibTeX attachments)
-    public var onShareByEmail: ((UUID) -> Void)?
-
-    /// Called when Explore References is requested
-    public var onExploreReferences: ((UUID) -> Void)?
-
-    /// Called when Explore Citations is requested
-    public var onExploreCitations: ((UUID) -> Void)?
-
-    /// Called when Explore Similar Papers is requested
-    public var onExploreSimilar: ((UUID) -> Void)?
+    /// All action callbacks consolidated into a single class reference.
+    /// Reduces `initializeWithCopy` from ~33 reference count increments to 1.
+    public let actions: PublicationListActions
 
     /// Whether a refresh is in progress (shows loading indicator)
     public var isRefreshing: Bool = false
@@ -299,8 +200,10 @@ public struct PublicationListView: View {
     /// Debounce task for saving state (prevents rapid saves on fast selection changes)
     @State private var saveStateTask: Task<Void, Never>?
 
-    /// Memoization cache for filtered row data (class reference to avoid state changes)
-    @State private var filterCache = FilteredRowDataCache()
+    /// Filtered and sorted row data — updated explicitly by recomputeFilteredRowData().
+    /// Being @State means SwiftUI skips body diffing when the array hasn't changed
+    /// (e.g., on selection changes where only the highlighted row differs).
+    @State private var filteredRowData: [PublicationRowData] = []
 
     /// Holds current selection for drag operations (class to avoid closure capture issues)
     @State private var dragSelectionHolder = DragSelectionHolder()
@@ -328,24 +231,8 @@ public struct PublicationListView: View {
     // staticCollections removed: collections handled at parent level via UUID-based callbacks
     // Collection-related context menus pass through UUID-based callbacks to parent
 
-    /// Filtered and sorted row data - memoized to avoid repeated computation
-    private var filteredRowData: [PublicationRowData] {
-        // Create cache key from all inputs
-        let cacheKey = FilterCacheKey(
-            rowDataVersion: rowDataCache.count,
-            showUnreadOnly: showUnreadOnly,
-            disableUnreadFilter: disableUnreadFilter,
-            sortOrder: sortOrder,
-            sortAscending: sortAscending,
-            recommendationScoreVersion: recommendationScores.count  // ADR-020
-        )
-
-        // Return cached result if inputs haven't changed
-        if let cached = filterCache.getCached(for: cacheKey) {
-            return cached
-        }
-
-        // Compute and cache
+    /// Compute the filtered and sorted row data from the current rowDataCache.
+    private func computeFilteredRowData() -> [PublicationRowData] {
         let start = CFAbsoluteTimeGetCurrent()
         var result = Array(rowDataCache.values)
 
@@ -367,8 +254,17 @@ public struct PublicationListView: View {
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
         Logger.performance.infoCapture("⏱ filteredRowData: \(String(format: "%.1f", elapsed))ms (\(sorted.count) items)", category: "performance")
 
-        filterCache.cache(sorted, for: cacheKey)
         return sorted
+    }
+
+    /// Recompute filteredRowData and assign only when the result actually changed.
+    /// When nothing changed (e.g., selection-only updates), this is a no-op and
+    /// SwiftUI skips the expensive ForEach diff entirely.
+    private func recomputeFilteredRowData() {
+        let newData = computeFilteredRowData()
+        if newData != filteredRowData {
+            filteredRowData = newData
+        }
     }
 
     /// Group for displaying search results organized by library
@@ -491,47 +387,9 @@ public struct PublicationListView: View {
         sortOrder: Binding<LibrarySortOrder> = .constant(.dateAdded),
         sortAscending: Binding<Bool> = .constant(false),
         recommendationScores: Binding<[UUID: Double]> = .constant([:]),
-        onDelete: ((Set<UUID>) async -> Void)? = nil,
-        onToggleRead: ((UUID) async -> Void)? = nil,
-        onCopy: ((Set<UUID>) async -> Void)? = nil,
-        onCut: ((Set<UUID>) async -> Void)? = nil,
-        onPaste: (() async -> Void)? = nil,
-        onAddToLibrary: ((Set<UUID>, UUID) async -> Void)? = nil,
-        onAddToCollection: ((Set<UUID>, UUID) async -> Void)? = nil,
-        onRemoveFromAllCollections: ((Set<UUID>) async -> Void)? = nil,
-        onImport: (() -> Void)? = nil,
-        onOpenPDF: ((UUID) -> Void)? = nil,
-        onFileDrop: ((UUID, [NSItemProvider]) -> Void)? = nil,
-        onListDrop: (([NSItemProvider], DropTarget) -> Void)? = nil,
-        onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
-        // Inbox triage callbacks
-        onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)? = nil,
-        onDismiss: ((Set<UUID>) async -> Void)? = nil,
-        onToggleStar: ((Set<UUID>) async -> Void)? = nil,
-        onSetFlag: ((Set<UUID>, FlagColor) async -> Void)? = nil,
-        onClearFlag: ((Set<UUID>) async -> Void)? = nil,
-        onAddTag: ((Set<UUID>) -> Void)? = nil,
-        onRemoveTag: ((UUID, UUID) -> Void)? = nil,
-        onMuteAuthor: ((String) -> Void)? = nil,
-        onMutePaper: ((UUID) -> Void)? = nil,
-        // Category tap callback
-        onCategoryTap: ((String) -> Void)? = nil,
-        // Global search callback
-        onGlobalSearch: (() -> Void)? = nil,
-        // Refresh callback and state
-        onRefresh: (() async -> Void)? = nil,
+        actions: PublicationListActions = PublicationListActions(),
         isRefreshing: Bool = false,
-        // External flash trigger
-        externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil),
-        // Enhanced context menu callbacks
-        onOpenInBrowser: ((UUID, BrowserDestination) -> Void)? = nil,
-        onDownloadPDF: ((UUID) -> Void)? = nil,
-        onViewEditBibTeX: ((UUID) -> Void)? = nil,
-        onShare: ((UUID) -> Void)? = nil,
-        onShareByEmail: ((UUID) -> Void)? = nil,
-        onExploreReferences: ((UUID) -> Void)? = nil,
-        onExploreCitations: ((UUID) -> Void)? = nil,
-        onExploreSimilar: ((UUID) -> Void)? = nil
+        externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil)
     ) {
         self.publications = publications
         self._selection = selection
@@ -551,58 +409,9 @@ public struct PublicationListView: View {
         self._sortOrder = sortOrder
         self._sortAscending = sortAscending
         self._recommendationScores = recommendationScores
-        self.onDelete = onDelete
-        self.onToggleRead = onToggleRead
-        self.onCopy = onCopy
-        self.onCut = onCut
-        self.onPaste = onPaste
-        self.onAddToLibrary = onAddToLibrary
-        self.onAddToCollection = onAddToCollection
-        self.onRemoveFromAllCollections = onRemoveFromAllCollections
-        self.onImport = onImport
-        self.onOpenPDF = onOpenPDF
-        self.onFileDrop = onFileDrop
-        self.onListDrop = onListDrop
-        self.onDownloadPDFs = onDownloadPDFs
-        // Inbox triage
-        self.onSaveToLibrary = onSaveToLibrary
-        self.onDismiss = onDismiss
-        self.onToggleStar = onToggleStar
-        self.onSetFlag = onSetFlag
-        self.onClearFlag = onClearFlag
-        self.onAddTag = onAddTag
-        self.onRemoveTag = onRemoveTag
-        self.onMuteAuthor = onMuteAuthor
-        self.onMutePaper = onMutePaper
-        // Category tap
-        self.onCategoryTap = onCategoryTap
-        // Global search
-        self.onGlobalSearch = onGlobalSearch
-        // Refresh
-        self.onRefresh = onRefresh
+        self.actions = actions
         self.isRefreshing = isRefreshing
-        // External flash
         self._externalTriageFlash = externalTriageFlash
-        // Enhanced context menu
-        self.onOpenInBrowser = onOpenInBrowser
-        self.onDownloadPDF = onDownloadPDF
-        self.onViewEditBibTeX = onViewEditBibTeX
-        self.onShare = onShare
-        self.onShareByEmail = onShareByEmail
-        self.onExploreReferences = onExploreReferences
-        self.onExploreCitations = onExploreCitations
-        self.onExploreSimilar = onExploreSimilar
-    }
-
-    // MARK: - Change Detection
-
-    /// Content-aware fingerprint for the publications array.
-    /// Hashes full PublicationRowData (which conforms to Hashable), detecting both
-    /// structural changes (add/remove/reorder) AND in-place mutations (read/flag/tag).
-    private var publicationsFingerprint: Int {
-        var hasher = Hasher()
-        for pub in publications { hasher.combine(pub) }
-        return hasher.finalize()
     }
 
     // MARK: - Body
@@ -630,7 +439,7 @@ public struct PublicationListView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 // Refresh button
-                if let onRefresh = onRefresh {
+                if let onRefresh = actions.onRefresh {
                     if isRefreshing {
                         ProgressView()
                             .controlSize(.small)
@@ -646,7 +455,7 @@ public struct PublicationListView: View {
                 }
 
                 // Import button
-                if showImportButton, let onImport = onImport {
+                if showImportButton, let onImport = actions.onImport {
                     Button {
                         onImport()
                     } label: {
@@ -657,7 +466,7 @@ public struct PublicationListView: View {
 
                 // Global search button (opens Cmd+F modal)
                 Button {
-                    onGlobalSearch?()
+                    actions.onGlobalSearch?()
                 } label: {
                     Image(systemName: "magnifyingglass")
                 }
@@ -702,7 +511,7 @@ public struct PublicationListView: View {
         .onAppear {
             rebuildRowData()
         }
-        .onChange(of: publicationsFingerprint) { _, _ in
+        .onChange(of: publications) { _, _ in
             // Rebuild row data when publications change (add/delete/source switch)
             rebuildRowData()
         }
@@ -760,6 +569,7 @@ public struct PublicationListView: View {
             // ADR-020: Recompute scores when user trains the model
             if sortOrder == .recommended {
                 computeRecommendationScores()
+                recomputeFilteredRowData()
             }
         }
         .onChange(of: selection) { _, newValue in
@@ -781,9 +591,9 @@ public struct PublicationListView: View {
                     // This handles navigation from global search to a read paper when unread filter is on
                     if showUnreadOnly {
                         showUnreadOnly = false
+                        // Recompute immediately so the item becomes visible
+                        recomputeFilteredRowData()
                     }
-                    // Invalidate cache since we changed filters
-                    filterCache.invalidate()
                 }
 
                 // Mark that we need to scroll to this ID - the actual scroll will happen
@@ -799,6 +609,7 @@ public struct PublicationListView: View {
             }
         }
         .onChange(of: sortOrder) { _, newOrder in
+            recomputeFilteredRowData()
             if hasLoadedState {
                 debouncedSaveState()
             }
@@ -808,7 +619,14 @@ public struct PublicationListView: View {
                 computeRecommendationScores(force: true)
             }
         }
+        .onChange(of: sortAscending) { _, _ in
+            recomputeFilteredRowData()
+            if hasLoadedState {
+                debouncedSaveState()
+            }
+        }
         .onChange(of: showUnreadOnly) { _, _ in
+            recomputeFilteredRowData()
             // Validate selection when filter changes to remove orphaned IDs
             validateSelectionAgainstFilter()
             if hasLoadedState {
@@ -884,8 +702,8 @@ public struct PublicationListView: View {
             )
         }
 
-        // Invalidate filtered data cache - it will be recomputed on next access
-        filterCache.invalidate()
+        // Recompute filtered/sorted list from new row data
+        recomputeFilteredRowData()
 
         // After rebuilding, check if we need to scroll to selection (for global search navigation)
         // This handles the case where selection was set before the row data was available
@@ -922,14 +740,14 @@ public struct PublicationListView: View {
 
         rowDataCache[publicationID] = updatedData
 
-        // Try in-place update of the cached sorted array (avoids full re-sort).
-        // Only need a full invalidation if the change affects filter membership
-        // (e.g., read status changed while unread filter is active).
-        let needsFullInvalidation = showUnreadOnly && !disableUnreadFilter
-        if needsFullInvalidation {
-            filterCache.invalidate()
-        } else {
-            filterCache.updateRow(publicationID, with: updatedData)
+        // Update filteredRowData in-place if possible (avoids full re-sort).
+        // If unread filter is active, the change might affect filter membership,
+        // so do a full recompute. Otherwise just patch the row in-place.
+        let needsFullRecompute = showUnreadOnly && !disableUnreadFilter
+        if needsFullRecompute {
+            recomputeFilteredRowData()
+        } else if let index = filteredRowData.firstIndex(where: { $0.id == publicationID }) {
+            filteredRowData[index] = updatedData
         }
     }
 
@@ -1009,7 +827,7 @@ public struct PublicationListView: View {
     private var inlineToolbar: some View {
         HStack(spacing: 12) {
             // Refresh button (only shown when onRefresh callback is provided)
-            if let onRefresh = onRefresh {
+            if let onRefresh = actions.onRefresh {
                 if isRefreshing {
                     ProgressView()
                         .controlSize(.small)
@@ -1030,7 +848,7 @@ public struct PublicationListView: View {
             Spacer()
 
             // Import button
-            if showImportButton, let onImport = onImport {
+            if showImportButton, let onImport = actions.onImport {
                 Button {
                     onImport()
                 } label: {
@@ -1043,7 +861,7 @@ public struct PublicationListView: View {
 
             // Global search button (opens Cmd+F modal)
             Button {
-                onGlobalSearch?()
+                actions.onGlobalSearch?()
             } label: {
                 Image(systemName: "magnifyingglass")
             }
@@ -1163,7 +981,7 @@ public struct PublicationListView: View {
             } primaryAction: { ids in
                 // Double-click to open PDF
                 if let first = ids.first,
-                   let onOpenPDF = onOpenPDF {
+                   let onOpenPDF = actions.onOpenPDF {
                     onOpenPDF(first)
                 }
             }
@@ -1189,14 +1007,14 @@ public struct PublicationListView: View {
         #if os(iOS)
             // Pull-to-refresh on iOS - must be on the List directly for visual feedback
             .refreshable {
-                if let onRefresh = onRefresh {
+                if let onRefresh = actions.onRefresh {
                     await onRefresh()
                 }
             }
         #endif
         #if os(macOS)
         .onDeleteCommand {
-            if let onDelete = onDelete {
+            if let onDelete = actions.onDelete {
                 let idsToDelete = selection
                 // Clear selection immediately before deletion to prevent accessing deleted objects
                 selection.removeAll()
@@ -1432,14 +1250,14 @@ public struct PublicationListView: View {
     private func openSelectedPaper() {
         guard let firstID = selection.first,
               rowDataCache[firstID] != nil,
-              let onOpenPDF = onOpenPDF else { return }
+              let onOpenPDF = actions.onOpenPDF else { return }
 
         onOpenPDF(firstID)
     }
 
     /// Mark all visible papers as read
     private func markAllAsRead() {
-        guard let onToggleRead = onToggleRead else { return }
+        guard let onToggleRead = actions.onToggleRead else { return }
 
         for rowData in filteredRowData {
             if !rowData.isRead {
@@ -1452,7 +1270,7 @@ public struct PublicationListView: View {
 
     /// Delete selected papers
     private func deleteSelected() {
-        guard let onDelete = onDelete, !selection.isEmpty else { return }
+        guard let onDelete = actions.onDelete, !selection.isEmpty else { return }
 
         let idsToDelete = selection
         // Clear selection immediately before deletion
@@ -1466,7 +1284,7 @@ public struct PublicationListView: View {
     @ViewBuilder
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
         // Open PDF
-        if let onOpenPDF = onOpenPDF {
+        if let onOpenPDF = actions.onOpenPDF {
             Button("Open PDF") {
                 if let first = ids.first {
                     onOpenPDF(first)
@@ -1477,13 +1295,13 @@ public struct PublicationListView: View {
         }
 
         // Copy/Cut
-        if let onCopy = onCopy {
+        if let onCopy = actions.onCopy {
             Button("Copy") {
                 Task { await onCopy(ids) }
             }
         }
 
-        if let onCut = onCut {
+        if let onCut = actions.onCut {
             Button("Cut") {
                 Task { await onCut(ids) }
             }
@@ -1498,7 +1316,7 @@ public struct PublicationListView: View {
         }
 
         // Download PDFs (only shown when multiple papers selected)
-        if let onDownloadPDFs = onDownloadPDFs, ids.count > 1 {
+        if let onDownloadPDFs = actions.onDownloadPDFs, ids.count > 1 {
             Divider()
             Button {
                 onDownloadPDFs(ids)
@@ -1508,7 +1326,7 @@ public struct PublicationListView: View {
         }
 
         // Send to E-Ink Device
-        if let onSendToEInkDevice = onSendToEInkDevice {
+        if let onSendToEInkDevice = actions.onSendToEInkDevice {
             Button {
                 onSendToEInkDevice(ids)
             } label: {
@@ -1519,7 +1337,7 @@ public struct PublicationListView: View {
         Divider()
 
         // Add to Library submenu (publications can belong to multiple libraries)
-        if let onAddToLibrary = onAddToLibrary, !allLibraries.isEmpty {
+        if let onAddToLibrary = actions.onAddToLibrary, !allLibraries.isEmpty {
             let otherLibraries = allLibraries.filter { $0.id != libraryID }
             if !otherLibraries.isEmpty {
                 Menu("Add to Library") {
@@ -1535,7 +1353,7 @@ public struct PublicationListView: View {
         }
 
         // Remove from all collections
-        if let onRemoveFromAllCollections = onRemoveFromAllCollections {
+        if let onRemoveFromAllCollections = actions.onRemoveFromAllCollections {
             Button("Remove from All Collections") {
                 Task {
                     await onRemoveFromAllCollections(ids)
@@ -1547,7 +1365,7 @@ public struct PublicationListView: View {
 
         // Move to Library (adds to target library AND removes from current library)
         // Available for all views, not just Inbox
-        if let onSaveToLibrary = onSaveToLibrary, !allLibraries.isEmpty {
+        if let onSaveToLibrary = actions.onSaveToLibrary, !allLibraries.isEmpty {
             // Filter out current library only (same logic as Add to Library)
             let moveLibraries = allLibraries.filter { $0.id != libraryID }
             if !moveLibraries.isEmpty {
@@ -1564,17 +1382,17 @@ public struct PublicationListView: View {
         }
 
         // Dismiss from Inbox
-        if let onDismiss = onDismiss {
+        if let onDismiss = actions.onDismiss {
             Button("Dismiss from Inbox") {
                 Task { await onDismiss(ids) }
             }
         }
 
         // Mute options
-        if onMuteAuthor != nil || onMutePaper != nil {
+        if actions.onMuteAuthor != nil || actions.onMutePaper != nil {
             Divider()
 
-            if let onMuteAuthor = onMuteAuthor {
+            if let onMuteAuthor = actions.onMuteAuthor {
                 // Get first author from row data
                 if let first = ids.first,
                    let rowData = rowDataCache[first] {
@@ -1585,7 +1403,7 @@ public struct PublicationListView: View {
                 }
             }
 
-            if let onMutePaper = onMutePaper {
+            if let onMutePaper = actions.onMutePaper {
                 if let first = ids.first {
                     Button("Mute This Paper") {
                         onMutePaper(first)
@@ -1600,7 +1418,7 @@ public struct PublicationListView: View {
         Divider()
 
         // Delete
-        if let onDelete = onDelete {
+        if let onDelete = actions.onDelete {
             Button("Delete", role: .destructive) {
                 // Clear selection immediately before deletion
                 selection.removeAll()
@@ -1620,7 +1438,7 @@ public struct PublicationListView: View {
         } description: {
             Text(emptyStateDescription)
         } actions: {
-            if showImportButton, let onImport = onImport {
+            if showImportButton, let onImport = actions.onImport {
                 Button("Import BibTeX...") {
                     onImport()
                 }
@@ -1668,12 +1486,12 @@ public struct PublicationListView: View {
 
     @ViewBuilder
     private func rowContent(data rowData: PublicationRowData, index: Int) -> some View {
-        let deleteHandler: (() -> Void)? = onDelete != nil ? {
-            Task { await onDelete?([rowData.id]) }
+        let deleteHandler: (() -> Void)? = actions.onDelete != nil ? {
+            Task { await actions.onDelete?([rowData.id]) }
         } : nil
 
         let saveHandler: (() -> Void)? = {
-            guard onSaveToLibrary != nil else { return nil }
+            guard actions.onSaveToLibrary != nil else { return nil }
             // Use the configured keep library if provided, otherwise fall back to first library
             let targetLibraryID: UUID? = saveLibraryID ?? allLibraries.first?.id
             guard let libID = targetLibraryID else { return nil }
@@ -1690,12 +1508,12 @@ public struct PublicationListView: View {
                             triageFlashState = nil
                         }
                     }
-                    await onSaveToLibrary?([rowData.id], libID)
+                    await actions.onSaveToLibrary?([rowData.id], libID)
                 }
             }
         }()
 
-        let dismissHandler: (() -> Void)? = onDismiss != nil ? {
+        let dismissHandler: (() -> Void)? = actions.onDismiss != nil ? {
             // Show orange flash for dismiss action
             withAnimation(.easeIn(duration: 0.1)) {
                 triageFlashState = (rowData.id, .orange)
@@ -1708,84 +1526,84 @@ public struct PublicationListView: View {
                         triageFlashState = nil
                     }
                 }
-                await onDismiss?([rowData.id])
+                await actions.onDismiss?([rowData.id])
             }
         } : nil
 
-        let toggleReadHandler: (() -> Void)? = onToggleRead != nil ? {
-            Task { await onToggleRead?(rowData.id) }
+        let toggleReadHandler: (() -> Void)? = actions.onToggleRead != nil ? {
+            Task { await actions.onToggleRead?(rowData.id) }
         } : nil
 
-        let openPDFHandler: (() -> Void)? = (onOpenPDF != nil && rowData.hasPDFAvailable) ? {
-            onOpenPDF?(rowData.id)
+        let openPDFHandler: (() -> Void)? = (actions.onOpenPDF != nil && rowData.hasPDFAvailable) ? {
+            actions.onOpenPDF?(rowData.id)
         } : nil
 
-        let copyBibTeXHandler: (() -> Void)? = onCopy != nil ? {
-            Task { await onCopy?([rowData.id]) }
+        let copyBibTeXHandler: (() -> Void)? = actions.onCopy != nil ? {
+            Task { await actions.onCopy?([rowData.id]) }
         } : nil
 
         // addToCollection now uses UUID — MailStylePublicationRow still expects CollectionModel
         // Pass nil since we no longer have CollectionModel objects at this level
         let addToCollectionHandler: ((CollectionModel) -> Void)? = nil
 
-        let muteAuthorHandler: (() -> Void)? = onMuteAuthor != nil ? {
+        let muteAuthorHandler: (() -> Void)? = actions.onMuteAuthor != nil ? {
             let firstName = rowData.authorString.split(separator: ",").first.map(String.init) ?? rowData.authorString
-            onMuteAuthor?(firstName)
+            actions.onMuteAuthor?(firstName)
         } : nil
 
-        let mutePaperHandler: (() -> Void)? = onMutePaper != nil ? {
-            onMutePaper?(rowData.id)
+        let mutePaperHandler: (() -> Void)? = actions.onMutePaper != nil ? {
+            actions.onMutePaper?(rowData.id)
         } : nil
 
         // Flag handlers
-        let setFlagHandler: ((FlagColor) -> Void)? = onSetFlag != nil ? { color in
-            Task { await onSetFlag?([rowData.id], color) }
+        let setFlagHandler: ((FlagColor) -> Void)? = actions.onSetFlag != nil ? { color in
+            Task { await actions.onSetFlag?([rowData.id], color) }
         } : nil
 
-        let clearFlagHandler: (() -> Void)? = onClearFlag != nil ? {
-            Task { await onClearFlag?([rowData.id]) }
+        let clearFlagHandler: (() -> Void)? = actions.onClearFlag != nil ? {
+            Task { await actions.onClearFlag?([rowData.id]) }
         } : nil
 
         // Tag handlers
-        let addTagHandler: (() -> Void)? = onAddTag != nil ? {
-            onAddTag?([rowData.id])
+        let addTagHandler: (() -> Void)? = actions.onAddTag != nil ? {
+            actions.onAddTag?([rowData.id])
         } : nil
 
-        let removeTagHandler: ((UUID) -> Void)? = onRemoveTag != nil ? { tagID in
-            onRemoveTag?(rowData.id, tagID)
+        let removeTagHandler: ((UUID) -> Void)? = actions.onRemoveTag != nil ? { tagID in
+            actions.onRemoveTag?(rowData.id, tagID)
         } : nil
 
         // Enhanced context menu handlers — all use UUID now
-        let openInBrowserHandler: ((BrowserDestination) -> Void)? = onOpenInBrowser != nil ? { destination in
-            onOpenInBrowser?(rowData.id, destination)
+        let openInBrowserHandler: ((BrowserDestination) -> Void)? = actions.onOpenInBrowser != nil ? { destination in
+            actions.onOpenInBrowser?(rowData.id, destination)
         } : nil
 
-        let downloadPDFHandler: (() -> Void)? = (onDownloadPDF != nil && !rowData.hasDownloadedPDF) ? {
-            onDownloadPDF?(rowData.id)
+        let downloadPDFHandler: (() -> Void)? = (actions.onDownloadPDF != nil && !rowData.hasDownloadedPDF) ? {
+            actions.onDownloadPDF?(rowData.id)
         } : nil
 
-        let viewEditBibTeXHandler: (() -> Void)? = onViewEditBibTeX != nil ? {
-            onViewEditBibTeX?(rowData.id)
+        let viewEditBibTeXHandler: (() -> Void)? = actions.onViewEditBibTeX != nil ? {
+            actions.onViewEditBibTeX?(rowData.id)
         } : nil
 
-        let shareHandler: (() -> Void)? = onShare != nil ? {
-            onShare?(rowData.id)
+        let shareHandler: (() -> Void)? = actions.onShare != nil ? {
+            actions.onShare?(rowData.id)
         } : nil
 
-        let shareByEmailHandler: (() -> Void)? = onShareByEmail != nil ? {
-            onShareByEmail?(rowData.id)
+        let shareByEmailHandler: (() -> Void)? = actions.onShareByEmail != nil ? {
+            actions.onShareByEmail?(rowData.id)
         } : nil
 
-        let exploreReferencesHandler: (() -> Void)? = onExploreReferences != nil ? {
-            onExploreReferences?(rowData.id)
+        let exploreReferencesHandler: (() -> Void)? = actions.onExploreReferences != nil ? {
+            actions.onExploreReferences?(rowData.id)
         } : nil
 
-        let exploreCitationsHandler: (() -> Void)? = onExploreCitations != nil ? {
-            onExploreCitations?(rowData.id)
+        let exploreCitationsHandler: (() -> Void)? = actions.onExploreCitations != nil ? {
+            actions.onExploreCitations?(rowData.id)
         } : nil
 
-        let exploreSimilarHandler: (() -> Void)? = onExploreSimilar != nil ? {
-            onExploreSimilar?(rowData.id)
+        let exploreSimilarHandler: (() -> Void)? = actions.onExploreSimilar != nil ? {
+            actions.onExploreSimilar?(rowData.id)
         } : nil
 
         // addToLibrary now uses UUID — MailStylePublicationRow still expects LibraryModel
@@ -1813,7 +1631,7 @@ public struct PublicationListView: View {
             data: rowData,
             settings: listViewSettings,
             onToggleRead: toggleReadHandler,
-            onCategoryTap: onCategoryTap,
+            onCategoryTap: actions.onCategoryTap,
             onDelete: deleteHandler,
             onSave: saveHandler,
             onDismiss: dismissHandler,
@@ -1875,7 +1693,7 @@ public struct PublicationListView: View {
 
     /// Handle file drop on a publication row
     private func handleFileDrop(providers: [NSItemProvider], for publicationID: UUID) -> Bool {
-        guard let onFileDrop = onFileDrop,
+        guard let onFileDrop = actions.onFileDrop,
               rowDataCache[publicationID] != nil else {
             return false
         }
@@ -1886,7 +1704,7 @@ public struct PublicationListView: View {
 
     /// Handle PDF drop on list background for import
     private func handleListDrop(providers: [NSItemProvider]) -> Bool {
-        guard let onListDrop = onListDrop else {
+        guard let onListDrop = actions.onListDrop else {
             return false
         }
 
@@ -1931,16 +1749,17 @@ public struct PublicationListView: View {
 // MARK: - Preview
 
 #Preview {
-    let publications: [PublicationRowData] = [] // Empty preview
+    let actions = PublicationListActions()
+    actions.onImport = { print("Import tapped") }
 
     return PublicationListView(
-        publications: publications,
+        publications: [],
         selection: .constant([]),
         selectedPublicationID: .constant(nil),
         showImportButton: true,
         showSortMenu: true,
         filterScope: .constant(.current),
-        onImport: { print("Import tapped") }
+        actions: actions
     )
 }
 

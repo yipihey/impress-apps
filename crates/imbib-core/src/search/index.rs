@@ -473,6 +473,40 @@ pub fn search_index_add(
         .index_publication(writer, &publication, full_text.as_deref())
 }
 
+/// Add multiple publications to the search index in a single FFI call.
+/// Much faster than calling search_index_add() in a loop because it:
+/// 1. Acquires the registry lock and writer lock once (not N times)
+/// 2. Avoids N FFI round-trips (each has ~0.1ms overhead)
+/// Returns the number of publications successfully indexed.
+#[uniffi::export]
+pub fn search_index_add_batch(
+    handle_id: u64,
+    publications: Vec<Publication>,
+) -> Result<u32, SearchIndexError> {
+    let registry = INDEX_REGISTRY.read().unwrap();
+    let handle = registry
+        .get(&handle_id)
+        .ok_or_else(|| SearchIndexError::IndexError("Invalid handle".to_string()))?
+        .clone();
+
+    let mut writer_guard = handle.writer.lock().unwrap();
+    let writer = writer_guard
+        .as_mut()
+        .ok_or_else(|| SearchIndexError::IndexError("Writer not available".to_string()))?;
+
+    let mut count: u32 = 0;
+    for pub_item in &publications {
+        if handle
+            .index
+            .index_publication(writer, pub_item, None)
+            .is_ok()
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 /// Delete a publication from the search index
 #[uniffi::export]
 pub fn search_index_delete(handle_id: u64, publication_id: String) -> Result<(), SearchIndexError> {

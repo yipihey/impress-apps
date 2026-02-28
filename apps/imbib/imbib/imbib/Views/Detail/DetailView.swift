@@ -81,12 +81,12 @@ struct DetailView: View {
         libraryManager.activeLibrary?.id
     }
 
-    /// The full publication model (fetched from Rust store by UUID).
-    /// Returns nil for non-library papers (search results, etc.).
-    private var publication: PublicationModel? {
-        guard let id = publicationID else { return nil }
-        return RustStoreAdapter.shared.getPublicationDetail(id: id)
-    }
+    /// Cached publication model — loaded on paper switch via `.onChange(of: publicationID)`,
+    /// refreshed on flag/tag mutations via notification handlers.
+    @State private var cachedPublication: PublicationModel?
+
+    /// Alias for backward compatibility.
+    private var publication: PublicationModel? { cachedPublication }
 
     // MARK: - Initialization
 
@@ -112,6 +112,7 @@ struct DetailView: View {
         self.isMultiSelection = isMultiSelection
         self.selectedPublicationIDs = selectedPublicationIDs
         self.onDownloadPDFs = onDownloadPDFs
+        self._cachedPublication = State(initialValue: model)
     }
 
     // MARK: - Body
@@ -121,13 +122,14 @@ struct DetailView: View {
         let _ = logger.info("DetailView.body START")
         let _ = print("DetailView.body START for \(paper.title.prefix(30))")
 
-        // OPTIMIZATION: Add id() modifiers for stable view identity per publication.
-        // This prevents SwiftUI from doing expensive diffing when switching papers.
-        let pubID = publication?.id
-
         // Inline toolbar + tab content in VStack.
         // Note: window .toolbar {} cannot be used here because DetailView lives inside
-        // HSplitView with .id() modifiers — toolbar items duplicate on view recreation.
+        // HSplitView — toolbar items duplicate on view recreation.
+        //
+        // NO .id(pubID) here — that would destroy and recreate the entire view tree on
+        // every paper switch, killing the WKWebView inside MathJaxAbstractView and spawning
+        // a new WebContent process each time. Instead, paper-specific state is reset via
+        // .onChange(of: publicationID) and child views update via their own update mechanisms.
         return VStack(spacing: 0) {
             Group {
                 switch selectedTab {
@@ -151,7 +153,6 @@ struct DetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .id(pubID)  // Stable identity per publication
         #if os(iOS)
         // iOS: Show paper title in navigation bar
         .navigationTitle(paper.title)
@@ -160,6 +161,20 @@ struct DetailView: View {
         .task(id: publicationID) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
+        }
+        .onChange(of: publicationID, initial: true) { _, newID in
+            guard let id = newID else { cachedPublication = nil; return }
+            cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let pubID = publicationID, ids.contains(pubID) else { return }
+            cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let pubID = publicationID, ids.contains(pubID) else { return }
+            cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
         }
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
         .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in

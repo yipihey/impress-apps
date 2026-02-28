@@ -243,30 +243,34 @@ struct IOSUnifiedPublicationListWrapper: View {
             sortOrder: $currentSortOrder,
             sortAscending: $currentSortAscending,
             recommendationScores: $recommendationScores,
-            onDelete: { ids in await handleDelete(ids) },
-            onToggleRead: { pubID in await handleToggleRead(pubID) },
-            onCopy: { ids in await handleCopy(ids) },
-            onCut: { ids in await handleCut(ids) },
-            onPaste: { await handlePaste() },
-            onAddToLibrary: { ids, libraryID in await handleAddToLibrary(ids, libraryID) },
-            onAddToCollection: { ids, collectionID in await handleAddToCollection(ids, collectionID) },
-            onRemoveFromAllCollections: { ids in await handleRemoveFromAllCollections(ids) },
-            onImport: shouldShowImportButton ? { handleImport() } : nil,
-            onOpenPDF: { pubID in handleOpenPDF(pubID) },
-            onSaveToLibrary: source.isInbox ? { ids, targetLibraryID in await handleSaveToLibrary(ids, targetLibraryID) } : nil,
-            onDismiss: { ids in await handleDismiss(ids) },
-            onSetFlag: { ids, color in await handleSetFlag(ids, color) },
-            onClearFlag: { ids in await handleClearFlag(ids) },
-            onRemoveTag: { pubID, tagID in handleRemoveTag(pubID: pubID, tagID: tagID) },
-            onCategoryTap: { cat in handleCategoryTap(cat) },
-            onRefresh: { await refreshFromSource() },
-            onOpenInBrowser: { pubID, dest in handleOpenInBrowser(pubID, dest) },
-            onDownloadPDF: { pubID in handleDownloadPDF(pubID) },
-            onViewEditBibTeX: { pubID in handleViewEditBibTeX(pubID) },
-            onShare: { pubID in handleShare(pubID) },
-            onExploreReferences: { pubID in handleExploreReferences(pubID) },
-            onExploreCitations: { pubID in handleExploreCitations(pubID) },
-            onExploreSimilar: { pubID in handleExploreSimilar(pubID) }
+            actions: {
+                let a = PublicationListActions()
+                a.onDelete = { ids in await handleDelete(ids) }
+                a.onToggleRead = { pubID in await handleToggleRead(pubID) }
+                a.onCopy = { ids in await handleCopy(ids) }
+                a.onCut = { ids in await handleCut(ids) }
+                a.onPaste = { await handlePaste() }
+                a.onAddToLibrary = { ids, libraryID in await handleAddToLibrary(ids, libraryID) }
+                a.onAddToCollection = { ids, collectionID in await handleAddToCollection(ids, collectionID) }
+                a.onRemoveFromAllCollections = { ids in await handleRemoveFromAllCollections(ids) }
+                a.onImport = shouldShowImportButton ? { handleImport() } : nil
+                a.onOpenPDF = { pubID in handleOpenPDF(pubID) }
+                a.onSaveToLibrary = source.isInbox ? { ids, targetLibraryID in await handleSaveToLibrary(ids, targetLibraryID) } : nil
+                a.onDismiss = { ids in await handleDismiss(ids) }
+                a.onSetFlag = { ids, color in await handleSetFlag(ids, color) }
+                a.onClearFlag = { ids in await handleClearFlag(ids) }
+                a.onRemoveTag = { pubID, tagID in handleRemoveTag(pubID: pubID, tagID: tagID) }
+                a.onCategoryTap = { cat in handleCategoryTap(cat) }
+                a.onRefresh = { await refreshFromSource() }
+                a.onOpenInBrowser = { pubID, dest in handleOpenInBrowser(pubID, dest) }
+                a.onDownloadPDF = { pubID in handleDownloadPDF(pubID) }
+                a.onViewEditBibTeX = { pubID in handleViewEditBibTeX(pubID) }
+                a.onShare = { pubID in handleShare(pubID) }
+                a.onExploreReferences = { pubID in handleExploreReferences(pubID) }
+                a.onExploreCitations = { pubID in handleExploreCitations(pubID) }
+                a.onExploreSimilar = { pubID in handleExploreSimilar(pubID) }
+                return a
+            }()
         )
     }
 

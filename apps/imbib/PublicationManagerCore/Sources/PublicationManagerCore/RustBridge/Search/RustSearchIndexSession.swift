@@ -189,6 +189,23 @@ public actor RustSearchIndexSession {
         }
     }
 
+    /// Add multiple publications to the index in a single FFI call.
+    /// Much faster than calling add() in a loop — eliminates per-publication FFI overhead.
+    /// - Parameter publications: The publications to index
+    /// - Returns: Number of publications successfully indexed
+    /// - Throws: SearchIndexError if the batch operation fails
+    @discardableResult
+    public func addBatch(_ publications: [ImbibRustCore.Publication]) async throws -> UInt32 {
+        guard let id = handleId else {
+            throw SearchIndexError.notInitialized
+        }
+        do {
+            return try searchIndexAddBatch(handleId: id, publications: publications)
+        } catch {
+            throw SearchIndexError.operationFailed("\(error)")
+        }
+    }
+
     /// Delete a publication from the index
     /// - Parameter publicationId: The ID of the publication to remove
     /// - Throws: SearchIndexError if deletion fails

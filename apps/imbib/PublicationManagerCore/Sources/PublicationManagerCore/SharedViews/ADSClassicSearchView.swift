@@ -789,28 +789,18 @@ public struct ADSClassicSearchView: View {
                 emptyStateDescription: "Fill in the form and click Search.",
                 listID: libraryManager.getOrCreateLastSearchCollection().map { .lastSearch($0.id) },
                 filterScope: .constant(.current),
-                onDelete: { ids in
-                    await libraryViewModel.delete(ids: ids)
-                },
-                onToggleRead: { id in
-                    await libraryViewModel.toggleReadStatus(id: id)
-                },
-                onCopy: { ids in
-                    await libraryViewModel.copyToClipboard(ids)
-                },
-                onCut: { ids in
-                    await libraryViewModel.cutToClipboard(ids)
-                },
-                onPaste: {
-                    try? await libraryViewModel.pasteFromClipboard()
-                },
-                onAddToLibrary: { ids, libraryId in
-                    await libraryViewModel.addToLibrary(ids, libraryId: libraryId)
-                },
-                onAddToCollection: { ids, collectionId in
-                    await libraryViewModel.addToCollection(ids, collectionId: collectionId)
-                },
-                onOpenPDF: { _ in }
+                actions: {
+                    let a = PublicationListActions()
+                    a.onDelete = { ids in await libraryViewModel.delete(ids: ids) }
+                    a.onToggleRead = { id in await libraryViewModel.toggleReadStatus(id: id) }
+                    a.onCopy = { ids in await libraryViewModel.copyToClipboard(ids) }
+                    a.onCut = { ids in await libraryViewModel.cutToClipboard(ids) }
+                    a.onPaste = { try? await libraryViewModel.pasteFromClipboard() }
+                    a.onAddToLibrary = { ids, libraryId in await libraryViewModel.addToLibrary(ids, libraryId: libraryId) }
+                    a.onAddToCollection = { ids, collectionId in await libraryViewModel.addToCollection(ids, collectionId: collectionId) }
+                    a.onOpenPDF = { _ in }
+                    return a
+                }()
             )
         }
     }

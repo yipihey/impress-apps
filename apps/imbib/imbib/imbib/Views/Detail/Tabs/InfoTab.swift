@@ -63,11 +63,20 @@ struct InfoTab: View {
     @State private var annotationSettings: QuickAnnotationSettings = .defaults
     @State private var annotations: [String: String] = [:]
 
-    /// The full publication model (fetched from Rust store by UUID).
-    /// Returns nil for non-library papers (search results, etc.).
-    private var publication: PublicationModel? {
-        guard let id = publicationID else { return nil }
-        return RustStoreAdapter.shared.getPublicationDetail(id: id)
+    /// Cached publication model — loaded once per paper switch, refreshed on mutations.
+    /// Replaces the computed property that was calling FFI ~15 times per body evaluation.
+    @State private var cachedPublication: PublicationModel?
+
+    /// Alias for backward compatibility with body code that binds `let pub = publication`.
+    private var publication: PublicationModel? { cachedPublication }
+
+    /// Fetch the publication from the Rust store and cache it.
+    private func loadPublication() {
+        guard let id = publicationID else {
+            cachedPublication = nil
+            return
+        }
+        cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
     }
 
     var body: some View {
@@ -162,7 +171,30 @@ struct InfoTab: View {
             annotationSettings = await QuickAnnotationSettingsStore.shared.settings
         }
         .onChange(of: publicationID, initial: true) { _, _ in
+            loadPublication()
             loadAnnotations()
+            // Reset ephemeral state that should not carry over between papers
+            isExploringReferences = false
+            isExploringCitations = false
+            isExploringSimilar = false
+            isExploringCoReads = false
+            explorationError = nil
+            enrichmentRefreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let pubID = publicationID, ids.contains(pubID) else { return }
+            loadPublication()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let pubID = publicationID, ids.contains(pubID) else { return }
+            loadPublication()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fieldDidChange)) { notification in
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let pubID = publicationID, ids.contains(pubID) else { return }
+            loadPublication()
         }
         .onAppear {
             let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000

@@ -200,28 +200,25 @@ public actor FullTextSearchService {
             allPubs.append(contentsOf: pubs)
         }
 
-        var indexedCount = 0
-        for pub in allPubs {
-            let input = SearchIndexInput(
+        // Convert all pubs to Rust Publication structs on the Swift side,
+        // then send the entire batch in a single FFI call. This eliminates
+        // ~2500 individual FFI round-trips and lets Tantivy batch internal ops.
+        let rustPubs = allPubs.map { pub in
+            SearchIndexInput(
                 id: pub.id.uuidString,
                 citeKey: pub.citeKey,
                 title: pub.title,
                 authors: pub.authorString,
                 abstractText: pub.abstract
-            )
-            do {
-                try await index.add(input, fullText: nil)
-                indexedCount += 1
-            } catch {
-                Logger.search.error("Failed to index \(pub.citeKey): \(error.localizedDescription)")
-            }
+            ).toPublication()
         }
 
         do {
+            let indexedCount = try await index.addBatch(rustPubs)
             try await index.commit()
-            Logger.search.infoCapture("Search index rebuilt with \(indexedCount) publications", category: "search")
+            Logger.search.infoCapture("Search index rebuilt with \(indexedCount) publications (batch)", category: "search")
         } catch {
-            Logger.search.error("Failed to commit index: \(error.localizedDescription)")
+            Logger.search.error("Failed to rebuild index: \(error.localizedDescription)")
         }
     }
 

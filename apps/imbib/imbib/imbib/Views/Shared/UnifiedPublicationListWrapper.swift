@@ -57,6 +57,14 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Init
 
+    /// Per-source cache for the eager load in init().
+    /// SwiftUI calls init() on every parent body evaluation, but State(initialValue:)
+    /// only uses the value on the FIRST insertion. Without this cache, we'd run a
+    /// ~500ms queryPublications() call on every parent re-eval for nothing.
+    /// The cache is keyed on source.viewID and invalidated by dataVersion.
+    @MainActor
+    private static var initCache: (sourceKey: UUID, dataVersion: Int, pubs: [PublicationRowData])?
+
     init(
         source: PublicationSource,
         selectedPublicationID: Binding<UUID?>,
@@ -74,9 +82,24 @@ struct UnifiedPublicationListWrapper: View {
 
         // Eager load: populate publications synchronously so the first render
         // shows data immediately, eliminating the 5-second empty list on launch.
-        let initialPubs = RustStoreAdapter.shared.queryPublications(for: source)
-        _publications = State(initialValue: initialPubs)
-        _lastRefreshedStoreVersion = State(initialValue: RustStoreAdapter.shared.dataVersion)
+        // Uses a static cache so repeated init() calls from parent body re-evals
+        // don't re-query the Rust store (~500ms each). The cache is invalidated
+        // when the source changes or the store version advances, so .task(id:)
+        // and .onChange(of: source) still trigger fresh queries.
+        let store = RustStoreAdapter.shared
+        let currentVersion = store.dataVersion
+        let sourceKey = source.viewID
+
+        if let cached = Self.initCache,
+           cached.sourceKey == sourceKey,
+           cached.dataVersion == currentVersion {
+            _publications = State(initialValue: cached.pubs)
+        } else {
+            let initialPubs = store.queryPublications(for: source)
+            Self.initCache = (sourceKey: sourceKey, dataVersion: currentVersion, pubs: initialPubs)
+            _publications = State(initialValue: initialPubs)
+        }
+        _lastRefreshedStoreVersion = State(initialValue: currentVersion)
     }
 
     // MARK: - Environment
@@ -789,123 +812,126 @@ struct UnifiedPublicationListWrapper: View {
             sortOrder: $currentSortOrder,
             sortAscending: $currentSortAscending,
             recommendationScores: $recommendationScores,
-            onDelete: !sourceCanEdit ? nil : { ids in
+            actions: buildListActions(),
+            isRefreshing: isLoading || isBackgroundRefreshing,
+            externalTriageFlash: $keyboardTriageFlash
+        )
+    }
+
+    private func buildListActions() -> PublicationListActions {
+        let a = PublicationListActions()
+        if sourceCanEdit {
+            a.onDelete = { ids in
                 // Track dismissal for inbox papers before deleting
-                if isInboxView {
+                if self.isInboxView {
                     for id in ids {
                         InboxManager.shared.trackDismissal(id)
                     }
                 }
                 // Remove from local state FIRST to prevent rendering deleted objects
-                publications.removeAll { pub in
+                self.publications.removeAll { pub in
                     ids.contains(pub.id)
                 }
                 // Clear selection for deleted items
-                selectedPublicationIDs.subtract(ids)
+                self.selectedPublicationIDs.subtract(ids)
                 // Then delete from Rust store
                 RustStoreAdapter.shared.deletePublications(ids: Array(ids))
-            },
-            onToggleRead: { id in
-                let store = RustStoreAdapter.shared
-                let pub = store.getPublication(id: id)
-                store.setRead(ids: [id], read: !(pub?.isRead ?? false))
-            },
-            onCopy: { ids in
-                await libraryViewModel.copyToClipboard(ids)
-            },
-            onCut: !sourceCanEdit ? nil : { ids in
-                await libraryViewModel.cutToClipboard(ids)
-            },
-            onPaste: !sourceCanEdit ? nil : {
-                try? await libraryViewModel.pasteFromClipboard()
-            },
-            onAddToLibrary: { ids, targetLibraryID in
-                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
-            },
-            onAddToCollection: { ids, collectionID in
-                RustStoreAdapter.shared.addToCollection(publicationIds: Array(ids), collectionId: collectionID)
-            },
-            onRemoveFromAllCollections: !sourceCanEdit ? nil : { ids in
+            }
+            a.onCut = { ids in
+                await self.libraryViewModel.cutToClipboard(ids)
+            }
+            a.onPaste = {
+                try? await self.libraryViewModel.pasteFromClipboard()
+            }
+            a.onRemoveFromAllCollections = { ids in
                 // TODO: implement removeFromAllCollections with Rust store
-            },
-            onImport: nil,
-            onOpenPDF: { id in
-                openPDF(for: id)
-            },
-            onFileDrop: !sourceCanEdit ? nil : { id, providers in
+            }
+            a.onFileDrop = { id, providers in
                 // TODO: implement file drop with Rust store (FileDropHandler needs UUID-based API)
-            },
-            onListDrop: { providers, target in
-                // Handle PDF drop on list background for import
-                logger.info("onListDrop triggered with target: \(String(describing: target))")
-                Task {
-                    let result = await DragDropCoordinator.shared.performDrop(
-                        DragDropInfo(providers: providers),
-                        target: target
-                    )
-                    logger.info("performDrop returned: \(String(describing: result))")
-                    if case .needsConfirmation = result {
-                        await MainActor.run {
-                            // Extract library ID from target for the preview sheet
-                            switch target {
-                            case .library(let libraryID):
-                                logger.info("Setting dropPreviewTargetLibraryID from .library: \(libraryID)")
-                                dropPreviewTargetLibraryID = libraryID
-                            case .collection(_, let libraryID):
-                                logger.info("Setting dropPreviewTargetLibraryID from .collection: \(libraryID)")
-                                dropPreviewTargetLibraryID = libraryID
-                            case .inbox, .publication, .newLibraryZone:
-                                logger.info("Fallback - currentLibraryID: \(String(describing: currentLibraryID))")
-                                // Use current library as fallback
-                                dropPreviewTargetLibraryID = currentLibraryID
-                            }
-                            logger.info("Setting showingDropPreview = true")
-                            showingDropPreview = true
+            }
+        }
+        a.onToggleRead = { id in
+            let store = RustStoreAdapter.shared
+            let pub = store.getPublication(id: id)
+            store.setRead(ids: [id], read: !(pub?.isRead ?? false))
+        }
+        a.onCopy = { ids in
+            await self.libraryViewModel.copyToClipboard(ids)
+        }
+        a.onAddToLibrary = { ids, targetLibraryID in
+            _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+        }
+        a.onAddToCollection = { ids, collectionID in
+            RustStoreAdapter.shared.addToCollection(publicationIds: Array(ids), collectionId: collectionID)
+        }
+        a.onOpenPDF = { id in
+            self.openPDF(for: id)
+        }
+        a.onListDrop = { providers, target in
+            // Handle PDF drop on list background for import
+            logger.info("onListDrop triggered with target: \(String(describing: target))")
+            Task {
+                let result = await DragDropCoordinator.shared.performDrop(
+                    DragDropInfo(providers: providers),
+                    target: target
+                )
+                logger.info("performDrop returned: \(String(describing: result))")
+                if case .needsConfirmation = result {
+                    await MainActor.run {
+                        switch target {
+                        case .library(let libraryID):
+                            logger.info("Setting dropPreviewTargetLibraryID from .library: \(libraryID)")
+                            self.dropPreviewTargetLibraryID = libraryID
+                        case .collection(_, let libraryID):
+                            logger.info("Setting dropPreviewTargetLibraryID from .collection: \(libraryID)")
+                            self.dropPreviewTargetLibraryID = libraryID
+                        case .inbox, .publication, .newLibraryZone:
+                            logger.info("Fallback - currentLibraryID: \(String(describing: self.currentLibraryID))")
+                            self.dropPreviewTargetLibraryID = self.currentLibraryID
                         }
+                        logger.info("Setting showingDropPreview = true")
+                        self.showingDropPreview = true
                     }
                 }
-            },
-            onDownloadPDFs: onDownloadPDFs,
-            // Keep callback - only available in Inbox (implied once in library)
-            onSaveToLibrary: isInboxView ? { ids, targetLibraryID in
-                await saveToLibrary(ids: ids, targetLibraryID: targetLibraryID)
-            } : nil,
-            // Dismiss callback - available for all views (moves papers to dismissed library)
-            onDismiss: { ids in
-                await dismissFromInbox(ids: ids)
-            },
-            onToggleStar: { ids in
-                await toggleStarForIDs(ids)
-            },
-            onSetFlag: { ids, color in
-                await setFlagForIDs(ids, color: color)
-            },
-            onClearFlag: { ids in
-                await clearFlagForIDs(ids)
-            },
-            onAddTag: { ids in
-                handleAddTag(ids)
-            },
-            onRemoveTag: { pubID, tagID in
-                handleRemoveTag(pubID: pubID, tagID: tagID)
-            },
-            onMuteAuthor: isInboxView ? { authorName in
-                muteAuthor(authorName)
-            } : nil,
-            onMutePaper: isInboxView ? { id in
-                mutePaper(id)
-            } : nil,
-            onGlobalSearch: {
-                NotificationCenter.default.post(name: .showGlobalSearch, object: nil)
-            },
-            // Refresh callback (shown as small button in list header)
-            onRefresh: {
-                await refreshFromNetwork()
-            },
-            isRefreshing: isLoading || isBackgroundRefreshing,
-            // External flash trigger for keyboard shortcuts
-            externalTriageFlash: $keyboardTriageFlash
-        )
+            }
+        }
+        a.onDownloadPDFs = onDownloadPDFs
+        if isInboxView {
+            a.onSaveToLibrary = { ids, targetLibraryID in
+                await self.saveToLibrary(ids: ids, targetLibraryID: targetLibraryID)
+            }
+            a.onMuteAuthor = { authorName in
+                self.muteAuthor(authorName)
+            }
+            a.onMutePaper = { id in
+                self.mutePaper(id)
+            }
+        }
+        a.onDismiss = { ids in
+            await self.dismissFromInbox(ids: ids)
+        }
+        a.onToggleStar = { ids in
+            await self.toggleStarForIDs(ids)
+        }
+        a.onSetFlag = { ids, color in
+            await self.setFlagForIDs(ids, color: color)
+        }
+        a.onClearFlag = { ids in
+            await self.clearFlagForIDs(ids)
+        }
+        a.onAddTag = { ids in
+            self.handleAddTag(ids)
+        }
+        a.onRemoveTag = { pubID, tagID in
+            self.handleRemoveTag(pubID: pubID, tagID: tagID)
+        }
+        a.onGlobalSearch = {
+            NotificationCenter.default.post(name: .showGlobalSearch, object: nil)
+        }
+        a.onRefresh = {
+            await self.refreshFromNetwork()
+        }
+        return a
     }
 
     // MARK: - Toolbar
