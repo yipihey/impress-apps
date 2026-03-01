@@ -21,9 +21,6 @@ members = [
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
-    # Standalone libraries (publishable to crates.io)
-    "crates/im-bibtex",
-    "crates/im-identifiers",
     # impart - research conversation platform
     "crates/impart-core",
     # impress-core - unified item protocol
@@ -59,9 +56,9 @@ impress-domain = { path = "crates/impress-domain" }
 impress-bibtex = { path = "crates/impress-bibtex" }
 impress-identifiers = { path = "crates/impress-identifiers" }
 
-# Standalone publishable crates
-im-bibtex = { path = "crates/im-bibtex" }
-im-identifiers = { path = "crates/im-identifiers" }
+# Published standalone crates (from crates.io)
+im-bibtex = "0.1.0"
+im-identifiers = "0.1.0"
 impress-collab = { path = "crates/impress-collab" }
 impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
