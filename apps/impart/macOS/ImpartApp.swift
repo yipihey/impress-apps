@@ -27,6 +27,13 @@ struct ImpartApp: App {
         Task { @MainActor in
             await ImpartHTTPServer.shared.start()
         }
+
+        // Prepare shared impress-core workspace (creates directory if needed).
+        // ImpartStoreAdapter.shared.storeEmailMessage / storeChatMessage are safe
+        // to call after this point.
+        Task { @MainActor in
+            ImpartStoreAdapter.shared.setup()
+        }
     }
 
     var body: some Scene {

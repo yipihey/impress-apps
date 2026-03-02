@@ -22,6 +22,7 @@ native = ["uniffi", "tokio", "imap", "imap-proto", "lettre", "native-tls"]
 [dependencies]
 # Shared impress crates
 impress-domain = { workspace = true }
+impress-core = { workspace = true }
 
 # UniFFI for Swift/Kotlin bindings (optional, native only)
 uniffi = { workspace = true, features = ["tokio"], optional = true }
