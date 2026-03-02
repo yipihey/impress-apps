@@ -79,7 +79,7 @@ impl ImbibStore {
         ids: &[String],
         mutation: FieldMutation,
     ) -> Result<UndoInfo, StoreApiError> {
-        use impress_core::operation::{OperationIntent, OperationSpec, OperationType, undo_description};
+        use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier, undo_description};
 
         let op_type: OperationType = mutation.clone().into();
         let count = ids.len();
@@ -107,6 +107,7 @@ impl ImbibStore {
                 batch_id: None, // apply_operation_batch assigns its own
                 author: "user:local".into(),
                 author_kind: impress_core::item::ActorKind::Human,
+                retention: RetentionTier::Durable,
             });
         }
 

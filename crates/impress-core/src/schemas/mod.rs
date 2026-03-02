@@ -2,12 +2,14 @@ pub mod artifact;
 pub mod bibliography;
 pub mod communication;
 pub mod document;
+pub mod operation;
 pub mod task;
 
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
 pub use communication::register_communication_schemas;
 pub use document::register_document_schemas;
+pub use operation::register_operation_schema;
 pub use task::register_task_schemas;
 
 /// Register all canonical impress-core schemas into the registry.
@@ -21,6 +23,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_task_schemas(registry);
     register_document_schemas(registry);
     register_artifact_schemas(registry);
+    register_operation_schema(registry);
 }
 
 #[cfg(test)]

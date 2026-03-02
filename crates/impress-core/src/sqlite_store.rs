@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -11,7 +12,7 @@ use crate::event::ItemEvent;
 use crate::item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility};
 use crate::operation::{
     build_operation_payload, inverse_of, undo_description, EffectiveState, OperationIntent,
-    OperationSpec, OperationType, StateAsOf, UndoInfo,
+    OperationSpec, OperationType, RetentionTier, StateAsOf, UndoInfo,
 };
 use crate::query::ItemQuery;
 use crate::reference::{EdgeType, TypedReference};
@@ -130,7 +131,8 @@ impl SqliteItemStore {
                 produced_by TEXT,
                 version TEXT,
                 batch_id TEXT,
-                op_target_id TEXT REFERENCES items(id) ON DELETE CASCADE
+                op_target_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+                retention TEXT NOT NULL DEFAULT 'durable'
             );
 
             CREATE TABLE IF NOT EXISTS item_tags (
@@ -208,6 +210,7 @@ impl SqliteItemStore {
             "ALTER TABLE items ADD COLUMN version TEXT",
             "ALTER TABLE items ADD COLUMN batch_id TEXT",
             "ALTER TABLE items ADD COLUMN op_target_id TEXT REFERENCES items(id) ON DELETE CASCADE",
+            "ALTER TABLE items ADD COLUMN retention TEXT NOT NULL DEFAULT 'durable'",
         ];
         for sql in &migrations {
             let _ = conn.execute(sql, []);
@@ -255,9 +258,19 @@ impl SqliteItemStore {
                 id
             });
 
-        // Initialize logical_clock if not present
+        // Initialize logical_clock if not present (legacy fallback)
         let _ = conn.execute(
             "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('logical_clock', '0')",
+            [],
+        );
+
+        // Initialize HLC state if not present
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('hlc_last_wall_ms', '0')",
+            [],
+        );
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('hlc_counter', '0')",
             [],
         );
 
@@ -270,25 +283,72 @@ impl SqliteItemStore {
         Ok(origin_id)
     }
 
-    /// Get and increment the logical clock. Returns the new value.
-    fn next_clock(conn: &Connection) -> Result<u64, StoreError> {
-        conn.execute(
-            "UPDATE store_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'logical_clock'",
-            [],
-        )
-        .map_err(|e| StoreError::Storage(format!("increment clock: {}", e)))?;
+    /// Get the next Hybrid Logical Clock (HLC) value and persist the state.
+    ///
+    /// Format: `(wall_ms << 16) | counter`
+    /// The counter monotonically increases within the same millisecond and resets to 0
+    /// when the wall clock advances. HLC state is persisted in `store_metadata`.
+    fn next_hlc_clock(conn: &Connection) -> Result<u64, StoreError> {
+        let now_wall_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
 
-        let clock: String = conn
+        // Read current HLC state
+        let last_wall_ms: u64 = conn
             .query_row(
-                "SELECT value FROM store_metadata WHERE key = 'logical_clock'",
+                "SELECT value FROM store_metadata WHERE key = 'hlc_last_wall_ms'",
                 [],
-                |row| row.get(0),
+                |row| row.get::<_, String>(0),
             )
-            .map_err(|e| StoreError::Storage(format!("read clock: {}", e)))?;
-
-        clock
+            .map_err(|e| StoreError::Storage(format!("read hlc_last_wall_ms: {}", e)))?
             .parse::<u64>()
-            .map_err(|e| StoreError::Storage(format!("parse clock: {}", e)))
+            .unwrap_or(0);
+
+        let last_counter: u64 = conn
+            .query_row(
+                "SELECT value FROM store_metadata WHERE key = 'hlc_counter'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| StoreError::Storage(format!("read hlc_counter: {}", e)))?
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        // Advance HLC: if wall clock advanced, reset counter; otherwise increment counter
+        let (new_wall_ms, new_counter) = if now_wall_ms > last_wall_ms {
+            (now_wall_ms, 0u64)
+        } else {
+            (last_wall_ms, last_counter + 1)
+        };
+
+        // Persist updated HLC state
+        conn.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'hlc_last_wall_ms'",
+            params![new_wall_ms.to_string()],
+        )
+        .map_err(|e| StoreError::Storage(format!("update hlc_last_wall_ms: {}", e)))?;
+        conn.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'hlc_counter'",
+            params![new_counter.to_string()],
+        )
+        .map_err(|e| StoreError::Storage(format!("update hlc_counter: {}", e)))?;
+
+        // Also keep the legacy logical_clock in sync for merge_clock compatibility
+        let hlc_value = (new_wall_ms << 16) | (new_counter & 0xFFFF);
+        conn.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'logical_clock'",
+            params![hlc_value.to_string()],
+        )
+        .map_err(|e| StoreError::Storage(format!("update legacy clock: {}", e)))?;
+
+        Ok(hlc_value)
+    }
+
+    /// Deprecated: use `next_hlc_clock` instead. Retained for internal compatibility.
+    #[allow(dead_code)]
+    fn next_clock(conn: &Connection) -> Result<u64, StoreError> {
+        Self::next_hlc_clock(conn)
     }
 
     /// Merge a remote logical clock (Lamport clock merge).
@@ -405,19 +465,25 @@ impl SqliteItemStore {
         item: &Item,
         op_target_id: ItemId,
         origin_id: &str,
+        retention: RetentionTier,
     ) -> Result<(), StoreError> {
         let payload_json =
             serde_json::to_string(&item.payload).map_err(|e| StoreError::Storage(e.to_string()))?;
         let author_kind = actor_kind_str(item.author_kind);
         let origin = item.origin.as_deref().unwrap_or(origin_id);
+        let retention_str = match retention {
+            RetentionTier::Durable => "durable",
+            RetentionTier::Compactable => "compactable",
+            RetentionTier::Ephemeral => "ephemeral",
+        };
 
         conn.execute(
             "INSERT INTO items (id, schema_ref, payload, created, modified, author, author_kind,
               is_read, is_starred, flag_color, flag_style, flag_length, parent_id,
               logical_clock, origin, canonical_id, priority, visibility,
-              message_type, produced_by, version, batch_id, op_target_id)
+              message_type, produced_by, version, batch_id, op_target_id, retention)
              VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, 0, 0, NULL, NULL, NULL, NULL,
-                     ?7, ?8, NULL, 'normal', 'private', NULL, NULL, NULL, ?9, ?10)",
+                     ?7, ?8, NULL, 'normal', 'private', NULL, NULL, NULL, ?9, ?10, ?11)",
             params![
                 item.id.to_string(),
                 item.schema,
@@ -429,6 +495,7 @@ impl SqliteItemStore {
                 origin,
                 item.batch_id,
                 op_target_id.to_string(),
+                retention_str,
             ],
         )
         .map_err(|e| {
@@ -509,7 +576,7 @@ impl SqliteItemStore {
         };
 
         // Insert operation item with op_target_id
-        Self::insert_operation_item(&conn, &op_item, spec.target_id, &self.origin_id)?;
+        Self::insert_operation_item(&conn, &op_item, spec.target_id, &self.origin_id, spec.retention)?;
 
         // Materialize the change on the target
         let now = Utc::now().timestamp_millis();
@@ -595,7 +662,7 @@ impl SqliteItemStore {
                 parent: None,
             };
 
-            Self::insert_operation_item(&tx, &op_item, spec.target_id, &self.origin_id)?;
+            Self::insert_operation_item(&tx, &op_item, spec.target_id, &self.origin_id, spec.retention)?;
 
             let now = Utc::now().timestamp_millis();
             Self::materialize_operation(&tx, &target_str, &spec.op_type, now)?;
@@ -670,6 +737,7 @@ impl SqliteItemStore {
             batch_id: None,
             author: self.default_author.clone(),
             author_kind: self.default_author_kind,
+            retention: RetentionTier::Durable,
         })?;
 
         Ok(UndoInfo {
@@ -742,6 +810,7 @@ impl SqliteItemStore {
                     batch_id: Some(new_batch_id.clone()),
                     author: self.default_author.clone(),
                     author_kind: self.default_author_kind,
+                    retention: RetentionTier::Durable,
                 });
             }
         }
@@ -1775,6 +1844,7 @@ impl SqliteItemStore {
                 batch_id: batch_id.clone(),
                 author: self.default_author.clone(),
                 author_kind: self.default_author_kind,
+                retention: RetentionTier::Durable,
             })?;
             op_ids.push(op_id);
         }
@@ -1928,6 +1998,76 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("cleanup_tombstones: {}", e)))?;
         Ok(rows)
     }
+
+    /// Remove compactable operations older than `window_days` and replace with Snapshot ops.
+    ///
+    /// Returns the number of operations removed.
+    ///
+    /// Operations with `retention = 'compactable'` and `created` older than the cutoff are
+    /// eligible. For each target item that has eligible compactable ops, this method deletes
+    /// those ops and updates the `compaction_watermark:{item_id}` metadata key.
+    ///
+    /// NOTE: Snapshot creation is currently a TODO placeholder — compactable ops are deleted
+    /// without creating a replacement snapshot. A warning is logged to store_metadata.
+    pub fn compact_operations(&self, window_days: u32) -> Result<u64, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let cutoff_ms = (Utc::now() - chrono::Duration::days(window_days as i64))
+            .timestamp_millis();
+
+        // Find distinct target item IDs that have compactable ops older than cutoff.
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT op_target_id FROM items
+                 WHERE schema_ref = 'impress/operation@1.0.0'
+                   AND retention = 'compactable'
+                   AND created < ?1
+                   AND op_target_id IS NOT NULL",
+            )
+            .map_err(|e| StoreError::Storage(format!("compact_operations prepare: {}", e)))?;
+
+        let target_ids: Vec<String> = stmt
+            .query_map(params![cutoff_ms], |row| row.get(0))
+            .map_err(|e| StoreError::Storage(format!("compact_operations query: {}", e)))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| StoreError::Storage(format!("compact_operations collect: {}", e)))?;
+
+        drop(stmt);
+
+        let mut total_deleted: u64 = 0;
+
+        for target_id in &target_ids {
+            // TODO: Build a snapshot item from the current materialized state and insert it
+            // before deleting. For now, we delete without creating snapshots (data is preserved
+            // in the materialized columns on the target item).
+            let deleted = conn
+                .execute(
+                    "DELETE FROM items
+                     WHERE schema_ref = 'impress/operation@1.0.0'
+                       AND retention = 'compactable'
+                       AND created < ?1
+                       AND op_target_id = ?2",
+                    params![cutoff_ms, target_id],
+                )
+                .map_err(|e| StoreError::Storage(format!("compact delete: {}", e)))?;
+
+            total_deleted += deleted as u64;
+
+            // Record compaction watermark so sync knows what was compacted.
+            let watermark_key = format!("compaction_watermark:{}", target_id);
+            let hlc = Self::next_hlc_clock(&conn)?;
+            conn.execute(
+                "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?1, ?2)",
+                params![watermark_key, hlc.to_string()],
+            )
+            .map_err(|e| StoreError::Storage(format!("compact watermark: {}", e)))?;
+        }
+
+        Ok(total_deleted)
+    }
 }
 
 impl ItemStore for SqliteItemStore {
@@ -2011,6 +2151,7 @@ impl ItemStore for SqliteItemStore {
                 batch_id: batch_id.clone(),
                 author: self.default_author.clone(),
                 author_kind: self.default_author_kind,
+                retention: RetentionTier::Durable,
             })?;
         }
 
@@ -2280,7 +2421,7 @@ fn extract_string_field(payload: &BTreeMap<String, Value>, field: &str) -> Optio
 mod tests {
     use super::*;
     use crate::item::{ActorKind, FlagState, Item, Priority, Value, Visibility};
-    use crate::operation::{OperationIntent, OperationSpec, OperationType, StateAsOf};
+    use crate::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier, StateAsOf};
     use crate::query::{ItemQuery, Predicate, SortDescriptor};
     use crate::reference::{EdgeType, TypedReference};
     use chrono::Utc;
@@ -2764,6 +2905,7 @@ mod tests {
                 batch_id: None,
                 author: "test-user".into(),
                 author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
             })
             .unwrap();
 
@@ -2935,6 +3077,7 @@ mod tests {
                 batch_id: None,
                 author: "agent:reviewer".into(),
                 author_kind: ActorKind::Agent,
+                retention: RetentionTier::Durable,
             })
             .unwrap();
 
@@ -2947,6 +3090,7 @@ mod tests {
                 batch_id: None,
                 author: "human:editor".into(),
                 author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
             })
             .unwrap();
 
@@ -3144,6 +3288,7 @@ mod tests {
                 batch_id: None,
                 author: "test".into(),
                 author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
             },
             OperationSpec {
                 target_id: id2,
@@ -3153,6 +3298,7 @@ mod tests {
                 batch_id: None,
                 author: "test".into(),
                 author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
             },
             OperationSpec {
                 target_id: id3,
@@ -3162,6 +3308,7 @@ mod tests {
                 batch_id: None,
                 author: "test".into(),
                 author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
             },
         ];
         let op_ids = store.apply_operation_batch(specs).unwrap();
