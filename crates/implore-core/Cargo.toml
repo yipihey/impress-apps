@@ -18,6 +18,7 @@ parallel = ["dep:rayon"]
 # Workspace crates
 impress-domain = { workspace = true }
 impress-collab = { workspace = true }
+impress-core = { workspace = true }
 
 # Serialization and error handling
 serde = { workspace = true }
