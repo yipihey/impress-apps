@@ -227,6 +227,7 @@ struct PDFImportPreviewView: View {
                 )
             }
         }
+        .id(selectedID)
         .onAppear {
             if selectedID == nil, let first = previews.first {
                 selectedID = first.id
@@ -660,6 +661,7 @@ struct BibImportPreviewView: View {
                 )
             }
         }
+        .id(selectedID)
         .onAppear {
             if selectedID == nil, let first = preview.entries.first {
                 selectedID = first.id

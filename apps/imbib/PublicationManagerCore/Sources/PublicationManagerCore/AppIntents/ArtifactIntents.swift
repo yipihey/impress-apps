@@ -37,6 +37,10 @@ public struct CreateArtifactIntent: AppIntent {
 
     @MainActor
     public func perform() async throws -> some IntentResult & ReturnsValue<ArtifactEntity> {
+        guard await AutomationSettingsStore.shared.isEnabled else {
+            throw IntentError.automationDisabled
+        }
+
         let artifact = RustStoreAdapter.shared.createArtifact(
             type: artifactType.toArtifactType,
             title: title_param,
@@ -75,6 +79,10 @@ public struct SearchArtifactsIntent: AppIntent {
 
     @MainActor
     public func perform() async throws -> some IntentResult & ReturnsValue<[ArtifactEntity]> {
+        guard await AutomationSettingsStore.shared.isEnabled else {
+            throw IntentError.automationDisabled
+        }
+
         let type = artifactType?.toArtifactType
         let artifacts = RustStoreAdapter.shared.searchArtifacts(query: query, type: type)
         let entities = artifacts.prefix(20).map { ArtifactEntity(from: $0) }
@@ -105,6 +113,10 @@ public struct ListRecentArtifactsIntent: AppIntent {
 
     @MainActor
     public func perform() async throws -> some IntentResult & ReturnsValue<[ArtifactEntity]> {
+        guard await AutomationSettingsStore.shared.isEnabled else {
+            throw IntentError.automationDisabled
+        }
+
         let type = artifactType?.toArtifactType
         let artifacts = RustStoreAdapter.shared.listArtifacts(
             type: type,
@@ -136,6 +148,10 @@ public struct OpenArtifactIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
+        guard await AutomationSettingsStore.shared.isEnabled else {
+            throw IntentError.automationDisabled
+        }
+
         // Open via URL scheme
         let urlString = "imbib://artifact/\(artifact.id.uuidString)"
         if let url = URL(string: urlString) {

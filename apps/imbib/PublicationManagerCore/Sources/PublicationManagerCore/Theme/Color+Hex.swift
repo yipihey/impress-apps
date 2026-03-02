@@ -80,10 +80,22 @@ public extension Color {
         }
         #endif
 
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components.count >= 3 ? components[2] * 255 : 0)
-        let a = Int(components.count >= 4 ? components[3] * 255 : 255)
+        let r: Int
+        let g: Int
+        let b: Int
+        let a: Int
+        if components.count == 2 {
+            // Grayscale color space: [white, alpha]
+            r = Int(components[0] * 255)
+            g = r
+            b = r
+            a = Int(components[1] * 255)
+        } else {
+            r = Int(components[0] * 255)
+            g = Int(components[1] * 255)
+            b = Int(components.count >= 3 ? components[2] * 255 : 0)
+            a = Int(components.count >= 4 ? components[3] * 255 : 255)
+        }
 
         return String(format: "#%02X%02X%02X%02X", r, g, b, a)
     }

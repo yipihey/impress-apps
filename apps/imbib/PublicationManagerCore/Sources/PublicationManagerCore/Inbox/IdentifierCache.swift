@@ -123,7 +123,7 @@ public actor IdentifierCache {
             dois.insert(doi)
         }
         if let arxivID = arxivID {
-            arxivIDs.insert(arxivID)
+            arxivIDs.insert(IdentifierExtractor.normalizeArXivID(arxivID))
         }
         if let bibcode = bibcode {
             bibcodes.insert(bibcode)

@@ -1592,7 +1592,7 @@ public final class RustStoreAdapter {
 
     /// List all assignments for a library.
     public func assignments(libraryID: UUID) -> [Assignment] {
-        listAssignments()
+        listAssignments().filter { $0.libraryID == libraryID }
     }
 
     /// List assignments for the current user.

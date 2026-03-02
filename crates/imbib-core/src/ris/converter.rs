@@ -70,8 +70,16 @@ pub fn to_bibtex(entry: RISEntry) -> BibTeXEntry {
     if let Some(url) = entry.get_tag("UR") {
         bibtex.add_field("url", url);
     }
-    if let Some(isbn) = entry.get_tag("SN") {
-        bibtex.add_field("isbn", isbn);
+    if let Some(sn) = entry.get_tag("SN") {
+        // SN is ISBN for books, ISSN for journals/serials
+        match entry.entry_type {
+            RISType::BOOK | RISType::CHAP | RISType::EBOOK | RISType::ECHAP | RISType::EDBOOK => {
+                bibtex.add_field("isbn", sn);
+            }
+            _ => {
+                bibtex.add_field("issn", sn);
+            }
+        }
     }
 
     // Keywords
@@ -129,8 +137,12 @@ pub fn from_bibtex(entry: BibTeXEntry) -> RISEntry {
         ris.add_tag("IS", number);
     }
     if let Some(pages) = entry.get_field("pages") {
-        // Split pages on -- or -
-        let parts: Vec<&str> = pages.split("--").flat_map(|s| s.split('-')).collect();
+        // Try splitting on -- first (standard BibTeX); fall back to single -
+        let parts: Vec<&str> = if pages.contains("--") {
+            pages.split("--").collect()
+        } else {
+            pages.split('-').collect()
+        };
         if let Some(sp) = parts.first() {
             ris.add_tag("SP", sp.trim());
         }

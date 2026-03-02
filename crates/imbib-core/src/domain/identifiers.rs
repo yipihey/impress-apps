@@ -25,6 +25,7 @@ impl Identifiers {
             && self.bibcode.is_none()
             && self.isbn.is_none()
             && self.issn.is_none()
+            && self.orcid.is_none()
     }
 
     /// Returns the best identifier for deduplication (priority order)

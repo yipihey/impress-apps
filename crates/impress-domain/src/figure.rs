@@ -213,11 +213,17 @@ impl FigureExport {
 
     /// Get physical width in inches
     pub fn width_inches(&self) -> f64 {
+        if self.dpi == 0 {
+            return 0.0;
+        }
         self.width_px as f64 / self.dpi as f64
     }
 
     /// Get physical height in inches
     pub fn height_inches(&self) -> f64 {
+        if self.dpi == 0 {
+            return 0.0;
+        }
         self.height_px as f64 / self.dpi as f64
     }
 

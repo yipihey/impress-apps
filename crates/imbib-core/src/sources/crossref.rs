@@ -126,9 +126,11 @@ impl CrossrefSource {
                     family_name: family,
                     given_name: a.given,
                     suffix: None,
-                    orcid: a
-                        .orcid
-                        .map(|o| o.trim_start_matches("http://orcid.org/").to_string()),
+                    orcid: a.orcid.map(|o| {
+                        o.trim_start_matches("https://orcid.org/")
+                            .trim_start_matches("http://orcid.org/")
+                            .to_string()
+                    }),
                     affiliation: None,
                 })
             })

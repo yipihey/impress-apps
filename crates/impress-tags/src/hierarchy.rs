@@ -33,11 +33,16 @@ impl TagHierarchy {
         self.tags.get(path)
     }
 
-    /// Get all root tags (depth 0).
+    /// Get all root tags (depth 0) and orphan tags whose parent is missing.
     pub fn roots(&self) -> Vec<&Tag> {
         self.tags
             .values()
-            .filter(|t| t.depth == 0)
+            .filter(|t| {
+                t.depth == 0
+                    || t.parent_path()
+                        .map(|p| !self.tags.contains_key(p))
+                        .unwrap_or(false)
+            })
             .collect()
     }
 

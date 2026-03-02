@@ -183,6 +183,7 @@ public final class InboxManager {
         if !unreadPubs.isEmpty {
             store.setRead(ids: unreadPubs.map(\.id), read: true)
             unreadCount = 0
+            postUnreadCountChanged()
         }
     }
 

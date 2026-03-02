@@ -40,7 +40,8 @@ public enum RustIdentifierResolver {
         let idMap = identifiers.reduce(into: [String: String]()) { result, pair in
             result[pair.key.rawValue] = pair.value
         }
-        return canResolveToSource(identifiers: idMap, source: convertSourceToRust(source))
+        guard let rustSource = convertSourceToRust(source) else { return false }
+        return canResolveToSource(identifiers: idMap, source: rustSource)
     }
 
     /// Get the preferred identifier for a specific source
@@ -52,7 +53,8 @@ public enum RustIdentifierResolver {
             result[pair.key.rawValue] = pair.value
         }
 
-        guard let result = preferredIdentifierForSource(identifiers: idMap, source: convertSourceToRust(source)) else {
+        guard let rustSource = convertSourceToRust(source),
+              let result = preferredIdentifierForSource(identifiers: idMap, source: rustSource) else {
             return nil
         }
 
@@ -65,7 +67,8 @@ public enum RustIdentifierResolver {
 
     /// Get all identifier types that can resolve to a source
     public static func supportedIdentifiers(for source: EnrichmentSource) -> [IdentifierType] {
-        supportedIdentifiersForSource(source: convertSourceToRust(source))
+        guard let rustSource = convertSourceToRust(source) else { return [] }
+        return supportedIdentifiersForSource(source: rustSource)
             .compactMap { IdentifierType(rawValue: $0) }
     }
 
@@ -99,11 +102,11 @@ public enum RustIdentifierResolver {
         }
     }
 
-    private static func convertSourceToRust(_ source: EnrichmentSource) -> ImbibRustCore.EnrichmentSource {
+    private static func convertSourceToRust(_ source: EnrichmentSource) -> ImbibRustCore.EnrichmentSource? {
         switch source {
         case .ads: return .ads
-        case .wos: return .ads  // WoS is not in Rust core, fallback to ADS
-        case .openalex: return .ads  // OpenAlex is not in Rust core, fallback to ADS
+        case .wos: return nil  // WoS is not supported in Rust core
+        case .openalex: return nil  // OpenAlex is not supported in Rust core
         }
     }
 }

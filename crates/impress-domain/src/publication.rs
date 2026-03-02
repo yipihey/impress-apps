@@ -163,7 +163,11 @@ impl Publication {
     pub fn set_field(&mut self, name: &str, value: String) {
         match name.to_lowercase().as_str() {
             "title" => self.title = value,
-            "year" => self.year = value.parse().ok(),
+            "year" => {
+                if let Ok(y) = value.parse::<i32>() {
+                    self.year = Some(y);
+                }
+            }
             "month" => self.month = Some(value),
             "journal" => self.journal = Some(value),
             "booktitle" => self.booktitle = Some(value),

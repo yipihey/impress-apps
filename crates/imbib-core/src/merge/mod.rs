@@ -1,6 +1,7 @@
 //! Merge and conflict resolution for sync
 
 use crate::domain::Publication;
+use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
 #[derive(uniffi::Enum, Clone, Debug, Serialize, Deserialize)]
@@ -110,7 +111,13 @@ pub(crate) fn merge_publications_internal(
         },
         MergeStrategy::KeepNewer => {
             let local_newer = match (&local.modified_at, &remote.modified_at) {
-                (Some(l), Some(r)) => l > r,
+                (Some(l), Some(r)) => {
+                    // Parse as ISO 8601 timestamps for correct chronological comparison
+                    match (DateTime::parse_from_rfc3339(l), DateTime::parse_from_rfc3339(r)) {
+                        (Ok(lt), Ok(rt)) => lt > rt,
+                        _ => l > r, // Fall back to lexicographic if parse fails
+                    }
+                }
                 (Some(_), None) => true,
                 (None, Some(_)) => false,
                 (None, None) => true, // Default to local

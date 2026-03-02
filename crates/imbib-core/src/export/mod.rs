@@ -78,7 +78,7 @@ pub fn export_ris_multiple(publications: Vec<Publication>) -> String {
             crate::ris_format_entry(ris_entry)
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n\n")
 }
 
 fn filter_entry(mut entry: BibTeXEntry, options: &ExportOptions) -> BibTeXEntry {

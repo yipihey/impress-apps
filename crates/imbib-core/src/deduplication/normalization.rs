@@ -51,6 +51,7 @@ pub(crate) fn normalize_title_internal(title: &str) -> String {
     for prefix in prefixes {
         if result.starts_with(prefix) {
             result = result[prefix.len()..].to_string();
+            break;
         }
     }
 

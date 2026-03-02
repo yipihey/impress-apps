@@ -113,7 +113,7 @@ struct ConsoleView: View {
             }
             .disabled(selection.isEmpty)
             .help("Copy selected (\(selection.count))")
-            .keyboardShortcut("c", modifiers: .command)
+            .keyboardShortcut("c", modifiers: [.command, .shift])
 
             Button {
                 logStore.clear()

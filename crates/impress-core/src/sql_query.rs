@@ -90,8 +90,9 @@ fn compile_predicate(pred: &Predicate) -> (String, Vec<SqlValue>) {
                 "id IN (SELECT item_id FROM items_fts WHERE items_fts MATCH ?)".to_string()
             } else {
                 let col = field_to_column(field);
-                params.push(SqlValue::Text(format!("%{}%", text)));
-                format!("{} LIKE ?", col)
+                let escaped = text.replace('%', "\\%").replace('_', "\\_");
+                params.push(SqlValue::Text(format!("%{}%", escaped)));
+                format!("{} LIKE ? ESCAPE '\\'", col)
             }
         }
         Predicate::In(field, values) => {
