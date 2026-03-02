@@ -54,6 +54,12 @@ enum Commands {
     },
     /// Launch MCP server (JSON-RPC 2.0 over stdin/stdout)
     Serve,
+    /// Configure MCP server for AI editors (Claude Code, Claude Desktop, Cursor, Zed)
+    Setup {
+        /// Configure only this editor (default: all detected)
+        #[arg(value_enum)]
+        editor: Option<im_identifiers::setup::EditorTarget>,
+    },
 }
 
 fn read_input(text: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -107,6 +113,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Serve => {
             im_identifiers::mcp::run_server()?;
+        }
+        Commands::Setup { editor } => {
+            im_identifiers::setup::run_setup(editor)?;
         }
         Commands::Url { id_type, value } => {
             let id = match id_type.to_lowercase().as_str() {

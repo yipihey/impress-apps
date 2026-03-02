@@ -43,6 +43,12 @@ enum Commands {
     },
     /// Launch MCP server (JSON-RPC 2.0 over stdin/stdout)
     Serve,
+    /// Configure MCP server for AI editors (Claude Code, Claude Desktop, Cursor, Zed)
+    Setup {
+        /// Configure only this editor (default: all detected)
+        #[arg(value_enum)]
+        editor: Option<im_bibtex::setup::EditorTarget>,
+    },
 }
 
 fn read_input(file: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -95,6 +101,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Serve => {
             im_bibtex::mcp::run_server()?;
+        }
+        Commands::Setup { editor } => {
+            im_bibtex::setup::run_setup(editor)?;
         }
         Commands::Validate { file } => {
             let input = read_input(&file)?;

@@ -37,6 +37,8 @@ mod journal_macros;
 mod latex_decoder;
 pub mod mcp;
 pub mod parser;
+#[cfg(feature = "cli")]
+pub mod setup;
 
 #[cfg(feature = "python")]
 pub mod python;

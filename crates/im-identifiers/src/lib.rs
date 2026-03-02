@@ -41,6 +41,8 @@ pub mod cite_key;
 pub mod extractors;
 pub mod mcp;
 pub mod resolver;
+#[cfg(feature = "cli")]
+pub mod setup;
 pub mod validators;
 
 #[cfg(feature = "python")]
