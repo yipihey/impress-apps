@@ -14,13 +14,15 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../../ImprintRustCore")
+        .package(path: "../../ImprintRustCore"),
+        .package(path: "../../../../packages/ImpressKit")
     ],
     targets: [
         .target(
             name: "ImprintCore",
             dependencies: [
-                .product(name: "ImprintRustCore", package: "ImprintRustCore")
+                .product(name: "ImprintRustCore", package: "ImprintRustCore"),
+                .product(name: "ImpressKit", package: "ImpressKit")
             ],
             path: "Sources/ImprintCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

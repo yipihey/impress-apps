@@ -182,8 +182,24 @@ struct ContentView: View {
         .task {
             await compile()
         }
-        .onChange(of: document.source) { _, _ in
+        .onChange(of: document.source) { _, newSource in
             scheduleAutoCompile()
+            // Sync to the shared impress-core store so agents and sibling apps
+            // can query the latest section content via `manuscript-section@1.0.0`.
+            // Capture document properties before entering the Task to avoid stale
+            // @Binding reads (CLAUDE.md: "Capture @State Before Async Work").
+            let capturedTitle = document.title
+            let capturedDocID = document.id.uuidString
+            Task { @MainActor in
+                ImprintStoreAdapter.shared.storeSection(
+                    sectionID: capturedDocID,
+                    title: capturedTitle.isEmpty ? "Untitled" : capturedTitle,
+                    body: newSource,
+                    sectionType: nil,
+                    orderIndex: 0,
+                    documentID: capturedDocID
+                )
+            }
         }
         // HTTP API automation handlers (applied before platform-specific handlers)
         .modifier(AutomationHandlersModifier(document: $document))
