@@ -8,6 +8,7 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImbibClient } from "../imbib/client.js";
 import { ImprintClient } from "../imprint/client.js";
+import { SharedStoreClient } from "../shared-store/index.js";
 
 // ============================================================================
 // Tool Definitions
@@ -288,6 +289,35 @@ export class CitationBridge {
     const searchResult = await this.imbibClient.searchLibrary(query, { limit });
 
     if (!searchResult || searchResult.papers.length === 0) {
+      // Fallback: check shared store for bibliography-entry items
+      const storeClient = new SharedStoreClient();
+      if (storeClient.connect()) {
+        const sharedResults = storeClient.searchItems(query, ["bibliography-entry@1.0.0"], 5);
+        storeClient.close();
+        if (sharedResults.length > 0) {
+          const suggestions = sharedResults.map(item => {
+            const p = item.payload;
+            const title = typeof p.title === "string" ? p.title : item.id;
+            const citeKey = typeof p.cite_key === "string" ? p.cite_key : item.id;
+            return `- **@${citeKey}**: ${title.slice(0, 60)}${title.length > 60 ? "..." : ""}`;
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: [
+                  `# Citation Suggestions for "${query}" (from shared store)`,
+                  "",
+                  ...suggestions,
+                  "",
+                  "Note: imbib is not running; results are from the shared store.",
+                ].join("\n"),
+              },
+            ],
+          };
+        }
+      }
+
       return {
         content: [
           {

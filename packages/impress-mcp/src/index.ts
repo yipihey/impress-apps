@@ -40,6 +40,9 @@ import {
   ArtifactResolverBridge,
 } from "./bridges/index.js";
 
+// Shared store (direct SQLite access)
+import { SharedStoreClient, SharedStoreTools, SHARED_STORE_TOOLS } from "./shared-store/index.js";
+
 // On-demand app launcher
 import { appForTool, ensureAppRunning, isConnectionError } from "./app-launcher.js";
 
@@ -178,6 +181,18 @@ async function runCheck(): Promise<void> {
 
   console.log("");
 
+  // Check shared store
+  const storeClient = new SharedStoreClient();
+  const storeConnected = storeClient.connect();
+  if (storeConnected) {
+    console.log(`${colors.green}✓${colors.reset} shared-store: connected at ${storeClient.getDbPath()}`);
+  } else {
+    console.log(`${colors.yellow}○${colors.reset} shared-store: database not found at ${storeClient.getDbPath()} (expected after first app launch)`);
+  }
+  storeClient.close();
+
+  console.log("");
+
   // Show configuration
   const config = {
     mcpServers: {
@@ -262,6 +277,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       ...IMPRINT_TOOLS,
       ...IMPEL_TOOLS,
       ...ALL_BRIDGE_TOOLS,
+      ...SHARED_STORE_TOOLS,
     ],
   };
 });
@@ -300,6 +316,16 @@ async function dispatchTool(
   }
   if (name.startsWith("impress_resolve") || name === "impress_list_artifacts") {
     return await artifactResolverBridge.handleTool(name, args);
+  }
+
+  // Shared store tools (direct SQLite access)
+  if (["impress_search_all", "impress_get_item", "impress_get_related"].includes(name)) {
+    const storeClient = new SharedStoreClient();
+    storeClient.connect(); // non-fatal if not connected
+    const storeTools = new SharedStoreTools(storeClient);
+    const result = await storeTools.handleTool(name, args ?? {});
+    storeClient.close();
+    return { content: [{ type: "text", text: result }] };
   }
 
   return {
