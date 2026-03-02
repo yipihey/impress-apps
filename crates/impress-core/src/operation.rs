@@ -42,6 +42,19 @@ impl From<FieldMutation> for OperationType {
     }
 }
 
+/// How long an operation should be retained before compaction eligibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RetentionTier {
+    /// Never compacted — permanent audit trail.
+    #[default]
+    Durable,
+    /// May be compacted after the configured window.
+    Compactable,
+    /// Ephemeral — may be dropped from sync payloads, not persisted long-term.
+    Ephemeral,
+}
+
 /// The intent behind an operation — why was this change made?
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -84,6 +97,7 @@ pub struct OperationSpec {
     pub batch_id: Option<String>,
     pub author: ActorId,
     pub author_kind: ActorKind,
+    pub retention: RetentionTier,
 }
 
 /// The effective state of an item, either current (materialized) or

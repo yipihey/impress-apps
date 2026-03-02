@@ -48,6 +48,17 @@ pub enum EdgeType {
     // Operations
     OperatesOn,
 
+    /// Part-of relationship (e.g., section is part of manuscript)
+    IsPartOf,
+    /// Version relationship
+    HasVersion,
+    /// Mentions relationship (loosely references)
+    Mentions,
+    /// Triggered by (e.g., task triggered by email)
+    TriggeredBy,
+    /// Export relationship
+    Exports,
+
     // Extensible
     Custom(String),
 }
@@ -99,6 +110,11 @@ mod tests {
             EdgeType::RelatesTo,
             EdgeType::DependsOn,
             EdgeType::OperatesOn,
+            EdgeType::IsPartOf,
+            EdgeType::HasVersion,
+            EdgeType::Mentions,
+            EdgeType::TriggeredBy,
+            EdgeType::Exports,
             EdgeType::Custom("my-edge".into()),
         ];
         for v in &variants {
