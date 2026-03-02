@@ -163,6 +163,15 @@ Task {
 
 SwiftUI `@State` is backed by heap storage. A `Task` closure captures a reference to that storage, not a snapshot of the value. If another view (e.g., an overlay dismissing, a binding resetting) modifies the state between `Task { }` creation and execution, the Task sees the modified value. This class of bug is invisible without logging.
 
+### Background Services Must Defer Startup Work
+
+Background services that mutate data (refresh services, schedulers, enrichment) must **not** perform their first work cycle during the first ~90 seconds of app launch. During startup, the UI is settling — any `.storeDidMutate` notification from a background service triggers SwiftUI body re-evaluations that compound into a perpetual render loop (spinning beach ball).
+
+**Rules:**
+1. Add a startup delay (60-90s) before the first work cycle in any background service
+2. Never use `try? await Task.sleep` inside a `for` loop — `try?` swallows `CancellationError`, making the loop uncancellable. Use a single `try? await Task.sleep` or check `Task.isCancelled` explicitly.
+3. Test startup by launching the app and checking `log show --process {app} --last 15s | grep -c SHKSharingServicePicker` after 90s — it should be 0.
+
 ### Console-First Debugging
 
 All impress apps have an internal console window. When implementing features that involve async data flow:

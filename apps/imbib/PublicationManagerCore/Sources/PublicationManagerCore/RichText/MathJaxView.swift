@@ -45,6 +45,12 @@ public struct MathJaxAbstractView: View {
     }
 }
 
+// MARK: - Shared WebKit Process Pool
+
+/// Shared across all MathJax web views so WebKit reuses a single content process.
+/// This avoids the ~100ms cost of spawning a new process per paper switch.
+private let sharedMathJaxProcessPool = WKProcessPool()
+
 // MARK: - Platform-Specific WebView
 
 #if os(macOS)
@@ -83,6 +89,7 @@ struct MathJaxWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        config.processPool = sharedMathJaxProcessPool
 
         // Add message handler ONCE during creation
         config.userContentController.add(context.coordinator, name: "heightChanged")
@@ -96,8 +103,19 @@ struct MathJaxWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        // Skip reload if inputs haven't changed (e.g., unrelated SwiftUI state change)
+        let coordinator = context.coordinator
+        if coordinator.lastLoadedText == text &&
+           coordinator.lastFontSize == fontSize &&
+           coordinator.lastColorScheme == colorScheme {
+            return
+        }
+        coordinator.lastLoadedText = text
+        coordinator.lastFontSize = fontSize
+        coordinator.lastColorScheme = colorScheme
+
         let html = generateHTML()
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: Bundle.module.resourceURL)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -136,7 +154,7 @@ struct MathJaxWebView: NSViewRepresentable {
                     }
                 };
             </script>
-            <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+            <script src="mathjax/tex-svg.js" async></script>
             <style>
                 * {
                     margin: 0;
@@ -212,6 +230,9 @@ struct MathJaxWebView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: MathJaxWebView
+        var lastLoadedText: String?
+        var lastFontSize: CGFloat?
+        var lastColorScheme: ColorScheme?
 
         init(_ parent: MathJaxWebView) {
             self.parent = parent
@@ -250,6 +271,7 @@ struct MathJaxWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.processPool = sharedMathJaxProcessPool
 
         // Add message handler ONCE during creation
         config.userContentController.add(context.coordinator, name: "heightChanged")
@@ -272,8 +294,19 @@ struct MathJaxWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // Skip reload if inputs haven't changed (e.g., unrelated SwiftUI state change)
+        let coordinator = context.coordinator
+        if coordinator.lastLoadedText == text &&
+           coordinator.lastFontSize == fontSize &&
+           coordinator.lastColorScheme == colorScheme {
+            return
+        }
+        coordinator.lastLoadedText = text
+        coordinator.lastFontSize = fontSize
+        coordinator.lastColorScheme = colorScheme
+
         let html = generateHTML()
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: Bundle.module.resourceURL)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -311,7 +344,7 @@ struct MathJaxWebView: UIViewRepresentable {
                     }
                 };
             </script>
-            <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+            <script src="mathjax/tex-svg.js" async></script>
             <style>
                 * {
                     margin: 0;
@@ -381,6 +414,9 @@ struct MathJaxWebView: UIViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: MathJaxWebView
+        var lastLoadedText: String?
+        var lastFontSize: CGFloat?
+        var lastColorScheme: ColorScheme?
 
         init(_ parent: MathJaxWebView) {
             self.parent = parent

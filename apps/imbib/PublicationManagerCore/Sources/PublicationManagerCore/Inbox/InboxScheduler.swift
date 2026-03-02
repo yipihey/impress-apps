@@ -182,6 +182,12 @@ public actor InboxScheduler {
 
     /// Main scheduler loop.
     private func runSchedulerLoop() async {
+        // Delay first check cycle to avoid contending with startup data loading
+        do {
+            try await Task.sleep(for: .seconds(90))
+        } catch {
+            return
+        }
         await performCheckCycle()
 
         while isRunning && !Task.isCancelled {

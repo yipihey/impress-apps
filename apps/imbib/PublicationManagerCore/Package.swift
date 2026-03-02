@@ -51,6 +51,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),
+                .copy("Resources/mathjax"),
                 .copy("Publishers/Resources/publisher-rules.json")
             ],
             swiftSettings: [

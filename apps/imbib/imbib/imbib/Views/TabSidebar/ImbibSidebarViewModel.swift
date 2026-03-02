@@ -1461,11 +1461,11 @@ final class ImbibSidebarViewModel {
     }
 
     private func unreadCountForFeed(_ feed: SmartSearch) -> Int {
-        // Count unread publications in the feed's library scope
-        // Smart searches that feed to inbox store results as collection members
-        // Use the feed's library ID to count unread
-        guard let libraryID = feed.libraryID else { return 0 }
-        return store.countUnread(parentId: libraryID)
+        // Query publications linked to this specific feed via Contains edges
+        // and count only the unread ones. Each feed stores its results via
+        // addToCollection(collectionId: feed.id), so we query by feed ID.
+        let pubs = store.queryPublications(for: .smartSearch(feed.id))
+        return pubs.filter { !$0.isRead }.count
     }
 
     // MARK: - Feed Management

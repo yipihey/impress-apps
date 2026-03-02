@@ -166,6 +166,24 @@ Task {
 
 SwiftUI `@State` properties are backed by heap storage. Reading them inside a `Task` closure reads the *current* value when the Task body executes, not the value when `Task { }` was called. If another view (e.g., an overlay dismissing) clears the state between creation and execution, the Task sees the cleared value. This was the root cause of tags not being applied to publications — `tagTargetIDs` was empty by the time the async work started.
 
+### Startup Render Loop Prevention
+
+**Never use `try? await Task.sleep` inside a loop for long delays.** This pattern silently swallows cancellation and keeps actor methods alive during startup, causing cascading `.storeDidMutate` notifications that create a perpetual SwiftUI body re-evaluation loop (manifests as a spinning beach ball).
+
+```swift
+// WRONG — cancellation is swallowed, loop runs all chunks even when cancelled
+for _ in 0..<chunks {
+    try? await Task.sleep(for: .seconds(5))  // try? eats CancellationError
+}
+
+// CORRECT — use a single sleep (cancellation works) or check Task.isCancelled
+try? await Task.sleep(for: .seconds(60))  // cancels cleanly
+```
+
+**How to detect:** Use `log show --process imbib --last 15s | grep -c SHKSharingServicePicker`. After 90s of runtime, this should be 0. If it's > 0, there's a render loop. The 2 ShareLinks in the toolbar cause 2 `SHKSharingServicePicker` inits per body re-evaluation, making this a reliable proxy.
+
+**Background services that mutate data (SmartSearchRefreshService, InboxScheduler, EnrichmentCoordinator) must defer their first work cycle** until after the UI has settled (~60-90s). The existing `startupGracePeriod` in SmartSearchRefreshService and the 90s delay in InboxScheduler serve this purpose — do not reduce or remove them.
+
 ### Sidebar Selection Patterns
 
 The sidebar uses `SidebarOutlineView` (NSOutlineView wrapper from ImpressSidebar). Selection flows through a **binding-only** pipeline — there is no `onSelect` callback.
