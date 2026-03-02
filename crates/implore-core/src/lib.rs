@@ -31,6 +31,7 @@ pub mod input;
 pub mod library;
 pub mod plugin;
 pub mod render;
+pub mod schemas;
 pub mod session;
 pub mod spatial;
 pub mod sync;
@@ -49,6 +50,7 @@ pub use plugin::{
     GeneratorRegistryHandle, MetadataEntry, ParameterConstraints, ParameterSpec, ParameterType,
     ParameterValue,
 };
+pub use schemas::register_implore_schemas;
 pub use session::*;
 pub use spatial::*;
 pub use sync::{FigureExportData, FigureSyncService, FigureUpdateNotification, SyncResult};

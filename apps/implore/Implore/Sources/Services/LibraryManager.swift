@@ -96,6 +96,16 @@ public final class LibraryManager {
         newLibrary.modifiedAt = ISO8601DateFormatter().string(from: Date())
         library = newLibrary
         saveLibrary()
+
+        // Mirror into the shared impress-core store so other apps can discover figures.
+        ImploreStoreAdapter.shared.storeFigure(
+            figureID: figure.id,
+            format: "png",  // default; refined during actual export
+            title: figure.title,
+            caption: nil,
+            assetData: figure.thumbnail,
+            scriptHash: nil
+        )
     }
 
     /// Remove a figure from the library
@@ -124,6 +134,16 @@ public final class LibraryManager {
             newLibrary.modifiedAt = ISO8601DateFormatter().string(from: Date())
             library = newLibrary
             saveLibrary()
+
+            // Sync updated metadata to shared impress-core store.
+            ImploreStoreAdapter.shared.storeFigure(
+                figureID: figure.id,
+                format: "png",
+                title: figure.title,
+                caption: nil,
+                assetData: figure.thumbnail,
+                scriptHash: nil
+            )
         }
     }
 
