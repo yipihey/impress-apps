@@ -47,6 +47,22 @@ public enum SharedWorkspace: Sendable {
             .appendingPathComponent("com.impress.suite-dev")
     }
 
+    // MARK: - Store Access
+
+    /// The filesystem path to the shared impress-core SQLite database.
+    ///
+    /// Use this path with `ImpressRustCore.SharedStore.open(path:)`:
+    ///
+    /// ```swift
+    /// import ImpressRustCore
+    /// try SharedWorkspace.ensureDirectoryExists()
+    /// let store = try SharedStore.open(path: SharedWorkspace.databasePath)
+    /// try store.upsertItem(id: id, schemaRef: "bibliography-entry", payloadJson: json)
+    /// ```
+    public static var databasePath: String {
+        databaseURL.path
+    }
+
     /// Migrates a legacy per-app SQLite database to the shared workspace.
     ///
     /// If `legacyURL` exists and the shared database does not yet exist,
