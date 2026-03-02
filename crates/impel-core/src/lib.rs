@@ -55,6 +55,8 @@ pub mod persistence;
 pub mod persona;
 pub mod program;
 pub mod project;
+pub mod schemas;
+pub mod task_executor;
 pub mod thread;
 
 pub use agent::{Agent, AgentRegistry, AgentStatus, AgentType};
@@ -75,6 +77,9 @@ pub use persona::{
     builtin_personas, Persona, PersonaBehavior, PersonaDomain, PersonaId, PersonaModelConfig,
     PersonaRegistry, ToolAccess, ToolPolicy, ToolPolicySet, WorkingStyle,
 };
+
+pub use schemas::register_impel_schemas;
+pub use task_executor::TaskExecutor;
 
 // Setup UniFFI when the feature is enabled
 #[cfg(feature = "uniffi")]
