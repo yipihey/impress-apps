@@ -176,6 +176,21 @@ public actor TaskOrchestrator {
 
         emit(.queued(taskID: task.id), for: task.id)
 
+        // Mirror to shared impress-core store for cross-app discoverability.
+        let bridgeTaskID = task.id
+        let bridgeTitle = String(request.query.prefix(100))
+        let bridgeSourceApp = request.sourceApp
+        let bridgeDescription: String? = request.query.count > 100 ? request.query : nil
+        Task {
+            await SharedTaskBridge.shared.taskCreated(
+                taskID: bridgeTaskID,
+                title: bridgeTitle,
+                state: CounselTaskStatus.queued.rawValue,
+                description: bridgeDescription,
+                sourceApp: bridgeSourceApp
+            )
+        }
+
         // Execute in a detached task so submit() returns immediately
         let orchestrator = self
         Task.detached {
@@ -304,7 +319,7 @@ public actor TaskOrchestrator {
 
     private func executeTask(id taskID: String, request: TaskRequest) async {
         // Mark as running
-        let task: CounselTask
+        var task: CounselTask
         do {
             guard let fetched = try database.fetchTask(id: taskID) else {
                 logger.error("Task \(taskID) not found in database")
@@ -324,6 +339,15 @@ public actor TaskOrchestrator {
             logger.error("Failed to mark task \(taskID) as running: \(error.localizedDescription)")
         }
         runningTasks.insert(taskID)
+
+        // Notify shared store that the task has transitioned to running.
+        let startingTaskID = taskID
+        Task {
+            await SharedTaskBridge.shared.taskStateChanged(
+                taskID: startingTaskID,
+                newState: CounselTaskStatus.running.rawValue
+            )
+        }
 
         emit(.started(taskID: taskID), for: taskID)
         logger.info("Task \(taskID) started")
@@ -449,6 +473,27 @@ public actor TaskOrchestrator {
         // Clear progress callback
         await nativeLoop.setProgressCallback(nil)
 
+        // Record agent run provenance in the shared impress-core store.
+        let agentRunTaskID = taskID
+        let agentRunModel = modelId ?? "claude-opus-4-6"
+        let agentRunTokenCount = result.totalTokensUsed
+        let agentRunRounds = result.roundsUsed
+        let agentRunFinishReason = result.finishReason.rawValue
+        let agentRunToolCalls = result.toolExecutions.map { $0.toolName }
+        Task {
+            await SharedTaskBridge.shared.agentRoundCompleted(
+                taskID: agentRunTaskID,
+                agentID: "counsel",
+                model: agentRunModel,
+                promptHash: String(systemPrompt.hashValue),
+                tokenCount: agentRunTokenCount,
+                durationMs: nil,
+                roundNumber: agentRunRounds,
+                finishReason: agentRunFinishReason,
+                toolCalls: agentRunToolCalls
+            )
+        }
+
         // Persist assistant response (unless caller handles it, e.g. email gateway)
         if persistenceEnabled && !request.skipAssistantPersistence {
             do {
@@ -473,7 +518,9 @@ public actor TaskOrchestrator {
             }
         }
 
-        // Update task with results — but respect cancellation
+        // Update task with results — but respect cancellation.
+        // Hoist callbackURL so it is available after the do-catch block.
+        var taskCallbackURL: String?
         do {
             guard var completedTask = try database.fetchTask(id: taskID) else {
                 logger.error("Task \(taskID) disappeared from database after completion")
@@ -497,11 +544,24 @@ public actor TaskOrchestrator {
             completedTask.finishReason = result.finishReason.rawValue
             completedTask.completedAt = Date()
             try database.updateTask(completedTask)
+            taskCallbackURL = completedTask.callbackURL
         } catch {
             logger.error("Failed to persist task \(taskID) result: \(error.localizedDescription)")
         }
 
         runningTasks.remove(taskID)
+
+        // Mirror final state to shared impress-core store.
+        let finalState = (result.finishReason == .error)
+            ? CounselTaskStatus.failed.rawValue
+            : CounselTaskStatus.completed.rawValue
+        let completedTaskID = taskID
+        Task {
+            await SharedTaskBridge.shared.taskStateChanged(
+                taskID: completedTaskID,
+                newState: finalState
+            )
+        }
 
         // Emit completion event
         emit(.completed(taskID: taskID, responseText: result.responseText), for: taskID)
@@ -511,7 +571,7 @@ public actor TaskOrchestrator {
         ImpressNotification.post(ImpressNotification.taskCompleted, from: .impel, resourceIDs: [taskID])
 
         // Deliver callback if configured
-        if let callbackURL = completedTask.callbackURL {
+        if let callbackURL = taskCallbackURL {
             await deliverCallback(taskID: taskID, to: callbackURL)
         }
 
