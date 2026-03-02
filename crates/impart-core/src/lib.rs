@@ -44,6 +44,10 @@ pub mod mbox;
 // Provenance event sourcing for research conversations
 pub mod provenance;
 
+// Schema definitions for impart message types (chat-message, email-message)
+pub mod schemas;
+pub use schemas::register_impart_schemas;
+
 // Re-export core types for convenience
 pub use types::Address;
 

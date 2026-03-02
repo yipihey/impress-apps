@@ -75,6 +75,11 @@ public extension Logger {
     // MARK: - Triage
 
     static let triage = Logger(subsystem: subsystem, category: "triage")
+
+    // MARK: - Shared Store
+
+    /// Logger for the impress-core shared SQLite store integration.
+    static let impartStore = Logger(subsystem: subsystem, category: "store")
 }
 
 // MARK: - IMAP/SMTP Logging
