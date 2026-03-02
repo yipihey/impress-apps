@@ -1,5 +1,9 @@
 import CryptoKit
 import Foundation
+import ImpressKit
+#if canImport(ImpressRustCore)
+import ImpressRustCore
+#endif
 
 /// Stores implore figures and datasets in the shared impress-core store.
 ///
@@ -23,16 +27,11 @@ public final class ImploreStoreAdapter {
     /// Whether the adapter has successfully initialised its storage directories.
     public private(set) var isReady = false
 
-    /// Filesystem path to the shared SQLite database (informational).
+    /// Filesystem path to the shared SQLite database.
     ///
-    /// Uses the `group.com.impress.suite` App Group container when available,
-    /// falling back to a temp directory in non-sandboxed / test environments.
+    /// All impress apps share this path via `SharedWorkspace`.
     public var databasePath: String {
-        let groupID = "group.com.impress.suite"
-        let root = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: groupID)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent("com.impress.suite-dev")
-        return root.appendingPathComponent("implore-store.sqlite").path
+        SharedWorkspace.databasePath
     }
 
     /// Content-addressed storage directory for binary assets.
@@ -40,6 +39,12 @@ public final class ImploreStoreAdapter {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/share/impress/content")
     }
+
+    // MARK: - Shared Store
+
+    #if canImport(ImpressRustCore)
+    private var store: SharedStore?
+    #endif
 
     private init() {
         setup()
@@ -49,10 +54,14 @@ public final class ImploreStoreAdapter {
 
     private func setup() {
         do {
+            try SharedWorkspace.ensureDirectoryExists()
             try FileManager.default.createDirectory(
                 at: contentStoreDirectory,
                 withIntermediateDirectories: true
             )
+            #if canImport(ImpressRustCore)
+            store = try SharedStore.open(path: databasePath)
+            #endif
             isReady = true
         } catch {
             isReady = false
@@ -92,20 +101,20 @@ public final class ImploreStoreAdapter {
 
         let dataHash: String? = assetData.map { storeContentAddressed(data: $0) }
 
-        // TODO: Call impress-core UniFFI to upsert a "figure@1.0.0" item.
-        // Payload keys: format, title, caption, data_hash, script_hash
-        // Schema: "figure"  version: "1.0.0"
-        // Example (once XCFramework is available):
-        //
-        //   let payload: [String: String?] = [
-        //       "format": format,
-        //       "title": title,
-        //       "caption": caption,
-        //       "data_hash": dataHash,
-        //       "script_hash": scriptHash,
-        //   ]
-        //   ImpressCoreStore.shared.upsert(id: figureID, schema: "figure", payload: payload)
-        _ = dataHash
+        let figurePayload: [String: Any?] = [
+            "format": format,
+            "title": title,
+            "caption": caption,
+            "data_hash": dataHash,
+            "script_hash": scriptHash
+        ]
+        let compactedFigure = figurePayload.compactMapValues { $0 }
+        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compactedFigure),
+           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+            #if canImport(ImpressRustCore)
+            try? store?.upsertItem(id: figureID, schemaRef: "figure", payloadJson: payloadString)
+            #endif
+        }
 
         didMutate()
     }
@@ -137,10 +146,21 @@ public final class ImploreStoreAdapter {
 
         let dataHash: String? = data.map { storeContentAddressed(data: $0) }
 
-        // TODO: Call impress-core UniFFI to upsert a "dataset@1.0.0" item.
-        // Payload keys: name, format, row_count, column_count, data_hash, description
-        // Schema: "dataset"  version: "1.0.0"
-        _ = dataHash
+        let datasetPayload: [String: Any?] = [
+            "name": name,
+            "format": format,
+            "row_count": rowCount,
+            "column_count": columnCount,
+            "data_hash": dataHash,
+            "description": description
+        ]
+        let compactedDataset = datasetPayload.compactMapValues { $0 }
+        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compactedDataset),
+           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+            #if canImport(ImpressRustCore)
+            try? store?.upsertItem(id: datasetID, schemaRef: "dataset", payloadJson: payloadString)
+            #endif
+        }
 
         didMutate()
     }

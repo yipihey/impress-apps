@@ -9,6 +9,9 @@
 import Foundation
 import ImpressKit
 import OSLog
+#if canImport(ImpressRustCore)
+import ImpressRustCore
+#endif
 
 // MARK: - SharedItemBridge
 
@@ -45,6 +48,11 @@ public actor SharedItemBridge {
     /// Path to the shared impress-core SQLite database.
     private var sharedStorePath: String = ""
 
+    #if canImport(ImpressRustCore)
+    /// Lazily-opened shared store handle.
+    private var store: SharedStore?
+    #endif
+
     // MARK: - Initialization
 
     private init() {
@@ -52,6 +60,9 @@ public actor SharedItemBridge {
             try SharedWorkspace.ensureDirectoryExists()
             sharedStorePath = SharedWorkspace.databaseURL.path
             isAvailable = true
+            #if canImport(ImpressRustCore)
+            store = try SharedStore.open(path: sharedStorePath)
+            #endif
             Logger.library.infoCapture(
                 "SharedItemBridge: shared workspace ready at \(sharedStorePath)",
                 category: "shared-bridge"
@@ -70,10 +81,10 @@ public actor SharedItemBridge {
     /// Must be called before any `sync(…)` calls. Safe to call multiple times.
     public func registerSchemas() {
         guard isAvailable else { return }
-        // TODO(unit6): Call SqliteItemStore.registerSchema("bibliography-entry", version: "1.0.0")
-        // once the impress-core UniFFI bindings for the shared store are available.
+        // Schema registration is handled by impress-core's register_core_schemas()
+        // which runs automatically when SqliteItemStore is opened.
         Logger.library.infoCapture(
-            "SharedItemBridge: schema registration deferred (impress-core UniFFI not yet wired)",
+            "SharedItemBridge: store open, schemas registered via impress-core",
             category: "shared-bridge"
         )
     }
@@ -108,33 +119,39 @@ public actor SharedItemBridge {
     ) {
         guard isAvailable else { return }
 
-        // TODO(unit6): Construct a `UnifiedItem` (impress-core type) with:
-        //
-        //   let item = UnifiedItem(
-        //       id: publicationID,
-        //       schemaName: "bibliography-entry",
-        //       schemaVersion: "1.0.0",
-        //       payload: BibliographyEntryPayload(
-        //           title: title,
-        //           authors: authors,
-        //           year: year,
-        //           doi: doi,
-        //           arxivID: arxivID,
-        //           abstract: abstract,
-        //           citeKey: citeKey,
-        //           entryType: entryType
-        //       ).encoded()
-        //   )
-        //
-        // Then call:
-        //   try sqliteItemStore.upsert(item)
-        //
-        // where `sqliteItemStore` is a lazily-opened `SqliteItemStore(path: sharedStorePath)`.
+        let payload: [String: Any?] = [
+            "title": title,
+            "year": year,
+            "doi": doi,
+            "arxiv_id": arxivID,
+            "abstract": abstract,
+            "cite_key": citeKey,
+            "entry_type": entryType,
+            "authors": authors.isEmpty ? nil : authors.joined(separator: "; ")
+        ]
+        let compacted = payload.compactMapValues { $0 }
+        guard let payloadJSON = try? JSONSerialization.data(withJSONObject: compacted),
+              let payloadString = String(data: payloadJSON, encoding: .utf8) else {
+            Logger.library.error("SharedItemBridge: failed to encode payload for \(publicationID)")
+            return
+        }
 
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: publicationID, schemaRef: "bibliography-entry", payloadJson: payloadString)
+            Logger.library.infoCapture(
+                "SharedItemBridge: synced pub \(publicationID) '\(title)'",
+                category: "shared-bridge"
+            )
+        } catch {
+            Logger.library.error("SharedItemBridge: upsert failed for \(publicationID) — \(error)")
+        }
+        #else
         Logger.library.infoCapture(
-            "SharedItemBridge: sync pub \(publicationID) '\(title)' (FFI TODO)",
+            "SharedItemBridge: sync pub \(publicationID) '\(title)' (ImpressRustCore not linked)",
             category: "shared-bridge"
         )
+        #endif
     }
 
     /// Remove a publication from the shared store.
@@ -145,11 +162,21 @@ public actor SharedItemBridge {
     public func remove(publicationID: String) {
         guard isAvailable else { return }
 
-        // TODO(unit6): Call sqliteItemStore.delete(id: publicationID, schema: "bibliography-entry")
-
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.deleteItem(id: publicationID)
+            Logger.library.infoCapture(
+                "SharedItemBridge: removed pub \(publicationID)",
+                category: "shared-bridge"
+            )
+        } catch {
+            Logger.library.error("SharedItemBridge: delete failed for \(publicationID) — \(error)")
+        }
+        #else
         Logger.library.infoCapture(
-            "SharedItemBridge: remove pub \(publicationID) (FFI TODO)",
+            "SharedItemBridge: remove pub \(publicationID) (ImpressRustCore not linked)",
             category: "shared-bridge"
         )
+        #endif
     }
 }

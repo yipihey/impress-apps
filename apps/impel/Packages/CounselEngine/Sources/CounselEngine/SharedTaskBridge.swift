@@ -1,6 +1,9 @@
 import Foundation
 import ImpressKit
 import OSLog
+#if canImport(ImpressRustCore)
+import ImpressRustCore
+#endif
 
 // MARK: - SharedTaskBridge
 
@@ -44,6 +47,10 @@ public actor SharedTaskBridge {
     /// Path to the shared impress-core SQLite database.
     private var databasePath: String = ""
 
+    #if canImport(ImpressRustCore)
+    private var store: SharedStore?
+    #endif
+
     // MARK: - Logging
 
     private let logger = Logger(subsystem: "com.impress.impel", category: "shared-task-bridge")
@@ -55,6 +62,9 @@ public actor SharedTaskBridge {
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path
             databasePath = path
+            #if canImport(ImpressRustCore)
+            store = try SharedStore.open(path: path)
+            #endif
             isAvailable = true
             logger.info("SharedTaskBridge: shared workspace ready at \(path)")
         } catch {
@@ -72,12 +82,9 @@ public actor SharedTaskBridge {
     /// `agentRoundCompleted` calls. Safe to call multiple times.
     public func registerSchemas() {
         guard isAvailable else { return }
-        // TODO(unit9): Call SqliteItemStore.registerSchema("impel/task", version: "1.0.0")
-        //              and SqliteItemStore.registerSchema("impel/agent-run", version: "1.0.0")
-        //              once the impress-core UniFFI bindings for the shared store are available.
-        logger.info(
-            "SharedTaskBridge: schema registration deferred (impress-core UniFFI not yet wired)"
-        )
+        // Schema registration is handled by impress-core's register_core_schemas()
+        // which runs automatically when SqliteItemStore is opened.
+        logger.info("SharedTaskBridge: store open, schemas registered via impress-core")
     }
 
     // MARK: - Task Lifecycle
@@ -102,23 +109,30 @@ public actor SharedTaskBridge {
     ) {
         guard isAvailable else { return }
 
-        // TODO(unit9): Construct an impress-core `Item` with:
-        //
-        //   schema: "impel/task"
-        //   payload: {
-        //       "title": title,
-        //       "state": state,
-        //       "description": description ?? "",
-        //       "source_app": sourceApp,
-        //       "external_id": taskID
-        //   }
-        //
-        // Then call:
-        //   try sqliteItemStore.upsert(item)
-        //
-        // where `sqliteItemStore` is a lazily-opened `SqliteItemStore(path: databasePath)`.
+        let payload: [String: Any?] = [
+            "title": title,
+            "state": state,
+            "description": description,
+            "source_app": sourceApp,
+            "external_id": taskID
+        ]
+        let compacted = payload.compactMapValues { $0 }
+        guard let payloadJSON = try? JSONSerialization.data(withJSONObject: compacted),
+              let payloadString = String(data: payloadJSON, encoding: .utf8) else {
+            logger.warning("SharedTaskBridge: failed to encode task payload for \(taskID)")
+            return
+        }
 
-        logger.info("SharedTaskBridge: task created \(taskID) '\(title)' state=\(state) (FFI TODO)")
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
+            logger.info("SharedTaskBridge: task created \(taskID) '\(title)' state=\(state)")
+        } catch {
+            logger.error("SharedTaskBridge: taskCreated upsert failed for \(taskID) — \(error.localizedDescription)")
+        }
+        #else
+        logger.info("SharedTaskBridge: task created \(taskID) '\(title)' state=\(state) (ImpressRustCore not linked)")
+        #endif
     }
 
     /// Called when a task transitions to a new lifecycle state.
@@ -132,11 +146,28 @@ public actor SharedTaskBridge {
     public func taskStateChanged(taskID: String, newState: String) {
         guard isAvailable else { return }
 
-        // TODO(unit9): Look up the shared item by external_id == taskID,
-        //              then call sqliteItemStore.setPayload(field: "state", value: newState)
-        //              via a SetPayload operation.
-
-        logger.info("SharedTaskBridge: task \(taskID) state → \(newState) (FFI TODO)")
+        #if canImport(ImpressRustCore)
+        do {
+            guard let store = store else { return }
+            // Merge newState into the existing payload to avoid overwriting other fields.
+            var updatedPayload: [String: Any] = ["state": newState, "external_id": taskID]
+            if let existing = store.getItem(id: taskID),
+               let parsed = try? JSONSerialization.jsonObject(with: Data(existing.payloadJson.utf8)) as? [String: Any] {
+                var merged = parsed
+                merged["state"] = newState
+                updatedPayload = merged
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: updatedPayload),
+               let payloadString = String(data: data, encoding: .utf8) {
+                try store.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
+            }
+            logger.info("SharedTaskBridge: task \(taskID) state → \(newState)")
+        } catch {
+            logger.error("SharedTaskBridge: taskStateChanged failed for \(taskID) — \(error.localizedDescription)")
+        }
+        #else
+        logger.info("SharedTaskBridge: task \(taskID) state → \(newState) (ImpressRustCore not linked)")
+        #endif
     }
 
     // MARK: - Agent Run Provenance
@@ -171,33 +202,42 @@ public actor SharedTaskBridge {
     ) {
         guard isAvailable else { return }
 
-        // TODO(unit9): Construct an impress-core `Item` with:
-        //
-        //   schema: "impel/agent-run"
-        //   payload: {
-        //       "agent_id": agentID,
-        //       "model": model,
-        //       "prompt_hash": promptHash,
-        //       "token_count": tokenCount,
-        //       "duration_ms": durationMs,
-        //       "tool_calls": toolCalls,          // StringArray field
-        //       "status": finishReason ?? "completed",
-        //       "finish_reason": finishReason,
-        //       "round_number": roundNumber
-        //   }
-        //
-        // Then:
-        //   1. try sqliteItemStore.upsert(agentRunItem)
-        //   2. Resolve the parent task item by external_id == taskID
-        //   3. try sqliteItemStore.addReference(
-        //          from: agentRunItem.id,
-        //          to: taskItem.id,
-        //          edgeType: .OperatesOn
-        //      )
+        // Stable ID for this run: task + round so repeated completions are idempotent.
+        let runID = "\(taskID)-run-\(roundNumber)"
+
+        var payload: [String: Any] = [
+            "agent_id": agentID,
+            "model": model,
+            "prompt_hash": promptHash,
+            "round_number": roundNumber,
+            "status": finishReason ?? "completed"
+        ]
+        if let tc = tokenCount  { payload["token_count"] = tc }
+        if let dm = durationMs  { payload["duration_ms"] = dm }
+        if let fr = finishReason { payload["finish_reason"] = fr }
+        if !toolCalls.isEmpty   { payload["tool_calls"] = toolCalls }
 
         let toolList = toolCalls.joined(separator: ", ")
+
+        guard let payloadJSON = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadString = String(data: payloadJSON, encoding: .utf8) else {
+            logger.warning("SharedTaskBridge: failed to encode agent-run payload for \(runID)")
+            return
+        }
+
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: runID, schemaRef: "impel/agent-run", payloadJson: payloadString)
+            logger.info(
+                "SharedTaskBridge: agent-run \(runID) for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)]"
+            )
+        } catch {
+            logger.error("SharedTaskBridge: agentRoundCompleted upsert failed for \(runID) — \(error.localizedDescription)")
+        }
+        #else
         logger.info(
-            "SharedTaskBridge: agent-run for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)] (FFI TODO)"
+            "SharedTaskBridge: agent-run for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)] (ImpressRustCore not linked)"
         )
+        #endif
     }
 }

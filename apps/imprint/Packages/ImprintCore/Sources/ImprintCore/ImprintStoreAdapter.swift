@@ -43,6 +43,9 @@ import Foundation
 import ImpressKit
 import OSLog
 import CommonCrypto
+#if canImport(ImpressRustCore)
+import ImpressRustCore
+#endif
 
 private let logger = Logger(subsystem: "com.imbib.imprint", category: "shared-store")
 
@@ -90,6 +93,12 @@ public final class ImprintStoreAdapter {
             .appendingPathComponent(".local/share/impress/content", isDirectory: true)
     }
 
+    // MARK: - Shared Store
+
+    #if canImport(ImpressRustCore)
+    private var store: SharedStore?
+    #endif
+
     // MARK: - Initialisation
 
     private init() {
@@ -99,6 +108,9 @@ public final class ImprintStoreAdapter {
     private func setup() {
         do {
             try SharedWorkspace.ensureDirectoryExists()
+            #if canImport(ImpressRustCore)
+            store = try SharedStore.open(path: databasePath)
+            #endif
             isReady = true
             logger.info("ImprintStoreAdapter ready at \(self.databasePath, privacy: .public)")
         } catch {
@@ -166,27 +178,31 @@ public final class ImprintStoreAdapter {
         if let documentID = documentID   { payload["document_id"] = documentID }
         if let hash = contentHash        { payload["content_hash"] = hash }
 
-        // TODO: Call impress-core UniFFI to upsert this item.
-        //
-        // The UniFFI bindings for impress-core's SqliteItemStore are not yet
-        // generated for Swift.  When they are, replace the log below with:
-        //
-        //   let store = try SqliteItemStore.open(path: databasePath)
-        //   try store.upsert(Item(
-        //       id: UUID(uuidString: sectionID) ?? UUID(),
-        //       schema: "manuscript-section",
-        //       payload: payload,
-        //       ...
-        //   ))
-        //
-        // For now the method is a well-typed stub so call-sites can be wired
-        // correctly before the FFI layer is ready.
+        guard let payloadJSON = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadString = String(data: payloadJSON, encoding: .utf8) else {
+            logger.warning("ImprintStoreAdapter.storeSection: failed to encode payload for \(sectionID, privacy: .public)")
+            return
+        }
+
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: sectionID, schemaRef: "manuscript-section", payloadJson: payloadString)
+            logger.info(
+                "ImprintStoreAdapter.storeSection: synced \(sectionID, privacy: .public) '\(title, privacy: .private)' wordCount=\(wordCount)"
+            )
+        } catch {
+            logger.error(
+                "ImprintStoreAdapter.storeSection: upsert failed for \(sectionID, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
+        }
+        #else
         logger.info(
             "ImprintStoreAdapter.storeSection: sectionID=\(sectionID, privacy: .public) " +
             "title='\(title, privacy: .private)' wordCount=\(wordCount) " +
             "docID=\(documentID ?? "nil", privacy: .public) " +
-            "contentAddressed=\(contentHash != nil)"
+            "contentAddressed=\(contentHash != nil) (ImpressRustCore not linked)"
         )
+        #endif
 
         didMutate()
     }

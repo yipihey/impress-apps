@@ -17,6 +17,9 @@ import Foundation
 import OSLog
 import ImpressKit
 import ImpressLogging
+#if canImport(ImpressRustCore)
+import ImpressRustCore
+#endif
 
 // MARK: - ImpartStoreAdapter
 
@@ -84,6 +87,12 @@ public final class ImpartStoreAdapter {
         SharedWorkspace.databaseURL.path
     }
 
+    // MARK: - Shared Store
+
+    #if canImport(ImpressRustCore)
+    private var store: SharedStore?
+    #endif
+
     // MARK: - Init
 
     private init() {}
@@ -97,6 +106,9 @@ public final class ImpartStoreAdapter {
     public func setup() {
         do {
             try SharedWorkspace.ensureDirectoryExists()
+            #if canImport(ImpressRustCore)
+            store = try SharedStore.open(path: databasePath)
+            #endif
             isReady = true
             Logger.impartStore.infoCapture(
                 "ImpartStoreAdapter ready — db: \(databasePath)",
@@ -156,28 +168,39 @@ public final class ImpartStoreAdapter {
             category: "store"
         )
 
-        // TODO: Call impress-core UniFFI once XCFramework is built for impart.
-        //
-        // The call will look like:
-        //
-        // let store = try SqliteItemStore.open(path: databasePath)
-        // let payload: [String: ItemValue] = [
-        //     "subject":    .string(subject),
-        //     "body":       .string(body),
-        //     "from":       .string(from),
-        //     "to":         .stringArray(to),
-        //     "cc":         .stringArray(cc),
-        //     "channel":    mailbox.map { .string($0) } ?? .null,
-        //     "thread_id":  threadID.map { .string($0) } ?? .null,
-        //     "message_id": .string(messageID),
-        // ]
-        // try store.upsert(
-        //     schema: "email-message",
-        //     version: "1.0.0",
-        //     canonicalID: messageID,
-        //     payload: payload,
-        //     author: "impart"
-        // )
+        let payload: [String: Any?] = [
+            "subject": subject,
+            "body": body,
+            "from": from,
+            "to": to.isEmpty ? nil : to,
+            "cc": cc.isEmpty ? nil : cc,
+            "channel": mailbox,
+            "thread_id": threadID,
+            "message_id": messageID
+        ]
+        let compacted = payload.compactMapValues { $0 }
+        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compacted),
+           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+            #if canImport(ImpressRustCore)
+            do {
+                try store?.upsertItem(id: messageID, schemaRef: "email-message", payloadJson: payloadString)
+                Logger.impartStore.infoCapture(
+                    "storeEmailMessage: upserted \(messageID) in shared store",
+                    category: "store"
+                )
+            } catch {
+                Logger.impartStore.errorCapture(
+                    "storeEmailMessage: upsert failed for \(messageID) — \(error)",
+                    category: "store"
+                )
+            }
+            #else
+            Logger.impartStore.infoCapture(
+                "storeEmailMessage: \(messageID) (ImpressRustCore not linked)",
+                category: "store"
+            )
+            #endif
+        }
 
         didMutate()
 
@@ -219,22 +242,35 @@ public final class ImpartStoreAdapter {
             category: "store"
         )
 
-        // TODO: Call impress-core UniFFI once XCFramework is built for impart.
-        //
-        // let store = try SqliteItemStore.open(path: databasePath)
-        // let payload: [String: ItemValue] = [
-        //     "body":      .string(body),
-        //     "from":      .string(from),
-        //     "channel":   channel.map { .string($0) } ?? .null,
-        //     "thread_id": threadID.map { .string($0) } ?? .null,
-        // ]
-        // try store.upsert(
-        //     schema: "chat-message",
-        //     version: "1.0.0",
-        //     canonicalID: messageID,
-        //     payload: payload,
-        //     author: "impart"
-        // )
+        let payload: [String: Any?] = [
+            "body": body,
+            "from": from,
+            "channel": channel,
+            "thread_id": threadID
+        ]
+        let compacted = payload.compactMapValues { $0 }
+        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compacted),
+           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+            #if canImport(ImpressRustCore)
+            do {
+                try store?.upsertItem(id: messageID, schemaRef: "chat-message", payloadJson: payloadString)
+                Logger.impartStore.infoCapture(
+                    "storeChatMessage: upserted \(messageID) in shared store",
+                    category: "store"
+                )
+            } catch {
+                Logger.impartStore.errorCapture(
+                    "storeChatMessage: upsert failed for \(messageID) — \(error)",
+                    category: "store"
+                )
+            }
+            #else
+            Logger.impartStore.infoCapture(
+                "storeChatMessage: \(messageID) (ImpressRustCore not linked)",
+                category: "store"
+            )
+            #endif
+        }
 
         didMutate()
 
