@@ -42,6 +42,13 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             ImprintPersistenceController.shared.ensureDefaultWorkspace()
             await DocumentMetadataCacheService.shared.refreshAll()
         }
+
+        // Touch the shared store adapter to trigger its setup (opens shared workspace directory).
+        // Non-fatal: if the app group container is unavailable, isReady stays false
+        // and all storeSection() calls are no-ops.
+        Task { @MainActor in
+            _ = ImprintStoreAdapter.shared.isReady
+        }
     }
 
     /// Prevent automatic "Open" dialog on launch - show project browser instead
