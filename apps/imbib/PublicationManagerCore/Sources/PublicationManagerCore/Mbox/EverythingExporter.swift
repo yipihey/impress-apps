@@ -51,12 +51,21 @@ public actor EverythingExporter {
         // Track publication -> library/collection memberships
         var publicationToLibraries: [UUID: Set<UUID>] = [:]
 
+        // Get exploration library ID to filter it out unless explicitly included.
+        // LibraryManager stores this in UserDefaults under "explorationLibraryID".
+        let explorationLibraryID: UUID? = {
+            guard let str = UserDefaults.standard.string(forKey: "explorationLibraryID") else { return nil }
+            return UUID(uuidString: str)
+        }()
+
         // Export each library
         for library in libraries {
-            // Skip Exploration-type libraries unless explicitly included
-            if !library.isDefault && !library.isInbox {
-                // Check if this is a system/exploration library by name convention
-                // (RustStoreAdapter doesn't expose isSystemLibrary directly)
+            // Skip Exploration library unless explicitly included
+            if let explorationID = explorationLibraryID,
+               library.id == explorationID,
+               !options.includeExploration {
+                logger.info("Skipping Exploration library (options.includeExploration = false)")
+                continue
             }
 
             // Build library header message

@@ -442,7 +442,9 @@ fn parse_quoted_value(input: &str) -> IResult<&str, String> {
                 result.push('{');
             }
             b'}' => {
-                brace_depth -= 1;
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                }
                 result.push('}');
             }
             b'\\' if pos + 1 < bytes.len() => {

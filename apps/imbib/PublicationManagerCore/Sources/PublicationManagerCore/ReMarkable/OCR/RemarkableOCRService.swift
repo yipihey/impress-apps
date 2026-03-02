@@ -112,7 +112,13 @@ public actor RemarkableOCRService {
     #if canImport(Vision)
     private func performVisionOCR(image: CGImage) async throws -> OCRResult {
         return try await withCheckedThrowingContinuation { continuation in
+            // Guard against double-resume: the callback may fire before handler.perform() throws
+            var hasResumed = false
+
             let request = VNRecognizeTextRequest { request, error in
+                guard !hasResumed else { return }
+                hasResumed = true
+
                 if let error = error {
                     continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
                     return
@@ -161,6 +167,8 @@ public actor RemarkableOCRService {
             do {
                 try handler.perform([request])
             } catch {
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
             }
         }

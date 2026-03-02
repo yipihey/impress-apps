@@ -226,10 +226,25 @@ fn field_to_column(field: &str) -> String {
         // payload.field → json_extract(payload, '$.field')
         f if f.starts_with("payload.") => {
             let json_path = format!("$.{}", &f["payload.".len()..]);
-            format!("json_extract(payload, '{}')", json_path)
+            sanitized_json_extract(&json_path)
         }
         // Bare field name also treated as payload access
-        f => format!("json_extract(payload, '$.{}')", f),
+        f => sanitized_json_extract(&format!("$.{}", f)),
+    }
+}
+
+/// Sanitize a JSON path for use in `json_extract(payload, '...')`.
+/// Rejects paths containing characters that could break out of the SQL string literal.
+fn sanitized_json_extract(json_path: &str) -> String {
+    // Only allow alphanumeric, '.', '_', '-', '$', and '[' ']' for array access
+    let safe = json_path
+        .chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '$' | '[' | ']'));
+    if safe {
+        format!("json_extract(payload, '{}')", json_path)
+    } else {
+        // Return an expression that always evaluates to NULL for invalid paths
+        "NULL".to_string()
     }
 }
 
@@ -243,9 +258,9 @@ fn sort_field_to_column(field: &str) -> String {
         "flag_color" => "flag_color".to_string(),
         f if f.starts_with("payload.") => {
             let json_path = format!("$.{}", &f["payload.".len()..]);
-            format!("json_extract(payload, '{}')", json_path)
+            sanitized_json_extract(&json_path)
         }
-        f => format!("json_extract(payload, '$.{}')", f),
+        f => sanitized_json_extract(&format!("$.{}", f)),
     }
 }
 
@@ -439,5 +454,27 @@ mod tests {
         };
         let compiled = compile_query(&q);
         assert!(compiled.where_clause.contains("NOT (is_read = 1)"));
+    }
+
+    #[test]
+    fn sanitize_sql_injection_in_field_name() {
+        // A field name with a single quote should not produce injectable SQL
+        let q = ItemQuery {
+            predicates: vec![Predicate::Eq(
+                "payload.x'); DROP TABLE items; --".into(),
+                Value::String("test".into()),
+            )],
+            ..Default::default()
+        };
+        let compiled = compile_query(&q);
+        // Should produce NULL instead of injectable json_extract
+        assert!(compiled.where_clause.contains("NULL = ?"));
+        assert!(!compiled.where_clause.contains("DROP TABLE"));
+    }
+
+    #[test]
+    fn sanitize_allows_valid_json_paths() {
+        let col = field_to_column("payload.nested.field_name");
+        assert_eq!(col, "json_extract(payload, '$.nested.field_name')");
     }
 }

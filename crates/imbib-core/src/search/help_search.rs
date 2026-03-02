@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tantivy::{
     collector::TopDocs,
     query::QueryParser,
-    schema::{Field, Schema, Value, STORED, TEXT},
+    schema::{Field, Schema, Value, STORED, STRING, TEXT},
     Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
 };
 use thiserror::Error;
@@ -124,7 +124,7 @@ mod fields {
 fn build_help_schema() -> Schema {
     let mut schema_builder = Schema::builder();
 
-    schema_builder.add_text_field(fields::ID, STORED);
+    schema_builder.add_text_field(fields::ID, STRING | STORED);
     schema_builder.add_text_field(fields::TITLE, TEXT | STORED);
     schema_builder.add_text_field(fields::BODY, TEXT | STORED);
     schema_builder.add_text_field(fields::KEYWORDS, TEXT | STORED);

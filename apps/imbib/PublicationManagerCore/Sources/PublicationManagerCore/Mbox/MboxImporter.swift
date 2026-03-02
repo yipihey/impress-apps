@@ -227,7 +227,32 @@ public actor MboxImporter {
     private func parsePublicationPreview(from message: MboxMessage, index: Int) async throws -> PublicationPreview {
         let headers = message.headers
 
-        let id = UUID(uuidString: headers[MboxHeader.imbibID] ?? "") ?? UUID()
+        // Use a deterministic UUID from the message content if the header is missing,
+        // rather than a random UUID() which breaks deduplication on re-import
+        let id: UUID = {
+            if let idStr = headers[MboxHeader.imbibID], let parsed = UUID(uuidString: idStr) {
+                return parsed
+            }
+            // Deterministic fallback: derive UUID v5-style from subject + date
+            let seed = "\(message.subject)-\(message.date.timeIntervalSinceReferenceDate)"
+            var hash: UInt64 = 14695981039346656037
+            for byte in seed.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1099511628211
+            }
+            let hi = hash
+            let lo = hash &* 6364136223846793005 &+ 1442695040888963407
+            return UUID(uuid: (
+                UInt8(truncatingIfNeeded: hi >> 56), UInt8(truncatingIfNeeded: hi >> 48),
+                UInt8(truncatingIfNeeded: hi >> 40), UInt8(truncatingIfNeeded: hi >> 32),
+                UInt8(truncatingIfNeeded: hi >> 24), UInt8(truncatingIfNeeded: hi >> 16),
+                UInt8(truncatingIfNeeded: hi >> 8), UInt8(truncatingIfNeeded: hi),
+                UInt8(truncatingIfNeeded: lo >> 56), UInt8(truncatingIfNeeded: lo >> 48),
+                UInt8(truncatingIfNeeded: lo >> 40), UInt8(truncatingIfNeeded: lo >> 32),
+                UInt8(truncatingIfNeeded: lo >> 24), UInt8(truncatingIfNeeded: lo >> 16),
+                UInt8(truncatingIfNeeded: lo >> 8), UInt8(truncatingIfNeeded: lo)
+            ))
+        }()
         let citeKey = headers[MboxHeader.imbibCiteKey] ?? "imported\(index)"
         let title = message.subject
         let authors = message.from

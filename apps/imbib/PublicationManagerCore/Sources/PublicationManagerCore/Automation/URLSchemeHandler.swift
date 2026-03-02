@@ -375,7 +375,25 @@ public actor URLSchemeHandler {
 
         case .executeCommand(let notificationName):
             // Execute a command by notification name (for universal command palette)
-            // Map notification name to Notification.Name and post it
+            // Validate against allowlist to prevent injection of arbitrary notifications
+            let allowedNotifications: Set<String> = [
+                "importBibTeX", "exportBibTeX", "showLibrary", "showSearch",
+                "toggleReadStatus", "showInbox", "showPDFTab", "showBibTeXTab",
+                "showNotesTab", "showInfoTab", "showPreviousDetailTab", "showNextDetailTab",
+                "toggleDetailPane", "toggleSidebar", "focusSidebar", "focusList", "focusDetail",
+                "openReferences", "markAllAsRead", "deleteSelectedPapers", "saveToLibrary",
+                "dismissFromInbox", "moveToCollection", "addToCollection", "removeFromCollection",
+                "focusSearch", "toggleUnreadFilter", "togglePDFFilter",
+                "copyPublications", "cutPublications", "pastePublications", "selectAllPublications",
+                "copyAsCitation", "copyIdentifier", "sharePapers",
+                "navigateNextPaper", "navigatePreviousPaper", "navigateFirstPaper",
+                "navigateLastPaper", "navigateNextUnread", "navigatePreviousUnread",
+                "openSelectedPaper", "scrollToSelection",
+                "inboxSave", "inboxSaveAndStar", "inboxDismiss", "inboxToggleStar",
+            ]
+            guard allowedNotifications.contains(notificationName) else {
+                return .failure(command: "executeCommand", error: "Unknown notification: \(notificationName)")
+            }
             let notification = Notification.Name(notificationName)
             await postNotification(notification)
             return .success(command: "executeCommand", result: ["notification": AnyCodable(notificationName)])

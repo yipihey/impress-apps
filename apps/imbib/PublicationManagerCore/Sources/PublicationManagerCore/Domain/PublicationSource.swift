@@ -28,13 +28,35 @@ public enum PublicationSource: Hashable, Sendable {
              .scixLibrary(let id), .inbox(let id):
             return id
         case .flagged(let color):
-            return UUID(uuidString: "00000000-0000-0000-0000-\(color?.hashValue ?? 0)") ?? UUID()
+            // Use a deterministic mapping for flag colors instead of hashValue (which varies across launches)
+            let colorIndex: UInt16 = {
+                guard let c = color else { return 0 }
+                switch c {
+                case "red": return 1
+                case "orange": return 2
+                case "yellow": return 3
+                case "green": return 4
+                case "blue": return 5
+                case "purple": return 6
+                case "grey", "gray": return 7
+                default:
+                    // Deterministic fallback: sum of UTF-8 bytes mod 65535
+                    return UInt16(c.utf8.reduce(0) { ($0 &+ UInt16($1)) } | 0x8000)
+                }
+            }()
+            return UUID(uuidString: String(format: "00000000-0000-0000-0000-%012x", colorIndex))!
         case .unread:
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000001")!
         case .starred:
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000002")!
         case .tag(let path):
-            return UUID(uuidString: "00000000-0000-0000-BBBB-\(abs(path.hashValue) % 999999999999)") ?? UUID()
+            // Deterministic hash from tag path using FNV-1a instead of Swift's hashValue
+            var hash: UInt64 = 14695981039346656037 // FNV offset basis
+            for byte in path.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1099511628211 // FNV prime
+            }
+            return UUID(uuidString: String(format: "00000000-0000-0000-BBBB-%012x", hash & 0xFFFF_FFFF_FFFF))!
         case .dismissed:
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000003")!
         }

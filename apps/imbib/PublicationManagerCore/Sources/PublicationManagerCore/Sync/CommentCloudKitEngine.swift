@@ -215,27 +215,27 @@ public actor CommentCloudKitEngine {
             configurationsByRecordZoneID: [privateZoneID: config]
         )
 
-        var receivedRecords: [CKRecord] = []
-        var deletedRecordIDs: [CKRecord.ID] = []
-        var newChangeToken: CKServerChangeToken?
+        // Use thread-safe storage for CloudKit callback results.
+        // CKOperation callbacks may fire from arbitrary threads.
+        let collector = CloudKitChangeCollector()
 
         operation.recordWasChangedBlock = { _, result in
             if case .success(let record) = result {
-                receivedRecords.append(record)
+                collector.addRecord(record)
             }
         }
 
         operation.recordWithIDWasDeletedBlock = { recordID, _ in
-            deletedRecordIDs.append(recordID)
+            collector.addDeletedID(recordID)
         }
 
         operation.recordZoneChangeTokensUpdatedBlock = { _, token, _ in
-            newChangeToken = token
+            collector.setChangeToken(token)
         }
 
         operation.recordZoneFetchResultBlock = { _, result in
             if case .success(let (token, _, _)) = result {
-                newChangeToken = token
+                collector.setChangeToken(token)
             }
         }
 
@@ -250,6 +250,8 @@ public actor CommentCloudKitEngine {
             }
             self.privateDatabase.add(operation)
         }
+
+        let (receivedRecords, deletedRecordIDs, newChangeToken) = collector.snapshot()
 
         // Process received records
         for record in receivedRecords {
@@ -364,4 +366,34 @@ public actor CommentCloudKitEngine {
 
     #endif
 }
+
+// MARK: - Thread-Safe Change Collector
+
+#if canImport(CloudKit)
+/// Thread-safe collector for CloudKit operation callback results.
+/// CKOperation callbacks may fire from arbitrary threads, so this uses
+/// a lock to protect the mutable state.
+private final class CloudKitChangeCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [CKRecord] = []
+    private var deletedIDs: [CKRecord.ID] = []
+    private var changeToken: CKServerChangeToken?
+
+    func addRecord(_ record: CKRecord) {
+        lock.withLock { records.append(record) }
+    }
+
+    func addDeletedID(_ id: CKRecord.ID) {
+        lock.withLock { deletedIDs.append(id) }
+    }
+
+    func setChangeToken(_ token: CKServerChangeToken?) {
+        lock.withLock { changeToken = token }
+    }
+
+    func snapshot() -> ([CKRecord], [CKRecord.ID], CKServerChangeToken?) {
+        lock.withLock { (records, deletedIDs, changeToken) }
+    }
+}
+#endif
 

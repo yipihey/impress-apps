@@ -637,16 +637,15 @@ public final class AttachmentManager {
     }
 
     /// Verify file integrity using SHA256.
+    ///
+    /// Verifies the file on disk is readable and produces a valid SHA256 hash.
+    /// Note: Full hash comparison requires the store to expose the stored sha256 field.
+    /// Currently validates the file is intact (readable, correct hash length).
     public func verifyIntegrity(of linkedFile: LinkedFileModel, in libraryId: UUID? = nil) -> Bool {
-        // Re-fetch from store to get sha256 (LinkedFileModel may not expose it directly)
-        guard let fresh = store.getLinkedFile(id: linkedFile.id),
-              let url = resolveURL(for: linkedFile, in: libraryId),
+        guard let url = resolveURL(for: linkedFile, in: libraryId),
               let actualHash = computeSHA256(for: url) else {
             return false
         }
-        // LinkedFileModel doesn't expose sha256 directly, so we check via the store
-        // For now, just verify the file is readable and has a valid hash
-        _ = fresh
         return actualHash.count == 64 // SHA256 produces 64 hex chars
     }
 
@@ -694,21 +693,16 @@ public final class AttachmentManager {
             return nil
         }
 
-        // Check if any existing file has matching hash by re-fetching details
-        // (LinkedFileModel doesn't expose sha256, but we can compare via the store)
+        // Compare hashes by resolving the existing files on disk and computing their SHA256
         for file in sameSizeFiles {
-            if let fullFile = store.getLinkedFile(id: file.id) {
-                // The store getLinkedFile returns LinkedFileModel which doesn't have sha256.
-                // We need to verify by resolving the URL and comparing hashes.
-                // For efficiency, we accept the size match as a strong signal and
-                // use the filename to identify duplicates.
-                _ = fullFile
+            if let existingURL = resolveURL(for: file, in: nil),
+               let existingHash = computeSHA256(for: existingURL),
+               existingHash == hash {
+                Logger.files.debugCapture("Duplicate detected: \(file.filename) matches source hash", category: "files")
+                return .duplicate(existingFile: file, hash: hash)
             }
         }
 
-        // Since LinkedFileModel doesn't expose sha256, fall back to filename-based check
-        // combined with size match. A true content-hash check would need the store to expose sha256.
-        Logger.files.debugCapture("Size match found but hash comparison requires store sha256 exposure", category: "files")
         return .noDuplicate(hash: hash)
     }
 

@@ -269,7 +269,7 @@ public actor SciXSyncManager {
             .map { "identifier:\"\($0)\"" }
             .joined(separator: " OR ")
 
-        let source = ADSSource()
+        let source = ADSSource(credentialManager: CredentialManager.shared)
         return try await source.search(query: query)
     }
 
