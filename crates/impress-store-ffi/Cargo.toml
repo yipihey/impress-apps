@@ -1,0 +1,32 @@
+[package]
+name = "impress-store-ffi"
+description = "UniFFI bindings for the shared impress-core SqliteItemStore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "impress_store_ffi"
+
+[features]
+default = []
+native = ["uniffi"]
+
+[dependencies]
+impress-core = { workspace = true, features = ["sqlite"] }
+uniffi = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["native"]

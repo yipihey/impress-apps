@@ -25,6 +25,8 @@ members = [
     "crates/impart-core",
     # impress-core - unified item protocol
     "crates/impress-core",
+    # impress-store-ffi - UniFFI bindings for the shared impress-core store
+    "crates/impress-store-ffi",
 ]
 
 [workspace.package]
@@ -59,6 +61,7 @@ impress-tags = { path = "crates/impress-tags" }
 imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
+impress-store-ffi = { path = "crates/impress-store-ffi" }
 impress-llm = { path = "crates/impress-llm" }
 
 # implore crates
