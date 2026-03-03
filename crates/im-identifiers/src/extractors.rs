@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 /// Extracted identifier with position information
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ExtractedIdentifier {
     pub identifier_type: String,
     pub value: String,
@@ -41,12 +40,6 @@ pub fn extract_dois(text: String) -> Vec<String> {
         .collect()
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn extract_dois_ffi(text: String) -> Vec<String> {
-    extract_dois(text)
-}
-
 /// Extract arXiv IDs from text
 pub fn extract_arxiv_ids(text: String) -> Vec<String> {
     ARXIV_REGEX
@@ -54,12 +47,6 @@ pub fn extract_arxiv_ids(text: String) -> Vec<String> {
         .filter_map(|cap| cap.name("id"))
         .map(|m| m.as_str().to_string())
         .collect()
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn extract_arxiv_ids_ffi(text: String) -> Vec<String> {
-    extract_arxiv_ids(text)
 }
 
 /// Extract ISBNs from text
@@ -70,12 +57,6 @@ pub fn extract_isbns(text: String) -> Vec<String> {
         .map(|m| normalize_isbn(m.as_str()))
         .filter(|isbn| is_valid_isbn_checksum(isbn))
         .collect()
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn extract_isbns_ffi(text: String) -> Vec<String> {
-    extract_isbns(text)
 }
 
 /// Extract all identifiers from text
@@ -124,12 +105,6 @@ pub fn extract_all(text: String) -> Vec<ExtractedIdentifier> {
     // Sort by position
     results.sort_by_key(|r| r.start_index);
     results
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn extract_all_ffi(text: String) -> Vec<ExtractedIdentifier> {
-    extract_all(text)
 }
 
 /// Clean a DOI by removing trailing punctuation

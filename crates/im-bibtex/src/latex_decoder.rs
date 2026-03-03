@@ -16,6 +16,9 @@ pub fn decode_latex(input: String) -> String {
         result = result.replace(pattern, replacement);
     }
 
+    // Replace ~ (non-breaking space) only outside URLs
+    result = replace_tilde_outside_urls(&result);
+
     // Remove remaining TeX commands (like \textrm, \textit, etc.)
     result = remove_tex_commands(&result);
 
@@ -23,12 +26,6 @@ pub fn decode_latex(input: String) -> String {
     result = clean_braces(&result);
 
     result
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn decode_latex_ffi(input: String) -> String {
-    decode_latex(input)
 }
 
 // ===== Accent Patterns =====
@@ -158,7 +155,7 @@ lazy_static! {
         ("``", "\u{201C}"),   // left double quote "
         ("''", "\u{201D}"),   // right double quote "
         ("`", "\u{2018}"),    // left single quote '
-        ("~", " "),    // non-breaking space
+        // ("~", " ") — handled separately in decode_latex to avoid mangling URLs
 
         // Common symbols
         ("\\&", "&"),
@@ -282,6 +279,24 @@ lazy_static! {
     // Brace cleaning patterns
     static ref EMPTY_BRACES: Regex = Regex::new(r"\{\}").unwrap();
     static ref SINGLE_CHAR_BRACES: Regex = Regex::new(r"\{([^{}])\}").unwrap();
+}
+
+fn replace_tilde_outside_urls(input: &str) -> String {
+    lazy_static! {
+        static ref URL_RE: Regex = Regex::new(r"(?i)https?://\S+|ftp://\S+").unwrap();
+    }
+    let mut result = String::with_capacity(input.len());
+    let mut last = 0;
+    for m in URL_RE.find_iter(input) {
+        // Process text before the URL: replace ~ with space
+        result.push_str(&input[last..m.start()].replace('~', " "));
+        // Keep the URL intact
+        result.push_str(m.as_str());
+        last = m.end();
+    }
+    // Process remaining text after last URL
+    result.push_str(&input[last..].replace('~', " "));
+    result
 }
 
 fn remove_tex_commands(input: &str) -> String {

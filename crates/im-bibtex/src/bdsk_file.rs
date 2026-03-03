@@ -26,12 +26,6 @@ pub fn bdsk_file_decode(value: String) -> Option<String> {
     None
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn bdsk_file_decode_ffi(value: String) -> Option<String> {
-    bdsk_file_decode(value)
-}
-
 /// Encode a relative path as a Bdsk-File field value
 pub fn bdsk_file_encode(relative_path: String) -> Option<String> {
     // Create plist dictionary
@@ -45,12 +39,6 @@ pub fn bdsk_file_encode(relative_path: String) -> Option<String> {
     // Encode as base64
     use base64::{engine::general_purpose::STANDARD, Engine};
     Some(STANDARD.encode(&buffer))
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn bdsk_file_encode_ffi(relative_path: String) -> Option<String> {
-    bdsk_file_encode(relative_path)
 }
 
 /// Extract all Bdsk-File paths from a fields map
@@ -69,12 +57,6 @@ pub fn bdsk_file_extract_all(fields: HashMap<String, String>) -> Vec<String> {
     paths
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn bdsk_file_extract_all_ffi(fields: HashMap<String, String>) -> Vec<String> {
-    bdsk_file_extract_all(fields)
-}
-
 /// Create Bdsk-File fields from a list of paths
 pub fn bdsk_file_create_fields(paths: Vec<String>) -> HashMap<String, String> {
     let mut fields = HashMap::new();
@@ -86,12 +68,6 @@ pub fn bdsk_file_create_fields(paths: Vec<String>) -> HashMap<String, String> {
     }
 
     fields
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn bdsk_file_create_fields_ffi(paths: Vec<String>) -> HashMap<String, String> {
-    bdsk_file_create_fields(paths)
 }
 
 #[cfg(test)]

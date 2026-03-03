@@ -8,7 +8,6 @@ use std::collections::HashMap;
 
 /// Types of publication identifiers across different sources
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum IdentifierType {
     /// Digital Object Identifier
     Doi,
@@ -46,7 +45,6 @@ impl IdentifierType {
 
 /// Sources that can provide enrichment data
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum EnrichmentSource {
     /// NASA Astrophysics Data System
     Ads,
@@ -80,21 +78,9 @@ pub fn identifier_url_prefix(id_type: IdentifierType) -> Option<String> {
     }
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn identifier_url_prefix_ffi(id_type: IdentifierType) -> Option<String> {
-    identifier_url_prefix(id_type)
-}
-
 /// Get the full URL for an identifier
 pub fn identifier_url(id_type: IdentifierType, value: String) -> Option<String> {
     identifier_url_prefix(id_type).map(|prefix| format!("{}{}", prefix, value))
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn identifier_url_ffi(id_type: IdentifierType, value: String) -> Option<String> {
-    identifier_url(id_type, value)
 }
 
 /// Get the display name for an identifier type
@@ -111,12 +97,6 @@ pub fn identifier_display_name(id_type: IdentifierType) -> String {
     }
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn identifier_display_name_ffi(id_type: IdentifierType) -> String {
-    identifier_display_name(id_type)
-}
-
 /// Get the display name for an enrichment source
 pub fn enrichment_source_display_name(source: EnrichmentSource) -> String {
     match source {
@@ -128,12 +108,6 @@ pub fn enrichment_source_display_name(source: EnrichmentSource) -> String {
         EnrichmentSource::Pubmed => "PubMed".to_string(),
         EnrichmentSource::Dblp => "DBLP".to_string(),
     }
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn enrichment_source_display_name_ffi(source: EnrichmentSource) -> String {
-    enrichment_source_display_name(source)
 }
 
 /// Check if a set of identifiers can be resolved to a source
@@ -180,18 +154,8 @@ pub fn can_resolve_to_source(
     }
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn can_resolve_to_source_ffi(
-    identifiers: HashMap<String, String>,
-    source: EnrichmentSource,
-) -> bool {
-    can_resolve_to_source(identifiers, source)
-}
-
 /// Preferred identifier result containing type and value
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct PreferredIdentifier {
     /// The identifier type (as string, e.g., "doi", "arxiv")
     pub id_type: String,
@@ -247,24 +211,9 @@ pub fn preferred_identifier_for_source(
     None
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn preferred_identifier_for_source_ffi(
-    identifiers: HashMap<String, String>,
-    source: EnrichmentSource,
-) -> Option<PreferredIdentifier> {
-    preferred_identifier_for_source(identifiers, source)
-}
-
 /// Resolve a DOI to a Semantic Scholar paper ID format
 pub fn resolve_doi_to_semantic_scholar(doi: String) -> String {
     format!("DOI:{}", doi)
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn resolve_doi_to_semantic_scholar_ffi(doi: String) -> String {
-    resolve_doi_to_semantic_scholar(doi)
 }
 
 /// Resolve an arXiv ID to a Semantic Scholar paper ID format
@@ -272,21 +221,9 @@ pub fn resolve_arxiv_to_semantic_scholar(arxiv_id: String) -> String {
     format!("ARXIV:{}", arxiv_id)
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn resolve_arxiv_to_semantic_scholar_ffi(arxiv_id: String) -> String {
-    resolve_arxiv_to_semantic_scholar(arxiv_id)
-}
-
 /// Resolve a PubMed ID to a Semantic Scholar paper ID format
 pub fn resolve_pmid_to_semantic_scholar(pmid: String) -> String {
     format!("PMID:{}", pmid)
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn resolve_pmid_to_semantic_scholar_ffi(pmid: String) -> String {
-    resolve_pmid_to_semantic_scholar(pmid)
 }
 
 /// Get the supported identifier types for a source
@@ -311,12 +248,6 @@ pub fn supported_identifiers_for_source(source: EnrichmentSource) -> Vec<String>
         }
         EnrichmentSource::Dblp => vec!["dblp".to_string(), "doi".to_string()],
     }
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn supported_identifiers_for_source_ffi(source: EnrichmentSource) -> Vec<String> {
-    supported_identifiers_for_source(source)
 }
 
 #[cfg(test)]

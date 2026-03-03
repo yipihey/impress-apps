@@ -116,12 +116,6 @@ pub fn expand_journal_macro(value: String) -> String {
     value
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn expand_journal_macro_ffi(value: String) -> String {
-    expand_journal_macro(value)
-}
-
 /// Check if a value is a journal macro
 pub fn is_journal_macro(value: String) -> bool {
     let trimmed = value.trim();
@@ -136,21 +130,9 @@ pub fn is_journal_macro(value: String) -> bool {
     MACROS.contains_key(trimmed.to_lowercase().as_str())
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn is_journal_macro_ffi(value: String) -> bool {
-    is_journal_macro(value)
-}
-
 /// Get all journal macro names
 pub fn get_all_journal_macro_names() -> Vec<String> {
     MACROS.keys().map(|k| k.to_string()).collect()
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn get_all_journal_macro_names_ffi() -> Vec<String> {
-    get_all_journal_macro_names()
 }
 
 #[cfg(test)]

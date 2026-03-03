@@ -55,16 +55,6 @@ pub fn generate_cite_key(
     key
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn generate_cite_key_ffi(
-    author: Option<String>,
-    year: Option<String>,
-    title: Option<String>,
-) -> String {
-    generate_cite_key(author, year, title)
-}
-
 /// Generate a unique cite key that doesn't conflict with existing keys
 pub fn generate_unique_cite_key(
     author: Option<String>,
@@ -74,17 +64,6 @@ pub fn generate_unique_cite_key(
 ) -> String {
     let base = generate_cite_key(author, year, title);
     make_cite_key_unique(base, existing_keys)
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn generate_unique_cite_key_ffi(
-    author: Option<String>,
-    year: Option<String>,
-    title: Option<String>,
-    existing_keys: Vec<String>,
-) -> String {
-    generate_unique_cite_key(author, year, title, existing_keys)
 }
 
 /// Make a cite key unique by adding suffixes if needed
@@ -128,23 +107,11 @@ pub fn make_cite_key_unique(base: String, existing_keys: Vec<String>) -> String 
     }
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn make_cite_key_unique_ffi(base: String, existing_keys: Vec<String>) -> String {
-    make_cite_key_unique(base, existing_keys)
-}
-
 /// Sanitize a cite key by removing invalid characters
 pub fn sanitize_cite_key(key: String) -> String {
     key.chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == ':')
         .collect()
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn sanitize_cite_key_ffi(key: String) -> String {
-    sanitize_cite_key(key)
 }
 
 /// Extract last name from author string

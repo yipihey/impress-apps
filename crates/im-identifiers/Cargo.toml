@@ -1,0 +1,51 @@
+[package]
+name = "im-identifiers"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Extract, validate, and resolve academic identifiers — DOI, arXiv, ISBN, PMID, bibcode. Includes CLI, MCP server, and Python bindings."
+repository = "https://github.com/yipihey/im-identifiers"
+keywords = ["doi", "arxiv", "isbn", "identifier", "citation"]
+categories = ["text-processing", "command-line-utilities", "science"]
+
+[lib]
+name = "im_identifiers"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+cli = ["dep:clap"]
+python = ["dep:pyo3"]
+
+[dependencies]
+# Regex for identifier patterns
+regex = "1.10"
+lazy_static = "1.4"
+
+# Unicode normalization for cite key generation
+unicode-normalization = "0.1"
+
+# Collision-resistant fallback for cite keys
+uuid = { version = "1", features = ["v4"] }
+
+# URL building
+url = "2"
+urlencoding = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "1.0"
+
+# CLI
+clap = { version = "4", features = ["derive"], optional = true }
+
+# Python bindings
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+
+[[bin]]
+name = "im-identifiers"
+path = "src/bin/im_identifiers.rs"
+required-features = ["cli"]

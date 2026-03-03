@@ -16,13 +16,13 @@ use nom::{
     combinator::map,
     IResult,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::entry::{BibTeXEntry, BibTeXEntryType};
 
 /// Parse error information
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BibTeXParseError {
     pub line: u32,
     pub column: u32,
@@ -30,8 +30,7 @@ pub struct BibTeXParseError {
 }
 
 /// Result of parsing a BibTeX file
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BibTeXParseResult {
     pub entries: Vec<BibTeXEntry>,
     pub preambles: Vec<String>,
@@ -40,8 +39,7 @@ pub struct BibTeXParseResult {
 }
 
 /// Error type for parsing failures
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum ParseError {
     #[error("Invalid syntax")]
     InvalidSyntax,
@@ -60,12 +58,6 @@ pub fn parse(input: String) -> Result<BibTeXParseResult, ParseError> {
     parse_bibtex(&input)
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn parse_ffi(input: String) -> Result<BibTeXParseResult, ParseError> {
-    parse(input)
-}
-
 /// Parse a single BibTeX entry
 pub fn parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
     let result = parse_bibtex(&input)?;
@@ -74,12 +66,6 @@ pub fn parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
         .into_iter()
         .next()
         .ok_or(ParseError::InvalidSyntax)
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn parse_entry_ffi(input: String) -> Result<BibTeXEntry, ParseError> {
-    parse_entry(input)
 }
 
 /// Internal parsing function

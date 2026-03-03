@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "im-identifiers"
+version = "0.2.0"
+description = "Extract, validate, and resolve academic identifiers — DOI, arXiv, ISBN, PMID, bibcode. Powered by Rust."
+requires-python = ">=3.8"
+license = "MIT"
+keywords = ["doi", "arxiv", "isbn", "identifier", "citation"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
+]
+
+[tool.maturin]
+features = ["python"]
+bindings = "pyo3"

@@ -17,21 +17,9 @@ pub fn is_valid_doi(doi: String) -> bool {
     DOI_PATTERN.is_match(&doi)
 }
 
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn is_valid_doi_ffi(doi: String) -> bool {
-    is_valid_doi(doi)
-}
-
 /// Validate an arXiv ID
 pub fn is_valid_arxiv_id(arxiv_id: String) -> bool {
     ARXIV_NEW_PATTERN.is_match(&arxiv_id) || ARXIV_OLD_PATTERN.is_match(&arxiv_id)
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn is_valid_arxiv_id_ffi(arxiv_id: String) -> bool {
-    is_valid_arxiv_id(arxiv_id)
 }
 
 /// Validate an ISBN (both ISBN-10 and ISBN-13)
@@ -48,12 +36,6 @@ pub fn is_valid_isbn(isbn: String) -> bool {
         13 => validate_isbn13(&normalized),
         _ => false,
     }
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn is_valid_isbn_ffi(isbn: String) -> bool {
-    is_valid_isbn(isbn)
 }
 
 /// Normalize a DOI by removing common prefixes and trailing punctuation
@@ -87,12 +69,6 @@ pub fn normalize_doi(doi: String) -> String {
     }
 
     result
-}
-
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
-pub fn normalize_doi_ffi(doi: String) -> String {
-    normalize_doi(doi)
 }
 
 /// Validate ISBN-10 checksum

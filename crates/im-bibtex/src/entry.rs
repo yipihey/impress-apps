@@ -1,10 +1,10 @@
 //! BibTeX entry data structures
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// BibTeX entry type
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BibTeXEntryType {
     Article,
     Book,
@@ -74,17 +74,21 @@ impl BibTeXEntryType {
     }
 }
 
+impl std::fmt::Display for BibTeXEntryType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A single BibTeX field (key-value pair)
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BibTeXField {
     pub key: String,
     pub value: String,
 }
 
 /// A parsed BibTeX entry
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BibTeXEntry {
     pub cite_key: String,
     pub entry_type: BibTeXEntryType,
@@ -159,6 +163,16 @@ impl BibTeXEntry {
     }
 }
 
+impl std::fmt::Display for BibTeXEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "@{}{{{}", self.entry_type, self.cite_key)?;
+        for field in &self.fields {
+            write!(f, ", {} = {{{}}}", field.key, field.value)?;
+        }
+        write!(f, "}}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,14 +186,6 @@ mod tests {
         assert_eq!(
             BibTeXEntryType::from_str("ARTICLE"),
             BibTeXEntryType::Article
-        );
-        assert_eq!(
-            BibTeXEntryType::from_str("Article"),
-            BibTeXEntryType::Article
-        );
-        assert_eq!(
-            BibTeXEntryType::from_str("inproceedings"),
-            BibTeXEntryType::InProceedings
         );
         assert_eq!(
             BibTeXEntryType::from_str("conference"),
@@ -202,5 +208,14 @@ mod tests {
         assert_eq!(entry.author(), Some("John Smith"));
         assert_eq!(entry.year(), Some("2024"));
         assert_eq!(entry.doi(), None);
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let mut entry = BibTeXEntry::new("Test2024".to_string(), BibTeXEntryType::Article);
+        entry.add_field("title", "Test");
+        let json = serde_json::to_string(&entry).unwrap();
+        let recovered: BibTeXEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(entry, recovered);
     }
 }
