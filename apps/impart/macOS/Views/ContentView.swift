@@ -88,7 +88,7 @@ struct ContentView: View {
             ComposeView(draft: appState.currentDraft)
         }
         // Keyboard navigation
-        .onKeyPress { press in
+        .keyboardGuarded { press in
             handleKeyPress(press)
         }
         // View mode keyboard shortcuts
@@ -158,14 +158,12 @@ struct ContentView: View {
     // MARK: - Keyboard Handling
 
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        let textFieldFocused = TextFieldFocusDetection.isTextFieldFocused()
-
         // Check for custom shortcut match.
-        // When a text field has focus, only fire shortcuts that use Command or Control
-        // so that normal typing (including Shift for capitals) isn't intercepted.
+        // Text field focus is already handled by .keyboardGuarded; here we only
+        // gate on whether the compose sheet is active for unmodified shortcuts.
         if let binding = keyboardStore.matchingBinding(for: press) {
             let hasSystemModifier = binding.modifiers.contains(.command) || binding.modifiers.contains(.control)
-            if hasSystemModifier || (!textFieldFocused && !appState.isComposing) {
+            if hasSystemModifier || !appState.isComposing {
                 NotificationCenter.default.post(name: Notification.Name(binding.notificationName), object: nil)
                 return .handled
             }
@@ -195,8 +193,8 @@ struct ContentView: View {
         }
 
         // Handle vim-style navigation (no modifiers)
-        // Skip when composing or when a text field has focus
-        if press.modifiers.isEmpty && !appState.isComposing && !textFieldFocused {
+        // Skip when composing; text field focus is handled by .keyboardGuarded
+        if press.modifiers.isEmpty && !appState.isComposing {
             switch press.characters {
             case "j":
                 navigateToNextMessage()
@@ -227,8 +225,8 @@ struct ContentView: View {
             }
         }
 
-        // Shift+s for toggle star (skip when text field has focus)
-        if press.modifiers == .shift && press.characters.lowercased() == "s" && !appState.isComposing && !textFieldFocused {
+        // Shift+s for toggle star
+        if press.modifiers == .shift && press.characters.lowercased() == "s" && !appState.isComposing {
             toggleStarOnSelected()
             return .handled
         }
