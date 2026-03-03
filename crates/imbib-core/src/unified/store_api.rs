@@ -292,10 +292,7 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates: vec![Predicate::HasParent(parent_uuid)],
-            sort: vec![SortDescriptor {
-                field: normalize_sort_field(&sort_field),
-                ascending,
-            }],
+            sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
         };
@@ -323,6 +320,10 @@ impl ImbibStore {
         &self,
         query: String,
         parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         // Search across title, author, abstract, and note fields
         let search_pred = Predicate::Or(vec![
@@ -339,7 +340,9 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -362,11 +365,17 @@ impl ImbibStore {
     pub fn get_flagged_publications(
         &self,
         color: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates: vec![Predicate::HasFlag(color)],
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -696,55 +705,19 @@ impl ImbibStore {
         offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
-        let coll_item = self
-            .store
-            .get(coll_uuid)?
-            .ok_or(StoreApiError::NotFound(collection_id))?;
-        let pub_ids: Vec<Uuid> = coll_item
-            .references
-            .iter()
-            .filter(|r| r.edge_type == EdgeType::Contains)
-            .map(|r| r.target)
-            .collect();
-        if pub_ids.is_empty() {
-            return Ok(vec![]);
-        }
-        let tag_defs = self.load_tag_definitions()?;
-        let mut items = Vec::new();
-        for pub_id in &pub_ids {
-            if let Some(item) = self.store.get(*pub_id)? {
-                items.push(item);
-            }
-        }
-        let mut rows = self.items_to_bibliography_rows(&items, &tag_defs)?;
-        let sort_key = normalize_sort_field(&sort_field);
-        rows.sort_by(|a, b| {
-            let cmp = match sort_key.as_str() {
-                "created" => a.date_added.cmp(&b.date_added),
-                "modified" => a.date_modified.cmp(&b.date_modified),
-                "payload.title" => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-                "payload.author_text" => a
-                    .author_string
-                    .to_lowercase()
-                    .cmp(&b.author_string.to_lowercase()),
-                "payload.year" => a.year.cmp(&b.year),
-                "payload.cite_key" => a.cite_key.cmp(&b.cite_key),
-                "payload.citation_count" => a.citation_count.cmp(&b.citation_count),
-                _ => a.date_added.cmp(&b.date_added),
-            };
-            if ascending {
-                cmp
-            } else {
-                cmp.reverse()
-            }
-        });
-        let start = offset.unwrap_or(0) as usize;
-        let rows = rows.into_iter().skip(start);
-        let rows: Vec<_> = match limit {
-            Some(l) => rows.take(l as usize).collect(),
-            None => rows.collect(),
+        // Single SQL query using ReferencedBy predicate instead of N+1 individual gets.
+        // Collections store membership via AddReference(Contains) from collection→publication,
+        // so ReferencedBy(Contains, coll_uuid) finds publications targeted by the collection.
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
-        Ok(rows)
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        self.items_to_bibliography_rows(&items, &tag_defs)
     }
 
     // --- Linked file operations ---
@@ -1215,6 +1188,10 @@ impl ImbibStore {
     pub fn query_unread(
         &self,
         parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::IsRead(false)];
         if let Some(pid) = parent_id {
@@ -1223,11 +1200,9 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
-            sort: vec![SortDescriptor {
-                field: "created".into(),
-                ascending: false,
-            }],
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1262,9 +1237,107 @@ impl ImbibStore {
         Ok(self.store.count(&q)? as u32)
     }
 
+    /// Count starred publications. Uses SELECT COUNT(*).
+    pub fn count_starred(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
+        let mut predicates = vec![Predicate::IsStarred(true)];
+        if let Some(pid) = parent_id {
+            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates,
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count publications with a given tag. Uses SELECT COUNT(*).
+    pub fn count_by_tag(
+        &self,
+        tag_path: String,
+        parent_id: Option<String>,
+    ) -> Result<u32, StoreApiError> {
+        let mut predicates = vec![Predicate::HasTag(tag_path)];
+        if let Some(pid) = parent_id {
+            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates,
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count flagged publications. Uses SELECT COUNT(*).
+    pub fn count_flagged(&self, color: Option<String>) -> Result<u32, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::HasFlag(color)],
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count publications matching a text search. Uses SELECT COUNT(*).
+    pub fn count_search_results(
+        &self,
+        query: String,
+        parent_id: Option<String>,
+    ) -> Result<u32, StoreApiError> {
+        let search_pred = Predicate::Or(vec![
+            Predicate::Contains("title".into(), query.clone()),
+            Predicate::Contains("author_text".into(), query.clone()),
+            Predicate::Contains("abstract_text".into(), query.clone()),
+            Predicate::Contains("note".into(), query),
+        ]);
+        let mut predicates = vec![search_pred];
+        if let Some(pid) = parent_id {
+            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates,
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count publications referenced by a collection. Uses SELECT COUNT(*).
+    pub fn count_collection_members_public(
+        &self,
+        collection_id: String,
+    ) -> Result<u32, StoreApiError> {
+        let coll_uuid = parse_uuid(&collection_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count publications referenced by a SciX library. Uses SELECT COUNT(*).
+    pub fn count_scix_library_publications(
+        &self,
+        scix_library_id: String,
+    ) -> Result<u32, StoreApiError> {
+        let scix_uuid = parse_uuid(&scix_library_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, scix_uuid)],
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
     pub fn query_starred(
         &self,
         parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::IsStarred(true)];
         if let Some(pid) = parent_id {
@@ -1273,11 +1346,9 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
-            sort: vec![SortDescriptor {
-                field: "created".into(),
-                ascending: false,
-            }],
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1288,6 +1359,10 @@ impl ImbibStore {
         &self,
         tag_path: String,
         parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::HasTag(tag_path)];
         if let Some(pid) = parent_id {
@@ -1296,11 +1371,9 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
-            sort: vec![SortDescriptor {
-                field: "created".into(),
-                ascending: false,
-            }],
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1319,10 +1392,7 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
-            sort: vec![SortDescriptor {
-                field: "created".into(),
-                ascending: false,
-            }],
+            sort: build_sort_descriptors("created", false),
             limit: Some(limit as usize),
             ..Default::default()
         };
@@ -1336,6 +1406,7 @@ impl ImbibStore {
         query: String,
         parent_id: Option<String>,
         limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let search_pred = Predicate::Or(vec![
             Predicate::Contains("title".into(), query.clone()),
@@ -1351,6 +1422,7 @@ impl ImbibStore {
             schema: Some("imbib/bibliography-entry".into()),
             predicates,
             limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -1484,16 +1556,16 @@ impl ImbibStore {
         scix_library_id: String,
         sort_field: String,
         ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let scix_uuid = parse_uuid(&scix_library_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, scix_uuid)],
-            sort: vec![SortDescriptor {
-                field: normalize_sort_field(&sort_field),
-                ascending,
-            }],
-            ..Default::default()
+            sort: build_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -2583,6 +2655,29 @@ fn normalize_sort_field(field: &str) -> String {
     }
 }
 
+/// Build sort descriptors for a query.
+///
+/// Most sort fields map to a single SQL ORDER BY column via `normalize_sort_field`.
+/// "starred" is special: it sorts starred items first, then by date within each group.
+fn build_sort_descriptors(sort_field: &str, ascending: bool) -> Vec<SortDescriptor> {
+    match sort_field {
+        "starred" => vec![
+            SortDescriptor {
+                field: "is_starred".into(),
+                ascending: false,
+            },
+            SortDescriptor {
+                field: "created".into(),
+                ascending,
+            },
+        ],
+        other => vec![SortDescriptor {
+            field: normalize_sort_field(other),
+            ascending,
+        }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2669,7 +2764,7 @@ mod tests {
         assert_eq!(pub_row.flag_style, Some("solid".into()));
 
         // Get flagged
-        let flagged = store.get_flagged_publications(Some("red".into())).unwrap();
+        let flagged = store.get_flagged_publications(Some("red".into()), "created".into(), false, None, None).unwrap();
         assert_eq!(flagged.len(), 1);
 
         // Clear flag
@@ -2723,7 +2818,7 @@ mod tests {
         store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         let results = store
-            .search_publications("Dark Matter".into(), Some(lib.id.clone()))
+            .search_publications("Dark Matter".into(), Some(lib.id.clone()), "created".into(), false, None, None)
             .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].title.contains("Dark Matter"));
@@ -2995,7 +3090,7 @@ mod tests {
         let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         // All unread initially
-        let unread = store.query_unread(Some(lib.id.clone())).unwrap();
+        let unread = store.query_unread(Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(unread.len(), 2);
         assert_eq!(store.count_unread(Some(lib.id.clone())).unwrap(), 2);
 
@@ -3005,7 +3100,7 @@ mod tests {
 
         // Starred
         store.set_starred(vec![ids[0].clone()], true).unwrap();
-        let starred = store.query_starred(Some(lib.id.clone())).unwrap();
+        let starred = store.query_starred(Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(starred.len(), 1);
 
         // By tag
@@ -3015,7 +3110,7 @@ mod tests {
         store
             .add_tag(vec![ids[0].clone()], "cosmo".into())
             .unwrap();
-        let by_tag = store.query_by_tag("cosmo".into(), None).unwrap();
+        let by_tag = store.query_by_tag("cosmo".into(), None, "created".into(), false, None, None).unwrap();
         assert_eq!(by_tag.len(), 1);
 
         // Recent
@@ -3024,7 +3119,7 @@ mod tests {
 
         // Full text search
         let fts = store
-            .full_text_search("Dark Matter".into(), Some(lib.id.clone()), None)
+            .full_text_search("Dark Matter".into(), Some(lib.id.clone()), None, None)
             .unwrap();
         assert_eq!(fts.len(), 1);
 
@@ -3441,22 +3536,22 @@ mod tests {
         store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         // Search by title
-        let r1 = store.search_publications("Stellar".into(), Some(lib.id.clone())).unwrap();
+        let r1 = store.search_publications("Stellar".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(r1.len(), 1);
         assert_eq!(r1[0].cite_key, "A");
 
         // Search by author
-        let r2 = store.search_publications("Jones".into(), Some(lib.id.clone())).unwrap();
+        let r2 = store.search_publications("Jones".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(r2.len(), 1);
         assert_eq!(r2[0].cite_key, "B");
 
         // Search by abstract
-        let r3 = store.search_publications("star formation".into(), Some(lib.id.clone())).unwrap();
+        let r3 = store.search_publications("star formation".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(r3.len(), 1);
         assert_eq!(r3[0].cite_key, "A");
 
         // Search by note
-        let r4 = store.search_publications("merging galaxies".into(), Some(lib.id.clone())).unwrap();
+        let r4 = store.search_publications("merging galaxies".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
         assert_eq!(r4.len(), 1);
         assert_eq!(r4[0].cite_key, "B");
     }
@@ -3689,5 +3784,147 @@ mod tests {
             vec![],
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn pagination_limit_offset() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        // Import 5 publications with distinct years for deterministic sorting
+        for i in 0..5 {
+            let bibtex = format!("@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}", 2020 + i);
+            store.import_bibtex(bibtex, lib.id.clone()).unwrap();
+        }
+
+        // Verify total count
+        assert_eq!(store.count_publications(Some(lib.id.clone())).unwrap(), 5);
+
+        // First page: limit=2, offset=0
+        let page1 = store
+            .query_publications(lib.id.clone(), "year".into(), true, Some(2), Some(0))
+            .unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].year, Some(2020));
+        assert_eq!(page1[1].year, Some(2021));
+
+        // Second page: limit=2, offset=2
+        let page2 = store
+            .query_publications(lib.id.clone(), "year".into(), true, Some(2), Some(2))
+            .unwrap();
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].year, Some(2022));
+        assert_eq!(page2[1].year, Some(2023));
+
+        // Third page: limit=2, offset=4 — only 1 left
+        let page3 = store
+            .query_publications(lib.id.clone(), "year".into(), true, Some(2), Some(4))
+            .unwrap();
+        assert_eq!(page3.len(), 1);
+        assert_eq!(page3[0].year, Some(2024));
+
+        // Descending sort
+        let desc = store
+            .query_publications(lib.id.clone(), "year".into(), false, Some(2), Some(0))
+            .unwrap();
+        assert_eq!(desc[0].year, Some(2024));
+        assert_eq!(desc[1].year, Some(2023));
+    }
+
+    #[test]
+    fn count_methods() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = r#"
+@article{A, title={Paper A}}
+@article{B, title={Paper B}}
+@article{C, title={Paper C}}
+"#;
+        let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+
+        // All unread initially
+        assert_eq!(store.count_unread(Some(lib.id.clone())).unwrap(), 3);
+        assert_eq!(store.count_publications(Some(lib.id.clone())).unwrap(), 3);
+
+        // Star one
+        store.set_starred(vec![ids[0].clone()], true).unwrap();
+        assert_eq!(store.count_starred(Some(lib.id.clone())).unwrap(), 1);
+
+        // Tag one
+        store.create_tag("test-tag".into(), None, None).unwrap();
+        store.add_tag(vec![ids[1].clone()], "test-tag".into()).unwrap();
+        assert_eq!(store.count_by_tag("test-tag".into(), None).unwrap(), 1);
+
+        // Flag one
+        store.set_flag(vec![ids[2].clone()], Some("blue".into()), None, None).unwrap();
+        assert_eq!(store.count_flagged(Some("blue".into())).unwrap(), 1);
+        assert_eq!(store.count_flagged(None).unwrap(), 1); // any flag
+
+        // Search count
+        assert_eq!(store.count_search_results("Paper".into(), Some(lib.id.clone())).unwrap(), 3);
+        assert_eq!(store.count_search_results("Paper A".into(), Some(lib.id.clone())).unwrap(), 1);
+
+        // Collection count
+        let coll = store.create_collection("Coll".into(), lib.id.clone(), false, None).unwrap();
+        store.add_to_collection(vec![ids[0].clone(), ids[1].clone()], coll.id.clone()).unwrap();
+        assert_eq!(store.count_collection_members_public(coll.id).unwrap(), 2);
+    }
+
+    #[test]
+    fn build_sort_descriptors_starred() {
+        // "starred" sort should produce two sort descriptors
+        let descs = build_sort_descriptors("starred", false);
+        assert_eq!(descs.len(), 2);
+        assert_eq!(descs[0].field, "is_starred");
+        assert!(!descs[0].ascending);
+        assert_eq!(descs[1].field, "created");
+        assert!(!descs[1].ascending);
+
+        // Normal sort should produce one
+        let descs2 = build_sort_descriptors("year", true);
+        assert_eq!(descs2.len(), 1);
+        assert_eq!(descs2[0].field, "payload.year");
+        assert!(descs2[0].ascending);
+    }
+
+    #[test]
+    fn paginated_unread_starred_tag_queries() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        for i in 0..10 {
+            let bibtex = format!("@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}", 2015 + i);
+            store.import_bibtex(bibtex, lib.id.clone()).unwrap();
+        }
+
+        // All 10 are unread; paginate
+        let page1 = store
+            .query_unread(Some(lib.id.clone()), "year".into(), true, Some(3), Some(0))
+            .unwrap();
+        assert_eq!(page1.len(), 3);
+        assert_eq!(page1[0].year, Some(2015));
+
+        let page2 = store
+            .query_unread(Some(lib.id.clone()), "year".into(), true, Some(3), Some(3))
+            .unwrap();
+        assert_eq!(page2.len(), 3);
+        assert_eq!(page2[0].year, Some(2018));
+
+        // Star a few and paginate starred
+        let all = store
+            .query_publications(lib.id.clone(), "year".into(), true, None, None)
+            .unwrap();
+        store.set_starred(vec![all[0].id.clone(), all[1].id.clone(), all[2].id.clone()], true).unwrap();
+        let starred_page = store
+            .query_starred(Some(lib.id.clone()), "year".into(), true, Some(2), Some(0))
+            .unwrap();
+        assert_eq!(starred_page.len(), 2);
+
+        // Tag and paginate
+        store.create_tag("physics".into(), None, None).unwrap();
+        store.add_tag(vec![all[0].id.clone(), all[4].id.clone()], "physics".into()).unwrap();
+        let tag_page = store
+            .query_by_tag("physics".into(), None, "year".into(), true, Some(1), Some(0))
+            .unwrap();
+        assert_eq!(tag_page.len(), 1);
+        assert_eq!(tag_page[0].year, Some(2015));
     }
 }

@@ -57,14 +57,6 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Init
 
-    /// Per-source cache for the eager load in init().
-    /// SwiftUI calls init() on every parent body evaluation, but State(initialValue:)
-    /// only uses the value on the FIRST insertion. Without this cache, we'd run a
-    /// ~500ms queryPublications() call on every parent re-eval for nothing.
-    /// The cache is keyed on source.viewID and invalidated by dataVersion.
-    @MainActor
-    private static var initCache: (sourceKey: UUID, dataVersion: Int, pubs: [PublicationRowData])?
-
     init(
         source: PublicationSource,
         selectedPublicationID: Binding<UUID?>,
@@ -80,26 +72,16 @@ struct UnifiedPublicationListWrapper: View {
         self.onDownloadPDFs = onDownloadPDFs
         self.focusedPane = focusedPane
 
-        // Eager load: populate publications synchronously so the first render
-        // shows data immediately, eliminating the 5-second empty list on launch.
-        // Uses a static cache so repeated init() calls from parent body re-evals
-        // don't re-query the Rust store (~500ms each). The cache is invalidated
-        // when the source changes or the store version advances, so .task(id:)
-        // and .onChange(of: source) still trigger fresh queries.
-        let store = RustStoreAdapter.shared
-        let currentVersion = store.dataVersion
-        let sourceKey = source.viewID
+        // Create a paginated data source that loads publications in pages.
+        // Sorting is handled by SQL via the Rust layer.
+        let ds = PaginatedDataSource(source: source)
+        _dataSource = State(initialValue: ds)
 
-        if let cached = Self.initCache,
-           cached.sourceKey == sourceKey,
-           cached.dataVersion == currentVersion {
-            _publications = State(initialValue: cached.pubs)
-        } else {
-            let initialPubs = store.queryPublications(for: source)
-            Self.initCache = (sourceKey: sourceKey, dataVersion: currentVersion, pubs: initialPubs)
-            _publications = State(initialValue: initialPubs)
-        }
-        _lastRefreshedStoreVersion = State(initialValue: currentVersion)
+        // Load the first page synchronously so the first render shows data
+        // immediately, eliminating the empty list on launch.
+        ds.loadInitialPage()
+        _publications = State(initialValue: ds.rows)
+        _lastRefreshedStoreVersion = State(initialValue: RustStoreAdapter.shared.dataVersion)
     }
 
     // MARK: - Environment
@@ -110,6 +92,12 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Unified State
 
+    /// Paginated data source — loads publications in pages from SQL.
+    /// Sorting is always done by SQL (via Rust), not in Swift.
+    @State private var dataSource: PaginatedDataSource
+
+    /// Publications currently displayed — derived from dataSource.rows with optional
+    /// client-side filters (unread, local filter syntax, FTS).
     @State private var publications: [PublicationRowData]
     // selectedPublicationIDs is now a binding: selectedPublicationIDs
     @State private var isLoading = false
@@ -434,6 +422,20 @@ struct UnifiedPublicationListWrapper: View {
                     Task {
                         await EnrichmentCoordinator.shared.queueUnenrichedPublications(inLibrary: libraryID)
                     }
+                }
+            }
+            .onChange(of: currentSortOrder) { _, newOrder in
+                // Reload from SQL with the new sort order.
+                // "recommended" is client-side (ML scores) — skip SQL reload.
+                if newOrder != .recommended {
+                    dataSource.reload(sort: newOrder.sortKey, ascending: currentSortAscending)
+                    publications = dataSource.rows
+                }
+            }
+            .onChange(of: currentSortAscending) { _, newAscending in
+                if currentSortOrder != .recommended {
+                    dataSource.reload(sort: currentSortOrder.sortKey, ascending: newAscending)
+                    publications = dataSource.rows
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { notification in
@@ -814,7 +816,14 @@ struct UnifiedPublicationListWrapper: View {
             recommendationScores: $recommendationScores,
             actions: buildListActions(),
             isRefreshing: isLoading || isBackgroundRefreshing,
-            externalTriageFlash: $keyboardTriageFlash
+            externalTriageFlash: $keyboardTriageFlash,
+            onRowAppeared: { id in
+                if dataSource.shouldLoadMore(currentItem: id) {
+                    dataSource.loadNextPage()
+                    publications = dataSource.rows
+                }
+            },
+            totalCount: dataSource.totalCount
         )
     }
 
@@ -829,6 +838,7 @@ struct UnifiedPublicationListWrapper: View {
                     }
                 }
                 // Remove from local state FIRST to prevent rendering deleted objects
+                for id in ids { self.dataSource.removeRow(id: id) }
                 self.publications.removeAll { pub in
                     ids.contains(pub.id)
                 }
@@ -962,7 +972,12 @@ struct UnifiedPublicationListWrapper: View {
         if !force && currentVersion == lastRefreshedStoreVersion { return }
         lastRefreshedStoreVersion = currentVersion
 
-        publications = store.queryPublications(for: source)
+        // Reload from SQL with current sort order (paginated).
+        dataSource.reload(
+            sort: currentSortOrder.sortKey,
+            ascending: currentSortAscending
+        )
+        publications = dataSource.rows
 
         // Refresh cached library list (cheap — typically < 10 libraries)
         let freshLibraries = store.listLibraries().map { ($0.id, $0.name) }
@@ -998,7 +1013,7 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        logger.info("Refreshed: \(self.publications.count) items")
+        logger.info("Refreshed: \(self.publications.count)/\(self.dataSource.totalCount) items")
     }
 
     /// Refresh from network (async operation with loading state)
@@ -1594,16 +1609,16 @@ struct UnifiedPublicationListWrapper: View {
     ///
     /// - Returns: Publications sorted according to current sort order and filters
     private func computeVisualOrder() -> [PublicationRowData] {
-        // Apply current sort order with stable tie-breaker (UUID) on ALL sort criteria.
-        // This MUST match PublicationListView.filteredRowData sorting exactly.
-        let sorted = publications.sorted { lhs, rhs in
-            let primaryResult = primarySortComparison(lhs, rhs)
-            if primaryResult != .orderedSame { return primaryResult == .orderedAscending }
-            // Stable tie-breaker: UUID string comparison ensures identical order regardless of input order
-            return lhs.id.uuidString < rhs.id.uuidString
+        // Data arrives pre-sorted from SQL. Only "recommended" sort needs client-side ordering.
+        if currentSortOrder == .recommended {
+            let ascending = currentSortAscending == currentSortOrder.defaultAscending
+            return publications.sorted { lhs, rhs in
+                let primaryResult = primarySortComparison(lhs, rhs)
+                if primaryResult != .orderedSame { return primaryResult == .orderedAscending }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
         }
-
-        return sorted
+        return publications
     }
 
     /// Primary sort comparison — returns .orderedSame when items are equal on the sort key.

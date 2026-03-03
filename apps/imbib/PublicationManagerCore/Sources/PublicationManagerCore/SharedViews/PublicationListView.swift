@@ -166,6 +166,14 @@ public struct PublicationListView: View {
     /// When set by parent, triggers flash animation on the specified row
     @Binding public var externalTriageFlash: (id: UUID, color: Color)?
 
+    /// Called when a row appears on screen. Used for scroll-based prefetching
+    /// of the next page of paginated data.
+    public var onRowAppeared: ((UUID) -> Void)?
+
+    /// Total count of items in the data source (for "X of Y" display).
+    /// When nil, no count indicator is shown.
+    public var totalCount: Int?
+
     // MARK: - Internal State
 
     @State private var showUnreadOnly: Bool = false
@@ -231,30 +239,46 @@ public struct PublicationListView: View {
     // staticCollections removed: collections handled at parent level via UUID-based callbacks
     // Collection-related context menus pass through UUID-based callbacks to parent
 
-    /// Compute the filtered and sorted row data from the current rowDataCache.
+    /// Compute the filtered row data from the publications array.
+    ///
+    /// Data arrives pre-sorted from SQL via the Rust layer, so no Swift-side sorting
+    /// is needed. Only client-side filters (unread, "recommended" sort) are applied here.
     private func computeFilteredRowData() -> [PublicationRowData] {
         let start = CFAbsoluteTimeGetCurrent()
-        var result = Array(rowDataCache.values)
+
+        // Use publications directly — they arrive pre-sorted by SQL.
+        // Apply single-row updates from rowDataCache where available.
+        var result: [PublicationRowData] = publications.map { pub in
+            rowDataCache[pub.id] ?? pub
+        }
 
         // Filter by unread (skip for Inbox where disableUnreadFilter is true)
         if showUnreadOnly && !disableUnreadFilter {
             result = result.filter { !$0.isRead }
         }
 
-        // Sort using data already in PublicationRowData - no managed object lookups needed
-        // Uses stable UUID tie-breaker so order is deterministic across calls.
-        // MUST match UnifiedPublicationListWrapper.computeVisualOrder() exactly.
-        let sorted = result.sorted { lhs, rhs in
-            let primary = Self.primarySortComparison(lhs, rhs, sortOrder: sortOrder, sortAscending: sortAscending, recommendationScores: recommendationScores)
-            if primary != .orderedSame { return primary == .orderedAscending }
-            // Stable tie-breaker: UUID string comparison
-            return lhs.id.uuidString < rhs.id.uuidString
+        // "Recommended" sort is computed client-side from ML scores — not in SQL.
+        if sortOrder == .recommended {
+            let ascending = sortAscending == sortOrder.defaultAscending
+            result.sort { lhs, rhs in
+                let lhsScore = recommendationScores[lhs.id] ?? 0
+                let rhsScore = recommendationScores[rhs.id] ?? 0
+                if lhsScore != rhsScore {
+                    let r: ComparisonResult = lhsScore > rhsScore ? .orderedAscending : .orderedDescending
+                    return ascending ? r == .orderedAscending : r == .orderedDescending
+                }
+                if lhs.dateAdded != rhs.dateAdded {
+                    let r: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
+                    return ascending ? r == .orderedAscending : r == .orderedDescending
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
         }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
-        Logger.performance.infoCapture("⏱ filteredRowData: \(String(format: "%.1f", elapsed))ms (\(sorted.count) items)", category: "performance")
+        Logger.performance.infoCapture("⏱ filteredRowData: \(String(format: "%.1f", elapsed))ms (\(result.count) items)", category: "performance")
 
-        return sorted
+        return result
     }
 
     /// Recompute filteredRowData and assign only when the result actually changed.
@@ -908,17 +932,18 @@ public struct PublicationListView: View {
         .padding(.vertical, 8)
     }
 
-    /// Display of filtered/total count
+    /// Display of filtered/total count.
+    /// Shows "X of Y" when paginated or filtered, "X papers" otherwise.
     private var countDisplay: some View {
-        let filteredCount = filteredRowData.count
-        let totalCount = publications.count
-        let isFiltered = showUnreadOnly
+        let displayedCount = filteredRowData.count
+        let sourceTotal = totalCount ?? publications.count
+        let isFiltered = showUnreadOnly || displayedCount < sourceTotal
 
         return Group {
-            if isFiltered && filteredCount != totalCount {
-                Text("\(filteredCount) of \(totalCount)")
+            if isFiltered && displayedCount != sourceTotal {
+                Text("\(displayedCount) of \(sourceTotal)")
             } else {
-                Text("\(filteredCount) papers")
+                Text("\(displayedCount) papers")
             }
         }
         .font(.caption)
@@ -970,6 +995,9 @@ public struct PublicationListView: View {
                         makePublicationRow(data: rowData, index: index)
                             .tag(rowData.id)
                             .id(rowData.id)  // For ScrollViewReader
+                            .onAppear {
+                                onRowAppeared?(rowData.id)
+                            }
                     }
                 }
             }
