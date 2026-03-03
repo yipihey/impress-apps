@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use impress_core::{
-    item::{ActorKind, Item, ItemId, Priority, Value, Visibility},
+    item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility},
     query::{ItemQuery, Predicate, SortDescriptor},
     sqlite_store::SqliteItemStore,
     store::{FieldMutation, ItemStore, StoreError},
@@ -82,6 +82,8 @@ pub struct SharedItemRow {
     pub is_read: bool,
     pub is_starred: bool,
     pub tags: Vec<String>,
+    /// Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
+    pub flag_color: Option<String>,
 }
 
 // ─── Store object ────────────────────────────────────────────────────────────
@@ -294,6 +296,32 @@ impl SharedStore {
             .update(item_id, vec![FieldMutation::RemoveTag(tag)])?;
         Ok(())
     }
+
+    /// Set or clear a flag on an item.
+    ///
+    /// Pass `None` for `color` to clear the flag entirely.
+    /// `style` and `length` are optional refinements (e.g. "dashed", "half").
+    pub fn set_flag(
+        &self,
+        id: String,
+        color: Option<String>,
+        style: Option<String>,
+        length: Option<String>,
+    ) -> Result<(), SharedStoreError> {
+        let item_id: ItemId = id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {id}"),
+            })?;
+        let flag = color.map(|c| FlagState {
+            color: c,
+            style,
+            length,
+        });
+        self.inner
+            .update(item_id, vec![FieldMutation::SetFlag(flag)])?;
+        Ok(())
+    }
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
@@ -329,6 +357,7 @@ fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> I
 fn item_to_row(item: Item) -> SharedItemRow {
     let payload_json =
         serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
+    let flag_color = item.flag.as_ref().map(|f| f.color.clone());
     SharedItemRow {
         id: item.id.to_string(),
         schema_ref: item.schema,
@@ -337,6 +366,7 @@ fn item_to_row(item: Item) -> SharedItemRow {
         is_read: item.is_read,
         is_starred: item.is_starred,
         tags: item.tags,
+        flag_color,
     }
 }
 
@@ -447,5 +477,122 @@ mod tests {
             .expect("remove_tag");
         let row = store.get_item(id).expect("get").expect("row");
         assert!(!row.tags.contains(&"methods/sims".to_string()));
+    }
+
+    #[test]
+    fn set_flag_appears_in_row() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(id.clone(), "bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .expect("upsert");
+
+        // Verify initially unflagged
+        let row = store.get_item(id.clone()).expect("get").expect("row");
+        assert!(row.flag_color.is_none());
+
+        // Set a flag
+        store
+            .set_flag(id.clone(), Some("red".into()), None, None)
+            .expect("set_flag");
+        let row = store.get_item(id.clone()).expect("get").expect("row");
+        assert_eq!(row.flag_color, Some("red".to_string()));
+
+        // Clear the flag
+        store
+            .set_flag(id.clone(), None, None, None)
+            .expect("clear_flag");
+        let row = store.get_item(id).expect("get").expect("row");
+        assert!(row.flag_color.is_none());
+    }
+
+    #[test]
+    fn full_bibliography_entry_round_trip() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        let payload = r#"{
+            "cite_key": "Einstein1905",
+            "entry_type": "article",
+            "title": "On the Electrodynamics of Moving Bodies",
+            "author_text": "Einstein, Albert",
+            "year": 1905,
+            "journal": "Annalen der Physik",
+            "volume": "17",
+            "pages": "891-921",
+            "doi": "10.1002/andp.19053221004",
+            "abstract_text": "The laws by which the states of physical systems undergo change...",
+            "keywords": ["relativity", "physics", "electrodynamics"]
+        }"#;
+        store
+            .upsert_item(
+                id.clone(),
+                "imbib/bibliography-entry".into(),
+                payload.into(),
+            )
+            .expect("upsert");
+
+        // Read it back
+        let row = store.get_item(id.clone()).expect("get").expect("exists");
+        assert_eq!(row.schema_ref, "imbib/bibliography-entry");
+        let p: serde_json::Value =
+            serde_json::from_str(&row.payload_json).expect("parse payload");
+        assert_eq!(p["title"], "On the Electrodynamics of Moving Bodies");
+        assert_eq!(p["year"], 1905);
+        assert_eq!(p["journal"], "Annalen der Physik");
+        assert_eq!(p["doi"], "10.1002/andp.19053221004");
+
+        // Verify it shows up in schema queries
+        let rows = store
+            .query_by_schema("imbib/bibliography-entry".into(), 10, 0)
+            .expect("query");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+
+        // Verify tags/flags/read work on it
+        store.add_tag(id.clone(), "physics/relativity".into()).expect("tag");
+        store.set_read(id.clone(), true).expect("read");
+        store.set_starred(id.clone(), true).expect("star");
+        store.set_flag(id.clone(), Some("amber".into()), Some("dashed".into()), None).expect("flag");
+
+        let row = store.get_item(id).expect("get").expect("exists");
+        assert!(row.is_read);
+        assert!(row.is_starred);
+        assert!(row.tags.contains(&"physics/relativity".to_string()));
+        assert_eq!(row.flag_color, Some("amber".to_string()));
+    }
+
+    #[test]
+    fn cross_schema_isolation() {
+        // Simulates multiple apps writing to the same store
+        let store = SharedStore::open_in_memory().expect("open");
+        let pub_id = uuid::Uuid::new_v4().to_string();
+        let task_id = uuid::Uuid::new_v4().to_string();
+        let email_id = uuid::Uuid::new_v4().to_string();
+
+        store
+            .upsert_item(pub_id.clone(), "imbib/bibliography-entry".into(),
+                r#"{"cite_key": "Smith2024", "entry_type": "article", "title": "A Paper"}"#.into())
+            .expect("upsert pub");
+        store
+            .upsert_item(task_id.clone(), "task".into(),
+                r#"{"title": "Review paper", "state": "pending"}"#.into())
+            .expect("upsert task");
+        store
+            .upsert_item(email_id.clone(), "email-message".into(),
+                r#"{"subject": "Re: paper review", "body": "LGTM"}"#.into())
+            .expect("upsert email");
+
+        // Each schema query returns only its own items
+        let pubs = store.query_by_schema("imbib/bibliography-entry".into(), 10, 0).expect("query pubs");
+        assert_eq!(pubs.len(), 1);
+        assert_eq!(pubs[0].id, pub_id);
+
+        let tasks = store.query_by_schema("task".into(), 10, 0).expect("query tasks");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, task_id);
+
+        let emails = store.query_by_schema("email-message".into(), 10, 0).expect("query emails");
+        assert_eq!(emails.len(), 1);
+        assert_eq!(emails[0].id, email_id);
     }
 }

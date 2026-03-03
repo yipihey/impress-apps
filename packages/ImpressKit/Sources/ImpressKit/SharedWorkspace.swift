@@ -81,6 +81,12 @@ public enum SharedWorkspace: Sendable {
         }
         try ensureDirectoryExists()
         try FileManager.default.copyItem(at: legacyURL, to: destination)
+        // Copy WAL/SHM sidecar files if present (SQLite WAL mode).
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = URL(fileURLWithPath: legacyURL.path + suffix)
+            let dest = URL(fileURLWithPath: destination.path + suffix)
+            try? FileManager.default.copyItem(at: sidecar, to: dest)
+        }
         return true
     }
 }
