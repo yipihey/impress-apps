@@ -4,6 +4,7 @@ import PDFKit
 import UniformTypeIdentifiers
 import ImprintCore
 import ImpressKeyboard
+import ImpressKit
 import ImpressOperationQueue
 
 /// Main content view for an imprint document (macOS)
@@ -689,30 +690,16 @@ private struct NotificationHandlersModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .insertCitation)) { _ in
-                appState.showingCitationPicker = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .compileDocument)) { _ in
-                onCompile()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .showVersionHistory)) { _ in
-                appState.showingVersionHistory = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .toggleFocusMode)) { _ in
-                appState.isFocusMode.toggle()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .toggleAIAssistant)) { _ in
-                withAnimation { appState.showingAIAssistant.toggle() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .toggleCommentsSidebar)) { _ in
-                withAnimation { appState.showingComments.toggle() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .exportPDF)) { _ in
-                onExportPDF()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .printPDF)) { _ in
-                onPrintPDF()
-            }
+            .onNotifications([
+                (.insertCitation, { _ in appState.showingCitationPicker = true }),
+                (.compileDocument, { _ in onCompile() }),
+                (.showVersionHistory, { _ in appState.showingVersionHistory = true }),
+                (.toggleFocusMode, { _ in appState.isFocusMode.toggle() }),
+                (.toggleAIAssistant, { _ in withAnimation { appState.showingAIAssistant.toggle() } }),
+                (.toggleCommentsSidebar, { _ in withAnimation { appState.showingComments.toggle() } }),
+                (.exportPDF, { _ in onExportPDF() }),
+                (.printPDF, { _ in onPrintPDF() }),
+            ])
     }
 }
 
