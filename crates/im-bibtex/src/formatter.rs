@@ -49,6 +49,11 @@ fn format_entry_internal(entry: &BibTeXEntry) -> String {
 
 /// Format a field value, choosing appropriate delimiters
 fn format_field_value(value: &str) -> String {
+    // Empty values need braces, not bare output
+    if value.is_empty() {
+        return "{}".to_string();
+    }
+
     // Check if the value is purely numeric
     if value.chars().all(|c| c.is_ascii_digit()) {
         return value.to_string();
@@ -69,7 +74,7 @@ pub fn escape_value(value: &str) -> String {
     for c in value.chars() {
         match c {
             // These characters need escaping in BibTeX
-            '#' | '$' | '%' | '&' | '_' => {
+            '#' | '$' | '%' | '&' | '_' | '{' | '}' | '\\' => {
                 result.push('\\');
                 result.push(c);
             }
