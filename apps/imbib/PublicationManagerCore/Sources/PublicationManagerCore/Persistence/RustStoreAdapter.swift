@@ -65,15 +65,6 @@ public final class RustStoreAdapter {
         self.store = s
         self.imbibStore = s
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
-
-        // Ensure the shared impress-core workspace directory exists so the
-        // cross-app store is reachable from app startup onward.
-        try? SharedWorkspace.ensureDirectoryExists()
-
-        // Register bibliography-entry schema in the shared store (non-blocking).
-        Task {
-            await SharedItemBridge.shared.registerSchemas()
-        }
     }
 
     /// For testing with in-memory store.
@@ -91,10 +82,8 @@ public final class RustStoreAdapter {
     }
 
     private static func databasePath() -> String {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("com.impress.imbib", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        return appDir.appendingPathComponent("imbib.sqlite").path
+        try? SharedWorkspace.ensureDirectoryExists()
+        return SharedWorkspace.databaseURL.path
     }
 
     /// Signal that the store was mutated.
@@ -393,10 +382,6 @@ public final class RustStoreAdapter {
             didMutate()
             UserDefaults.standard.set(true, forKey: "needsStartupDedup")
             let imported = ids.compactMap { UUID(uuidString: $0) }
-            // Mirror each newly imported publication to the shared impress-core store.
-            for id in imported {
-                syncPublicationToSharedStore(id: id)
-            }
             return imported
         } catch {
             Logger.library.error("importBibTeX failed: \(error)")
@@ -470,8 +455,6 @@ public final class RustStoreAdapter {
                 NotificationCenter.default.post(name: .fieldDidChange, object: nil,
                     userInfo: ["publicationIDs": [id]])
             }
-            // Re-sync to shared store after bibliographic field changes (title, abstract, etc.).
-            syncPublicationToSharedStore(id: id)
         } catch {
             Logger.library.error("updateField failed: \(error)")
         }
@@ -516,12 +499,6 @@ public final class RustStoreAdapter {
         do {
             try store.deletePublications(ids: ids.map(\.uuidString))
             didMutate()
-            // Remove deleted publications from the shared impress-core store.
-            for id in ids {
-                Task {
-                    await SharedItemBridge.shared.remove(publicationID: id.uuidString)
-                }
-            }
         } catch {
             Logger.library.error("deletePublications failed: \(error)")
         }
@@ -557,30 +534,6 @@ public final class RustStoreAdapter {
         } catch {
             Logger.library.error("duplicatePublications failed: \(error)")
             return []
-        }
-    }
-
-    // MARK: - Shared Store Bridge
-
-    /// Look up a publication by ID and mirror it to the shared impress-core store.
-    ///
-    /// Uses `PublicationRowData` (a lightweight row snapshot) to avoid the overhead
-    /// of `getPublicationDetail`. The bridge call is dispatched asynchronously so it
-    /// never blocks the calling mutation.
-    private func syncPublicationToSharedStore(id: UUID) {
-        guard let row = getPublication(id: id) else { return }
-        Task {
-            await SharedItemBridge.shared.sync(
-                publicationID: id.uuidString,
-                title: row.title,
-                authors: row.authorString.components(separatedBy: ", "),
-                year: row.year,
-                doi: row.doi,
-                arxivID: row.arxivID,
-                abstract: row.abstract,
-                citeKey: row.citeKey.isEmpty ? nil : row.citeKey,
-                entryType: nil   // entryType not in PublicationRowData; available via getPublicationDetail
-            )
         }
     }
 
