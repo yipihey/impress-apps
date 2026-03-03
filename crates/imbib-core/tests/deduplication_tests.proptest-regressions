@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 97fd38b50f20c6b7c94b0a3a53e165c32bf65f540f2ae926112bbcf78e6efc7a # shrinks to title = " a AA"
+cc 02a9ec142622d8d947ca53680990de9593a962f78ac61f1e3afdf4fc41d634ef # shrinks to title = "     "
