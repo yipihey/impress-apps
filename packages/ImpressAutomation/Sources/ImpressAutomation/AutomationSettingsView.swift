@@ -68,7 +68,7 @@ public struct AutomationSettingsSection: View {
 /// with custom bindings.
 public struct SimpleAutomationSettingsView: View {
     @AppStorage("httpAutomationEnabled") private var httpEnabled = true
-    @AppStorage("httpAutomationPort") private var httpPort: Int
+    @AppStorage("httpAutomationPort") private var httpPort: Int = 23100
 
     public init(defaultPort: Int = 23100) {
         _httpPort = AppStorage(wrappedValue: defaultPort, "httpAutomationPort")
