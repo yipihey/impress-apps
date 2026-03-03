@@ -1,6 +1,6 @@
 //
 //  FlowLayout.swift
-//  PublicationManagerCore
+//  ImpressFTUI
 //
 //  A layout that arranges views horizontally and wraps to new lines as needed.
 //
@@ -8,6 +8,7 @@
 import SwiftUI
 
 /// A layout that arranges views horizontally and wraps to new lines as needed.
+/// Useful for tag chips, badges, and other inline elements.
 public struct FlowLayout: Layout {
     public var spacing: CGFloat
 

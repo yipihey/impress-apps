@@ -60,6 +60,8 @@ public final class RustStoreAdapter {
     // MARK: - Initialization
 
     private init() throws {
+        try SharedWorkspace.ensureDirectoryExists()
+        Self.migrateLegacyDatabaseIfNeeded()
         let dbPath = Self.databasePath()
         let s = try ImbibStore.open(path: dbPath)
         self.store = s
@@ -81,9 +83,36 @@ public final class RustStoreAdapter {
         }
     }
 
+    /// Returns the path to the shared impress-core database.
+    ///
+    /// All imbib data lives in the shared store so other impress apps can
+    /// read bibliography entries directly.
     private static func databasePath() -> String {
-        try? SharedWorkspace.ensureDirectoryExists()
-        return SharedWorkspace.databaseURL.path
+        SharedWorkspace.databasePath
+    }
+
+    /// Path to the legacy per-app database used before the shared-store migration.
+    private static var legacyDatabasePath: String {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appDir = appSupport.appendingPathComponent("com.impress.imbib", isDirectory: true)
+        return appDir.appendingPathComponent("imbib.sqlite").path
+    }
+
+    /// Copies the legacy imbib.sqlite to the shared workspace if it exists
+    /// and the shared database does not. Safe to call multiple times.
+    private static func migrateLegacyDatabaseIfNeeded() {
+        let legacy = URL(fileURLWithPath: legacyDatabasePath)
+        do {
+            let migrated = try SharedWorkspace.migrateLegacyDatabase(from: legacy)
+            if migrated {
+                Logger.library.infoCapture(
+                    "RustStoreAdapter: migrated legacy database to shared workspace",
+                    category: "rust-store"
+                )
+            }
+        } catch {
+            Logger.library.error("RustStoreAdapter: legacy migration failed — \(error)")
+        }
     }
 
     /// Signal that the store was mutated.
@@ -186,9 +215,21 @@ public final class RustStoreAdapter {
     }
 
     /// Query starred publications.
-    public func queryStarred(parentId: UUID? = nil) -> [PublicationRowData] {
+    public func queryStarred(
+        parentId: UUID? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
-            let rows = try store.queryStarred(parentId: parentId?.uuidString)
+            let rows = try store.queryStarred(
+                parentId: parentId?.uuidString,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("queryStarred failed: \(error)")
@@ -197,9 +238,21 @@ public final class RustStoreAdapter {
     }
 
     /// Query unread publications.
-    public func queryUnread(parentId: UUID? = nil) -> [PublicationRowData] {
+    public func queryUnread(
+        parentId: UUID? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
-            let rows = try store.queryUnread(parentId: parentId?.uuidString)
+            let rows = try store.queryUnread(
+                parentId: parentId?.uuidString,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("queryUnread failed: \(error)")
@@ -208,9 +261,23 @@ public final class RustStoreAdapter {
     }
 
     /// Query publications by tag.
-    public func queryByTag(tagPath: String, parentId: UUID? = nil) -> [PublicationRowData] {
+    public func queryByTag(
+        tagPath: String,
+        parentId: UUID? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
-            let rows = try store.queryByTag(tagPath: tagPath, parentId: parentId?.uuidString)
+            let rows = try store.queryByTag(
+                tagPath: tagPath,
+                parentId: parentId?.uuidString,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("queryByTag failed: \(error)")
@@ -219,11 +286,22 @@ public final class RustStoreAdapter {
     }
 
     /// Search publications by text query (searches title, authors, abstract, note).
-    public func searchPublications(query: String, parentId: UUID? = nil) -> [PublicationRowData] {
+    public func searchPublications(
+        query: String,
+        parentId: UUID? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
             let rows = try store.searchPublications(
                 query: query,
-                parentId: parentId?.uuidString
+                parentId: parentId?.uuidString,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
             )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
@@ -233,9 +311,19 @@ public final class RustStoreAdapter {
     }
 
     /// Full-text search (FTS5 in SQLite).
-    public func fullTextSearch(query: String, parentId: UUID? = nil, limit: UInt32? = nil) -> [PublicationRowData] {
+    public func fullTextSearch(
+        query: String,
+        parentId: UUID? = nil,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
-            let rows = try store.fullTextSearch(query: query, parentId: parentId?.uuidString, limit: limit)
+            let rows = try store.fullTextSearch(
+                query: query,
+                parentId: parentId?.uuidString,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("fullTextSearch failed: \(error)")
@@ -266,9 +354,21 @@ public final class RustStoreAdapter {
     }
 
     /// Get flagged publications.
-    public func getFlaggedPublications(color: String? = nil) -> [PublicationRowData] {
+    public func getFlaggedPublications(
+        color: String? = nil,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         do {
-            let rows = try store.getFlaggedPublications(color: color)
+            let rows = try store.getFlaggedPublications(
+                color: color,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("getFlaggedPublications failed: \(error)")
@@ -395,9 +495,6 @@ public final class RustStoreAdapter {
             let count = try store.importFromBibtexFile(path: path, libraryId: libraryId.uuidString)
             didMutate()
             UserDefaults.standard.set(true, forKey: "needsStartupDedup")
-            // Note: importFromBibTeXFile returns only a count (not IDs), so individual
-            // publications are synced lazily when next accessed via getPublication(id:).
-            // A bulk-sync path can be added here once impress-core UniFFI is wired.
             return count
         } catch {
             Logger.library.error("importFromBibTeXFile failed: \(error)")
@@ -1348,41 +1445,92 @@ public final class RustStoreAdapter {
     // MARK: - Source Query Helper
 
     /// Query publications for a given source — central routing for all list views.
-    public func queryPublications(for source: PublicationSource, sort: String = "created", ascending: Bool = false) -> [PublicationRowData] {
+    ///
+    /// All parameters are passed through to the underlying Rust queries, which handle
+    /// sorting via SQL ORDER BY and pagination via LIMIT/OFFSET.
+    public func queryPublications(
+        for source: PublicationSource,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
         switch source {
         case .library(let id):
-            return queryPublications(parentId: id, sort: sort, ascending: ascending)
+            return queryPublications(parentId: id, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .collection(let id):
-            return listCollectionMembers(collectionId: id, sort: sort, ascending: ascending)
+            return listCollectionMembers(collectionId: id, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .smartSearch(let id):
-            // Query publications linked to this smart search via Contains references
-            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending)
+            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .flagged(let color):
-            return getFlaggedPublications(color: color)
+            return getFlaggedPublications(color: color, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .scixLibrary(let id):
-            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending)
+            return queryScixLibraryPublications(scixLibraryId: id, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .unread:
-            return queryUnread()
+            return queryUnread(sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .starred:
-            return queryStarred()
+            return queryStarred(sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .tag(let path):
-            return queryByTag(tagPath: path)
+            return queryByTag(tagPath: path, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .inbox(let id):
-            return queryPublications(parentId: id, sort: sort, ascending: ascending)
+            return queryPublications(parentId: id, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .dismissed:
             guard let idStr = UserDefaults.standard.string(forKey: "dismissedLibraryID"),
                   let dismissedID = UUID(uuidString: idStr) else { return [] }
-            return queryPublications(parentId: dismissedID, sort: sort, ascending: ascending)
+            return queryPublications(parentId: dismissedID, sort: sort, ascending: ascending, limit: limit, offset: offset)
+        }
+    }
+
+    /// Count publications for a given source using SELECT COUNT(*) — no row deserialization.
+    public func countPublications(for source: PublicationSource) -> Int {
+        do {
+            let count: UInt32 = try {
+                switch source {
+                case .library(let id):
+                    return try store.countPublications(parentId: id.uuidString)
+                case .collection(let id):
+                    return try store.countCollectionMembersPublic(collectionId: id.uuidString)
+                case .smartSearch(let id), .scixLibrary(let id):
+                    return try store.countScixLibraryPublications(scixLibraryId: id.uuidString)
+                case .flagged(let color):
+                    return try store.countFlagged(color: color)
+                case .unread:
+                    return try store.countUnread(parentId: nil)
+                case .starred:
+                    return try store.countStarred(parentId: nil)
+                case .tag(let path):
+                    return try store.countByTag(tagPath: path, parentId: nil)
+                case .inbox(let id):
+                    return try store.countPublications(parentId: id.uuidString)
+                case .dismissed:
+                    guard let idStr = UserDefaults.standard.string(forKey: "dismissedLibraryID"),
+                          let dismissedID = UUID(uuidString: idStr) else { return 0 }
+                    return try store.countPublications(parentId: dismissedID.uuidString)
+                }
+            }()
+            return Int(count)
+        } catch {
+            Logger.library.error("countPublications failed: \(error)")
+            return 0
         }
     }
 
     /// Query publications linked to a SciX library via item_references (Contains edges).
     public func queryScixLibraryPublications(
-        scixLibraryId: UUID, sort: String = "created", ascending: Bool = false
+        scixLibraryId: UUID,
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
     ) -> [PublicationRowData] {
         do {
             let rows = try store.queryScixLibraryPublications(
-                scixLibraryId: scixLibraryId.uuidString, sortField: sort, ascending: ascending)
+                scixLibraryId: scixLibraryId.uuidString,
+                sortField: sort,
+                ascending: ascending,
+                limit: limit,
+                offset: offset
+            )
             return rows.compactMap { PublicationRowData(from: $0) }
         } catch {
             Logger.library.error("queryScixLibraryPublications failed: \(error)")

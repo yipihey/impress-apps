@@ -122,13 +122,86 @@ impress-apps/
 ├── apps/
 │   ├── imbib/          # Bibliography & paper management
 │   ├── imprint/        # Typst manuscript authoring
-│   └── implore/        # Data visualization
+│   ├── implore/        # Data visualization
+│   ├── impel/          # AI agent orchestration
+│   └── impart/         # Communication & email
 ├── packages/
-│   ├── ImpressKit/     # Shared Swift utilities
+│   ├── ImpressKit/     # Shared Swift utilities + NotificationHandlerModifier
 │   ├── ImpressAI/      # AI integration layer
+│   ├── ImpressKeyboard/# Keyboard guarding, PaneFocusCycler, shortcuts
+│   ├── ImpressSidebar/ # SidebarOutlineView, ImpressSplitView, tree components
+│   ├── ImpressFTUI/    # FilterInput, TagChip, FlowLayout, flag/tag UI
+│   ├── ImpressLogging/ # LogStore, LogCapture, ConsoleView
+│   ├── ImpressAutomation/ # HTTPServer, HTTPRouter, AutomationSettingsSection
+│   ├── ImpressTheme/   # AppearanceMode, AppearanceSettingsSection, font scale
+│   ├── ImpressCommandPalette/ # Command registry and palette view
 │   └── impress-mcp/    # MCP server for agent integration
 └── crates/
     └── imbib-core/     # Rust core for imbib
+```
+
+## Shared UI Patterns
+
+These packages enforce the "Consistency Creates Capability" principle. **Always use the shared version** instead of implementing app-specific variants.
+
+### Console Window (`ImpressLogging`)
+Every app gets a debug console window. Use the shared `ConsoleView`:
+```swift
+import ImpressLogging
+ConsoleView(appName: "imbib")  // parameterized export filename
+```
+
+### Keyboard Navigation (`ImpressKeyboard`)
+- **`.keyboardGuarded { press in ... }`** — Always use this for unmodified character key handlers (j/k/h/l/etc.)
+- **`PaneFocusCycler`** — Conform your app's pane enum to `PaneFocus` for h/l cycling:
+```swift
+enum MyPane: String, PaneFocus {
+    case sidebar, list, detail
+    static let allPanes: [MyPane] = [.sidebar, .list, .detail]
+}
+// Then: $focusedPane.cycleRight() / $focusedPane.cycleLeft()
+```
+
+### Two-Pane Split Layout (`ImpressSidebar`)
+Use `ImpressSplitView` instead of hand-rolling the HSplitView+ZStack+ignoresSafeArea pattern:
+```swift
+import ImpressSidebar
+ImpressSplitView(listMinWidth: 200, detailMinWidth: 300) {
+    PublicationListView(...)
+} detail: {
+    DetailView(...)
+        .detailScrollClearance()  // adds .padding(.top, 40)
+}
+```
+
+### Notification Handlers (`ImpressKit`)
+Replace chains of `.onReceive(NotificationCenter...)` with `.onNotifications`:
+```swift
+import ImpressKit
+.onNotifications([
+    (.insertCitation, { _ in showCitationPicker = true }),
+    (.compileDocument, { _ in compile() }),
+    (.toggleFocusMode, { _ in focusMode.toggle() }),
+])
+```
+
+### Automation Settings (`ImpressAutomation`)
+Use the shared section instead of custom toggle+port UI:
+```swift
+import ImpressAutomation
+AutomationSettingsSection(httpEnabled: $enabled, httpPort: $port, logRequests: $logging)
+// Or for simple apps:
+SimpleAutomationSettingsView(defaultPort: 23120)
+```
+
+### Tags & Layout (`ImpressFTUI`)
+- **`FlowLayout(spacing: 8)`** — Wrapping horizontal layout for chips/tags/badges
+- **`TagChip`**, **`FilterInput`**, **`FlagInput`** — Consistent tag/filter UI
+
+### Appearance (`ImpressTheme`)
+```swift
+import ImpressTheme
+AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 ```
 
 ## Coding Conventions
