@@ -8,9 +8,9 @@
 import SwiftUI
 import Combine
 
-/// A view modifier that attaches multiple NotificationCenter observers.
-///
-/// Reduces boilerplate when a view needs to respond to several notifications.
+/// A view modifier that attaches multiple NotificationCenter observers
+/// using a single `onReceive` with a merged publisher instead of
+/// wrapping in nested `AnyView` layers.
 ///
 /// Usage:
 /// ```swift
@@ -28,14 +28,23 @@ public struct NotificationHandlerModifier: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
-        handlers.reduce(AnyView(content)) { view, handler in
-            AnyView(
-                view.onReceive(
-                    NotificationCenter.default.publisher(for: handler.name)
-                ) { notification in
+        content
+            .onReceive(mergedPublisher) { notification in
+                for handler in handlers where handler.name == notification.name {
                     handler.action(notification)
                 }
-            )
+            }
+    }
+
+    private var mergedPublisher: AnyPublisher<Notification, Never> {
+        let publishers = handlers.map {
+            NotificationCenter.default.publisher(for: $0.name)
+        }
+        guard let first = publishers.first else {
+            return Empty<Notification, Never>().eraseToAnyPublisher()
+        }
+        return publishers.dropFirst().reduce(first.eraseToAnyPublisher()) { merged, next in
+            merged.merge(with: next).eraseToAnyPublisher()
         }
     }
 }

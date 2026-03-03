@@ -10,11 +10,10 @@ struct ImpressThemeTests {
         #expect(AppearanceMode.dark.colorScheme == .dark)
     }
 
-    @Test("Color hex initialization")
-    func colorHexInit() {
-        #expect(Color(hex: "#FF0000") != nil)
-        #expect(Color(hex: "00FF00") != nil)
-        #expect(Color(hex: "invalid") == nil)
-        #expect(Color(hex: "") == nil)
+    @Test("AppearanceMode display names")
+    func appearanceModeDisplayNames() {
+        #expect(AppearanceMode.system.displayName == "System")
+        #expect(AppearanceMode.light.displayName == "Light")
+        #expect(AppearanceMode.dark.displayName == "Dark")
     }
 }

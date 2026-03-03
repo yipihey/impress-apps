@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+// MARK: - Shared Formatter
+
+private let consoleTimeFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "HH:mm:ss"
+    return f
+}()
+
 // MARK: - Console View
 
 public struct ConsoleView: View {
@@ -205,13 +213,10 @@ public struct ConsoleView: View {
     private func copySelectedEntries() {
         guard !selection.isEmpty else { return }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-
         let selectedEntries = filteredEntries.filter { selection.contains($0.id) }
 
         let text = selectedEntries.map { entry in
-            let time = formatter.string(from: entry.timestamp)
+            let time = consoleTimeFormatter.string(from: entry.timestamp)
             let level = entry.level.rawValue.uppercased()
             return "\(time) [\(level)] [\(entry.category)] \(entry.message)"
         }.joined(separator: "\n")
@@ -266,9 +271,7 @@ public struct ConsoleRowView: View {
     }
 
     private var timeString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: entry.timestamp)
+        consoleTimeFormatter.string(from: entry.timestamp)
     }
 
     public var body: some View {

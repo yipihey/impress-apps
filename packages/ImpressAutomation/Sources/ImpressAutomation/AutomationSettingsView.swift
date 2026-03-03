@@ -70,12 +70,7 @@ public struct SimpleAutomationSettingsView: View {
     @AppStorage("httpAutomationEnabled") private var httpEnabled = true
     @AppStorage("httpAutomationPort") private var httpPort: Int
 
-    private let defaultPort: Int
-
     public init(defaultPort: Int = 23100) {
-        self.defaultPort = defaultPort
-        // AppStorage needs the default set in the property wrapper,
-        // but we parameterize via init for different apps
         _httpPort = AppStorage(wrappedValue: defaultPort, "httpAutomationPort")
     }
 

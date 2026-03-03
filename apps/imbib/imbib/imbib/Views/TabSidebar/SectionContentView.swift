@@ -758,17 +758,15 @@ struct SectionContentView: View {
         NSPasteboard.general.setString(bibtex, forType: .string)
     }
 
-    /// Get the web URL for a publication (DOI > arXiv > ADS)
+    /// Preferred web URL for a publication (DOI > arXiv > ADS bibcode).
+    /// Single source of truth for URL resolution — used by copyLink, shareText, shareViaEmail.
     private func webURL(for pub: PublicationRowData) -> URL? {
-        // Prefer DOI
         if let doi = pub.doi, !doi.isEmpty {
             return URL(string: "https://doi.org/\(doi)")
         }
-        // Then arXiv
         if let arxivID = pub.arxivID, !arxivID.isEmpty {
             return URL(string: "https://arxiv.org/abs/\(arxivID)")
         }
-        // Then ADS bibcode
         if let bibcode = pub.bibcode, bibcode.count == 19 {
             return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
         }
@@ -776,25 +774,9 @@ struct SectionContentView: View {
     }
 
     private func copyLink(for pub: PublicationRowData) {
-        var link: String?
-
-        // Prefer DOI
-        if let doi = pub.doi, !doi.isEmpty {
-            link = "https://doi.org/\(doi)"
-        }
-        // Then arXiv
-        else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            link = "https://arxiv.org/abs/\(arxivID)"
-        }
-        // Then ADS bibcode
-        else if let bibcode = pub.bibcode, bibcode.count == 19 {
-            link = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
-        }
-
-        if let link {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(link, forType: .string)
-        }
+        guard let url = webURL(for: pub) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     private func shareViaEmail(_ pub: PublicationRowData) {
@@ -820,12 +802,8 @@ struct SectionContentView: View {
         }
 
         // URL
-        if let doi = pub.doi, !doi.isEmpty {
-            body.append("Link: https://doi.org/\(doi)")
-        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            body.append("Link: https://arxiv.org/abs/\(arxivID)")
-        } else if let bibcode = pub.bibcode, bibcode.count == 19 {
-            body.append("Link: https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+        if let url = webURL(for: pub) {
+            body.append("Link: \(url.absoluteString)")
         }
 
         // Abstract
@@ -893,15 +871,9 @@ struct SectionContentView: View {
         }
 
         // URL (prefer DOI, then arXiv, then ADS)
-        if let doi = pub.doi, !doi.isEmpty {
+        if let url = webURL(for: pub) {
             lines.append("")
-            lines.append("https://doi.org/\(doi)")
-        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            lines.append("")
-            lines.append("https://arxiv.org/abs/\(arxivID)")
-        } else if let bibcode = pub.bibcode, bibcode.count == 19 {
-            lines.append("")
-            lines.append("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+            lines.append(url.absoluteString)
         }
 
         // Citation key for reference
