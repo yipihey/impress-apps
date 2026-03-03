@@ -1321,7 +1321,7 @@ public final class RustStoreAdapter {
     /// Count starred publications.
     public func countStarred(parentId: UUID? = nil) -> Int {
         do {
-            return try store.queryStarred(parentId: parentId?.uuidString).count
+            return try store.queryStarred(parentId: parentId?.uuidString, sortField: "created", ascending: false, limit: nil, offset: nil).count
         } catch {
             Logger.library.error("countStarred failed: \(error)")
             return 0

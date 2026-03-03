@@ -616,6 +616,21 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func countArtifacts(schemaFilter: String?) throws  -> UInt32
     
+    /**
+     * Count publications with a given tag. Uses SELECT COUNT(*).
+     */
+    func countByTag(tagPath: String, parentId: String?) throws  -> UInt32
+    
+    /**
+     * Count publications referenced by a collection. Uses SELECT COUNT(*).
+     */
+    func countCollectionMembersPublic(collectionId: String) throws  -> UInt32
+    
+    /**
+     * Count flagged publications. Uses SELECT COUNT(*).
+     */
+    func countFlagged(color: String?) throws  -> UInt32
+    
     func countPdfs(publicationId: String) throws  -> UInt32
     
     /**
@@ -623,6 +638,21 @@ public protocol ImbibStoreProtocol : AnyObject {
      * instead of deserializing all rows — much faster for widget badge counts.
      */
     func countPublications(parentId: String?) throws  -> UInt32
+    
+    /**
+     * Count publications referenced by a SciX library. Uses SELECT COUNT(*).
+     */
+    func countScixLibraryPublications(scixLibraryId: String) throws  -> UInt32
+    
+    /**
+     * Count publications matching a text search. Uses SELECT COUNT(*).
+     */
+    func countSearchResults(query: String, parentId: String?) throws  -> UInt32
+    
+    /**
+     * Count starred publications. Uses SELECT COUNT(*).
+     */
+    func countStarred(parentId: String?) throws  -> UInt32
     
     func countUnread(parentId: String?) throws  -> UInt32
     
@@ -718,7 +748,7 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func findByIdentifiersBatch(dois: [String], arxivIds: [String], bibcodes: [String]) throws  -> [BibliographyRow]
     
-    func fullTextSearch(query: String, parentId: String?, limit: UInt32?) throws  -> [BibliographyRow]
+    func fullTextSearch(query: String, parentId: String?, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     /**
      * Get a single artifact by ID.
@@ -732,7 +762,7 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func getDefaultLibrary() throws  -> LibraryRow?
     
-    func getFlaggedPublications(color: String?) throws  -> [BibliographyRow]
+    func getFlaggedPublications(color: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     func getInboxLibrary() throws  -> LibraryRow?
     
@@ -810,7 +840,7 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func movePublications(ids: [String], toLibraryId: String) throws  -> UndoInfo
     
-    func queryByTag(tagPath: String, parentId: String?) throws  -> [BibliographyRow]
+    func queryByTag(tagPath: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     /**
      * Return just the UUID strings of publications in a library (skips full row conversion).
@@ -828,11 +858,11 @@ public protocol ImbibStoreProtocol : AnyObject {
      * parent relationships. This method uses `Predicate::ReferencedBy` to find all
      * bibliography entries that are targets of Contains edges from the given SciX library.
      */
-    func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool) throws  -> [BibliographyRow]
+    func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
-    func queryStarred(parentId: String?) throws  -> [BibliographyRow]
+    func queryStarred(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
-    func queryUnread(parentId: String?) throws  -> [BibliographyRow]
+    func queryUnread(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     func removeFromCollection(publicationIds: [String], collectionId: String) throws  -> UndoInfo
     
@@ -853,7 +883,7 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func searchArtifacts(query: String, schemaFilter: String?) throws  -> [ArtifactRow]
     
-    func searchPublications(query: String, parentId: String?) throws  -> [BibliographyRow]
+    func searchPublications(query: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     func setFlag(ids: [String], color: String?, style: String?, length: String?) throws  -> UndoInfo
     
@@ -1055,6 +1085,40 @@ open func countArtifacts(schemaFilter: String?)throws  -> UInt32 {
 })
 }
     
+    /**
+     * Count publications with a given tag. Uses SELECT COUNT(*).
+     */
+open func countByTag(tagPath: String, parentId: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_by_tag(self.uniffiClonePointer(),
+        FfiConverterString.lower(tagPath),
+        FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Count publications referenced by a collection. Uses SELECT COUNT(*).
+     */
+open func countCollectionMembersPublic(collectionId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_collection_members_public(self.uniffiClonePointer(),
+        FfiConverterString.lower(collectionId),$0
+    )
+})
+}
+    
+    /**
+     * Count flagged publications. Uses SELECT COUNT(*).
+     */
+open func countFlagged(color: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_flagged(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(color),$0
+    )
+})
+}
+    
 open func countPdfs(publicationId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_pdfs(self.uniffiClonePointer(),
@@ -1070,6 +1134,40 @@ open func countPdfs(publicationId: String)throws  -> UInt32 {
 open func countPublications(parentId: String?)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_publications(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Count publications referenced by a SciX library. Uses SELECT COUNT(*).
+     */
+open func countScixLibraryPublications(scixLibraryId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_scix_library_publications(self.uniffiClonePointer(),
+        FfiConverterString.lower(scixLibraryId),$0
+    )
+})
+}
+    
+    /**
+     * Count publications matching a text search. Uses SELECT COUNT(*).
+     */
+open func countSearchResults(query: String, parentId: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_search_results(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Count starred publications. Uses SELECT COUNT(*).
+     */
+open func countStarred(parentId: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_starred(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(parentId),$0
     )
 })
@@ -1426,12 +1524,13 @@ open func findByIdentifiersBatch(dois: [String], arxivIds: [String], bibcodes: [
 })
 }
     
-open func fullTextSearch(query: String, parentId: String?, limit: UInt32?)throws  -> [BibliographyRow] {
+open func fullTextSearch(query: String, parentId: String?, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_full_text_search(self.uniffiClonePointer(),
         FfiConverterString.lower(query),
         FfiConverterOptionString.lower(parentId),
-        FfiConverterOptionUInt32.lower(limit),$0
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -1465,10 +1564,14 @@ open func getDefaultLibrary()throws  -> LibraryRow? {
 })
 }
     
-open func getFlaggedPublications(color: String?)throws  -> [BibliographyRow] {
+open func getFlaggedPublications(color: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_get_flagged_publications(self.uniffiClonePointer(),
-        FfiConverterOptionString.lower(color),$0
+        FfiConverterOptionString.lower(color),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -1743,11 +1846,15 @@ open func movePublications(ids: [String], toLibraryId: String)throws  -> UndoInf
 })
 }
     
-open func queryByTag(tagPath: String, parentId: String?)throws  -> [BibliographyRow] {
+open func queryByTag(tagPath: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_query_by_tag(self.uniffiClonePointer(),
         FfiConverterString.lower(tagPath),
-        FfiConverterOptionString.lower(parentId),$0
+        FfiConverterOptionString.lower(parentId),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -1791,28 +1898,38 @@ open func queryRecent(limit: UInt32, parentId: String?)throws  -> [BibliographyR
      * parent relationships. This method uses `Predicate::ReferencedBy` to find all
      * bibliography entries that are targets of Contains edges from the given SciX library.
      */
-open func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool)throws  -> [BibliographyRow] {
+open func queryScixLibraryPublications(scixLibraryId: String, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_query_scix_library_publications(self.uniffiClonePointer(),
         FfiConverterString.lower(scixLibraryId),
         FfiConverterString.lower(sortField),
-        FfiConverterBool.lower(ascending),$0
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
     
-open func queryStarred(parentId: String?)throws  -> [BibliographyRow] {
+open func queryStarred(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_query_starred(self.uniffiClonePointer(),
-        FfiConverterOptionString.lower(parentId),$0
+        FfiConverterOptionString.lower(parentId),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
     
-open func queryUnread(parentId: String?)throws  -> [BibliographyRow] {
+open func queryUnread(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_query_unread(self.uniffiClonePointer(),
-        FfiConverterOptionString.lower(parentId),$0
+        FfiConverterOptionString.lower(parentId),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -1869,11 +1986,15 @@ open func searchArtifacts(query: String, schemaFilter: String?)throws  -> [Artif
 })
 }
     
-open func searchPublications(query: String, parentId: String?)throws  -> [BibliographyRow] {
+open func searchPublications(query: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_search_publications(self.uniffiClonePointer(),
         FfiConverterString.lower(query),
-        FfiConverterOptionString.lower(parentId),$0
+        FfiConverterOptionString.lower(parentId),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -19471,10 +19592,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_count_artifacts() != 54054) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_by_tag() != 16601) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_collection_members_public() != 56890) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_flagged() != 43029) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_pdfs() != 36052) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_publications() != 30615) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_scix_library_publications() != 36137) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_search_results() != 42665) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_starred() != 27445) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_unread() != 53670) {
@@ -19576,7 +19715,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_find_by_identifiers_batch() != 4339) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_full_text_search() != 23621) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_full_text_search() != 13208) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_get_artifact() != 45468) {
@@ -19588,7 +19727,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_get_default_library() != 52853) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_get_flagged_publications() != 42453) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_flagged_publications() != 50469) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_get_inbox_library() != 31158) {
@@ -19681,7 +19820,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 10397) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_query_by_tag() != 42269) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_by_tag() != 57550) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_publication_ids() != 54620) {
@@ -19693,13 +19832,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_recent() != 35555) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_query_scix_library_publications() != 12037) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_scix_library_publications() != 59774) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_query_starred() != 46076) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_starred() != 35816) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_query_unread() != 10776) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_unread() != 17038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_collection() != 19847) {
@@ -19717,7 +19856,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_search_artifacts() != 15549) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_search_publications() != 7240) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_search_publications() != 3400) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_flag() != 7218) {

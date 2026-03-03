@@ -544,6 +544,14 @@ public protocol SharedStoreProtocol : AnyObject {
     func search(query: String, schemaFilter: String?, limit: UInt32) throws  -> [SharedItemRow]
     
     /**
+     * Set or clear a flag on an item.
+     *
+     * Pass `None` for `color` to clear the flag entirely.
+     * `style` and `length` are optional refinements (e.g. "dashed", "half").
+     */
+    func setFlag(id: String, color: String?, style: String?, length: String?) throws 
+    
+    /**
      * Mark an item as read or unread.
      */
     func setRead(id: String, isRead: Bool) throws 
@@ -728,6 +736,22 @@ open func search(query: String, schemaFilter: String?, limit: UInt32)throws  -> 
 }
     
     /**
+     * Set or clear a flag on an item.
+     *
+     * Pass `None` for `color` to clear the flag entirely.
+     * `style` and `length` are optional refinements (e.g. "dashed", "half").
+     */
+open func setFlag(id: String, color: String?, style: String?, length: String?)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_set_flag(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterOptionString.lower(color),
+        FfiConverterOptionString.lower(style),
+        FfiConverterOptionString.lower(length),$0
+    )
+}
+}
+    
+    /**
      * Mark an item as read or unread.
      */
 open func setRead(id: String, isRead: Bool)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
@@ -841,13 +865,20 @@ public struct SharedItemRow {
     public var isRead: Bool
     public var isStarred: Bool
     public var tags: [String]
+    /**
+     * Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
+     */
+    public var flagColor: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(id: String, schemaRef: String, payloadJson: String, 
         /**
          * Item creation timestamp in milliseconds since Unix epoch.
-         */createdMs: Int64, isRead: Bool, isStarred: Bool, tags: [String]) {
+         */createdMs: Int64, isRead: Bool, isStarred: Bool, tags: [String], 
+        /**
+         * Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
+         */flagColor: String?) {
         self.id = id
         self.schemaRef = schemaRef
         self.payloadJson = payloadJson
@@ -855,6 +886,7 @@ public struct SharedItemRow {
         self.isRead = isRead
         self.isStarred = isStarred
         self.tags = tags
+        self.flagColor = flagColor
     }
 }
 
@@ -883,6 +915,9 @@ extension SharedItemRow: Equatable, Hashable {
         if lhs.tags != rhs.tags {
             return false
         }
+        if lhs.flagColor != rhs.flagColor {
+            return false
+        }
         return true
     }
 
@@ -894,6 +929,7 @@ extension SharedItemRow: Equatable, Hashable {
         hasher.combine(isRead)
         hasher.combine(isStarred)
         hasher.combine(tags)
+        hasher.combine(flagColor)
     }
 }
 
@@ -911,7 +947,8 @@ public struct FfiConverterTypeSharedItemRow: FfiConverterRustBuffer {
                 createdMs: FfiConverterInt64.read(from: &buf), 
                 isRead: FfiConverterBool.read(from: &buf), 
                 isStarred: FfiConverterBool.read(from: &buf), 
-                tags: FfiConverterSequenceString.read(from: &buf)
+                tags: FfiConverterSequenceString.read(from: &buf), 
+                flagColor: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -923,6 +960,7 @@ public struct FfiConverterTypeSharedItemRow: FfiConverterRustBuffer {
         FfiConverterBool.write(value.isRead, into: &buf)
         FfiConverterBool.write(value.isStarred, into: &buf)
         FfiConverterSequenceString.write(value.tags, into: &buf)
+        FfiConverterOptionString.write(value.flagColor, into: &buf)
     }
 }
 
@@ -1158,6 +1196,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_search() != 42949) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_flag() != 6264) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_read() != 9862) {
