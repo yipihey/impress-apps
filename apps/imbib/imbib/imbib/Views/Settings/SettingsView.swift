@@ -31,6 +31,7 @@ struct SettingsView: View {
                     SettingsSidebarRow(tab: .pdf)
                     SettingsSidebarRow(tab: .sources)
                     SettingsSidebarRow(tab: .enrichment)
+                    SettingsSidebarRow(tab: .searchAI)
                 }
 
                 Section("Inbox & Feeds") {
@@ -99,6 +100,8 @@ struct SettingsView: View {
         case .enrichment:
             EnrichmentSettingsTab()
                 .accessibilityIdentifier(AccessibilityID.Settings.Tabs.enrichment)
+        case .searchAI:
+            EmbeddingSettingsView()
         case .inbox:
             InboxSettingsTab()
                 .accessibilityIdentifier(AccessibilityID.Settings.Tabs.inbox)
@@ -146,6 +149,7 @@ enum SettingsTab: String, CaseIterable {
     case sources
     case pdf
     case enrichment
+    case searchAI
     case inbox
     case recommendations  // ADR-020
     case sync
@@ -164,6 +168,7 @@ enum SettingsTab: String, CaseIterable {
         case .sources: return "Sources"
         case .pdf: return "PDF"
         case .enrichment: return "Enrichment"
+        case .searchAI: return "Search & AI"
         case .inbox: return "Inbox"
         case .recommendations: return "Recommendations"
         case .sync: return "Sync"
@@ -184,6 +189,7 @@ enum SettingsTab: String, CaseIterable {
         case .sources: return "globe"
         case .pdf: return "doc.richtext"
         case .enrichment: return "arrow.triangle.2.circlepath"
+        case .searchAI: return "brain"
         case .inbox: return "tray"
         case .recommendations: return "sparkles"
         case .sync: return "icloud"
@@ -204,6 +210,7 @@ enum SettingsTab: String, CaseIterable {
         case .sources: return "API keys for online sources"
         case .pdf: return "PDF download settings"
         case .enrichment: return "Citation sources and metadata enrichment"
+        case .searchAI: return "Embedding provider and search intelligence"
         case .inbox: return "Feed subscriptions and mute rules"
         case .recommendations: return "Configure transparent recommendation engine"
         case .sync: return "iCloud sync settings"

@@ -324,6 +324,76 @@ public actor EmbeddingService {
         Logger.embeddingService.info("Embedding index cleared")
     }
 
+    /// Compute an embedding for arbitrary text (public wrapper for RAG query embedding).
+    public nonisolated func embedText(_ text: String) -> [Float] {
+        computeTextEmbedding(text)
+    }
+
+    /// Force a full rebuild of the embedding index from all libraries.
+    public func forceRebuild() async {
+        await clearIndex()
+        needsLazyBuild = true
+        await ensureIndexReady()
+    }
+
+    /// Find similar publications using chunk-level content embeddings when available.
+    ///
+    /// This provides deeper similarity based on full paper content rather than
+    /// just metadata (title/abstract). Falls back to metadata-based similarity
+    /// if the paper hasn't been chunk-indexed.
+    ///
+    /// - Parameters:
+    ///   - publicationID: The publication ID to find similar papers for
+    ///   - topK: Maximum number of results to return
+    /// - Returns: Array of (publicationId, similarity) pairs
+    public func findSimilarByContent(to publicationID: UUID, topK: Int = 10) async -> [SimilarityResult] {
+        // Try chunk-level similarity first
+        let store = RustEmbeddingStoreSession()
+        let opened = await store.openDefault()
+        guard opened else {
+            // Fall back to metadata-based
+            return await findSimilar(to: publicationID, topK: topK)
+        }
+
+        let chunks = await store.getChunks(publicationId: publicationID.uuidString)
+        guard !chunks.isEmpty else {
+            await store.close()
+            Logger.embeddingService.debug("No chunks for \(publicationID.uuidString), falling back to metadata similarity")
+            return await findSimilar(to: publicationID, topK: topK)
+        }
+
+        // Compute centroid embedding from all chunk embeddings for this paper
+        let chunkVectors = await store.loadVectorsByType("chunk")
+        await store.close()
+
+        let myChunkIds = Set(chunks.map(\.id))
+        let myVectors = chunkVectors.filter { myChunkIds.contains($0.sourceId) }.map(\.vector)
+
+        guard !myVectors.isEmpty, let dim = myVectors.first?.count else {
+            return await findSimilar(to: publicationID, topK: topK)
+        }
+
+        // Compute centroid of this paper's chunk embeddings
+        var centroid = [Float](repeating: 0, count: dim)
+        for vec in myVectors {
+            for i in 0..<min(dim, vec.count) {
+                centroid[i] += vec[i]
+            }
+        }
+        let count = Float(myVectors.count)
+        centroid = centroid.map { $0 / count }
+
+        // Search the publication-level index with this centroid
+        guard let index = annIndex, isIndexBuilt else {
+            return []
+        }
+
+        var results = await index.findSimilar(to: centroid, topK: topK + 1)
+        // Remove self from results
+        results.removeAll { $0.publicationId == publicationID.uuidString }
+        return Array(results.prefix(topK))
+    }
+
     // MARK: - Group Recommendations
 
     /// Find publications similar to the collective content of a library.

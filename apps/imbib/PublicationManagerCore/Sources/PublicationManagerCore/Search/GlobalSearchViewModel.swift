@@ -94,21 +94,22 @@ public final class GlobalSearchViewModel {
             try? await Task.sleep(for: debounceDelay)
             guard !Task.isCancelled else { return }
 
-            // Run both searches in parallel
+            // Run all three searches in parallel
             async let ftsTask = performFulltextSearch()
             async let semanticTask = performSemanticSearch()
+            async let chunkTask = performChunkSearch()
 
-            let (ftsResults, semanticResults) = await (ftsTask, semanticTask)
+            let (ftsResults, semanticResults, chunkResults) = await (ftsTask, semanticTask, chunkTask)
 
             guard !Task.isCancelled else { return }
 
             // Merge and deduplicate results
-            let merged = mergeResults(fts: ftsResults, semantic: semanticResults)
+            let merged = mergeResults(fts: ftsResults, semantic: semanticResults, chunks: chunkResults)
 
             results = merged
             isSearching = false
 
-            logger.debug("Global search for '\(self.query)' returned \(merged.count) results (FTS: \(ftsResults.count), Semantic: \(semanticResults.count))")
+            logger.debug("Global search for '\(self.query)' returned \(merged.count) results (FTS: \(ftsResults.count), Semantic: \(semanticResults.count), Chunks: \(chunkResults.count))")
         }
     }
 
@@ -190,15 +191,72 @@ public final class GlobalSearchViewModel {
         return results
     }
 
-    /// Merge fulltext and semantic results, deduplicating by publication ID.
+    // MARK: - Chunk Search
+
+    /// Perform chunk-level search using the embedding store and chunk index.
+    private func performChunkSearch() async -> [ChunkPassageResult] {
+        let store = RustEmbeddingStoreSession()
+        let opened = await store.openDefault()
+        guard opened else { return [] }
+
+        let chunkCount = await store.chunkCount()
+        guard chunkCount > 0 else {
+            await store.close()
+            return []
+        }
+
+        // Embed the query
+        let queryEmbedding = await EmbeddingService.shared.embedText(query)
+        guard !queryEmbedding.isEmpty else {
+            await store.close()
+            return []
+        }
+
+        // Build a temporary chunk index and search
+        let chunkIndex = RustChunkIndexSession()
+        await chunkIndex.initialize()
+
+        let chunkVectors = await store.loadVectorsByType("chunk")
+        if !chunkVectors.isEmpty {
+            let items = chunkVectors.map { v in
+                ChunkIndexItem(chunkId: v.sourceId, publicationId: v.sourceId, embedding: v.vector)
+            }
+            await chunkIndex.addBatch(items)
+        }
+
+        let results = await chunkIndex.search(query: queryEmbedding, topK: 10)
+        await chunkIndex.close()
+
+        // Enrich with chunk text
+        var passageResults: [ChunkPassageResult] = []
+        for result in results where result.similarity > 0.3 {
+            if let chunk = await store.getChunk(chunkId: result.chunkId),
+               let pubId = UUID(uuidString: result.publicationId) {
+                passageResults.append(ChunkPassageResult(
+                    publicationId: pubId,
+                    chunkText: chunk.text,
+                    pageNumber: chunk.pageNumber.map { Int($0) },
+                    similarity: result.similarity
+                ))
+            }
+        }
+
+        await store.close()
+        logger.debug("Chunk search returned \(passageResults.count) passage results")
+        return passageResults
+    }
+
+    /// Merge fulltext, semantic, and chunk results, deduplicating by publication ID.
     ///
     /// - Parameters:
     ///   - fts: Fulltext search results
     ///   - semantic: Semantic similarity results
+    ///   - chunks: Chunk-level passage results
     /// - Returns: Merged and sorted global search results
     private func mergeResults(
         fts: [FullTextSearchResult],
-        semantic: [SimilarityResult]
+        semantic: [SimilarityResult],
+        chunks: [ChunkPassageResult] = []
     ) -> [GlobalSearchResult] {
         let store = RustStoreAdapter.shared
 
@@ -215,9 +273,19 @@ public final class GlobalSearchViewModel {
             }
         }
 
+        // Build chunk map (best chunk per publication)
+        var chunkMap: [UUID: ChunkPassageResult] = [:]
+        for result in chunks {
+            let existing = chunkMap[result.publicationId]
+            if existing == nil || result.similarity > existing!.similarity {
+                chunkMap[result.publicationId] = result
+            }
+        }
+
         // Collect all unique publication IDs
         var allIDs = Set(ftsMap.keys)
         allIDs.formUnion(semanticMap.keys)
+        allIDs.formUnion(chunkMap.keys)
 
         // Pre-build library membership map ONCE for all results (avoids O(N*M*P) per-result lookup)
         let allLibraries = store.listLibraries()
@@ -235,6 +303,7 @@ public final class GlobalSearchViewModel {
         for id in allIDs {
             let ftsResult = ftsMap[id]
             let semanticResult = semanticMap[id]
+            let chunkResult = chunkMap[id]
 
             // Fetch metadata — library names come from pre-built map
             let metadata = fetchFullPublicationMetadata(id: id, libraryNames: pubToLibraryNames[id]?.sorted() ?? [])
@@ -252,6 +321,10 @@ public final class GlobalSearchViewModel {
                 matchType = .both
             } else if ftsResult != nil {
                 matchType = .fulltext
+            } else if chunkResult != nil && (ftsResult != nil || semanticResult != nil) {
+                matchType = .both
+            } else if chunkResult != nil {
+                matchType = .passage
             } else {
                 matchType = .semantic
             }
@@ -281,9 +354,23 @@ public final class GlobalSearchViewModel {
                 // Semantic results get similarity (0–1 range), always below FTS base of 100
                 score += sem.similarity
             }
+            if let chunk = chunkResult {
+                // Passage results score between semantic-only and FTS
+                // Higher similarity = closer to FTS-level ranking
+                score += chunk.similarity * 50.0
+            }
 
-            // Get snippet from FTS if available
-            let snippet = ftsResult?.snippet
+            // Get snippet: prefer FTS snippet, fall back to chunk passage text
+            let snippet: String?
+            if let ftsSnippet = ftsResult?.snippet {
+                snippet = ftsSnippet
+            } else if let chunk = chunkResult {
+                let pageLabel = chunk.pageNumber.map { " (p.\($0 + 1))" } ?? ""
+                let preview = String(chunk.chunkText.prefix(150))
+                snippet = preview + pageLabel
+            } else {
+                snippet = nil
+            }
 
             let result = GlobalSearchResult(
                 id: id,
@@ -552,4 +639,14 @@ public final class GlobalSearchViewModel {
             isStarred: pub.isStarred
         )
     }
+}
+
+// MARK: - Chunk Passage Result
+
+/// Internal result type for chunk-level search results.
+struct ChunkPassageResult {
+    let publicationId: UUID
+    let chunkText: String
+    let pageNumber: Int?
+    let similarity: Float
 }

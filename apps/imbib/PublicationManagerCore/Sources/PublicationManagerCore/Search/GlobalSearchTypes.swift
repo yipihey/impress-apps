@@ -17,6 +17,8 @@ public enum GlobalSearchMatchType: String, Sendable, Codable {
     case semantic
     /// Matched by both fulltext and semantic search
     case both
+    /// Matched via chunk-level search inside PDF content
+    case passage
 }
 
 // MARK: - Global Search Result
@@ -140,6 +142,8 @@ extension GlobalSearchMatchType {
             return "Similar"
         case .both:
             return "Both"
+        case .passage:
+            return "Passage"
         }
     }
 
@@ -152,6 +156,8 @@ extension GlobalSearchMatchType {
             return "brain.head.profile"
         case .both:
             return "star.fill"
+        case .passage:
+            return "text.page"
         }
     }
 }
