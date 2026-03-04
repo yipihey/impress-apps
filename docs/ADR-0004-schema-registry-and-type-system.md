@@ -96,6 +96,14 @@ It is architecturally desirable for schema definitions to themselves be items in
 
 **What "deferred" means concretely.** The `SchemaRegistry` is not persisted to the database. The registry is rebuilt from Rust code on every app launch. Items carry their `schema_ref` string, but there is no item in the store with the schema's own `id`.
 
+### Raw Payload Access is an Anti-Pattern
+
+Accessing `payload["title"]` directly outside the adapter layer is brittle against schema evolution and obscures intent. If a field name changes or gains validation constraints, every raw access site must be found and updated — an error-prone process that the type system cannot help with.
+
+**The correct pattern** is schema-specific typed accessors. On the Rust side, each schema module exposes functions that take `&Item` and return typed values (e.g., `bibliography::title(&item) -> Option<&str>`). On the Swift side, each app defines typed wrapper structs over `Item` with computed properties. Raw `payload[...]` access is permitted only inside these typed accessor boundaries.
+
+This rule applies equally to Rust code in `impress-core` and to Swift code in the app layer. The accessor is the schema contract; bypassing it creates implicit coupling to the payload key names that the registry cannot track or validate.
+
 ---
 
 ## The Schema Taxonomy

@@ -1,6 +1,6 @@
 # ADR-0001: Unified Item Architecture for the Impress Suite
 
-**Status:** Proposed  
+**Status:** Accepted
 **Date:** 2026-02-08  
 **Authors:** Tom (with architectural exploration via Claude)  
 **Supersedes:** Individual app-level data model decisions  
@@ -43,6 +43,17 @@ The common pattern: systems that try to be maximally general lose to systems tha
 
 5. **The question to keep asking:** What *specific operations* work across item types that wouldn't work without the unified protocol? If the answer is only "they're in the same database," the unification isn't earning its complexity.
 
+### Decisions Refined or Superseded by Later ADRs
+
+The following elements from the original Proposed version of this ADR have been decided against or significantly refined during implementation:
+
+1. **Tiered hot/warm/cold storage** — Rejected. SQLite with WAL mode is sufficient; the complexity of LMDB, sled, or custom storage is not warranted at current scale. See ADR-0002-sqlite.
+2. **`ViewTemplate` declarative DSL (TOML/YAML)** — Rejected. Views are concrete SwiftUI code — five named cognitive views (Library, Stream, Chronicle, Landscape, Desk) per the design philosophy.
+3. **In-core "Attention Router" service** — Rejected as a core store service. Attention routing is app-level middleware; the store emits events, routing logic lives in each app. See ADR-0009.
+4. **Lock-free ring buffer for agent communication** — Deferred. The current model uses Darwin notifications and SQLite events. The ring buffer is an optimization for a future phase with proven throughput requirements.
+5. **Storage engine left as open question** — Decided: SQLite, via rusqlite, as a feature-gated backend behind the `ItemStore` trait. See ADR-0002-sqlite.
+6. **`ItemId` as UUID without committing to a version** — Decided: UUID v4 (random). See "ItemId: UUID v4" section below.
+
 ---
 
 ## Decision
@@ -55,10 +66,11 @@ An item consists of:
 
 ```
 Item {
-    id: ItemId,                          // Globally unique (UUID), stable across sync
+    id: ItemId,                          // UUID v4 (random). See "ItemId: UUID v4" section below.
     canonical_id: Option<CanonicalId>,   // Shared identity in collaborative projects
     item_type: SchemaRef,                // Reference to a registered schema
-    payload: TypedPayload,               // The domain-specific content
+    payload: TypedPayload,               // BTreeMap<String, Value>; BTreeMap chosen for
+                                          //   deterministic serialization order (see ADR-0004)
     
     // Universal metadata
     created: Timestamp,
@@ -88,6 +100,18 @@ Item {
     version: VersionId,                  // For items that evolve (manuscripts, code)
 }
 ```
+
+#### ItemId: UUID v4
+
+`ItemId` is UUID v4 (128-bit, random), generated with `Uuid::new_v4()`. UUID v4 was chosen over ULID and UUID v7 because:
+
+- **imbib already uses UUID v4** for all existing records. Migration to a different format would require a full re-keying of every item.
+- **Time-sortability is not needed at the store layer.** Sorting is by the `created` timestamp column, not by key structure.
+- **No privacy implications.** UUID v4 contains no embedded timestamp or node ID.
+
+UUIDv7 is a candidate for future items if time-sortability of keys becomes valuable (e.g., for distributed ingestion ordering). The `ItemId` type alias makes this substitution local.
+
+`canonical_id` is an `Option<String>` holding a UUID from a shared namespace agreed among collaborators, for the future case where two stores refer to the same logical entity. It is not used in Phase 1.
 
 #### Typed References
 
