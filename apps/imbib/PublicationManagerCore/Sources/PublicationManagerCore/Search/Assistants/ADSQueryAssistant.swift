@@ -323,7 +323,7 @@ public actor ADSQueryAssistant: QueryAssistant {
             )
         } catch let error as ScixFfiError {
             switch error {
-            case .rateLimited:
+            case .RateLimited:
                 throw QueryAssistantError.rateLimitExceeded
             default:
                 Logger.queryAssistance.error("ADS preview failed: \(error.localizedDescription)")

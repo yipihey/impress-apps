@@ -102,17 +102,17 @@ extension ScixFfiError {
     /// Convert to a SourceError for SourcePlugin conformers.
     func toSourceError(sourceID: String) -> SourceError {
         switch self {
-        case .unauthorized:
+        case .Unauthorized:
             return .authenticationRequired(sourceID)
-        case .rateLimited:
+        case .RateLimited:
             return .rateLimited(retryAfter: nil)
-        case .notFound:
+        case .NotFound:
             return .notFound("Not found in \(sourceID)")
-        case .networkError:
+        case .NetworkError:
             return .networkError(URLError(.badServerResponse))
-        case .apiError(let message):
+        case .ApiError(let message):
             return .parseError(message)
-        case .`internal`(let message):
+        case .Internal(let message):
             return .parseError("Internal error: \(message)")
         }
     }
@@ -120,17 +120,17 @@ extension ScixFfiError {
     /// Convert to an EnrichmentError for EnrichmentPlugin conformers.
     func toEnrichmentError(sourceID: String) -> EnrichmentError {
         switch self {
-        case .unauthorized:
+        case .Unauthorized:
             return .authenticationRequired(sourceID)
-        case .rateLimited:
+        case .RateLimited:
             return .rateLimited(retryAfter: nil)
-        case .notFound:
+        case .NotFound:
             return .notFound
-        case .networkError(let message):
+        case .NetworkError(let message):
             return .networkError(message)
-        case .apiError(let message):
+        case .ApiError(let message):
             return .parseError(message)
-        case .`internal`(let message):
+        case .Internal(let message):
             return .parseError("Internal error: \(message)")
         }
     }

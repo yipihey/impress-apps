@@ -287,12 +287,12 @@ extension SciXLibraryDetailResponse {
 extension SciXLibraryError {
     init(from error: ScixFfiError) {
         switch error {
-        case .unauthorized: self = .unauthorized
-        case .rateLimited: self = .rateLimited
-        case .notFound: self = .notFound
-        case .networkError: self = .networkError(URLError(.badServerResponse))
-        case .apiError: self = .serverError(500)
-        case .`internal`: self = .serverError(500)
+        case .Unauthorized: self = .unauthorized
+        case .RateLimited: self = .rateLimited
+        case .NotFound: self = .notFound
+        case .NetworkError: self = .networkError(URLError(.badServerResponse))
+        case .ApiError: self = .serverError(500)
+        case .Internal: self = .serverError(500)
         }
     }
 }
