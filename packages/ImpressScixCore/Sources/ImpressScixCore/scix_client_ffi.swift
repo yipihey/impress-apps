@@ -119,14 +119,33 @@ public struct ScixLibrary: Sendable {
     public var numDocuments: Int32
     public var isPublic: Bool
     public var owner: String
+    /// User's permission level: "owner" | "admin" | "write" | "read"
+    public var permission: String
 
-    public init(id: String, name: String, description: String, numDocuments: Int32, isPublic: Bool, owner: String) {
+    public init(id: String, name: String, description: String, numDocuments: Int32, isPublic: Bool, owner: String, permission: String = "") {
         self.id = id
         self.name = name
         self.description = description
         self.numDocuments = numDocuments
         self.isPublic = isPublic
         self.owner = owner
+        self.permission = permission
+    }
+}
+
+// MARK: - ScixPermission
+
+/// A collaborator permission entry for a SciX library.
+public struct ScixPermission: Equatable, Sendable, Identifiable {
+    public var email: String
+    /// Permission level: "owner" | "admin" | "write" | "read"
+    public var permission: String
+
+    public var id: String { email }
+
+    public init(email: String, permission: String) {
+        self.email = email
+        self.permission = permission
     }
 }
 
@@ -262,5 +281,30 @@ public func scixRemoveFromLibrary(token: String, libraryId: String, bibcodes: [S
 
 /// Delete a library.
 public func scixDeleteLibrary(token: String, libraryId: String) throws {
+    throw notBuiltError
+}
+
+/// Edit a library's metadata. Pass nil for fields that should not change.
+public func scixEditLibrary(token: String, libraryId: String, name: String?, description: String?, isPublic: Bool?) throws {
+    throw notBuiltError
+}
+
+/// Get collaborator permissions for a library.
+public func scixGetPermissions(token: String, libraryId: String) throws -> [ScixPermission] {
+    throw notBuiltError
+}
+
+/// Set a collaborator's permission level on a library.
+public func scixUpdatePermission(token: String, libraryId: String, email: String, permission: String) throws {
+    throw notBuiltError
+}
+
+/// Remove a collaborator from a library.
+public func scixRemovePermission(token: String, libraryId: String, email: String) throws {
+    throw notBuiltError
+}
+
+/// Transfer ownership of a library to another user.
+public func scixTransferLibrary(token: String, libraryId: String, email: String) throws {
     throw notBuiltError
 }

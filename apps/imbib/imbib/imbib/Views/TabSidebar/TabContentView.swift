@@ -25,6 +25,7 @@ struct TabContentView: View {
     // MARK: - State
 
     @State private var viewModel = ImbibSidebarViewModel()
+    @State private var scixViewModel = SciXLibraryViewModel()
 
     /// SciX library repository for conditional SciX section and content
     private let scixRepository = SciXLibraryRepository.shared
@@ -124,6 +125,20 @@ struct TabContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: { library in
             Text("Are you sure you want to delete \"\(library.name)\"? This cannot be undone.")
+        }
+        .alert("Delete SciX Library", isPresented: $viewModel.showSciXDeleteConfirmation, presenting: viewModel.scixLibraryToDelete) { library in
+            Button("Delete", role: .destructive) {
+                Task { try? await scixViewModel.deleteLibrary(library, deleteRemote: false) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { library in
+            Text("Are you sure you want to remove \"\(library.name)\" from imbib? This removes the local copy; the ADS library is not deleted.")
+        }
+        .sheet(item: $viewModel.scixLibraryToShowInfo) { library in
+            SciXLibraryInfoSheet(library: library, viewModel: scixViewModel)
+        }
+        .sheet(item: $viewModel.scixLibraryToEdit) { library in
+            SciXEditLibrarySheet(library: library, viewModel: scixViewModel)
         }
         .task {
             // Run retention cleanup on launch

@@ -63,6 +63,13 @@ final class ImbibSidebarViewModel {
     var libraryToDelete: (id: UUID, name: String)?
     var showDeleteConfirmation = false
 
+    // MARK: - SciX Library Sheets (triggered by context menu → observed by SectionContentView)
+
+    var scixLibraryToShowInfo: SciXLibrary?
+    var scixLibraryToEdit: SciXLibrary?
+    var scixLibraryToDelete: SciXLibrary?
+    var showSciXDeleteConfirmation = false
+
     // MARK: - Sharing
 
     var itemToShareViaICloud: ShareableItem?
@@ -619,7 +626,7 @@ final class ImbibSidebarViewModel {
         case .flagColor:
             return .draggable
         case .scixLibrary:
-            return .draggable
+            return [.draggable, .droppable]
         case .explorationSearch:
             return .draggable
         case .explorationCollection:
@@ -1045,6 +1052,11 @@ final class ImbibSidebarViewModel {
             store.addToCollection(publicationIds: uuids, collectionId: collectionID)
             bumpDataVersion()
 
+        case .scixLibrary(let libraryID):
+            // Add publications to SciX library (local association; remote sync handled by push flow)
+            store.addToScixLibrary(publicationIds: uuids, scixLibraryId: libraryID)
+            bumpDataVersion()
+
         default:
             break
         }
@@ -1139,6 +1151,9 @@ final class ImbibSidebarViewModel {
             deleteItem.representedObject = colID
             menu.addItem(deleteItem)
 
+        case .scixLibrary(let libraryID):
+            buildSciXLibraryContextMenu(menu, libraryID: libraryID)
+
         default:
             // Add section reorder items for items that have them
             if let sectionType = sectionTypeForNode(node) {
@@ -1232,6 +1247,33 @@ final class ImbibSidebarViewModel {
 
         menu.addItem(.separator())
         addSectionReorderItems(to: menu, section: .libraries)
+    }
+
+    private func buildSciXLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {
+        let refreshItem = NSMenuItem(title: "Refresh Papers", action: #selector(ContextMenuActions.refreshSciXLibraryPapers(_:)), keyEquivalent: "")
+        refreshItem.target = ContextMenuActions.shared
+        refreshItem.representedObject = libraryID
+        menu.addItem(refreshItem)
+
+        let editItem = NSMenuItem(title: "Edit Library…", action: #selector(ContextMenuActions.editSciXLibrary(_:)), keyEquivalent: "")
+        editItem.target = ContextMenuActions.shared
+        editItem.representedObject = libraryID
+        menu.addItem(editItem)
+
+        let collaboratorsItem = NSMenuItem(title: "Manage Collaborators…", action: #selector(ContextMenuActions.manageSciXCollaborators(_:)), keyEquivalent: "")
+        collaboratorsItem.target = ContextMenuActions.shared
+        collaboratorsItem.representedObject = libraryID
+        menu.addItem(collaboratorsItem)
+
+        menu.addItem(.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete Library…", action: #selector(ContextMenuActions.deleteSciXLibrary(_:)), keyEquivalent: "")
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = libraryID
+        menu.addItem(deleteItem)
+
+        menu.addItem(.separator())
+        addSectionReorderItems(to: menu, section: .scixLibraries)
     }
 
     private func buildCollectionContextMenu(_ menu: NSMenu, collectionID: UUID, libraryID: UUID) {
@@ -1638,6 +1680,26 @@ final class ImbibSidebarViewModel {
         showDeleteConfirmation = true
     }
 
+    // MARK: - SciX Library Context Menu Actions
+
+    func refreshSciXLibrary(_ libraryID: UUID) {
+        guard let library = scixRepository.libraries.first(where: { $0.id == libraryID }) else { return }
+        Task { await SciXLibraryViewModel().refreshLibraryPapers(library) }
+    }
+
+    func editSciXLibrary(_ libraryID: UUID) {
+        scixLibraryToEdit = scixRepository.libraries.first(where: { $0.id == libraryID })
+    }
+
+    func manageSciXCollaborators(_ libraryID: UUID) {
+        scixLibraryToShowInfo = scixRepository.libraries.first(where: { $0.id == libraryID })
+    }
+
+    func deleteSciXLibrary(_ libraryID: UUID) {
+        scixLibraryToDelete = scixRepository.libraries.first(where: { $0.id == libraryID })
+        showSciXDeleteConfirmation = true
+    }
+
     func hideSearchForm(_ rawValue: String) {
         guard let formType = SearchFormType(rawValue: rawValue) else { return }
         searchForms.removeAll { $0 == formType }
@@ -1846,6 +1908,28 @@ final class ContextMenuActions: NSObject {
     @objc func setExplorationRetention(_ sender: NSMenuItem) {
         guard let days = sender.representedObject as? Int else { return }
         ExplorationRetentionStore.shared.retentionDays = days
+    }
+
+    // MARK: - SciX Library Actions
+
+    @objc func refreshSciXLibraryPapers(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        viewModel?.refreshSciXLibrary(id)
+    }
+
+    @objc func editSciXLibrary(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        viewModel?.editSciXLibrary(id)
+    }
+
+    @objc func manageSciXCollaborators(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        viewModel?.manageSciXCollaborators(id)
+    }
+
+    @objc func deleteSciXLibrary(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        viewModel?.deleteSciXLibrary(id)
     }
 }
 

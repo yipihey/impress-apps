@@ -135,6 +135,9 @@ struct UnifiedPublicationListWrapper: View {
     /// on every body evaluation, which would force PublicationListView to re-evaluate.
     @State private var cachedAllLibraries: [(id: UUID, name: String)] = []
 
+    /// Cached writable SciX libraries for "Add to SciX Library" context menu.
+    @State private var cachedWritableScixLibraries: [(id: UUID, name: String)] = []
+
     /// Version-based deduplication: tracks the last store version we refreshed at.
     /// Prevents double refreshes when both an explicit call and `.onReceive(.storeDidMutate)`
     /// fire for the same mutation.
@@ -801,6 +804,7 @@ struct UnifiedPublicationListWrapper: View {
             selectedPublicationID: $selectedPublicationID,
             libraryID: currentLibraryID,
             allLibraries: cachedAllLibraries,
+            allScixLibraries: cachedWritableScixLibraries,
             showImportButton: false,
             showSortMenu: true,
             emptyStateMessage: emptyMessage,
@@ -870,6 +874,9 @@ struct UnifiedPublicationListWrapper: View {
         }
         a.onAddToLibrary = { ids, targetLibraryID in
             _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+        }
+        a.onAddToScixLibrary = { ids, scixLibraryID in
+            RustStoreAdapter.shared.addToScixLibrary(publicationIds: Array(ids), scixLibraryId: scixLibraryID)
         }
         a.onAddToCollection = { ids, collectionID in
             RustStoreAdapter.shared.addToCollection(publicationIds: Array(ids), collectionId: collectionID)
@@ -984,6 +991,16 @@ struct UnifiedPublicationListWrapper: View {
         if freshLibraries.count != cachedAllLibraries.count ||
            !zip(freshLibraries, cachedAllLibraries).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) {
             cachedAllLibraries = freshLibraries
+        }
+
+        // Refresh writable SciX libraries (only owner/admin/write permission)
+        let writablePermissions: Set<String> = ["owner", "admin", "write"]
+        let freshScix = SciXLibraryRepository.shared.libraries
+            .filter { writablePermissions.contains($0.permissionLevel) }
+            .map { ($0.id, $0.name) }
+        if freshScix.count != cachedWritableScixLibraries.count ||
+           !zip(freshScix, cachedWritableScixLibraries).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) {
+            cachedWritableScixLibraries = freshScix
         }
 
         // Apply unread filter with Apple Mail behavior

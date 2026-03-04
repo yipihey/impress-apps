@@ -71,6 +71,7 @@ public final class PublicationListActions {
     public var onExploreReferences: ((UUID) -> Void)?
     public var onExploreCitations: ((UUID) -> Void)?
     public var onExploreSimilar: ((UUID) -> Void)?
+    public var onAddToScixLibrary: ((Set<UUID>, UUID) async -> Void)?
 
     public init() {}
 }
@@ -110,6 +111,9 @@ public struct PublicationListView: View {
 
     /// All available libraries for "Add to Library" menu (id, name pairs)
     public var allLibraries: [(id: UUID, name: String)] = []
+
+    /// Writable SciX libraries for "Add to SciX Library" menu (id, name pairs)
+    public var allScixLibraries: [(id: UUID, name: String)] = []
 
     /// Whether to show the import button
     public var showImportButton: Bool = true
@@ -398,6 +402,7 @@ public struct PublicationListView: View {
         selectedPublicationID: Binding<UUID?>,
         libraryID: UUID? = nil,
         allLibraries: [(id: UUID, name: String)] = [],
+        allScixLibraries: [(id: UUID, name: String)] = [],
         showImportButton: Bool = true,
         showSortMenu: Bool = true,
         emptyStateMessage: String = "No publications found.",
@@ -413,13 +418,16 @@ public struct PublicationListView: View {
         recommendationScores: Binding<[UUID: Double]> = .constant([:]),
         actions: PublicationListActions = PublicationListActions(),
         isRefreshing: Bool = false,
-        externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil)
+        externalTriageFlash: Binding<(id: UUID, color: Color)?> = .constant(nil),
+        onRowAppeared: ((UUID) -> Void)? = nil,
+        totalCount: Int? = nil
     ) {
         self.publications = publications
         self._selection = selection
         self._selectedPublicationID = selectedPublicationID
         self.libraryID = libraryID
         self.allLibraries = allLibraries
+        self.allScixLibraries = allScixLibraries
         self.showImportButton = showImportButton
         self.showSortMenu = showSortMenu
         self.emptyStateMessage = emptyStateMessage
@@ -436,6 +444,8 @@ public struct PublicationListView: View {
         self.actions = actions
         self.isRefreshing = isRefreshing
         self._externalTriageFlash = externalTriageFlash
+        self.onRowAppeared = onRowAppeared
+        self.totalCount = totalCount
     }
 
     // MARK: - Body
@@ -1377,6 +1387,19 @@ public struct PublicationListView: View {
                         }
                     }
                 }
+            }
+        }
+
+        // Add to SciX Library submenu
+        if let onAddToScixLibrary = actions.onAddToScixLibrary, !allScixLibraries.isEmpty {
+            Menu {
+                ForEach(allScixLibraries, id: \.id) { lib in
+                    Button(lib.name) {
+                        Task { await onAddToScixLibrary(ids, lib.id) }
+                    }
+                }
+            } label: {
+                Label("Add to SciX Library", systemImage: "cloud.fill")
             }
         }
 

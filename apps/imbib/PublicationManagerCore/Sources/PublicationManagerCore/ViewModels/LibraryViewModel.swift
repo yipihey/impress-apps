@@ -479,7 +479,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         }
     }
 
-    var sortKey: String {
+    public var sortKey: String {
         switch self {
         case .dateAdded: return "created"
         case .dateModified: return "modified"

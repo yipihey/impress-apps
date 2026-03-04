@@ -58,6 +58,10 @@ extension SciXPermissionLevel {
 struct SciXLibraryHeader: View {
 
     let library: SciXLibrary
+    var viewModel: SciXLibraryViewModel
+
+    @State private var showingInfo = false
+    @State private var showingEdit = false
 
     var body: some View {
         HStack {
@@ -93,8 +97,35 @@ struct SciXLibraryHeader: View {
                 .buttonStyle(.borderless)
                 .help("Pending changes to sync")
             }
+
+            // Manage collaborators / info
+            Button {
+                showingInfo = true
+            } label: {
+                Image(systemName: "person.2")
+            }
+            .buttonStyle(.borderless)
+            .help("Manage Collaborators")
+
+            // Edit library metadata (owner/admin only)
+            let canEdit = library.permissionLevelEnum == .owner || library.permissionLevelEnum == .admin
+            if canEdit {
+                Button {
+                    showingEdit = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .help("Edit Library")
+            }
         }
         .padding()
+        .sheet(isPresented: $showingInfo) {
+            SciXLibraryInfoSheet(library: library, viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingEdit) {
+            SciXEditLibrarySheet(library: library, viewModel: viewModel)
+        }
     }
 
     @ViewBuilder

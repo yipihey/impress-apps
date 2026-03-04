@@ -26,6 +26,12 @@ pub use types::*;
 #[cfg(feature = "native")]
 use scix_client::SciXClient;
 
+#[cfg(feature = "native")]
+use reqwest;
+
+#[cfg(feature = "native")]
+use serde_json;
+
 // Setup UniFFI proc-macro scaffolding (native builds only).
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();
@@ -86,6 +92,9 @@ impl From<scix_client::types::Library> for ScixLibrary {
             num_documents: l.num_documents as i32,
             is_public: l.public,
             owner: l.owner,
+            // scix_client::types::Library does not expose the permission field;
+            // scix_list_libraries parses it directly from the raw JSON response.
+            permission: String::new(),
         }
     }
 }
@@ -275,15 +284,58 @@ pub fn scix_export_ris(
 // ─── Libraries ────────────────────────────────────────────────────────────────
 
 /// List all personal libraries for the authenticated user.
+///
+/// Fetches the raw ADS response to capture the `permission` field, which is not
+/// exposed by `scix_client::types::Library`.
 #[cfg(feature = "native")]
 #[uniffi::export]
 pub fn scix_list_libraries(token: String) -> Result<Vec<ScixLibrary>, ScixFfiError> {
     make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .list_libraries()
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ScixFfiError::Internal { message: e.to_string() })?;
+
+        let response = client
+            .get("https://api.adsabs.harvard.edu/v1/biblib/libraries")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("User-Agent", "scix-client-ffi/0.1")
+            .send()
             .await
-            .map(|libs| libs.into_iter().map(ScixLibrary::from).collect())
-            .map_err(ScixFfiError::from)
+            .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+
+        let status = response.status().as_u16();
+        if status == 401 { return Err(ScixFfiError::Unauthorized); }
+        if status == 429 { return Err(ScixFfiError::RateLimited); }
+        if status == 404 { return Err(ScixFfiError::NotFound); }
+        if !(200..=299).contains(&status) {
+            return Err(ScixFfiError::ApiError { message: format!("HTTP {}", status) });
+        }
+
+        let body = response.text().await
+            .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+        let parsed: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| ScixFfiError::Internal { message: e.to_string() })?;
+
+        let empty_arr = vec![];
+        let libraries = parsed["libraries"]
+            .as_array()
+            .unwrap_or(&empty_arr)
+            .iter()
+            .filter_map(|lib| {
+                Some(ScixLibrary {
+                    id: lib["id"].as_str()?.to_string(),
+                    name: lib["name"].as_str().unwrap_or("").to_string(),
+                    description: lib["description"].as_str().unwrap_or("").to_string(),
+                    num_documents: lib["num_documents"].as_u64().unwrap_or(0) as i32,
+                    is_public: lib["public"].as_bool().unwrap_or(false),
+                    owner: lib["owner"].as_str().unwrap_or("").to_string(),
+                    permission: lib["permission"].as_str().unwrap_or("").to_string(),
+                })
+            })
+            .collect();
+
+        Ok(libraries)
     })
 }
 
@@ -378,6 +430,120 @@ pub fn scix_delete_library(
     make_runtime()?.block_on(async move {
         SciXClient::new(&token)
             .delete_library(&library_id)
+            .await
+            .map_err(ScixFfiError::from)
+    })
+}
+
+/// Edit a library's metadata (name, description, public status).
+///
+/// Pass `None` for fields that should not be changed.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn scix_edit_library(
+    token: String,
+    library_id: String,
+    name: Option<String>,
+    description: Option<String>,
+    is_public: Option<bool>,
+) -> Result<(), ScixFfiError> {
+    make_runtime()?.block_on(async move {
+        SciXClient::new(&token)
+            .edit_library(
+                &library_id,
+                name.as_deref(),
+                description.as_deref(),
+                is_public,
+            )
+            .await
+            .map_err(ScixFfiError::from)
+    })
+}
+
+/// Get collaborator permissions for a library.
+///
+/// Returns a list of email/permission pairs for all collaborators.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn scix_get_permissions(
+    token: String,
+    library_id: String,
+) -> Result<Vec<ScixPermission>, ScixFfiError> {
+    make_runtime()?.block_on(async move {
+        let json = SciXClient::new(&token)
+            .get_permissions(&library_id)
+            .await
+            .map_err(ScixFfiError::from)?;
+
+        // ADS response: { "<key>": [["email", "permission"], ...] }
+        // Take the first array value in the object, regardless of key name.
+        let empty_arr = vec![];
+        let pairs = json
+            .as_object()
+            .and_then(|obj| obj.values().next())
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty_arr);
+
+        let permissions = pairs
+            .iter()
+            .filter_map(|pair| {
+                let arr = pair.as_array()?;
+                let email = arr.first()?.as_str()?.to_string();
+                let permission = arr.get(1)?.as_str()?.to_string();
+                Some(ScixPermission { email, permission })
+            })
+            .collect();
+
+        Ok(permissions)
+    })
+}
+
+/// Set (or update) a collaborator's permission level on a library.
+///
+/// `permission` must be one of: "owner", "admin", "write", "read".
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn scix_update_permission(
+    token: String,
+    library_id: String,
+    email: String,
+    permission: String,
+) -> Result<(), ScixFfiError> {
+    make_runtime()?.block_on(async move {
+        SciXClient::new(&token)
+            .update_permissions(&library_id, &email, &permission)
+            .await
+            .map_err(ScixFfiError::from)
+    })
+}
+
+/// Remove a collaborator from a library by setting their permission to "none".
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn scix_remove_permission(
+    token: String,
+    library_id: String,
+    email: String,
+) -> Result<(), ScixFfiError> {
+    make_runtime()?.block_on(async move {
+        SciXClient::new(&token)
+            .update_permissions(&library_id, &email, "none")
+            .await
+            .map_err(ScixFfiError::from)
+    })
+}
+
+/// Transfer ownership of a library to another user.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn scix_transfer_library(
+    token: String,
+    library_id: String,
+    email: String,
+) -> Result<(), ScixFfiError> {
+    make_runtime()?.block_on(async move {
+        SciXClient::new(&token)
+            .transfer_library(&library_id, &email)
             .await
             .map_err(ScixFfiError::from)
     })

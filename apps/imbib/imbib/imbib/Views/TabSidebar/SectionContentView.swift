@@ -61,6 +61,7 @@ struct SectionContentView: View {
     // MARK: - Content Resolution
 
     private let scixRepository = SciXLibraryRepository.shared
+    @State private var scixViewModel = SciXLibraryViewModel()
 
     /// Resolves the current sidebar selection to a `ContentKind`.
     /// Reading `viewModel.selectedTab` here establishes a direct @Observable
@@ -355,7 +356,7 @@ struct SectionContentView: View {
             VStack(spacing: 0) {
                 if case .scixLibrary(let id) = source,
                    let library = scixRepository.libraries.first(where: { $0.id == id }) {
-                    SciXLibraryHeader(library: library)
+                    SciXLibraryHeader(library: library, viewModel: scixViewModel)
                     Divider()
                 }
                 UnifiedPublicationListWrapper(

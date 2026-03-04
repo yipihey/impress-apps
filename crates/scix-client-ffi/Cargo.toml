@@ -12,13 +12,15 @@ name = "scix_client_ffi"
 
 [features]
 default = []
-native = ["uniffi", "tokio", "dep:scix-client"]
+native = ["uniffi", "tokio", "dep:scix-client", "dep:serde_json", "dep:reqwest"]
 
 [dependencies]
 scix-client = { version = "0.3", optional = true }
 uniffi = { workspace = true, optional = true }
 tokio = { version = "1", features = ["rt"], optional = true }
 thiserror = { workspace = true }
+serde_json = { version = "1", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

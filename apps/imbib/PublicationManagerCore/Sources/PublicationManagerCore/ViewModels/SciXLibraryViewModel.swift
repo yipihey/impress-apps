@@ -199,6 +199,22 @@ public final class SciXLibraryViewModel {
         libraries = repository.libraries
     }
 
+    /// Update library metadata locally and push the change to ADS.
+    public func saveMetadata(
+        library: SciXLibrary,
+        name: String,
+        description: String?,
+        isPublic: Bool
+    ) async throws {
+        updateMetadata(library: library, name: name, description: description, isPublic: isPublic)
+        try await service.updateMetadata(
+            libraryID: library.remoteID,
+            name: name,
+            description: description,
+            isPublic: isPublic
+        )
+    }
+
     // MARK: - Push/Sync
 
     /// Prepare pending changes for push confirmation.
@@ -315,6 +331,27 @@ public final class SciXLibraryViewModel {
         do {
             try await service.setPermission(libraryID: library.remoteID, email: email, permission: level)
             Logger.scix.info("Set permission \(level.rawValue) for \(email)")
+        } catch let error as SciXLibraryError {
+            lastError = error
+            throw error
+        } catch {
+            lastError = .networkError(error)
+            throw SciXLibraryError.networkError(error)
+        }
+    }
+
+    /// Remove a collaborator from a library
+    public func removeCollaborator(email: String, from library: SciXLibrary) async throws {
+        let canManage = SciXPermissionLevel(rawValue: library.permissionLevel) == .owner ||
+                        SciXPermissionLevel(rawValue: library.permissionLevel) == .admin
+        guard canManage else { throw SciXLibraryError.forbidden }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await service.removePermission(libraryID: library.remoteID, email: email)
+            Logger.scix.info("Removed collaborator \(email) from library \(library.name)")
         } catch let error as SciXLibraryError {
             lastError = error
             throw error

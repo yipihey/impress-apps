@@ -65,6 +65,17 @@ pub struct ScixLibrary {
     pub num_documents: i32,
     pub is_public: bool,
     pub owner: String,
+    /// User's permission level: "owner" | "admin" | "write" | "read"
+    pub permission: String,
+}
+
+/// A collaborator permission entry for a SciX library.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct ScixPermission {
+    pub email: String,
+    /// Permission level: "owner" | "admin" | "write" | "read"
+    pub permission: String,
 }
 
 /// SciX/ADS personal library with its bibcodes.
