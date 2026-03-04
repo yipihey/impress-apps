@@ -198,6 +198,109 @@ Priority-ordered actionable insights:
 
 ---
 
+## 6. Cited and Related Work Relevant to Impress
+
+SciSciGPT sits within a rapidly growing ecosystem of AI research tools. Several works it cites or is closely related to contain ideas directly relevant to impress. Here are the most important, grouped by what they teach us.
+
+### 6.1 Multi-Agent Orchestration Frameworks
+
+**AutoGen** (Wu et al., Microsoft, 2023) — [arXiv:2308.08155](https://arxiv.org/abs/2308.08155)
+Multi-agent conversation framework enabling next-gen LLM applications. Agents communicate and collaborate through iterative message-passing. SciSciGPT is built on **LangChain/LangGraph**, which implements similar patterns but with explicit graph-based state machines.
+
+**Relevance to impress**: Impel's stigmergic model is fundamentally different from both AutoGen's conversation-based and LangGraph's graph-based coordination. But AutoGen's insight that agents should be able to *converse with each other* (not just exchange structured events) is worth considering — impel's event system is one-directional (producer → consumer) with no dialog.
+
+**MetaGPT** (Hong et al., 2023)
+Implements Standardized Operating Procedures (SOPs) from human teamwork to define agent tasks and responsibilities. Assigns role-specific agents within a simulated software company.
+
+**Relevance to impress**: MetaGPT's SOPs parallel impel's ADR-defined agent archetypes, but MetaGPT makes the process *explicit and auditable* — each SOP step is a documented protocol. Impel could benefit from making its stigmergic coordination patterns similarly explicit and documentable.
+
+### 6.2 Scientific AI Agents
+
+**Coscientist** (Boiko et al., *Nature* 2023) — [DOI:10.1038/s41586-023-06792-0](https://www.nature.com/articles/s41586-023-06792-0)
+Autonomous chemical experimental design and execution using GPT-4 with four action commands (GOOGLE, PYTHON, DOCUMENTATION, EXPERIMENT). Demonstrated closed-loop chemical synthesis.
+
+**Relevance to impress**: Coscientist's action space is remarkably simple — four verbs. This contrasts with SciSciGPT's five specialized agents and impel's rich archetype taxonomy. Sometimes a simpler action vocabulary with powerful composition is more effective than elaborate specialization.
+
+**ChemCrow** (Bran et al., *Nature Machine Intelligence* 2024) — [arXiv:2304.05376](https://arxiv.org/abs/2304.05376)
+Augments LLMs with 18 chemistry tools using chain-of-thought reasoning. Multi-purpose chemical research agent.
+
+**Relevance to impress**: ChemCrow's tool-augmentation approach (many specialized tools, one orchestrating LLM) is closer to how impress-mcp works — the MCP server exposes many tools that a single LLM can invoke. ChemCrow validates this architecture for complex research domains.
+
+**The AI Scientist** (Lu et al., Sakana AI, 2024) — [arXiv:2408.06292](https://arxiv.org/abs/2408.06292)
+Fully automated open-ended scientific discovery — generates hypotheses, designs experiments, runs code, writes papers. Represents the "fully autonomous" extreme.
+
+**Relevance to impress**: AI Scientist is philosophically opposite to impress — it aims to *replace* the human researcher, while impress aims to *augment* them. However, its paper-writing pipeline (idea → experiment → writeup → review) maps to an impel workflow that could orchestrate imbib (literature) → implement (experiments) → imprint (writing) → impel adversarial agent (review). The key difference is where the human enters the loop.
+
+**Google AI Co-Scientist** (Gottweis et al., Google, 2025) — [arXiv:2502.18864](https://arxiv.org/abs/2502.18864)
+Multi-agent system using Gemini 2.0 with tournament-based hypothesis evolution. Seven specialized agents (Supervisor, Generation, Reflection, Ranking, Proximity, Evolution, Meta-Review). Uses Elo rating to rank competing hypotheses.
+
+**Relevance to impress**: **This is the single most architecturally interesting related work for impel.** Key ideas:
+- **Tournament evolution**: Hypotheses compete head-to-head and evolve based on rankings. Impel could implement a similar mechanism for competing approaches to a research question.
+- **Proximity detection**: An agent specifically detects when ideas are too similar, preventing redundant work. Impel's swarm has no deduplication mechanism.
+- **Elo rating for quality**: A quantitative, continuous quality measure that improves through self-play. This is a more sophisticated version of SciSciGPT's reward scores and could be adapted for impel's temperature system.
+- **Test-time compute scaling**: Quality improves with more computation time — the system gets better the longer you let it think. Impel's temperature system already models this (higher temperature = more attention) but doesn't have the iterative evolution mechanism.
+
+### 6.3 Visualization & Data Analysis
+
+**LIDA** (Dibia, Microsoft, ACL 2023) — [arXiv:2303.02927](https://arxiv.org/abs/2303.02927)
+Automatic generation of grammar-agnostic visualizations using LLMs. Four-module pipeline: Summarizer → Goal Explorer → VisGenerator → Infographer. Self-evaluation of visualization quality across 6 dimensions.
+
+**Relevance to impress**: **Directly relevant to implore.** LIDA's architecture is almost exactly what implore needs:
+- **Data summarization**: Compact NL summaries of datasets that ground LLM generation — implore could use this for dataset understanding
+- **Goal exploration**: Automatically enumerate what visualizations are interesting for a dataset — "EDA for free"
+- **Grammar-agnostic generation**: Generate matplotlib, ggplot, Altair, etc. from the same NL specification
+- **Self-evaluation**: Rate visualization quality on code accuracy, data transformations, goal compliance, vis type, encoding, aesthetics
+- **Error rate < 3.5%**: Demonstrates this approach works reliably
+
+### 6.4 Verbal Reinforcement & Reasoning
+
+**Reflexion** (Shinn et al., NeurIPS 2023) — [arXiv:2303.11366](https://arxiv.org/abs/2303.11366)
+Language agents with verbal reinforcement learning — agents improve through linguistic self-reflection stored in episodic memory, rather than weight updates. +22% on decision-making, +20% on reasoning, +11% on coding tasks.
+
+**Relevance to impress**: Reflexion's core insight is that **agents can learn within a session** by reflecting on failures and storing those reflections in memory. Impel's event sourcing captures what happened but agents don't reflect on failures or store lessons learned. Adding a reflection mechanism — where agents write explicit "what went wrong and why" entries after failures, and consult these before starting new work — could significantly improve multi-step research workflows.
+
+**ReAct** (Yao et al., ICLR 2023) — [react-lm.github.io](https://react-lm.github.io/)
+Synergizes reasoning and acting in LLMs — interleaves chain-of-thought reasoning with tool use actions. Foundation for most modern agent architectures.
+
+**Relevance to impress**: ReAct's reasoning traces are the implicit foundation for how impel agents work (think → act → observe → think). But impel doesn't explicitly structure or capture the reasoning traces — only the actions and observations are recorded in the event stream. Making the reasoning explicit would improve debuggability and enable the cognitive load management discussed in §3.3.
+
+### 6.5 Data Infrastructure
+
+**SciSciNet** (Lin et al., *Scientific Data* 2023) — [DOI:10.1038/s41597-023-02198-9](https://www.nature.com/articles/s41597-023-02198-9)
+Large-scale open data lake for science of science: 134M publications, 19 relational tables, linkages to funding sources and downstream impacts. Built on OpenAlex.
+
+**OpenAlex** (Priem et al., 2022) — [arXiv:2205.01833](https://arxiv.org/abs/2205.01833)
+Fully open index of scholarly works, authors, venues, institutions, and concepts. Free API, no authentication required, covers 250M+ works.
+
+**Relevance to impress**: **OpenAlex is the most actionable integration target for imbib.** Unlike the ADS/SciX API (which requires authentication and covers primarily astronomy/earth science), OpenAlex is free, open, and covers all of science. Adding an OpenAlex source plugin to imbib — alongside the existing SciX/ADS source — would give agents access to the broad scholarly landscape that SciSciGPT leverages through SciSciNet, while maintaining the local-first philosophy.
+
+### 6.6 Autonomy Taxonomies
+
+**"From Automation to Autonomy"** (EMNLP 2025) proposes three autonomy levels:
+- **Level 1: LLM as Tool** — Human drives, LLM assists (autocomplete, search)
+- **Level 2: LLM as Analyst** — Human specifies goals, LLM executes analysis
+- **Level 3: LLM as Scientist** — LLM autonomously generates and tests hypotheses
+
+**Relevance to impress**: Impress currently operates primarily at Level 1 (MCP tools) with aspirations toward Level 2 (impel orchestration). SciSciGPT operates at Level 2. Google's AI Co-Scientist and The AI Scientist operate at Level 3. This taxonomy helps position where impress should aim — and the answer from the CLAUDE.md is clearly Level 2 with explicit human checkpoints, not Level 3. But the taxonomy clarifies what "Level 2 done well" requires: goal decomposition, autonomous execution of sub-tasks, and quality-gated handoff to humans.
+
+---
+
+## 7. Most Actionable Papers for Impress Development
+
+Ranked by immediate applicability:
+
+| Priority | Paper | What to adopt | Which impress app |
+|----------|-------|---------------|-------------------|
+| 1 | **LIDA** (Dibia 2023) | 4-module visualization pipeline with self-evaluation | implore |
+| 2 | **Google AI Co-Scientist** (2025) | Tournament evolution + Elo rating for competing hypotheses | impel |
+| 3 | **Reflexion** (Shinn 2023) | Within-session learning via stored self-reflections | impel |
+| 4 | **OpenAlex** (Priem 2022) | Free scholarly data API integration | imbib |
+| 5 | **ReAct** (Yao 2023) | Explicit reasoning traces interleaved with actions | impel event system |
+| 6 | **SciSciGPT** itself | Reward-score feedback loop, XML semantic tags | impel |
+| 7 | **Coscientist** (Boiko 2023) | Minimal action vocabulary with powerful composition | impel adapter design |
+
+---
+
 ## Verification
 
 This is an analysis document, not code. Verification = review for accuracy and completeness. The document should be committed to the repository for reference.
