@@ -31,6 +31,14 @@ pub mod semantic;
 #[cfg(feature = "native")]
 pub mod ann_index;
 
+// Embedding persistence (SQLite-backed vector + chunk store)
+#[cfg(feature = "native")]
+pub mod embedding_store;
+
+// Chunk-level HNSW index for RAG retrieval
+#[cfg(feature = "native")]
+pub mod chunk_index;
+
 #[cfg(feature = "native")]
 pub use query_builder::{
     build_arxiv_author_category_query, build_classic_query, build_paper_query,
@@ -52,6 +60,12 @@ pub use snippets::*;
 
 #[cfg(feature = "native")]
 pub use ann_index::*;
+
+#[cfg(feature = "native")]
+pub use embedding_store::*;
+
+#[cfg(feature = "native")]
+pub use chunk_index::*;
 
 #[cfg(feature = "embeddings")]
 pub use semantic::*;
