@@ -301,6 +301,184 @@ Ranked by immediate applicability:
 
 ---
 
+## 8. AnythingLLM Integration Analysis
+
+### 8.1 What AnythingLLM Is
+
+[AnythingLLM](https://anythingllm.com/) (Mintplex Labs, MIT licensed) is a full-stack RAG application:
+
+- **Tech stack**: Node.js/Express backend, React/Vite frontend, Electron desktop packaging
+- **RAG pipeline**: Document ingestion → text extraction → chunking → embedding → vector storage (LanceDB default) → retrieval → LLM generation
+- **Providers**: Pluggable LLMs (Anthropic, OpenAI, Ollama, etc.), embedders (@xenova/transformers), vector DBs (LanceDB, Pinecone, Chroma, Qdrant, Weaviate)
+- **Agents**: Custom agent framework (AIbitat) with tool use, MCP compatibility
+- **API**: REST API at `/api/v1/*` with OpenAPI docs, API key auth
+- **Workspaces**: Isolated document/chat environments with per-workspace LLM selection
+- **Deployment**: Desktop (Electron), Docker (self-hosted), Cloud (managed)
+
+### 8.2 What imbib Already Has (and Doesn't)
+
+**Existing infrastructure that overlaps with AnythingLLM:**
+
+| Capability | imbib status | AnythingLLM |
+|------------|-------------|-------------|
+| LLM provider abstraction | ✅ ImpressAI (Anthropic, OpenAI, Google, Ollama, OpenRouter) | ✅ Similar provider support |
+| Embeddings | ✅ Hash-based (deterministic, fast) via Apple NL framework | ✅ Neural (@xenova/transformers) |
+| Vector similarity search | ✅ HNSW ANN index in Rust | ✅ LanceDB (embedded) |
+| Document management | ✅ Core Data + PDF file management | ✅ File/URL/raw-text ingestion |
+| PDF text extraction | ⚠️ Partial (annotations, not full-text indexing) | ✅ Full pipeline |
+| Chunking pipeline | ❌ Missing | ✅ Automatic chunking |
+| RAG retrieval + context assembly | ❌ Missing | ✅ Core feature |
+| Q&A over documents | ❌ Missing | ✅ Core feature |
+| Chat UI for documents | ❌ Missing | ✅ Core feature |
+| REST API | ✅ HTTP server (port 23120) | ✅ REST API (/api/v1/*) |
+| MCP integration | ✅ impress-mcp | ✅ MCP compatible |
+| Agent framework | ✅ impel (stigmergic) | ✅ AIbitat |
+| Local-first / privacy | ✅ Native, no cloud | ✅ Can run fully local |
+
+**Key gap**: imbib has ~60% of the infrastructure but **lacks the RAG pipeline** (PDF → chunks → neural embeddings → retrieval → context assembly → generation).
+
+### 8.3 Three Integration Options
+
+#### Option A: Use AnythingLLM as a Dependency (Embed It)
+
+**Verdict: Not viable.**
+
+AnythingLLM is an *application*, not a *library*. There is no npm package, no SDK, no way to embed its RAG pipeline into a Swift/Rust codebase. The entire stack is JavaScript (Node.js + Electron). Embedding it would mean:
+- Shipping an entire Node.js runtime + Electron process alongside the native macOS app
+- Duplicating LLM provider configuration (ImpressAI already handles this)
+- Duplicating document storage (imbib's Core Data vs AnythingLLM's workspace files)
+- Violating "the user should forget they are using separate tools"
+
+**Don't do this.**
+
+#### Option B: Integrate as External Sidecar Service
+
+Run AnythingLLM Docker alongside impress. Push PDFs to it via REST API. Query it for RAG responses.
+
+**Pros:**
+- Get full RAG immediately without reimplementation
+- Leverage AnythingLLM's mature chunking, embedding, and retrieval
+- Their community continuously improves the pipeline
+- Could be an optional "power user" feature
+
+**Cons:**
+- Users must install and run Docker + AnythingLLM separately
+- Data duplication: PDFs exist in both imbib and AnythingLLM
+- Configuration duplication: LLM API keys in both systems
+- Synchronization burden: When user adds/removes papers in imbib, must mirror to AnythingLLM
+- Latency: HTTP round-trips between processes
+- Violates local-first simplicity ("just download the app")
+- Violates "the user should forget they are using separate tools"
+- Not App Store compatible (can't bundle Docker dependency)
+
+**Possible as an advanced/optional integration**, but not the primary path.
+
+#### Option C: Reimplement the RAG Pipeline Natively (Recommended)
+
+Build the missing RAG components into imbib's existing Rust + Swift stack.
+
+**What needs to be built:**
+
+1. **PDF text extraction** — Use `PDFKit` (macOS native) to extract text from stored PDFs. Already partially implemented for annotations.
+
+2. **Chunking** — Split extracted text into overlapping chunks (e.g., 512 tokens with 64-token overlap). Straightforward algorithm, no external dependency needed.
+
+3. **Neural embeddings** — Two options:
+   - **On-device**: Apple's `NaturalLanguage` framework (already used for hash embeddings) or Core ML with a sentence-transformer model
+   - **Via LLM provider**: Use the embedding endpoints already configured in ImpressAI (Anthropic, OpenAI, etc.)
+   - ADR-022 explicitly plans for this upgrade path
+
+4. **Vector storage** — The HNSW ANN index in Rust already exists. Extend it to store chunk-level embeddings alongside paper-level embeddings. Or adopt LanceDB via Rust FFI (LanceDB has native Rust support via the `lancedb` crate).
+
+5. **RAG retrieval** — Query embedding → ANN search → retrieve top-k chunks → assemble context window → send to LLM. This is the simplest part.
+
+6. **Chat interface** — Add a "Ask about papers" view in imbib that takes natural language questions, retrieves relevant chunks from selected papers/collections, and generates answers with citations back to specific papers and pages.
+
+**What can be reused from imbib's existing stack:**
+
+| Component | Existing | Extend to |
+|-----------|----------|-----------|
+| `ImpressAI` | LLM chat | Embedding API calls |
+| `EmbeddingService` | Hash-based paper embeddings | Neural chunk embeddings |
+| `RustAnnIndex` | Paper-level similarity | Chunk-level retrieval |
+| `AISearchAssistant` | Query expansion, summarization | RAG-grounded Q&A |
+| HTTP server | Status, logs, paper search | RAG query endpoint for impel |
+| MCP tools | `imbib_search_library` | `imbib_ask_papers` |
+
+**Estimated complexity**: Medium. The hardest part is the embedding pipeline (choosing model, managing reindexing). The RAG retrieval itself is straightforward given the existing ANN infrastructure.
+
+### 8.4 What About the Intelligence Version of imbib?
+
+The "intelligence version" should deliver these capabilities:
+
+| Feature | AnythingLLM covers? | Native implementation path |
+|---------|---------------------|---------------------------|
+| **Q&A over paper corpus** ("What do these papers say about X?") | ✅ Core feature | RAG pipeline (Option C) + `AISearchAssistant` |
+| **Semantic paper search** (find by meaning, not keywords) | ✅ Yes | Already implemented (command palette, `RustAnnIndex`) — upgrade to neural embeddings |
+| **Literature synthesis** (cross-paper comparison) | ⚠️ Partially (multi-doc chat) | Multi-document RAG with synthesis prompt |
+| **Smart recommendations** ("papers you should read") | ❌ Not its focus | ADR-020 recommendation engine (partially built) |
+| **Citation context** ("how does A cite B?") | ❌ No | SciX `references`/`citations` API + PDF section extraction |
+| **Research gap identification** | ❌ No | Multi-doc RAG + specialized prompt |
+| **Paper summarization** | ✅ Yes | Already implemented (`AISearchAssistant.summarize`) |
+| **Explain like I'm X** (adjustable depth) | ✅ Yes | Straightforward prompt engineering |
+| **Compare papers** ("how do A and B differ?") | ⚠️ Multi-doc chat | Multi-document RAG with comparison prompt |
+
+**Key insight**: AnythingLLM covers the **generic RAG use case** well but doesn't understand **scholarly domain concepts** — BibTeX, citation networks, DOIs, arXiv IDs, h-index, impact factors, reading lists, annotation workflows. The intelligence version of imbib needs *domain-aware* RAG, not generic document chat.
+
+For example:
+- When answering "what methods do these papers use?", imbib should cite specific papers with proper BibTeX keys, not just say "according to the documents"
+- When synthesizing, imbib should organize by methodology, timeline, or citation network — not just concatenate chunks
+- Results should be actionable: "add to collection", "cite in manuscript", "flag for reading"
+
+AnythingLLM can't do any of this because it has no concept of scholarly metadata.
+
+### 8.5 Recommendation
+
+**Primary path: Native RAG pipeline (Option C).**
+
+Build the PDF → chunks → embeddings → retrieval pipeline natively in Rust + Swift, extending imbib's existing infrastructure. This gives domain-aware RAG that understands scholarly concepts, maintains local-first principles, ships as a single app, and integrates natively with the recommendation engine (ADR-020), the impel agent system, and imprint's citation workflow.
+
+**Secondary path: AnythingLLM as optional power-user sidecar (Option B).**
+
+For researchers who already use AnythingLLM for general document Q&A, expose an "AnythingLLM integration" in imbib's settings that:
+1. Auto-pushes PDFs from imbib to an AnythingLLM workspace via its REST API
+2. Adds an `imbib_anythingllm_query` MCP tool so impel agents can use it
+3. Does NOT make it required — it's a plugin, not a dependency
+
+**What to learn from AnythingLLM's design:**
+- **LanceDB as default**: Zero-config embedded vector DB. The `lancedb` Rust crate could replace or complement the existing HNSW index for chunk storage.
+- **Workspace isolation**: Per-project vector spaces map naturally to imbib's collections/smart searches
+- **Provider-agnostic embedding**: Abstract the embedding source (local model, API, Apple NL) behind a single interface — ImpressAI already has this pattern for LLMs, extend it to embeddings
+- **Chunking strategies**: AnythingLLM's document collector has battle-tested chunking for PDFs, web pages, and raw text
+
+### 8.6 Implementation Sketch for impel Integration
+
+```
+┌─────────────────────┐     ┌──────────────────────┐
+│  impel agent         │────▶│  MCP / HTTP API       │
+│  (asks about papers) │     │  imbib_ask_papers()   │
+└─────────────────────┘     └──────────┬───────────┘
+                                       │
+                            ┌──────────▼───────────┐
+                            │  RAG Orchestrator     │
+                            │  (query → embed →     │
+                            │   retrieve → assemble  │
+                            │   → generate)          │
+                            └──────────┬───────────┘
+                                       │
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                   │
+         ┌──────────▼──┐   ┌──────────▼──┐   ┌──────────▼──┐
+         │ Chunk Index  │   │ Paper Meta   │   │ LLM (via    │
+         │ (Rust HNSW / │   │ (Core Data/  │   │ ImpressAI)  │
+         │  LanceDB)    │   │  BibTeX)     │   │             │
+         └─────────────┘   └─────────────┘   └─────────────┘
+```
+
+The RAG orchestrator combines chunk retrieval with paper metadata to produce domain-grounded answers. An impel agent calling `imbib_ask_papers(query: "what methods for dark energy?", scope: "collection:cosmology")` gets back a cited, structured response — not generic chat output.
+
+---
+
 ## Verification
 
 This is an analysis document, not code. Verification = review for accuracy and completeness. The document should be committed to the repository for reference.
