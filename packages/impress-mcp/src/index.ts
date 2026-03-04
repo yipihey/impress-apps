@@ -14,12 +14,15 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import { ImbibClient } from "./imbib/client.js";
 import { ImbibTools, IMBIB_TOOLS } from "./imbib/tools.js";
@@ -29,7 +32,6 @@ import { ImprintClient } from "./imprint/client.js";
 import { ImprintTools, IMPRINT_TOOLS } from "./imprint/tools.js";
 import { ImpelClient } from "./impel/client.js";
 import { ImpelTools, IMPEL_TOOLS } from "./impel/tools.js";
-import { ScixClient, ScixTools, SCIX_TOOLS } from "./scix/index.js";
 import { PaperResources } from "./resources/papers.js";
 import { DocumentResources } from "./resources/documents.js";
 
@@ -52,6 +54,42 @@ const IMBIB_PORT = Number(process.env.IMBIB_PORT) || 23120;
 const IMPRINT_PORT = Number(process.env.IMPRINT_PORT) || 23121;
 const IMPART_PORT = Number(process.env.IMPART_PORT) || 23122;
 const IMPEL_PORT = Number(process.env.IMPEL_PORT) || 23123;
+
+// scix-client MCP proxy state
+let scixMcpClient: Client | null = null;
+let scixMcpTools: Tool[] = [];
+
+async function connectScixServer(): Promise<void> {
+  const token =
+    process.env.ADS_API_KEY ??
+    process.env.ADS_API_TOKEN ??
+    process.env.SCIX_API_KEY;
+  if (!token) return;
+
+  const { execSync } = await import("child_process");
+  try {
+    execSync("which scix", { stdio: "ignore" });
+  } catch {
+    // scix binary not installed — skip silently
+    return;
+  }
+
+  const transport = new StdioClientTransport({
+    command: "scix",
+    args: ["serve"],
+    env: { ...process.env, ADS_API_TOKEN: token } as Record<string, string>,
+  });
+
+  const client = new Client(
+    { name: "impress-mcp", version: "1.0.0" },
+    { capabilities: {} }
+  );
+  await client.connect(transport);
+
+  const { tools } = await client.listTools();
+  scixMcpClient = client;
+  scixMcpTools = tools;
+}
 
 // ANSI color codes for terminal output
 const colors = {
@@ -183,17 +221,45 @@ async function runCheck(): Promise<void> {
   console.log("");
 
   // Check SciX / ADS
-  const checkScixKey = process.env.ADS_API_KEY ?? process.env.SCIX_API_KEY;
-  if (checkScixKey) {
+  const checkScixKey =
+    process.env.ADS_API_KEY ??
+    process.env.ADS_API_TOKEN ??
+    process.env.SCIX_API_KEY;
+  const { execSync: checkExecSync } = await import("child_process");
+  let scixBinaryFound = false;
+  try {
+    checkExecSync("which scix", { stdio: "ignore" });
+    scixBinaryFound = true;
+  } catch {
+    // not installed
+  }
+  if (checkScixKey && scixBinaryFound) {
     console.log(
-      `${colors.green}✓${colors.reset} ADS/SciX API key configured (${SCIX_TOOLS.length} scix_* tools enabled)`
+      `${colors.green}✓${colors.reset} scix binary found + API key configured (scix_* tools enabled via scix serve)`
+    );
+  } else if (!checkScixKey && scixBinaryFound) {
+    console.log(
+      `${colors.yellow}○${colors.reset} scix binary found but API key not set (scix_* tools disabled)`
+    );
+    console.log(
+      `  ${colors.dim}→ Set ADS_API_KEY: https://ui.adsabs.harvard.edu/user/settings/token${colors.reset}`
+    );
+  } else if (checkScixKey && !scixBinaryFound) {
+    console.log(
+      `${colors.yellow}○${colors.reset} API key configured but scix binary not found (scix_* tools disabled)`
+    );
+    console.log(
+      `  ${colors.dim}→ Install with: cargo install scix-client${colors.reset}`
     );
   } else {
     console.log(
-      `${colors.yellow}○${colors.reset} ADS/SciX API key not set (scix_* tools disabled)`
+      `${colors.yellow}○${colors.reset} ADS/SciX tools disabled (need ADS_API_KEY + scix binary)`
     );
     console.log(
-      `  ${colors.dim}→ Set ADS_API_KEY to enable: https://ui.adsabs.harvard.edu/user/settings/token${colors.reset}`
+      `  ${colors.dim}→ Install: cargo install scix-client${colors.reset}`
+    );
+    console.log(
+      `  ${colors.dim}→ Set key: https://ui.adsabs.harvard.edu/user/settings/token${colors.reset}`
     );
   }
 
@@ -255,9 +321,6 @@ const imbibTools = new ImbibTools(imbibClient);
 const impartTools = new ImpartTools(impartClient);
 const imprintTools = new ImprintTools(imprintClient);
 const impelTools = new ImpelTools(impelClient);
-const scixClient = ScixClient.fromEnv();
-const scixTools = scixClient ? new ScixTools(scixClient) : null;
-
 // Initialize bridge handlers
 const citationBridge = new CitationBridge(imbibClient, imprintClient);
 const conversationManuscriptBridge = new ConversationManuscriptBridge(
@@ -298,7 +361,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       ...IMPEL_TOOLS,
       ...ALL_BRIDGE_TOOLS,
       ...SHARED_STORE_TOOLS,
-      ...(scixClient ? SCIX_TOOLS : []),
+      ...scixMcpTools,
     ],
   };
 });
@@ -328,20 +391,21 @@ async function dispatchTool(
     return await impelTools.handleTool(name, args);
   }
 
-  // ADS / SciX tools
+  // ADS / SciX tools — proxied to scix serve subprocess
   if (name.startsWith("scix_")) {
-    if (!scixTools) {
+    if (!scixMcpClient) {
       return {
         content: [
           {
             type: "text",
-            text: "ADS/SciX tools require an API key. Set the ADS_API_KEY environment variable (get one at https://ui.adsabs.harvard.edu/user/settings/token).",
+            text: "scix tools require an API key and the scix binary. Set ADS_API_KEY and install with: cargo install scix-client",
           },
         ],
         isError: true,
       };
     }
-    return await scixTools.handleTool(name, args);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (await scixMcpClient.callTool({ name, arguments: args ?? {} })) as any;
   }
 
   // Cross-app bridge tools
@@ -521,10 +585,16 @@ For setup instructions, see:
     console.error("Note: impel is not running (optional for agent orchestration)");
   }
 
-  if (scixClient) {
-    console.error(`ADS/SciX tools enabled (${SCIX_TOOLS.length} tools)`);
-  } else {
-    console.error("ADS/SciX tools disabled (set ADS_API_KEY to enable)");
+  // Connect scix serve proxy (non-fatal)
+  try {
+    await connectScixServer();
+    if (scixMcpClient) {
+      console.error(`Connected to scix serve (${scixMcpTools.length} tools proxied)`);
+    } else {
+      console.error("scix tools disabled (set ADS_API_KEY and install scix binary: cargo install scix-client)");
+    }
+  } catch (err) {
+    console.error(`Warning: failed to connect to scix serve: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Start server with stdio transport
