@@ -1155,11 +1155,7 @@ final class ImbibSidebarViewModel {
             buildSciXLibraryContextMenu(menu, libraryID: libraryID)
 
         default:
-            // Add section reorder items for items that have them
-            if let sectionType = sectionTypeForNode(node) {
-                addSectionReorderItems(to: menu, section: sectionType)
-            }
-            return menu.items.isEmpty ? nil : menu
+            return nil
         }
 
         return menu.items.isEmpty ? nil : menu
@@ -1175,13 +1171,11 @@ final class ImbibSidebarViewModel {
             let newColItem = NSMenuItem(title: "New Collection", action: #selector(ContextMenuActions.createTopLevelInboxCollection(_:)), keyEquivalent: "")
             newColItem.target = ContextMenuActions.shared
             menu.addItem(newColItem)
-            menu.addItem(.separator())
 
         case .libraries:
             let newLibItem = NSMenuItem(title: "New Library", action: #selector(ContextMenuActions.createLibrary(_:)), keyEquivalent: "")
             newLibItem.target = ContextMenuActions.shared
             menu.addItem(newLibItem)
-            menu.addItem(.separator())
 
         case .search:
             if !hiddenSearchForms.isEmpty {
@@ -1200,14 +1194,12 @@ final class ImbibSidebarViewModel {
                 let submenuItem = NSMenuItem(title: "Show Hidden Forms", action: nil, keyEquivalent: "")
                 submenuItem.submenu = showHiddenMenu
                 menu.addItem(submenuItem)
-                menu.addItem(.separator())
             }
 
         default:
             break
         }
 
-        addSectionReorderItems(to: menu, section: section)
     }
 
     private func buildLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {
@@ -1244,12 +1236,17 @@ final class ImbibSidebarViewModel {
         deleteItem.target = ContextMenuActions.shared
         deleteItem.representedObject = libraryID
         menu.addItem(deleteItem)
-
-        menu.addItem(.separator())
-        addSectionReorderItems(to: menu, section: .libraries)
     }
 
     private func buildSciXLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {
+        if let remoteID = scixRepository.libraries.first(where: { $0.id == libraryID })?.remoteID {
+            let openItem = NSMenuItem(title: "Open on SciX", action: #selector(ContextMenuActions.openSciXLibraryOnWeb(_:)), keyEquivalent: "")
+            openItem.target = ContextMenuActions.shared
+            openItem.representedObject = remoteID
+            menu.addItem(openItem)
+            menu.addItem(.separator())
+        }
+
         let refreshItem = NSMenuItem(title: "Refresh Papers", action: #selector(ContextMenuActions.refreshSciXLibraryPapers(_:)), keyEquivalent: "")
         refreshItem.target = ContextMenuActions.shared
         refreshItem.representedObject = libraryID
@@ -1271,9 +1268,6 @@ final class ImbibSidebarViewModel {
         deleteItem.target = ContextMenuActions.shared
         deleteItem.representedObject = libraryID
         menu.addItem(deleteItem)
-
-        menu.addItem(.separator())
-        addSectionReorderItems(to: menu, section: .scixLibraries)
     }
 
     private func buildCollectionContextMenu(_ menu: NSMenu, collectionID: UUID, libraryID: UUID) {
@@ -1353,40 +1347,6 @@ final class ImbibSidebarViewModel {
         hideItem.target = ContextMenuActions.shared
         hideItem.representedObject = formType.rawValue
         menu.addItem(hideItem)
-
-        menu.addItem(.separator())
-        addSectionReorderItems(to: menu, section: .search)
-    }
-
-    private func addSectionReorderItems(to menu: NSMenu, section: SidebarSectionType) {
-        guard let index = sectionOrder.firstIndex(of: section) else { return }
-
-        if index > 0 {
-            let moveUpItem = NSMenuItem(title: "Move Section Up", action: #selector(ContextMenuActions.moveSectionUp(_:)), keyEquivalent: "")
-            moveUpItem.target = ContextMenuActions.shared
-            moveUpItem.representedObject = section.rawValue
-            menu.addItem(moveUpItem)
-        }
-
-        if index < sectionOrder.count - 1 {
-            let moveDownItem = NSMenuItem(title: "Move Section Down", action: #selector(ContextMenuActions.moveSectionDown(_:)), keyEquivalent: "")
-            moveDownItem.target = ContextMenuActions.shared
-            moveDownItem.representedObject = section.rawValue
-            menu.addItem(moveDownItem)
-        }
-    }
-
-    private func sectionTypeForNode(_ node: ImbibSidebarNode) -> SidebarSectionType? {
-        switch node.nodeType {
-        case .inboxFeed, .inboxCollection: return .inbox
-        case .sharedLibrary: return .sharedWithMe
-        case .scixLibrary: return .scixLibraries
-        case .anyFlag, .flagColor: return .flagged
-        case .allArtifacts, .artifactType: return .artifacts
-        case .dismissed: return .dismissed
-        case .explorationSearch, .explorationCollection: return .exploration
-        default: return nil
-        }
     }
 
     // MARK: - Expansion Persistence
@@ -1723,22 +1683,6 @@ final class ImbibSidebarViewModel {
         bumpDataVersion()
     }
 
-    func moveSectionUp(_ rawValue: String) {
-        guard let section = SidebarSectionType(rawValue: rawValue),
-              let index = sectionOrder.firstIndex(of: section), index > 0 else { return }
-        sectionOrder.move(fromOffsets: IndexSet(integer: index), toOffset: index - 1)
-        Task { await SidebarSectionOrderStore.shared.save(sectionOrder) }
-        bumpDataVersion()
-    }
-
-    func moveSectionDown(_ rawValue: String) {
-        guard let section = SidebarSectionType(rawValue: rawValue),
-              let index = sectionOrder.firstIndex(of: section), index < sectionOrder.count - 1 else { return }
-        sectionOrder.move(fromOffsets: IndexSet(integer: index), toOffset: index + 2)
-        Task { await SidebarSectionOrderStore.shared.save(sectionOrder) }
-        bumpDataVersion()
-    }
-
     func exportLibrary(_ libraryID: UUID) {
         NotificationCenter.default.post(
             name: .showUnifiedExport,
@@ -1859,16 +1803,6 @@ final class ContextMenuActions: NSObject {
         viewModel?.showAllSearchForms()
     }
 
-    @objc func moveSectionUp(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String else { return }
-        viewModel?.moveSectionUp(rawValue)
-    }
-
-    @objc func moveSectionDown(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String else { return }
-        viewModel?.moveSectionDown(rawValue)
-    }
-
     // MARK: - Inbox Feed Actions
 
     @objc func editFeed(_ sender: NSMenuItem) {
@@ -1930,6 +1864,12 @@ final class ContextMenuActions: NSObject {
     @objc func deleteSciXLibrary(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         viewModel?.deleteSciXLibrary(id)
+    }
+
+    @objc func openSciXLibraryOnWeb(_ sender: NSMenuItem) {
+        guard let remoteID = sender.representedObject as? String,
+              let url = URL(string: "https://ui.adsabs.harvard.edu/user/libraries/\(remoteID)") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
