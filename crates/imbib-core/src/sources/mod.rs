@@ -1,13 +1,15 @@
-//! Source plugins for fetching publications from online databases
+//! Source plugins for fetching publications from online databases.
+//!
+//! ADS/SciX parsing has been moved to scix-client-ffi (UniFFI bindings for the
+//! scix-client crate). The Swift layer calls scix-client-ffi directly for all
+//! ADS/SciX HTTP operations and parsing.
 
-pub mod ads;
 #[cfg(feature = "native")]
 pub mod arxiv;
 pub mod crossref;
 pub mod pubmed;
 pub mod traits;
 
-pub use ads::*;
 #[cfg(feature = "native")]
 pub use arxiv::*;
 pub use crossref::*;

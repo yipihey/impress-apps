@@ -37,6 +37,8 @@ packages:
     path: ../../packages/ImpressFTUI
   ImpressMailStyle:
     path: ../../packages/ImpressMailStyle
+  ImpressRustCore:
+    path: ../../packages/ImpressRustCore
 
 targets:
   impart:

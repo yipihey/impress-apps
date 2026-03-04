@@ -2,10 +2,12 @@
 //  ADSEnrichment.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-04.
+//  ADS enrichment plugin — powered by scix-client-ffi (Rust).
+//  Fetches citation counts, reference/citation lists, abstracts, and PDF links.
 //
 
 import Foundation
+import ImpressScixCore
 import OSLog
 
 // MARK: - ADS Enrichment Plugin
@@ -14,9 +16,10 @@ import OSLog
 ///
 /// ADS provides enrichment data including:
 /// - Citation count
-/// - Reference count and list (with full paper metadata)
-/// - Citations list (with full paper metadata)
+/// - Reference list with full paper metadata
+/// - Citations list with full paper metadata
 /// - Abstract
+/// - PDF links
 extension ADSSource: EnrichmentPlugin {
 
     // MARK: - Capabilities
@@ -33,43 +36,39 @@ extension ADSSource: EnrichmentPlugin {
     ) async throws -> EnrichmentResult {
         Logger.sources.info("ADS: enriching paper with identifiers: \(identifiers)")
 
-        // Get API key
-        guard await credentialManager.apiKey(for: "ads") != nil else {
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
             throw EnrichmentError.authenticationRequired("ads")
         }
 
-        // Resolve bibcode from identifiers
         let bibcodeQuery = try resolveBibcode(from: identifiers)
 
-        // First, get basic info (citation count, abstract, reference count) and resolve actual bibcode
-        let (basicInfo, resolvedBibcode) = try await fetchBasicInfo(bibcodeQuery: bibcodeQuery)
+        // Fetch basic info (citation count, abstract, PDF links, resolved bibcode)
+        let (basicInfo, resolvedBibcode) = try await fetchBasicInfo(
+            bibcodeQuery: bibcodeQuery,
+            apiKey: apiKey
+        )
 
-        // Fetch full references with paper metadata
+        // Fetch references (gives us the reference list and reference count)
         var references: [PaperStub]?
-        if let refCount = basicInfo.referenceCount, refCount > 0 {
-            do {
-                references = try await fetchReferences(bibcode: resolvedBibcode, maxResults: 200)
-            } catch {
-                Logger.sources.warning("ADS: Failed to fetch references: \(error.localizedDescription)")
-                // Continue without references rather than failing entirely
-            }
+        do {
+            references = try await fetchReferences(bibcode: resolvedBibcode, maxResults: 200)
+        } catch {
+            Logger.sources.warning("ADS: Failed to fetch references: \(error.localizedDescription)")
         }
 
-        // Fetch full citations with paper metadata
+        // Fetch citations
         var citations: [PaperStub]?
         if let citCount = basicInfo.citationCount, citCount > 0 {
             do {
                 citations = try await fetchCitations(bibcode: resolvedBibcode, maxResults: 200)
             } catch {
                 Logger.sources.warning("ADS: Failed to fetch citations: \(error.localizedDescription)")
-                // Continue without citations rather than failing entirely
             }
         }
 
-        // Build final enrichment data
         let enrichmentData = EnrichmentData(
             citationCount: basicInfo.citationCount,
-            referenceCount: basicInfo.referenceCount,
+            referenceCount: references?.count,  // Derived from fetched list
             references: references,
             citations: citations,
             abstract: basicInfo.abstract,
@@ -77,7 +76,6 @@ extension ADSSource: EnrichmentPlugin {
             source: .ads
         )
 
-        // Resolved identifiers include bibcode and arXiv ID (if discovered)
         var resolvedIdentifiers = identifiers
         resolvedIdentifiers[.bibcode] = resolvedBibcode
         if let arxivID = basicInfo.arxivID, resolvedIdentifiers[.arxiv] == nil {
@@ -86,13 +84,7 @@ extension ADSSource: EnrichmentPlugin {
 
         Logger.sources.info("ADS: enrichment complete - citations: \(enrichmentData.citationCount ?? 0), references: \(references?.count ?? 0), citing: \(citations?.count ?? 0)")
 
-        // Merge with existing data
-        let finalData: EnrichmentData
-        if let existing = existingData {
-            finalData = enrichmentData.merging(with: existing)
-        } else {
-            finalData = enrichmentData
-        }
+        let finalData = existingData.map { enrichmentData.merging(with: $0) } ?? enrichmentData
 
         return EnrichmentResult(
             data: finalData,
@@ -100,113 +92,44 @@ extension ADSSource: EnrichmentPlugin {
         )
     }
 
-    /// Basic info from initial enrichment query
+    // MARK: - Private: Basic Info
+
     private struct BasicInfo {
         let citationCount: Int?
-        let referenceCount: Int?
         let abstract: String?
         let pdfLinks: [PDFLink]?
         let arxivID: String?
     }
 
-    /// Fetch basic enrichment info and resolve actual bibcode
-    private func fetchBasicInfo(bibcodeQuery: String) async throws -> (BasicInfo, String) {
-        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
-            throw EnrichmentError.authenticationRequired("ads")
-        }
-
-        await rateLimiter.waitIfNeeded()
-
-        // Build the query - don't add bibcode: prefix if query already has a prefix
+    /// Fetch citation count, abstract, and PDF links for a single paper.
+    private func fetchBasicInfo(bibcodeQuery: String, apiKey: String) async throws -> (BasicInfo, String) {
         let query: String
         if bibcodeQuery.hasPrefix("arXiv:") || bibcodeQuery.hasPrefix("doi:") {
-            // Use identifier: for arXiv and doi lookups
             query = "identifier:\(bibcodeQuery)"
         } else {
-            // Direct bibcode lookup
             query = "bibcode:\(bibcodeQuery)"
         }
 
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: query),
-            // Include esources, doi, identifier for PDF link discovery
-            URLQueryItem(name: "fl", value: "bibcode,citation_count,abstract,[citations],reference,esources,doi,identifier"),
-            URLQueryItem(name: "rows", value: "1"),
-        ]
+        do {
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixSearch(token: apiKey, query: query, maxResults: 1)
+            }.value
 
-        guard let url = components.url else {
-            throw EnrichmentError.networkError("Invalid URL")
+            guard let paper = papers.first else {
+                throw EnrichmentError.notFound
+            }
+
+            let pdfLinks = paper.toPdfLinks(sourceID: "ads")
+
+            return (BasicInfo(
+                citationCount: paper.citationCount.map { Int($0) },
+                abstract: paper.abstractText,
+                pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
+                arxivID: paper.arxivId
+            ), paper.bibcode)
+        } catch let error as ScixFfiError {
+            throw error.toEnrichmentError(sourceID: "ads")
         }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        Logger.network.httpRequest("GET", url: url)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw EnrichmentError.networkError("Invalid response")
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        switch httpResponse.statusCode {
-        case 200:
-            break
-        case 401:
-            throw EnrichmentError.authenticationRequired("ads")
-        case 404:
-            throw EnrichmentError.notFound
-        case 429:
-            throw EnrichmentError.rateLimited(retryAfter: nil)
-        default:
-            throw EnrichmentError.networkError("HTTP \(httpResponse.statusCode)")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let responseObj = json["response"] as? [String: Any],
-              let docs = responseObj["docs"] as? [[String: Any]] else {
-            throw EnrichmentError.parseError("Invalid ADS response")
-        }
-
-        let numFound = responseObj["numFound"] as? Int ?? 0
-        if numFound == 0 {
-            throw EnrichmentError.notFound
-        }
-
-        guard let doc = docs.first,
-              let resolvedBibcode = doc["bibcode"] as? String else {
-            throw EnrichmentError.parseError("No bibcode in response")
-        }
-
-        let citationCount = doc["citation_count"] as? Int
-        let referenceCount = (doc["reference"] as? [String])?.count
-        let abstract = doc["abstract"] as? String
-
-        // Build PDF links from esources
-        let esources = doc["esources"] as? [String] ?? []
-        let doi = (doc["doi"] as? [String])?.first
-        let identifiers = doc["identifier"] as? [String]
-        // Extract arXiv ID and validate it's actually an arXiv ID format (not a DOI or bibcode)
-        let rawArxivID = identifiers?.first { $0.hasPrefix("arXiv:") }?.replacingOccurrences(of: "arXiv:", with: "")
-        let arxivID = rawArxivID.flatMap { IdentifierExtractor.isValidArXivIDFormat($0) ? $0 : nil }
-
-        let pdfLinks = ADSSource.buildPDFLinks(
-            esources: esources,
-            doi: doi,
-            arxivID: arxivID,
-            bibcode: resolvedBibcode
-        )
-
-        return (BasicInfo(
-            citationCount: citationCount,
-            referenceCount: referenceCount,
-            abstract: abstract,
-            pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
-            arxivID: arxivID
-        ), resolvedBibcode)
     }
 
     // MARK: - Identifier Resolution
@@ -214,42 +137,30 @@ extension ADSSource: EnrichmentPlugin {
     public func resolveIdentifier(
         from identifiers: [IdentifierType: String]
     ) async throws -> [IdentifierType: String] {
-        // If we already have a bibcode, return as-is
         if identifiers[.bibcode] != nil {
             return identifiers
         }
-
-        // ADS can resolve DOI to bibcode via search
         if let doi = identifiers[.doi] {
             var result = identifiers
-            // DOI search in ADS uses doi: prefix
             result[.bibcode] = "doi:\(doi)"
             return result
         }
-
-        // arXiv ID can also be resolved
         if let arxiv = identifiers[.arxiv] {
             var result = identifiers
             result[.bibcode] = "arXiv:\(arxiv)"
             return result
         }
-
         return identifiers
     }
 
     // MARK: - Batch Enrichment
 
-    /// Batch size for ADS enrichment queries.
-    /// ADS has URL length limits, so we chunk requests into smaller batches.
     private static let batchSize = 50
 
     /// Batch enrich multiple papers using ADS OR-query syntax.
     ///
-    /// This is much more efficient than individual calls:
-    /// - Chunks requests into batches of 50 papers
-    /// - Single API call per batch (vs 50 individual calls)
-    /// - Returns basic enrichment data (citation count, reference count, abstract)
-    /// - Does NOT fetch full references/citations lists (too expensive for batch)
+    /// Returns basic enrichment data (citation count, abstract, PDF links) for each paper.
+    /// Reference/citation lists are NOT fetched in batch mode — too expensive.
     public func enrichBatch(
         requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
     ) async -> [UUID: Result<EnrichmentResult, Error>] {
@@ -257,15 +168,13 @@ extension ADSSource: EnrichmentPlugin {
 
         Logger.sources.info("ADS: batch enriching \(requests.count) papers in chunks of \(Self.batchSize)")
 
-        // Check API key
-        guard await credentialManager.apiKey(for: "ads") != nil else {
-            // Return auth error for all requests
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
             return Dictionary(uniqueKeysWithValues: requests.map {
                 ($0.publicationID, .failure(EnrichmentError.authenticationRequired("ads")))
             })
         }
 
-        // Build mapping from bibcode query to publication ID
+        // Build mapping from bibcode query → publication ID
         var queryToPubID: [String: UUID] = [:]
         var validRequests: [(publicationID: UUID, bibcodeQuery: String)] = []
 
@@ -277,7 +186,6 @@ extension ADSSource: EnrichmentPlugin {
         }
 
         guard !validRequests.isEmpty else {
-            // No valid identifiers, return errors for all
             return Dictionary(uniqueKeysWithValues: requests.map {
                 ($0.publicationID, .failure(EnrichmentError.noIdentifier))
             })
@@ -285,7 +193,6 @@ extension ADSSource: EnrichmentPlugin {
 
         var allResults: [UUID: Result<EnrichmentResult, Error>] = [:]
 
-        // Process in chunks to avoid URL length limits and ADS query limits
         for chunkStart in stride(from: 0, to: validRequests.count, by: Self.batchSize) {
             let chunkEnd = min(chunkStart + Self.batchSize, validRequests.count)
             let chunk = Array(validRequests[chunkStart..<chunkEnd])
@@ -295,25 +202,30 @@ extension ADSSource: EnrichmentPlugin {
             let query = "identifier:(" + queryTerms.joined(separator: " OR ") + ")"
 
             do {
-                let batchResults = try await fetchBasicInfoBatch(query: query, maxRows: chunk.count)
+                let papers = try await Task.detached(priority: .userInitiated) {
+                    try scixSearch(token: apiKey, query: query, maxResults: UInt32(chunk.count))
+                }.value
 
-                // Map results back to publication IDs
-                for (bibcode, info) in batchResults {
-                    // Find the publication ID for this bibcode (also matching arXiv/DOI from the response)
-                    if let pubID = findPublicationID(bibcode: bibcode, arxivID: info.arxivID, queryToPubID: queryToPubID, requests: requests) {
+                for paper in papers {
+                    if let pubID = findPublicationID(
+                        bibcode: paper.bibcode,
+                        arxivID: paper.arxivId,
+                        queryToPubID: queryToPubID,
+                        requests: requests
+                    ) {
+                        let pdfLinks = paper.toPdfLinks(sourceID: "ads")
                         let enrichmentData = EnrichmentData(
-                            citationCount: info.citationCount,
-                            referenceCount: info.referenceCount,
-                            references: nil,  // Not fetched in batch mode
-                            citations: nil,   // Not fetched in batch mode
-                            abstract: info.abstract,
-                            pdfLinks: info.pdfLinks,
+                            citationCount: paper.citationCount.map { Int($0) },
+                            referenceCount: nil,  // Not fetched in batch mode
+                            references: nil,
+                            citations: nil,
+                            abstract: paper.abstractText,
+                            pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
                             source: .ads
                         )
 
-                        var resolvedIdentifiers: [IdentifierType: String] = [:]
-                        resolvedIdentifiers[.bibcode] = bibcode
-                        if let arxivID = info.arxivID {
+                        var resolvedIdentifiers: [IdentifierType: String] = [.bibcode: paper.bibcode]
+                        if let arxivID = paper.arxivId {
                             resolvedIdentifiers[.arxiv] = arxivID
                         }
 
@@ -324,193 +236,74 @@ extension ADSSource: EnrichmentPlugin {
                     }
                 }
 
-                Logger.sources.debug("ADS: chunk \(chunkStart/Self.batchSize + 1) complete - \(batchResults.count)/\(chunk.count) found")
+                Logger.sources.debug("ADS: chunk \(chunkStart / Self.batchSize + 1) complete - \(papers.count)/\(chunk.count) found")
 
+            } catch let error as ScixFfiError {
+                let enrichErr = error.toEnrichmentError(sourceID: "ads")
+                Logger.sources.error("ADS: chunk enrichment failed: \(enrichErr.localizedDescription)")
+                for request in chunk {
+                    allResults[request.publicationID] = .failure(enrichErr)
+                }
             } catch {
                 Logger.sources.error("ADS: chunk enrichment failed: \(error.localizedDescription)")
-                // Mark this chunk's papers as failures
                 for request in chunk {
                     allResults[request.publicationID] = .failure(error)
                 }
             }
         }
 
-        // Mark papers not found in results as failures
+        // Mark papers not found as failures
         for request in requests {
             if allResults[request.publicationID] == nil {
                 allResults[request.publicationID] = .failure(EnrichmentError.notFound)
             }
         }
 
-        let successCount = allResults.values.filter { if case .success = $0 { return true } else { return false } }.count
+        let successCount = allResults.values.filter {
+            if case .success = $0 { return true } else { return false }
+        }.count
         Logger.sources.info("ADS: batch enrichment complete - \(successCount)/\(requests.count) found")
         return allResults
     }
 
-    /// Fetch basic info for multiple papers in one API call
-    private func fetchBasicInfoBatch(
-        query: String,
-        maxRows: Int
-    ) async throws -> [String: BasicInfo] {
-        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
-            throw EnrichmentError.authenticationRequired("ads")
-        }
-
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: query),
-            // Include esources for PDF link discovery
-            URLQueryItem(name: "fl", value: "bibcode,citation_count,abstract,reference,doi,identifier,esources"),
-            URLQueryItem(name: "rows", value: "\(maxRows)"),
-        ]
-
-        guard let url = components.url else {
-            throw EnrichmentError.networkError("Invalid URL")
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        Logger.network.httpRequest("GET", url: url)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw EnrichmentError.networkError("Invalid response")
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        switch httpResponse.statusCode {
-        case 200:
-            break
-        case 401:
-            throw EnrichmentError.authenticationRequired("ads")
-        case 429:
-            throw EnrichmentError.rateLimited(retryAfter: nil)
-        default:
-            throw EnrichmentError.networkError("HTTP \(httpResponse.statusCode)")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let responseObj = json["response"] as? [String: Any],
-              let docs = responseObj["docs"] as? [[String: Any]] else {
-            throw EnrichmentError.parseError("Invalid ADS response")
-        }
-
-        var results: [String: BasicInfo] = [:]
-
-        for doc in docs {
-            guard let bibcode = doc["bibcode"] as? String else { continue }
-
-            let citationCount = doc["citation_count"] as? Int
-            let referenceCount = (doc["reference"] as? [String])?.count
-            let abstract = doc["abstract"] as? String
-
-            // Build PDF links from esources
-            let esources = doc["esources"] as? [String] ?? []
-            let doi = (doc["doi"] as? [String])?.first
-            let identifiers = doc["identifier"] as? [String]
-            // Extract arXiv ID and validate it's actually an arXiv ID format (not a DOI or bibcode)
-            let rawArxivID = identifiers?.first { $0.hasPrefix("arXiv:") }?.replacingOccurrences(of: "arXiv:", with: "")
-            let arxivID = rawArxivID.flatMap { IdentifierExtractor.isValidArXivIDFormat($0) ? $0 : nil }
-
-            let pdfLinks = ADSSource.buildPDFLinks(
-                esources: esources,
-                doi: doi,
-                arxivID: arxivID,
-                bibcode: bibcode
-            )
-
-            results[bibcode] = BasicInfo(
-                citationCount: citationCount,
-                referenceCount: referenceCount,
-                abstract: abstract,
-                pdfLinks: pdfLinks.isEmpty ? nil : pdfLinks,
-                arxivID: arxivID
-            )
-        }
-
-        return results
-    }
-
-    /// Find publication ID for a bibcode, checking direct match, arXiv ID, and identifier matches
-    private func findPublicationID(
-        bibcode: String,
-        arxivID: String? = nil,
-        queryToPubID: [String: UUID],
-        requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
-    ) -> UUID? {
-        // Direct match on bibcode
-        if let pubID = queryToPubID[bibcode] {
-            return pubID
-        }
-
-        // Match via arXiv ID from the ADS response against the original query terms
-        // (e.g., queryToPubID has "arXiv:2601.09843" but ADS returned bibcode "2025arXiv...")
-        if let arxivID {
-            let arxivQuery = "arXiv:\(arxivID)"
-            if let pubID = queryToPubID[arxivQuery] {
-                return pubID
-            }
-            // Also check version-stripped form
-            let stripped = stripArxivVersion(arxivID)
-            if stripped != arxivID {
-                let strippedQuery = "arXiv:\(stripped)"
-                if let pubID = queryToPubID[strippedQuery] {
-                    return pubID
-                }
-            }
-        }
-
-        // Check if any request has a matching identifier
-        for request in requests {
-            if request.identifiers[.bibcode] == bibcode {
-                return request.publicationID
-            }
-            // Match via arXiv ID
-            if let arxivID, let reqArxiv = request.identifiers[.arxiv] {
-                if stripArxivVersion(reqArxiv) == stripArxivVersion(arxivID) {
-                    return request.publicationID
-                }
-            }
-        }
-
-        return nil
-    }
-
     // MARK: - Private Helpers
 
-    /// Resolve bibcode from identifiers
     private func resolveBibcode(from identifiers: [IdentifierType: String]) throws -> String {
-        // Direct bibcode
-        if let bibcode = identifiers[.bibcode] {
-            return bibcode
-        }
-
-        // DOI search
-        if let doi = identifiers[.doi] {
-            return "doi:\"\(doi)\""
-        }
-
-        // arXiv search - strip version suffix (e.g., "2511.08706v1" → "2511.08706")
-        if let arxiv = identifiers[.arxiv] {
-            let strippedArxiv = stripArxivVersion(arxiv)
-            return "arXiv:\(strippedArxiv)"
-        }
-
+        if let bibcode = identifiers[.bibcode] { return bibcode }
+        if let doi = identifiers[.doi] { return "doi:\"\(doi)\"" }
+        if let arxiv = identifiers[.arxiv] { return "arXiv:\(stripArxivVersion(arxiv))" }
         throw EnrichmentError.noIdentifier
     }
 
-    /// Strip version suffix from arXiv ID (e.g., "2511.08706v1" → "2511.08706")
     private func stripArxivVersion(_ arxivID: String) -> String {
-        // Match pattern: digits followed by v and more digits at the end
         if let range = arxivID.range(of: #"v\d+$"#, options: .regularExpression) {
             return String(arxivID[..<range.lowerBound])
         }
         return arxivID
     }
 
+    private func findPublicationID(
+        bibcode: String,
+        arxivID: String?,
+        queryToPubID: [String: UUID],
+        requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
+    ) -> UUID? {
+        if let pubID = queryToPubID[bibcode] { return pubID }
+
+        if let arxivID {
+            if let pubID = queryToPubID["arXiv:\(arxivID)"] { return pubID }
+            let stripped = stripArxivVersion(arxivID)
+            if stripped != arxivID, let pubID = queryToPubID["arXiv:\(stripped)"] { return pubID }
+        }
+
+        for request in requests {
+            if request.identifiers[.bibcode] == bibcode { return request.publicationID }
+            if let arxivID, let reqArxiv = request.identifiers[.arxiv],
+               stripArxivVersion(reqArxiv) == stripArxivVersion(arxivID) {
+                return request.publicationID
+            }
+        }
+
+        return nil
+    }
 }

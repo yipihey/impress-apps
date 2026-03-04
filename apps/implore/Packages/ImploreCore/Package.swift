@@ -15,12 +15,18 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../../ImploreRustCore")
+        .package(path: "../../ImploreRustCore"),
+        .package(path: "../../../../packages/ImpressKit"),
+        .package(path: "../../../../packages/ImpressRustCore")
     ],
     targets: [
         .target(
             name: "ImploreCore",
-            dependencies: ["ImploreRustCore"],
+            dependencies: [
+                "ImploreRustCore",
+                .product(name: "ImpressKit", package: "ImpressKit"),
+                "ImpressRustCore"
+            ],
             path: "Sources/ImploreCore",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

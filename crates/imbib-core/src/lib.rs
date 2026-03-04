@@ -56,12 +56,11 @@ pub use bibtex::{
 pub use deduplication::{DeduplicationMatch, DuplicateGroup};
 pub use domain::{
     Author, AuthorStats, Collection, EnrichmentCapability, EnrichmentData, EnrichmentPriority,
-    FileStorageType, Identifiers, Library, LinkedFile, OpenAccessStatus, PdfLink, PdfLinkType,
-    Publication, SearchResult, Source, Tag, ValidationError, ValidationSeverity,
+    FileStorageType, Identifiers, Library, LinkedFile, OpenAccessStatus, PaperStub, PdfLink,
+    PdfLinkType, Publication, SearchResult, Source, Tag, ValidationError, ValidationSeverity,
 };
 pub use error::FfiError;
 
-// PaperStub is defined in sources/ads.rs
 pub use export::{ExportFormat, ExportOptions};
 pub use filename::FilenameOptions;
 pub use identifiers::{
@@ -78,9 +77,6 @@ pub use search::{AnnIndex, AnnIndexConfig, AnnIndexItem, AnnSimilarityResult};
 pub use search::{HelpDocument, HelpPlatform, HelpSearchError, HelpSearchIndex, HelpSearchResult};
 #[cfg(not(target_arch = "wasm32"))]
 pub use search::{SearchHit, SearchIndex, SearchIndexError};
-#[cfg(feature = "native")]
-pub use sources::ads::PaperStub;
-
 pub use annotations::{
     Annotation, AnnotationColor, AnnotationHistory, AnnotationOperation, AnnotationStorageError,
     AnnotationType, DrawingAnnotation, DrawingStroke, Point, PublicationAnnotations, Rect,

@@ -29,6 +29,8 @@ members = [
     "crates/impress-core",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store
     "crates/impress-store-ffi",
+    # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
+    "crates/scix-client-ffi",
 ]
 
 [workspace.package]
@@ -68,6 +70,7 @@ imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
+scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-llm = { path = "crates/impress-llm" }
 
 # implore crates

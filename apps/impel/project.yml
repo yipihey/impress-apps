@@ -39,6 +39,8 @@ packages:
     path: ../../packages/ImpressLogging
   ImpressKeyboard:
     path: ../../packages/ImpressKeyboard
+  ImpressRustCore:
+    path: ../../packages/ImpressRustCore
 
 targets:
   impel:

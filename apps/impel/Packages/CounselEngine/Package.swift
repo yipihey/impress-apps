@@ -17,6 +17,7 @@ let package = Package(
         .package(path: "../../../../packages/ImpressAI"),
         .package(path: "../../../../packages/ImpressLogging"),
         .package(path: "../../../../packages/ImpressKit"),
+        .package(path: "../../../../packages/ImpressRustCore"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
     ],
     targets: [
@@ -27,6 +28,7 @@ let package = Package(
                 "ImpressAI",
                 "ImpressLogging",
                 "ImpressKit",
+                "ImpressRustCore",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/CounselEngine",

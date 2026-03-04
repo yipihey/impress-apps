@@ -282,6 +282,7 @@
 		A36D00C954F90D5352CD5308 /* DocumentBookmarkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentBookmarkService.swift; sourceTree = "<group>"; };
 		A36EE826300F91D62BAB88E5 /* IOSContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSContentView.swift; sourceTree = "<group>"; };
 		A6C1C382D917860B9054B1CC /* imprint.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = imprint.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A78235E071A03CC3466E9824 /* ImpressRustCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressRustCore; path = ../../packages/ImpressRustCore; sourceTree = SOURCE_ROOT; };
 		A83DD964817663C020DEEF41 /* ToolbarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarTests.swift; sourceTree = "<group>"; };
 		ADBC8CF5B6BD8346A6256AB0 /* VersionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionHistoryView.swift; sourceTree = "<group>"; };
 		AE367ABDFE6CE75C7DAF4B48 /* VersionHistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionHistoryPage.swift; sourceTree = "<group>"; };
@@ -443,6 +444,7 @@
 				6C53C737651FE968324F3CE7 /* ImpressKit */,
 				7B3D825F8C09DC4C79BB01CD /* ImpressLogging */,
 				C4F0C477F8E7238171371A1E /* ImpressOperationQueue */,
+				A78235E071A03CC3466E9824 /* ImpressRustCore */,
 				F0F91D140CA9D3301FF84818 /* ImpressSidebar */,
 				094CAB5368BE43666D38D4A6 /* ImpressTestKit */,
 				07CEE4F4CD2716BEE538C8C6 /* ImprintCore */,
@@ -931,6 +933,7 @@
 				FEC317CD7FA88A3837D09049 /* XCLocalSwiftPackageReference "../../packages/ImpressKit" */,
 				0BB30D257521854DC8A40E33 /* XCLocalSwiftPackageReference "../../packages/ImpressLogging" */,
 				C6A041F67004FC590562D85D /* XCLocalSwiftPackageReference "../../packages/ImpressOperationQueue" */,
+				057636EAB18D94401D2F1B00 /* XCLocalSwiftPackageReference "../../packages/ImpressRustCore" */,
 				AC4CFB55161F9980CBED87EF /* XCLocalSwiftPackageReference "../../packages/ImpressSidebar" */,
 				4587DE5DB9955180BDA2029E /* XCLocalSwiftPackageReference "../../packages/ImpressTestKit" */,
 				1C5A62778997ED795072477F /* XCLocalSwiftPackageReference "Packages/ImprintCore" */,
@@ -1578,6 +1581,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		057636EAB18D94401D2F1B00 /* XCLocalSwiftPackageReference "../../packages/ImpressRustCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../packages/ImpressRustCore;
+		};
 		0BB30D257521854DC8A40E33 /* XCLocalSwiftPackageReference "../../packages/ImpressLogging" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../packages/ImpressLogging;

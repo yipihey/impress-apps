@@ -32,32 +32,6 @@ public enum RustSourcePlugins {
         buildApiQuery(userQuery: userQuery)
     }
 
-    // MARK: - NASA ADS
-
-    /// Parse ADS search response JSON
-    /// - Parameter json: The raw JSON response from ADS API
-    /// - Returns: Array of SearchResult objects
-    /// - Throws: FfiError if parsing fails
-    public static func parseADSSearchResponse(_ json: String) throws -> [ImbibRustCore.SearchResult] {
-        try parseAdsSearchResponse(json: json)
-    }
-
-    /// Parse ADS paper stubs response (for references/citations)
-    /// - Parameter json: The raw JSON response from ADS API
-    /// - Returns: Array of PaperStub objects
-    /// - Throws: FfiError if parsing fails
-    public static func parseADSPaperStubs(_ json: String) throws -> [ImbibRustCore.PaperStub] {
-        try parseAdsPaperStubsResponse(json: json)
-    }
-
-    /// Parse ADS BibTeX export response
-    /// - Parameter json: The raw JSON export response from ADS API
-    /// - Returns: BibTeX string
-    /// - Throws: FfiError if parsing fails
-    public static func parseADSBibTeXExport(_ json: String) throws -> String {
-        try parseAdsBibtexExport(json: json)
-    }
-
     // MARK: - Crossref
 
     /// Parse Crossref search response JSON

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import ImpressScixCore
 import OSLog
 
 // MARK: - ADS Query Assistant
@@ -38,14 +39,11 @@ public actor ADSQueryAssistant: QueryAssistant {
     ]
 
     private let credentialManager: CredentialManager
-    private let rateLimiter: RateLimiter
 
     // MARK: - Initialization
 
     public init(credentialManager: CredentialManager = .shared) {
         self.credentialManager = credentialManager
-        // ADS allows 5 requests/sec with API key
-        self.rateLimiter = RateLimiter(rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1))
     }
 
     // MARK: - Validation
@@ -306,55 +304,31 @@ public actor ADSQueryAssistant: QueryAssistant {
     // MARK: - Preview Fetching
 
     public func fetchPreview(_ query: String) async throws -> QueryPreviewResult {
-        // Check for API key
         guard let apiKey = await credentialManager.apiKey(for: "ads") else {
             throw QueryAssistantError.apiKeyRequired
         }
 
-        // Respect rate limits
-        await rateLimiter.waitIfNeeded()
+        let startTime = Date()
 
-        // Build URL with rows=0 for count-only query
-        var components = URLComponents(string: "https://api.adsabs.harvard.edu/v1/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "rows", value: "0"),  // Count only
-            URLQueryItem(name: "fl", value: "")      // No fields
-        ]
+        do {
+            let count = try await Task.detached(priority: .userInitiated) {
+                try scixCount(token: apiKey, query: query)
+            }.value
 
-        guard let url = components.url else {
-            throw QueryAssistantError.invalidResponse
+            return QueryPreviewResult(
+                totalResults: Int(count),
+                fetchDuration: Date().timeIntervalSince(startTime),
+                fromCache: false,
+                message: nil
+            )
+        } catch let error as ScixFfiError {
+            switch error {
+            case .rateLimited:
+                throw QueryAssistantError.rateLimitExceeded
+            default:
+                Logger.queryAssistance.error("ADS preview failed: \(error.localizedDescription)")
+                throw QueryAssistantError.invalidResponse
+            }
         }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw QueryAssistantError.invalidResponse
-        }
-
-        // Check for rate limiting
-        if httpResponse.statusCode == 429 {
-            throw QueryAssistantError.rateLimitExceeded
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            Logger.queryAssistance.error("ADS preview failed with status \(httpResponse.statusCode)")
-            throw QueryAssistantError.invalidResponse
-        }
-
-        // Parse response
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let responseDict = json["response"] as? [String: Any],
-              let numFound = responseDict["numFound"] as? Int else {
-            throw QueryAssistantError.invalidResponse
-        }
-
-        await rateLimiter.recordRequest()
-
-        return QueryPreviewResult(totalResults: numFound)
     }
 }

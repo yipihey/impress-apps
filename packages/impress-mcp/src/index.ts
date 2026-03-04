@@ -29,6 +29,7 @@ import { ImprintClient } from "./imprint/client.js";
 import { ImprintTools, IMPRINT_TOOLS } from "./imprint/tools.js";
 import { ImpelClient } from "./impel/client.js";
 import { ImpelTools, IMPEL_TOOLS } from "./impel/tools.js";
+import { ScixClient, ScixTools, SCIX_TOOLS } from "./scix/index.js";
 import { PaperResources } from "./resources/papers.js";
 import { DocumentResources } from "./resources/documents.js";
 
@@ -181,6 +182,23 @@ async function runCheck(): Promise<void> {
 
   console.log("");
 
+  // Check SciX / ADS
+  const checkScixKey = process.env.ADS_API_KEY ?? process.env.SCIX_API_KEY;
+  if (checkScixKey) {
+    console.log(
+      `${colors.green}✓${colors.reset} ADS/SciX API key configured (${SCIX_TOOLS.length} scix_* tools enabled)`
+    );
+  } else {
+    console.log(
+      `${colors.yellow}○${colors.reset} ADS/SciX API key not set (scix_* tools disabled)`
+    );
+    console.log(
+      `  ${colors.dim}→ Set ADS_API_KEY to enable: https://ui.adsabs.harvard.edu/user/settings/token${colors.reset}`
+    );
+  }
+
+  console.log("");
+
   // Check shared store
   const storeClient = new SharedStoreClient();
   const storeConnected = storeClient.connect();
@@ -237,6 +255,8 @@ const imbibTools = new ImbibTools(imbibClient);
 const impartTools = new ImpartTools(impartClient);
 const imprintTools = new ImprintTools(imprintClient);
 const impelTools = new ImpelTools(impelClient);
+const scixClient = ScixClient.fromEnv();
+const scixTools = scixClient ? new ScixTools(scixClient) : null;
 
 // Initialize bridge handlers
 const citationBridge = new CitationBridge(imbibClient, imprintClient);
@@ -278,6 +298,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       ...IMPEL_TOOLS,
       ...ALL_BRIDGE_TOOLS,
       ...SHARED_STORE_TOOLS,
+      ...(scixClient ? SCIX_TOOLS : []),
     ],
   };
 });
@@ -305,6 +326,22 @@ async function dispatchTool(
   // impel tools
   if (name.startsWith("impel_")) {
     return await impelTools.handleTool(name, args);
+  }
+
+  // ADS / SciX tools
+  if (name.startsWith("scix_")) {
+    if (!scixTools) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "ADS/SciX tools require an API key. Set the ADS_API_KEY environment variable (get one at https://ui.adsabs.harvard.edu/user/settings/token).",
+          },
+        ],
+        isError: true,
+      };
+    }
+    return await scixTools.handleTool(name, args);
   }
 
   // Cross-app bridge tools
@@ -482,6 +519,12 @@ For setup instructions, see:
     );
   } else {
     console.error("Note: impel is not running (optional for agent orchestration)");
+  }
+
+  if (scixClient) {
+    console.error(`ADS/SciX tools enabled (${SCIX_TOOLS.length} tools)`);
+  } else {
+    console.error("ADS/SciX tools disabled (set ADS_API_KEY to enable)");
   }
 
   // Start server with stdio transport

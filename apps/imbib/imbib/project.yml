@@ -1,6 +1,6 @@
 name: imbib
 options:
-  bundleIdPrefix: com.imbib
+  bundleIdPrefix: com.impress
   deploymentTarget:
     macOS: "26.0"
     iOS: "26.0"
@@ -99,12 +99,12 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSSpeechRecognitionUsageDescription: imbib uses speech recognition for voice search and dictation features.
         CFBundleURLTypes:
-          - CFBundleURLName: com.imbib.app.ios
+          - CFBundleURLName: com.impress.imbib
             CFBundleURLSchemes:
               - imbib
         NSUserActivityTypes:
-          - com.imbib.viewing-publication
-          - com.imbib.reading-pdf
+          - com.impress.imbib.viewing-publication
+          - com.impress.imbib.reading-pdf
         LSApplicationQueriesSchemes:
           - imprint
           - implore
@@ -141,7 +141,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: imbib/Resources/Info.plist
@@ -160,13 +160,13 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
           - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.imbib.app
+          - iCloud.com.impress.imbib
         com.apple.developer.icloud-services:
           - CloudKit
-        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.impress.imbib
 
   # iOS App
   imbib-iOS:
@@ -179,6 +179,7 @@ targets:
           - "**/FileProvider/**"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
+      - path: imbib/Resources/PrivacyInfo.xcprivacy
       # Help documentation resources
       - path: ../docs
         name: HelpDocs
@@ -210,7 +211,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSpeechRecognitionUsageDescription: imbib uses speech recognition for voice search and dictation features.
         CFBundleURLTypes:
-          - CFBundleURLName: com.imbib.app
+          - CFBundleURLName: com.impress.imbib
             CFBundleURLSchemes:
               - imbib
         UILaunchScreen:
@@ -226,8 +227,8 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSUserActivityTypes:
-          - com.imbib.viewing-publication
-          - com.imbib.reading-pdf
+          - com.impress.imbib.viewing-publication
+          - com.impress.imbib.reading-pdf
         LSApplicationQueriesSchemes:
           - imprint
           - implore
@@ -266,7 +267,7 @@ targets:
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib
         PRODUCT_NAME: imbib
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: imbib-iOS/Resources/Info.plist
@@ -278,14 +279,15 @@ targets:
       path: imbib-iOS/Resources/imbib-iOS.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
           - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.imbib.app
+          - iCloud.com.impress.imbib
         com.apple.developer.icloud-services:
           - CloudKit
-        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
-        aps-environment: development
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.impress.imbib
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.impress.imbib
 
   # macOS Share Extension
   imbib-ShareExtension:
@@ -304,7 +306,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.ShareExtension
         PRODUCT_NAME: imbib-ShareExtension
         INFOPLIST_FILE: ShareExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -317,7 +319,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # iOS Share Extension
   imbib-iOS-ShareExtension:
@@ -336,7 +338,7 @@ targets:
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.ShareExtension
         PRODUCT_NAME: imbib-iOS-ShareExtension
         INFOPLIST_FILE: imbib-iOS/ShareExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -348,7 +350,7 @@ targets:
       path: imbib-iOS/ShareExtension/ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # macOS Safari Extension
   imbib-SafariExtension:
@@ -376,7 +378,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -390,7 +392,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # iOS Safari Extension
   imbib-iOS-SafariExtension:
@@ -418,7 +420,7 @@ targets:
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.safari-extension
         PRODUCT_NAME: imbib Safari Extension
         INFOPLIST_FILE: imbibSafariExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -430,7 +432,7 @@ targets:
       path: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # macOS File Provider Extension
   imbib-FileProvider:
@@ -448,7 +450,7 @@ targets:
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.fileprovider
         PRODUCT_NAME: imbib-FileProvider
         INFOPLIST_FILE: FileProvider/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -461,7 +463,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # iOS File Provider Extension
   imbib-iOS-FileProvider:
@@ -479,7 +481,7 @@ targets:
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.fileprovider
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.fileprovider
         PRODUCT_NAME: imbib-iOS-FileProvider
         INFOPLIST_FILE: imbib-iOS/FileProvider/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -490,7 +492,7 @@ targets:
       path: imbib-iOS/FileProvider/FileProvider.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.imbib.app
+          - group.com.impress.imbib
 
   # macOS Widgets Extension
   imbib-Widgets:
@@ -500,7 +502,7 @@ targets:
       - path: imbib-Widgets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.widgets
         PRODUCT_MODULE_NAME: imbibWidgets
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
@@ -524,7 +526,7 @@ targets:
       - path: imbib-iOS-Widgets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.widgets
         PRODUCT_MODULE_NAME: imbibIOSWidgets
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
@@ -552,7 +554,7 @@ targets:
       - target: imbib
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.tests
         GENERATE_INFOPLIST_FILE: YES
 
   imbibUITests:
@@ -565,7 +567,7 @@ targets:
       - target: imbib
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.uitests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:

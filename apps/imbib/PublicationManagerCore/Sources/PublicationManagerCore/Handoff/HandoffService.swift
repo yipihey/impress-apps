@@ -36,7 +36,7 @@ import UIKit
 /// ```xml
 /// <key>NSUserActivityTypes</key>
 /// <array>
-///     <string>com.imbib.reading-pdf</string>
+///     <string>com.impress.imbib.reading-pdf</string>
 /// </array>
 /// ```
 @MainActor
@@ -49,10 +49,10 @@ public final class HandoffService {
     // MARK: - Constants
 
     /// Activity type for reading a PDF
-    public static let readingActivityType = "com.imbib.reading-pdf"
+    public static let readingActivityType = "com.impress.imbib.reading-pdf"
 
     /// Activity type for viewing a publication (without PDF)
-    public static let viewingActivityType = "com.imbib.viewing-publication"
+    public static let viewingActivityType = "com.impress.imbib.viewing-publication"
 
     // MARK: - State
 
@@ -264,5 +264,5 @@ public extension Notification.Name {
 // MARK: - Logger Extension
 
 extension Logger {
-    static let handoff = Logger(subsystem: "com.imbib.app", category: "handoff")
+    static let handoff = Logger(subsystem: "com.impress.imbib", category: "handoff")
 }

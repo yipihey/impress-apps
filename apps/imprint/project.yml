@@ -45,6 +45,8 @@ packages:
     path: ../../packages/ImpressLogging
   ImpressKit:
     path: ../../packages/ImpressKit
+  ImpressRustCore:
+    path: ../../packages/ImpressRustCore
 
 targets:
   imprint:

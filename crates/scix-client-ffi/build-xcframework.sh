@@ -1,14 +1,14 @@
 #!/bin/bash
-# Build script for impress-store-ffi
-# Creates ImpressStoreFfi.xcframework for use by all impress Swift apps.
+# Build script for scix-client-ffi
+# Creates ScixClientCore.xcframework for use by ImpressScixCore Swift package.
 #
 # Usage:
-#   cd crates/impress-store-ffi && ./build-xcframework.sh
+#   cd crates/scix-client-ffi && ./build-xcframework.sh
 #
 # Output:
-#   crates/impress-store-ffi/frameworks/ImpressStoreFfi.xcframework
-#   packages/ImpressKit/Frameworks/ImpressStoreFfi.xcframework  (copied)
-#   packages/ImpressKit/Sources/ImpressKit/impress_store_ffi.swift  (bindings)
+#   crates/scix-client-ffi/frameworks/ScixClientCore.xcframework
+#   packages/ImpressScixCore/frameworks/ScixClientCore.xcframework  (copied)
+#   packages/ImpressScixCore/Sources/ImpressScixCore/scix_client_ffi.swift  (bindings)
 
 set -e
 
@@ -18,14 +18,14 @@ cd "$SCRIPT_DIR"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
 
-echo "Building ImpressStoreFfi XCFramework"
+echo "Building ScixClientCore XCFramework"
 echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$WORKSPACE_ROOT/target"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
-XCFRAMEWORK_NAME="ImpressStoreFfi"
-LIB_NAME="impress_store_ffi"
+XCFRAMEWORK_NAME="ScixClientCore"
+LIB_NAME="scix_client_ffi"
 
 MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
@@ -67,6 +67,9 @@ echo "=== Generating Swift bindings ==="
 BINDINGS_DIR="$FRAMEWORK_DIR/bindings"
 mkdir -p "$BINDINGS_DIR"
 
+# Build a macOS dylib for bindgen (cdylib target)
+cargo build --release --target $MACOS_TARGET --features native
+
 cargo run --bin uniffi-bindgen --features native -- generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.dylib" \
     --language swift \
@@ -74,7 +77,6 @@ cargo run --bin uniffi-bindgen --features native -- generate \
 
 HEADER_FILE="$BINDINGS_DIR/${XCFRAMEWORK_NAME}FFI.h"
 if [ ! -f "$HEADER_FILE" ]; then
-    # UniFFI may use a different naming convention
     HEADER_FILE=$(ls "$BINDINGS_DIR"/*.h 2>/dev/null | head -1)
 fi
 
@@ -91,7 +93,6 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
     if [ -n "$HEADER_FILE" ] && [ -f "$HEADER_FILE" ]; then
         cp "$HEADER_FILE" "$dir/Headers/"
     fi
-    # Copy modulemap so SPM can import the module by name (e.g. impress_store_ffiFFI)
     MODULEMAP_FILE="$BINDINGS_DIR/${XCFRAMEWORK_NAME}FFI.modulemap"
     if [ ! -f "$MODULEMAP_FILE" ]; then
         MODULEMAP_FILE=$(ls "$BINDINGS_DIR"/*.modulemap 2>/dev/null | head -1)
@@ -101,7 +102,6 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
     fi
 done
 
-# Copy static libs (keep .a extension so xcodebuild can detect library type)
 cp "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$MACOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
 cp "$BUILD_DIR/$IOS_TARGET/release/lib${LIB_NAME}.a" "$IOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
 cp "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$IOS_SIM_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
@@ -115,18 +115,28 @@ xcodebuild -create-xcframework \
     -headers "$IOS_SIM_FRAMEWORK_DIR/Headers" \
     -output "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework"
 
-echo "=== Copying Swift bindings to ImpressRustCore ==="
-IMPRESSRUSTCORE_SOURCES="$WORKSPACE_ROOT/packages/ImpressRustCore/Sources/ImpressRustCore"
+echo "=== Copying XCFramework and Swift bindings to ImpressScixCore ==="
+IMPRESSSCIXCORE_FRAMEWORKS="$WORKSPACE_ROOT/packages/ImpressScixCore/frameworks"
+IMPRESSSCIXCORE_SOURCES="$WORKSPACE_ROOT/packages/ImpressScixCore/Sources/ImpressScixCore"
 
-mkdir -p "$IMPRESSRUSTCORE_SOURCES"
+mkdir -p "$IMPRESSSCIXCORE_FRAMEWORKS" "$IMPRESSSCIXCORE_SOURCES"
 
+# Copy XCFramework
+rm -rf "$IMPRESSSCIXCORE_FRAMEWORKS/${XCFRAMEWORK_NAME}.xcframework"
+cp -R "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework" "$IMPRESSSCIXCORE_FRAMEWORKS/"
+
+# Copy Swift bindings (rename to avoid conflicts with hand-written wrappers)
 SWIFT_BINDING=$(ls "$BINDINGS_DIR"/*.swift 2>/dev/null | head -1)
 if [ -n "$SWIFT_BINDING" ]; then
-    cp "$SWIFT_BINDING" "$IMPRESSRUSTCORE_SOURCES/${LIB_NAME}.swift"
-    echo "Copied Swift bindings to $IMPRESSRUSTCORE_SOURCES/${LIB_NAME}.swift"
+    cp "$SWIFT_BINDING" "$IMPRESSSCIXCORE_SOURCES/${LIB_NAME}.swift"
+    echo "Copied Swift bindings to $IMPRESSSCIXCORE_SOURCES/${LIB_NAME}.swift"
 fi
 
 echo ""
 echo "=== Done ==="
 echo "XCFramework: $FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework"
-echo "ImpressRustCore: $IMPRESSRUSTCORE_SOURCES/${LIB_NAME}.swift"
+echo "ImpressScixCore: $IMPRESSSCIXCORE_SOURCES/${LIB_NAME}.swift"
+echo ""
+echo "Next steps:"
+echo "  1. Verify the XCFramework at packages/ImpressScixCore/frameworks/"
+echo "  2. Build PublicationManagerCore: swift build"

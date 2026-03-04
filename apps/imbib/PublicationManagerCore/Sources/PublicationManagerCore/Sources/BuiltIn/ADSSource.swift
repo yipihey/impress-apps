@@ -2,10 +2,13 @@
 //  ADSSource.swift
 //  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-04.
+//  NASA ADS source plugin — powered by scix-client-ffi (Rust).
+//  All HTTP and parsing is handled by the scix-client Rust crate;
+//  this actor is a thin async wrapper with credential lookup.
 //
 
 import Foundation
+import ImpressScixCore
 import OSLog
 
 // MARK: - NASA ADS Source
@@ -20,32 +23,19 @@ public actor ADSSource: SourcePlugin {
         id: "ads",
         name: "NASA ADS",
         description: "Astrophysics Data System - astronomy, physics, and space sciences",
-        rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1),  // 5/sec burst (5000/day total)
+        rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1),
         credentialRequirement: .apiKey,
         registrationURL: URL(string: "https://ui.adsabs.harvard.edu/user/settings/token"),
         deduplicationPriority: 30,
         iconName: "sparkles"
     )
 
-    let rateLimiter: RateLimiter
-    let baseURL = "https://api.adsabs.harvard.edu/v1"
-    let session: URLSession
     let credentialManager: any CredentialProviding
 
     // MARK: - Initialization
 
-    public init(
-        session: URLSession = .shared,
-        credentialManager: any CredentialProviding = CredentialManager()
-    ) {
-        self.session = session
+    public init(credentialManager: any CredentialProviding = CredentialManager()) {
         self.credentialManager = credentialManager
-        // Use burst-friendly rate: 5 requests/second
-        // ADS allows 5000/day but doesn't specify per-second limit
-        // 200ms between requests is conservative for interactive use
-        self.rateLimiter = RateLimiter(
-            rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1)
-        )
     }
 
     // MARK: - SourcePlugin
@@ -58,42 +48,15 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,abstract,doi,identifier,doctype,esources"),
-            URLQueryItem(name: "rows", value: "\(maxResults)"),
-            URLQueryItem(name: "sort", value: "score desc"),
-        ]
-
-        guard let url = components.url else {
-            throw SourceError.invalidRequest("Invalid URL")
+        do {
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixSearch(token: apiKey, query: query, maxResults: UInt32(maxResults))
+            }.value
+            Logger.sources.info("ADS: search returned \(papers.count) results")
+            return papers.map { $0.toSearchResult(sourceID: "ads") }
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpRequest("GET", url: url)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        if httpResponse.statusCode == 401 {
-            throw SourceError.authenticationRequired("ads")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        return try parseResponse(data)
     }
 
     public func fetchBibTeX(for result: SearchResult) async throws -> BibTeXEntry {
@@ -108,51 +71,10 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.notFound("No bibcode")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        let url = URL(string: "\(baseURL)/export/bibtex")!
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body = ["bibcode": [bibcode]]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        Logger.network.httpRequest("POST", url: url)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.notFound("Could not fetch BibTeX")
-        }
-
-        // ADS returns JSON with "export" field containing BibTeX
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let bibtexString = json["export"] as? String else {
-            throw SourceError.parseError("Invalid BibTeX response")
-        }
-
-        let parser = BibTeXParserFactory.createParser()
-        let entries = try parser.parseEntries(bibtexString)
-
-        guard let entry = entries.first else {
-            throw SourceError.parseError("No entry in BibTeX response")
-        }
-
-        return entry
+        return try await fetchBibTeX(bibcode: bibcode, apiKey: apiKey)
     }
 
-    /// Fetch BibTeX for a paper by its ADS bibcode.
-    ///
-    /// This is a convenience method for importing papers from the citation explorer.
+    /// Fetch BibTeX for a paper by its ADS bibcode (for import from citation explorer).
     public func fetchBibTeX(bibcode: String) async throws -> BibTeXEntry {
         Logger.sources.info("ADS: Fetching BibTeX for bibcode: \(bibcode)")
 
@@ -160,46 +82,26 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
+        return try await fetchBibTeX(bibcode: bibcode, apiKey: apiKey)
+    }
 
-        let url = URL(string: "\(baseURL)/export/bibtex")!
+    private func fetchBibTeX(bibcode: String, apiKey: String) async throws -> BibTeXEntry {
+        do {
+            let bibtexString = try await Task.detached(priority: .userInitiated) {
+                try scixExportBibtex(token: apiKey, bibcodes: [bibcode])
+            }.value
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let parser = BibTeXParserFactory.createParser()
+            let entries = try parser.parseEntries(bibtexString)
 
-        let body = ["bibcode": [bibcode]]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            guard let entry = entries.first else {
+                throw SourceError.parseError("No entry in BibTeX response")
+            }
 
-        Logger.network.httpRequest("POST", url: url)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
+            return entry
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.notFound("Could not fetch BibTeX for \(bibcode)")
-        }
-
-        // ADS returns JSON with "export" field containing BibTeX
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let bibtexString = json["export"] as? String else {
-            throw SourceError.parseError("Invalid BibTeX response")
-        }
-
-        let parser = BibTeXParserFactory.createParser()
-        let entries = try parser.parseEntries(bibtexString)
-
-        guard let entry = entries.first else {
-            throw SourceError.parseError("No entry in BibTeX response")
-        }
-
-        return entry
     }
 
     public nonisolated var supportsRIS: Bool { true }
@@ -216,52 +118,27 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.notFound("No bibcode")
         }
 
-        await rateLimiter.waitIfNeeded()
+        do {
+            let risString = try await Task.detached(priority: .userInitiated) {
+                try scixExportRis(token: apiKey, bibcodes: [bibcode])
+            }.value
 
-        let url = URL(string: "\(baseURL)/export/ris")!
+            let parser = RISParserFactory.createParser()
+            let entries = try parser.parse(risString)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard let entry = entries.first else {
+                throw SourceError.parseError("No entry in RIS response")
+            }
 
-        let body = ["bibcode": [bibcode]]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        Logger.network.httpRequest("POST", url: url)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
+            return entry
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.notFound("Could not fetch RIS")
-        }
-
-        // ADS returns JSON with "export" field containing RIS
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let risString = json["export"] as? String else {
-            throw SourceError.parseError("Invalid RIS response")
-        }
-
-        let parser = RISParserFactory.createParser()
-        let entries = try parser.parse(risString)
-
-        guard let entry = entries.first else {
-            throw SourceError.parseError("No entry in RIS response")
-        }
-
-        return entry
     }
 
     public nonisolated func normalize(_ entry: BibTeXEntry) -> BibTeXEntry {
         var fields = entry.fields
 
-        // Ensure adsurl is present
         if let bibcode = fields["bibcode"], fields["adsurl"] == nil {
             fields["adsurl"] = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
         }
@@ -277,13 +154,6 @@ public actor ADSSource: SourcePlugin {
     // MARK: - References & Citations
 
     /// Fetch papers that this paper references (papers it cites).
-    ///
-    /// Uses ADS query syntax `references(bibcode:XXXX)` to get full paper metadata
-    /// for all papers referenced by the given bibcode.
-    ///
-    /// - Parameter bibcode: The ADS bibcode of the paper whose references to fetch
-    /// - Parameter maxResults: Maximum number of results to return (default 200)
-    /// - Returns: Array of PaperStub objects with full metadata
     public func fetchReferences(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
         Logger.sources.info("ADS: Fetching references for bibcode: \(bibcode)")
 
@@ -291,54 +161,19 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: "references(bibcode:\(bibcode))"),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
-            URLQueryItem(name: "rows", value: "\(maxResults)"),
-            URLQueryItem(name: "sort", value: "citation_count desc"),
-        ]
-
-        guard let url = components.url else {
-            throw SourceError.invalidRequest("Invalid URL")
+        do {
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixFetchReferences(token: apiKey, bibcode: bibcode, maxResults: UInt32(maxResults))
+            }.value
+            let stubs = papers.map { $0.toPaperStub() }
+            Logger.sources.info("ADS: Found \(stubs.count) references for \(bibcode)")
+            return stubs
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpRequest("GET", url: url)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        if httpResponse.statusCode == 401 {
-            throw SourceError.authenticationRequired("ads")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        let stubs = try parsePaperStubsResponse(data)
-        Logger.sources.info("ADS: Found \(stubs.count) references for \(bibcode)")
-        return stubs
     }
 
     /// Fetch papers that cite this paper.
-    ///
-    /// Uses ADS query syntax `citations(bibcode:XXXX)` to get full paper metadata
-    /// for all papers that cite the given bibcode.
-    ///
-    /// - Parameter bibcode: The ADS bibcode of the paper whose citations to fetch
-    /// - Parameter maxResults: Maximum number of results to return (default 200)
-    /// - Returns: Array of PaperStub objects with full metadata
     public func fetchCitations(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
         Logger.sources.info("ADS: Fetching citations for bibcode: \(bibcode)")
 
@@ -346,48 +181,19 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: "citations(bibcode:\(bibcode))"),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
-            URLQueryItem(name: "rows", value: "\(maxResults)"),
-            URLQueryItem(name: "sort", value: "citation_count desc"),
-        ]
-
-        guard let url = components.url else {
-            throw SourceError.invalidRequest("Invalid URL")
+        do {
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixFetchCitations(token: apiKey, bibcode: bibcode, maxResults: UInt32(maxResults))
+            }.value
+            let stubs = papers.map { $0.toPaperStub() }
+            Logger.sources.info("ADS: Found \(stubs.count) citations for \(bibcode)")
+            return stubs
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpRequest("GET", url: url)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        if httpResponse.statusCode == 401 {
-            throw SourceError.authenticationRequired("ads")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        let stubs = try parsePaperStubsResponse(data)
-        Logger.sources.info("ADS: Found \(stubs.count) citations for \(bibcode)")
-        return stubs
     }
 
     /// Fetch papers similar to this one by content.
-    /// Uses ADS `similar(bibcode:XXXX)` operator.
     public func fetchSimilar(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
         Logger.sources.info("ADS: Fetching similar papers for bibcode: \(bibcode)")
 
@@ -395,48 +201,19 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: "similar(bibcode:\(bibcode))"),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
-            URLQueryItem(name: "rows", value: "\(maxResults)"),
-            URLQueryItem(name: "sort", value: "score desc"),
-        ]
-
-        guard let url = components.url else {
-            throw SourceError.invalidRequest("Invalid URL")
+        do {
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixFetchSimilar(token: apiKey, bibcode: bibcode, maxResults: UInt32(maxResults))
+            }.value
+            let stubs = papers.map { $0.toPaperStub() }
+            Logger.sources.info("ADS: Found \(stubs.count) similar papers for \(bibcode)")
+            return stubs
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
-
-        Logger.network.httpRequest("GET", url: url)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        if httpResponse.statusCode == 401 {
-            throw SourceError.authenticationRequired("ads")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        let stubs = try parsePaperStubsResponse(data)
-        Logger.sources.info("ADS: Found \(stubs.count) similar papers for \(bibcode)")
-        return stubs
     }
 
     /// Fetch papers frequently co-read with this one.
-    /// Uses ADS `trending(bibcode:XXXX)` operator.
     public func fetchCoReads(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
         Logger.sources.info("ADS: Fetching co-reads for bibcode: \(bibcode)")
 
@@ -444,162 +221,15 @@ public actor ADSSource: SourcePlugin {
             throw SourceError.authenticationRequired("ads")
         }
 
-        await rateLimiter.waitIfNeeded()
-
-        var components = URLComponents(string: "\(baseURL)/search/query")!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: "trending(bibcode:\(bibcode))"),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
-            URLQueryItem(name: "rows", value: "\(maxResults)"),
-            URLQueryItem(name: "sort", value: "score desc"),
-        ]
-
-        guard let url = components.url else {
-            throw SourceError.invalidRequest("Invalid URL")
-        }
-
-        Logger.network.httpRequest("GET", url: url)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
-
-        if httpResponse.statusCode == 401 {
-            throw SourceError.authenticationRequired("ads")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw SourceError.networkError(URLError(.badServerResponse))
-        }
-
-        let stubs = try parsePaperStubsResponse(data)
-        Logger.sources.info("ADS: Found \(stubs.count) co-reads for \(bibcode)")
-        return stubs
-    }
-
-    // MARK: - Response Parsing (Using Rust Core)
-
-    /// Parse ADS search response using Rust core parser
-    private func parseResponse(_ data: Data) throws -> [SearchResult] {
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw SourceError.parseError("Invalid UTF-8 encoding in ADS response")
-        }
-
         do {
-            let rustResults = try parseAdsSearchResponse(json: json)
-            return rustResults.map { rustResult in
-                // Convert Rust SearchResult to Swift SearchResult
-                // Add ADS-specific URLs that Rust doesn't generate
-                var swiftResult = rustResult.toSwiftSearchResult()
-
-                // Add bibtex URL if we have a bibcode
-                if let bibcode = swiftResult.bibcode {
-                    swiftResult = SearchResult(
-                        id: swiftResult.id,
-                        sourceID: swiftResult.sourceID,
-                        title: swiftResult.title,
-                        authors: swiftResult.authors,
-                        year: swiftResult.year,
-                        venue: swiftResult.venue,
-                        abstract: swiftResult.abstract,
-                        doi: swiftResult.doi,
-                        arxivID: swiftResult.arxivID,
-                        pmid: swiftResult.pmid,
-                        bibcode: swiftResult.bibcode,
-                        pdfLinks: swiftResult.pdfLinks,
-                        webURL: swiftResult.webURL ?? URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)"),
-                        bibtexURL: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/exportcitation")
-                    )
-                }
-                return swiftResult
-            }
-        } catch {
-            throw SourceError.parseError("Rust parser error: \(error)")
-        }
-    }
-
-    /// Static method to build PDF links from ADS esources field.
-    /// Used by both ADSSource (search) and ADSEnrichment (enrichment).
-    ///
-    /// - Parameters:
-    ///   - esources: Array of esource strings from ADS API (e.g., "EPRINT_PDF", "ADS_SCAN")
-    ///   - doi: Paper DOI if available
-    ///   - arxivID: arXiv ID if available
-    ///   - bibcode: ADS bibcode for the paper
-    /// - Returns: Array of PDFLink objects
-    static func buildPDFLinks(
-        esources: [String],
-        doi: String?,
-        arxivID: String?,
-        bibcode: String
-    ) -> [PDFLink] {
-        var links: [PDFLink] = []
-
-        // Track what we have
-        var hasPreprint = false
-        var hasPublisher = false
-
-        // Map ADS esource types to our PDFLinkType
-        for esource in esources {
-            let upper = esource.uppercased()
-
-            if upper == "EPRINT_PDF" {
-                // Preprint/arXiv PDF - use direct arXiv URL
-                if let arxivID = arxivID,
-                   let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
-                    links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
-                    hasPreprint = true
-                }
-            } else if upper == "PUB_PDF" || upper == "PUB_HTML" {
-                // Publisher PDF - use DOI resolver (much more reliable than link_gateway)
-                if let doi = doi, !doi.isEmpty,
-                   let url = URL(string: "https://doi.org/\(doi)") {
-                    links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
-                    hasPublisher = true
-                }
-            } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
-                // ADS-hosted scans - use direct URL (more reliable than link_gateway)
-                // Format: https://articles.adsabs.harvard.edu/pdf/{bibcode}
-                if let url = URL(string: "https://articles.adsabs.harvard.edu/pdf/\(bibcode)") {
-                    links.append(PDFLink(url: url, type: .adsScan, sourceID: "ads"))
-                }
-            }
-            // Note: We skip AUTHOR_PDF as link_gateway for it is unreliable
-        }
-
-        // If no esources but we have arXiv ID, add preprint link
-        if !hasPreprint, let arxivID = arxivID,
-           let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
-            links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
-        }
-
-        // If no publisher link but we have DOI, add it
-        if !hasPublisher, let doi = doi, !doi.isEmpty,
-           let url = URL(string: "https://doi.org/\(doi)") {
-            links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
-        }
-
-        return links
-    }
-
-    /// Parse ADS response into PaperStub array for references/citations queries (using Rust core parser)
-    private func parsePaperStubsResponse(_ data: Data) throws -> [PaperStub] {
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw SourceError.parseError("Invalid UTF-8 encoding in ADS response")
-        }
-
-        do {
-            let rustStubs = try parseAdsPaperStubsResponse(json: json)
-            return rustStubs.toSwiftPaperStubs()
-        } catch {
-            throw SourceError.parseError("Rust parser error: \(error)")
+            let papers = try await Task.detached(priority: .userInitiated) {
+                try scixFetchCoreads(token: apiKey, bibcode: bibcode, maxResults: UInt32(maxResults))
+            }.value
+            let stubs = papers.map { $0.toPaperStub() }
+            Logger.sources.info("ADS: Found \(stubs.count) co-reads for \(bibcode)")
+            return stubs
+        } catch let error as ScixFfiError {
+            throw error.toSourceError(sourceID: "ads")
         }
     }
 }
@@ -612,66 +242,23 @@ extension ADSSource: BrowserURLProvider {
 
     /// Build the best URL to open in browser for interactive PDF fetch.
     ///
-    /// Priority order for browser access (targeting published version):
-    /// 1. Direct publisher PDF URLs from pdfLinks (e.g., article-pdf URLs)
-    /// 2. DOI resolver - redirects to publisher where user can authenticate
-    /// 3. ADS abstract page - shows all available full text sources
-    ///
-    /// Note: We prefer direct PDF URLs over DOI resolver because:
-    /// - Direct URLs load the PDF immediately without extra clicks
-    /// - DOI resolver goes to landing pages that require navigation
-    /// - ADS link_gateway URLs are avoided (they often return 404)
-    ///
-    /// - Parameter publication: The publication to find a PDF URL for
-    /// - Returns: A URL to open in the browser, or nil if this source can't help
+    /// Priority: DOI resolver → ADS abstract page → arXiv PDF.
     public static func browserPDFURL(for publication: PublicationModel) -> URL? {
-        // Priority 1: DOI resolver - redirects to publisher
         if let doi = publication.doi, !doi.isEmpty {
             Logger.pdfBrowser.debug("ADS: Using DOI resolver for: \(doi)")
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Priority 2: ADS abstract page - shows all available full text sources
         if let bibcode = publication.bibcode {
             Logger.pdfBrowser.debug("ADS: Using abstract page for bibcode: \(bibcode)")
             return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract")
         }
 
-        // Priority 3: arXiv PDF if available
         if let arxivID = publication.arxivID, !arxivID.isEmpty {
             Logger.pdfBrowser.debug("ADS: Using arXiv PDF for: \(arxivID)")
             return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
         }
 
         return nil
-    }
-
-    /// Check if URL appears to be a direct PDF link
-    private static func isDirectPDFURL(_ url: URL) -> Bool {
-        let path = url.path.lowercased()
-        let host = url.host?.lowercased() ?? ""
-
-        // Direct PDF file extensions
-        if path.hasSuffix(".pdf") { return true }
-
-        // Known direct PDF hosts
-        if host.contains("arxiv.org") && path.contains("/pdf/") { return true }
-        if host.contains("article-pdf") { return true }  // OUP, etc.
-
-        return false
-    }
-
-    /// Check if URL is a gateway/redirect URL (often unreliable)
-    private static func isGatewayURL(_ url: URL) -> Bool {
-        let urlString = url.absoluteString.lowercased()
-
-        // ADS link_gateway URLs are notoriously unreliable
-        if urlString.contains("link_gateway") { return true }
-
-        // Generic gateway patterns
-        if urlString.contains("/gateway/") { return true }
-        if urlString.contains("/redirect/") { return true }
-
-        return false
     }
 }

@@ -12,6 +12,7 @@ mod enrichment;
 mod identifiers;
 mod library;
 mod linked_file;
+mod paper_stub;
 mod publication;
 mod search_result;
 mod tag;
@@ -29,6 +30,7 @@ pub use linked_file::{FileStorageType, LinkedFile};
 pub use publication::{
     publication_from_bibtex, publication_to_bibtex, publication_to_bibtex_string, Publication,
 };
+pub use paper_stub::PaperStub;
 pub use search_result::{PdfLink, PdfLinkType, SearchResult, Source};
 pub use tag::Tag;
 pub use validation::{is_valid, validate_publication, ValidationError, ValidationSeverity};

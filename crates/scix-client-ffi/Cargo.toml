@@ -1,0 +1,29 @@
+[package]
+name = "scix-client-ffi"
+description = "UniFFI bindings for scix-client (NASA ADS/SciX API)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "scix_client_ffi"
+
+[features]
+default = []
+native = ["uniffi", "tokio", "dep:scix-client"]
+
+[dependencies]
+scix-client = { version = "0.3", optional = true }
+uniffi = { workspace = true, optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
+required-features = ["native"]

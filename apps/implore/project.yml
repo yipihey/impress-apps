@@ -35,6 +35,8 @@ packages:
     path: ../../packages/ImpressKit
   ImpressKeyboard:
     path: ../../packages/ImpressKeyboard
+  ImpressRustCore:
+    path: ../../packages/ImpressRustCore
 
 targets:
   implore:
