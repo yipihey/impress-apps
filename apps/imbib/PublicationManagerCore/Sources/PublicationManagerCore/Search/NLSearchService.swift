@@ -148,15 +148,15 @@ public final class NLSearchService {
         )
 
         #if canImport(FoundationModels)
-        if #available(macOS 26, iOS 26, *) {
+        if #available(macOS 26, iOS 26, *), SystemLanguageModel.default.isAvailable {
             return await translateWithFoundationModels(naturalLanguage)
         }
         #endif
 
-        // Fallback: simple keyword extraction for older OS
+        // Fallback: simple keyword extraction for older OS or when Apple Intelligence is not enabled
         let query = fallbackTranslation(naturalLanguage)
         lastGeneratedQuery = query
-        lastInterpretation = "Basic keyword search (Apple Intelligence not available)"
+        lastInterpretation = "Smart keyword search"
         lastResultType = .querySearch(query: query)
         state = .translated(query: query, interpretation: lastInterpretation, estimatedCount: nil)
         return query
@@ -265,12 +265,21 @@ public final class NLSearchService {
             return finalQuery
         } catch {
             let message = error.localizedDescription
-            state = .error(message)
-            Logger.viewModels.errorCapture(
-                "NLSearch: Foundation Models error: \(message)",
+            Logger.viewModels.warningCapture(
+                "NLSearch: Foundation Models error, falling back to keyword extraction: \(message)",
                 category: "nlsearch"
             )
-            return nil
+            // Clear broken session so next attempt starts fresh
+            cachedSession = nil
+            conversationTurnCount = 0
+
+            // Fall back to keyword extraction — same path as when the framework isn't available
+            let query = fallbackTranslation(naturalLanguage)
+            lastGeneratedQuery = query
+            lastInterpretation = "Smart keyword search"
+            lastResultType = .querySearch(query: query)
+            state = .translated(query: query, interpretation: lastInterpretation, estimatedCount: nil)
+            return query
         }
     }
 
@@ -418,31 +427,99 @@ public final class NLSearchService {
 
     // MARK: - Fallback Translation
 
-    /// Simple keyword-based translation for when Foundation Models is unavailable
+    /// Simple keyword-based translation for when Foundation Models is unavailable.
+    ///
+    /// Handles:
+    /// - ADS field qualifier passthrough (author:, abs:, year:, etc.)
+    /// - DOI passthrough (10.XXXX/...)
+    /// - arXiv ID passthrough (YYMM.NNNNN)
+    /// - Bibcode passthrough (e.g. 2023ApJ...944..49A)
+    /// - Multi-word "by FirstName LastName" → author:"LastName, F"
+    /// - Hyphenated year ranges: "2020-2024" → year:2020-2024
+    /// - Standard keyword, year, and refereed extraction
     private func fallbackTranslation(_ naturalLanguage: String) -> String {
-        let words = naturalLanguage.lowercased()
+        let trimmed = naturalLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // ADS PASSTHROUGH: if input already contains field qualifiers, return as-is
+        let adsKeywords = ["author:", "abs:", "title:", "year:", "property:", "bibcode:",
+                           "doi:", "identifier:", "full:", "object:"]
+        if adsKeywords.contains(where: { trimmed.contains($0) }) {
+            return trimmed
+        }
+
+        // DOI passthrough: 10.XXXX/... pattern
+        if let match = trimmed.firstMatch(of: #/\b10\.\d{4,}\/\S+\b/#) {
+            return "doi:\(match.output)"
+        }
+
+        // arXiv ID: YYMM.NNNNN[N] (e.g. 2301.12345)
+        if let match = trimmed.firstMatch(of: #/\b\d{4}\.\d{4,5}\b/#) {
+            return "identifier:\(match.output)"
+        }
+
+        // Bibcode: 4-digit year + journal abbreviation + dots/digits + capital letter
+        // e.g. 2023ApJ...944..49A
+        if let match = trimmed.firstMatch(of: #/\b\d{4}[A-Za-z&]{2,7}[\.\d]+[A-Z]\b/#) {
+            return "bibcode:\(match.output)"
+        }
+
+        let words = trimmed.lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
 
         var queryParts: [String] = []
         var i = 0
 
+        let skipWords: Set<String> = [
+            "papers", "articles", "about", "on", "the", "a", "an", "and", "or",
+            "in", "with", "for", "from", "that", "which", "published", "find",
+            "search", "looking", "look"
+        ]
+        // Words that terminate topic collection and are handled separately
+        let stopAtWords: Set<String> = [
+            "by", "refereed", "peer-reviewed",
+            "since", "after", "recent", "latest", "last"
+        ]
+
         while i < words.count {
             let word = words[i]
 
-            // Detect "by Author" pattern
+            // Detect "by Author" or "by FirstName LastName" pattern
             if word == "by" && i + 1 < words.count {
-                let author = words[i + 1].capitalized
-                queryParts.append("author:\"\(author)\"")
+                let nextWord = words[i + 1]
+                // "by FirstName LastName": two consecutive non-skip, non-year, non-keyword words
+                if i + 2 < words.count {
+                    let afterNext = words[i + 2]
+                    let isAfterNextYear = Int(afterNext).map { (1900...2100).contains($0) } ?? false
+                    if !skipWords.contains(nextWord) && !skipWords.contains(afterNext)
+                        && !isAfterNextYear && !stopAtWords.contains(afterNext) {
+                        let lastName = afterNext.capitalized
+                        let firstInitial = nextWord.prefix(1).uppercased()
+                        queryParts.append("author:\"\(lastName), \(firstInitial)\"")
+                        i += 3
+                        continue
+                    }
+                }
+                // Single-word author fallback
+                queryParts.append("author:\"\(nextWord.capitalized)\"")
                 i += 2
                 continue
             }
 
-            // Detect year patterns
-            if let year = Int(word), year >= 1900 && year <= 2100 {
-                // Check for range: "2020-2024" or "2020 to 2024"
+            // Detect hyphenated year range: "2020-2024"
+            let hyphenParts = word.split(separator: "-")
+            if hyphenParts.count == 2,
+               let startYear = Int(hyphenParts[0]), (1900...2100).contains(startYear),
+               let endYear = Int(hyphenParts[1]), (1900...2100).contains(endYear) {
+                queryParts.append("year:\(startYear)-\(endYear)")
+                i += 1
+                continue
+            }
+
+            // Detect standalone year or spaced year range: "2020 to 2024" / "2020 - 2024"
+            if let year = Int(word), (1900...2100).contains(year) {
                 if i + 2 < words.count && (words[i + 1] == "to" || words[i + 1] == "-") {
-                    if let endYear = Int(words[i + 2]), endYear >= 1900 && endYear <= 2100 {
+                    if let endYear = Int(words[i + 2]), (1900...2100).contains(endYear) {
                         queryParts.append("year:\(year)-\(endYear)")
                         i += 3
                         continue
@@ -456,19 +533,20 @@ public final class NLSearchService {
             // Detect "since YYYY" or "after YYYY"
             let thisYear = Self.currentYear
             if (word == "since" || word == "after") && i + 1 < words.count {
-                if let year = Int(words[i + 1]), year >= 1900 && year <= 2100 {
+                if let year = Int(words[i + 1]), (1900...2100).contains(year) {
                     queryParts.append("year:\(year)-\(thisYear)")
                     i += 2
                     continue
                 }
             }
 
-            // Detect "recent" / "last N years"
+            // Detect "recent" / "latest"
             if word == "recent" || word == "latest" {
                 queryParts.append("year:\(thisYear - 4)-\(thisYear)")
                 i += 1
                 continue
             }
+            // Detect "last N years"
             if word == "last" && i + 2 < words.count && words[i + 2] == "years" {
                 if let n = Int(words[i + 1]) {
                     queryParts.append("year:\(thisYear - n)-\(thisYear)")
@@ -477,12 +555,7 @@ public final class NLSearchService {
                 }
             }
 
-            // Skip common filler words
-            let skipWords: Set<String> = [
-                "papers", "articles", "about", "on", "the", "a", "an", "and", "or",
-                "in", "with", "for", "from", "that", "which", "published", "find",
-                "search", "looking", "look"
-            ]
+            // Skip filler words
             if skipWords.contains(word) {
                 i += 1
                 continue
@@ -495,13 +568,22 @@ public final class NLSearchService {
                 continue
             }
 
-            // Remaining words go into abstract search
-            // Collect consecutive topic words
+            // Collect consecutive topic words for abs: search
             var topicWords: [String] = [word]
-            while i + 1 < words.count && !skipWords.contains(words[i + 1])
-                    && Int(words[i + 1]) == nil && words[i + 1] != "by" {
+            while i + 1 < words.count {
+                let next = words[i + 1]
+                if skipWords.contains(next) || Int(next) != nil || stopAtWords.contains(next) {
+                    break
+                }
+                // Also stop at hyphenated year ranges
+                let nextHyphenParts = next.split(separator: "-")
+                if nextHyphenParts.count == 2,
+                   let _ = Int(nextHyphenParts[0]),
+                   let _ = Int(nextHyphenParts[1]) {
+                    break
+                }
                 i += 1
-                topicWords.append(words[i])
+                topicWords.append(next)
             }
 
             if topicWords.count > 1 {
