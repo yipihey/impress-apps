@@ -69,6 +69,7 @@ struct MetalVisualizationView: NSViewRepresentable {
         view.enableSetNeedsDisplay = false
         view.isPaused = false
         view.preferredFramesPerSecond = 60
+        context.coordinator.metalView = view
         return view
     }
 
@@ -84,11 +85,43 @@ struct MetalVisualizationView: NSViewRepresentable {
         var parent: MetalVisualizationView
         var renderMode: RenderMode
         var renderer: VisualizationRenderer?
+        weak var metalView: MTKView?
+        private var copyObserver: Any?
 
         init(_ parent: MetalVisualizationView) {
             self.parent = parent
             self.renderMode = parent.renderMode
             super.init()
+
+            // Listen for copy figure notifications
+            copyObserver = NotificationCenter.default.addObserver(
+                forName: Notification.Name("com.implore.copyFigure"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.copyViewToClipboard()
+            }
+        }
+
+        deinit {
+            if let observer = copyObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        /// Capture the current Metal view content and copy it to the clipboard as a PNG image
+        private func copyViewToClipboard() {
+            guard let view = metalView else { return }
+
+            // Use NSView's bitmap representation to capture the view content
+            guard let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: bitmapRep)
+
+            let image = NSImage(size: view.bounds.size)
+            image.addRepresentation(bitmapRep)
+
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([image])
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {

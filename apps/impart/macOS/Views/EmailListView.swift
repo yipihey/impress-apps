@@ -53,6 +53,31 @@ struct EmailListView: View {
                         )
                         .tag(message.id)
                         .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                        .contextMenu {
+                            Button("Copy") {
+                                copyMessage(message)
+                            }
+
+                            Divider()
+
+                            Button("Reply") {
+                                NotificationCenter.default.post(name: .replyToMessage, object: nil)
+                            }
+
+                            Button("Forward") {
+                                NotificationCenter.default.post(name: .forwardMessage, object: nil)
+                            }
+
+                            Divider()
+
+                            Button("Archive") {
+                                NotificationCenter.default.post(name: .archiveMessage, object: nil)
+                            }
+
+                            Button("Delete") {
+                                NotificationCenter.default.post(name: .deleteMessage, object: nil)
+                            }
+                        }
                     }
                 }
                 .listStyle(.inset)
@@ -147,6 +172,12 @@ struct EmailListView: View {
 
         // Sort
         return sortMessages(messages)
+    }
+
+    private func copyMessage(_ message: Message) {
+        let text = "\(message.subject)\nFrom: \(message.fromDisplayString)\n\(message.snippet)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func sortMessages(_ messages: [Message]) -> [Message] {
