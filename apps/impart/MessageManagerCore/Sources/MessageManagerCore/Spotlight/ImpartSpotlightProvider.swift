@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 /// so researchers can find conversations via system Spotlight.
 public struct ImpartSpotlightProvider: SpotlightItemProvider {
     public let domain = SpotlightDomain.conversation
+    public let legacyDomains = ["com.impart.conversation"]
 
     public init() {}
 

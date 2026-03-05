@@ -58,7 +58,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+C - Copy
     func testCmdC_Copy() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -69,7 +69,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+C - Copy as Citation
     func testCmdShiftC_CopyAsCitation() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -79,7 +79,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Option+C - Copy DOI/URL
     func testCmdOptionC_CopyDOI() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -89,7 +89,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+X - Cut
     func testCmdX_Cut() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -99,7 +99,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+V - Paste
     func testCmdV_Paste() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("v", modifierFlags: .command)
@@ -108,7 +108,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+A - Select All
     func testCmdA_SelectAll() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("a", modifierFlags: .command)
@@ -117,7 +117,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+F - Focus Search
     func testCmdF_FocusSearch() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("f", modifierFlags: .command)
@@ -146,7 +146,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+4 - Show PDF Tab
     func testCmd4_ShowPDFTab() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -156,7 +156,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+5 - Show BibTeX Tab
     func testCmd5_ShowBibTeXTab() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -166,7 +166,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+6 - Show Notes Tab
     func testCmd6_ShowNotesTab() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -226,7 +226,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Return - Open PDF
     func testReturn_OpenPDF() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -236,7 +236,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+R - Open Notes
     func testCmdR_OpenNotes() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -246,7 +246,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+R - Open References
     func testCmdShiftR_OpenReferences() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -256,7 +256,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+U - Toggle Read/Unread
     func testCmdShiftU_ToggleRead() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -266,7 +266,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Option+U - Mark All as Read
     func testCmdOptionU_MarkAllAsRead() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("u", modifierFlags: [.command, .option])
@@ -291,7 +291,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Ctrl+Cmd+M - Move to Collection
     func testCtrlCmdM_MoveToCollection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -302,7 +302,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+L - Add to Collection
     func testCmdL_AddToCollection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -313,7 +313,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+L - Remove from Collection
     func testCmdShiftL_RemoveFromCollection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -323,7 +323,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+F - Share
     func testCmdShiftF_Share() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -334,7 +334,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Delete - Delete
     func testCmdDelete_Delete() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -348,7 +348,7 @@ final class KeyboardShortcutsTests: XCTestCase {
     /// Test Ctrl+H - Highlight Selection
     func testCtrlH_HighlightSelection() throws {
         // Note: These require PDF view with selection
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -358,7 +358,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Ctrl+U - Underline Selection
     func testCtrlU_UnderlineSelection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -368,7 +368,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Ctrl+T - Strikethrough Selection
     func testCtrlT_StrikethroughSelection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -378,7 +378,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Ctrl+N - Add Note at Selection
     func testCtrlN_AddNoteAtSelection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -402,7 +402,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Down Arrow - Next Paper
     func testDownArrow_NextPaper() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -412,7 +412,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Up Arrow - Previous Paper
     func testUpArrow_PreviousPaper() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
         list.navigateToNext()
@@ -423,7 +423,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Up - First Paper
     func testCmdUp_FirstPaper() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey(.upArrow, modifierFlags: .command)
@@ -432,7 +432,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Down - Last Paper
     func testCmdDown_LastPaper() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey(.downArrow, modifierFlags: .command)
@@ -441,7 +441,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Option+Down - Next Unread
     func testOptionDown_NextUnread() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey(.downArrow, modifierFlags: .option)
@@ -450,7 +450,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Option+Up - Previous Unread
     func testOptionUp_PreviousUnread() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey(.upArrow, modifierFlags: .option)
@@ -459,7 +459,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+G - Go to Page
     func testCmdG_GoToPage() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -481,7 +481,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+\ - Toggle Unread Filter
     func testCmdBackslash_ToggleUnreadFilter() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("\\", modifierFlags: .command)
@@ -493,7 +493,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+\ - Toggle PDF Filter
     func testCmdShiftBackslash_TogglePDFFilter() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         app.typeKey("\\", modifierFlags: [.command, .shift])
@@ -505,7 +505,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test Cmd+Shift+M - Detach PDF to Window
     func testCmdShiftM_DetachPDF() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -577,7 +577,7 @@ final class KeyboardShortcutsTests: XCTestCase {
 
     /// Test S key - Toggle Star
     func testS_ToggleStar() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 

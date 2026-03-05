@@ -39,7 +39,7 @@ final class ImportWorkflowTests: XCTestCase {
     /// Test importing BibTeX via File > Import menu
     func testImportBibTeXFromMenu() throws {
         // Given: The app is open with an empty library
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         let initialCount = list.rows.count
 
         // When: I use File > Import > BibTeX
@@ -74,7 +74,7 @@ final class ImportWorkflowTests: XCTestCase {
         TestDataFactory.copyBibTeXToClipboard(TestDataFactory.sampleBibTeXForClipboard)
 
         // Select a library to paste into
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         let initialCount = list.rows.count
 
         // When: I press Cmd+V
@@ -167,7 +167,7 @@ final class ImportWorkflowTests: XCTestCase {
         let malformedBibTeX = "@article{broken, title = {"
         TestDataFactory.copyBibTeXToClipboard(malformedBibTeX)
 
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         let initialCount = list.rows.count
 
         // When: I try to paste it

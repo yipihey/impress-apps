@@ -60,7 +60,6 @@ enum AccessibilityID {
         static let container = "sidebar.container"
         static let inbox = "sidebar.inbox"
         static let allPapers = "sidebar.allPapers"
-        static let allPublications = "sidebar.allPublications"
         static let searchSources = "sidebar.searchSources"
         static let recentlyAdded = "sidebar.recentlyAdded"
         static let recentlyRead = "sidebar.recentlyRead"

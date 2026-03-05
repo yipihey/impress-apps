@@ -17,7 +17,9 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableSet
 public struct RemarkableSettingsView: View {
     @State private var settings = RemarkableSettingsStore.shared
     @State private var isAuthenticating = false
-    @State private var authCode: String?
+    @State private var userCode: String = ""
+    @State private var pendingBackend: RemarkableCloudBackend?
+    @State private var isConnecting = false
     @State private var showDisconnectConfirmation = false
     @State private var errorMessage: String?
 
@@ -81,49 +83,57 @@ public struct RemarkableSettingsView: View {
                     .buttonStyle(.bordered)
                 }
             } else if isAuthenticating {
-                // Authenticating state
+                // Authenticating state — user must enter code from reMarkable website
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Connecting...")
-                    }
+                    Text("Connect reMarkable")
+                        .font(.headline)
 
-                    if let code = authCode {
-                        GroupBox {
-                            VStack(spacing: 8) {
-                                Text("Enter this code at:")
-                                    .font(.caption)
-                                Link("my.remarkable.com/device/browser/connect",
-                                     destination: URL(string: "https://my.remarkable.com/device/browser/connect")!)
-                                    .font(.caption)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("1. Visit the reMarkable device connection page:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Link("my.remarkable.com/device/browser/connect",
+                                 destination: URL(string: "https://my.remarkable.com/device/browser/connect")!)
+                                .font(.caption)
 
-                                Text(code)
-                                    .font(.system(.title, design: .monospaced))
-                                    .fontWeight(.bold)
-                                    .padding()
-                                    .background(Color.secondary.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Divider()
 
-                                Button("Copy Code") {
-                                    #if os(macOS)
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(code, forType: .string)
-                                    #else
-                                    UIPasteboard.general.string = code
-                                    #endif
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            .frame(maxWidth: .infinity)
+                            Text("2. Enter the one-time code shown on that page:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("One-time code", text: $userCode)
+                                .textFieldStyle(.roundedBorder)
+                                #if os(macOS)
+                                .frame(maxWidth: 200)
+                                #endif
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Button("Cancel") {
-                        isAuthenticating = false
-                        authCode = nil
+                    HStack {
+                        Button("Cancel") {
+                            isAuthenticating = false
+                            userCode = ""
+                            pendingBackend = nil
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            connectWithUserCode()
+                        } label: {
+                            if isConnecting {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text("Connecting...")
+                                }
+                            } else {
+                                Text("Connect")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(userCode.trimmingCharacters(in: .whitespaces).isEmpty || isConnecting)
                     }
-                    .buttonStyle(.bordered)
                 }
             } else {
                 // Disconnected state
@@ -225,28 +235,34 @@ public struct RemarkableSettingsView: View {
     // MARK: - Authentication
 
     private func startAuthentication() {
+        let backend = RemarkableCloudBackend()
+        pendingBackend = backend
         isAuthenticating = true
+        errorMessage = nil
+        // startAuthentication() generates a deviceID locally — no network call
+        Task { _ = try? await backend.startAuthentication() }
+    }
+
+    private func connectWithUserCode() {
+        guard let backend = pendingBackend else { return }
+        let code = userCode.trimmingCharacters(in: .whitespaces)
+        guard !code.isEmpty else { return }
+
+        isConnecting = true
         errorMessage = nil
 
         Task {
             do {
-                // Start authentication flow
-                let backend = RemarkableCloudBackend()
-                let codeResponse = try await backend.startAuthentication()
-                authCode = codeResponse.userCode
-
-                // Poll for completion
-                try await backend.pollForAuthCompletion(deviceCode: codeResponse.deviceCode)
-
+                try await backend.completeRegistration(userCode: code)
                 await MainActor.run {
                     isAuthenticating = false
-                    authCode = nil
-                    // Settings store will be updated by the backend
+                    isConnecting = false
+                    userCode = ""
+                    pendingBackend = nil
                 }
             } catch {
                 await MainActor.run {
-                    isAuthenticating = false
-                    authCode = nil
+                    isConnecting = false
                     errorMessage = error.localizedDescription
                 }
             }

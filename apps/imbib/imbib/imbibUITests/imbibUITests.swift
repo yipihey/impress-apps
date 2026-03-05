@@ -49,8 +49,8 @@ final class imbibUITests: XCTestCase {
         // Wait for sidebar
         XCTAssertTrue(sidebar.waitForSidebar())
 
-        // Select All Publications
-        sidebar.selectAllPublications()
+        // Select Inbox
+        sidebar.selectInbox()
 
         // Verify list appears
         let list = PublicationListPage(app: app)
@@ -94,9 +94,9 @@ final class imbibUITests: XCTestCase {
     // MARK: - Detail View Tests
 
     func testDetailViewShowsContent() throws {
-        // Navigate to All Publications
+        // Navigate to Inbox
         XCTAssertTrue(sidebar.waitForSidebar())
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
 
         let list = PublicationListPage(app: app)
         _ = list.waitForPublications(timeout: 10)

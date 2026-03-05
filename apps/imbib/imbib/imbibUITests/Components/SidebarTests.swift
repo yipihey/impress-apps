@@ -60,9 +60,6 @@ final class SidebarTests: XCTestCase {
         // Select Inbox
         sidebar.selectInbox()
 
-        // Select All Publications
-        sidebar.selectAllPublications()
-
         // Select Search Sources
         sidebar.selectSearchSources()
 

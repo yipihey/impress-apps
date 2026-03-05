@@ -25,7 +25,7 @@ final class PublicationListTests: XCTestCase {
         list = PublicationListPage(app: app)
 
         _ = sidebar.waitForSidebar()
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
     }
 

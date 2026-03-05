@@ -67,7 +67,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test publication rows have descriptive labels
     func testPublicationRowsHaveDescriptiveLabels() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         let firstRow = list.firstRow
@@ -82,7 +82,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test publication rows announce read status
     func testPublicationRowsAnnounceReadStatus() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         // Rows should have traits or labels indicating read/unread
@@ -101,7 +101,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test detail view metadata is accessible
     func testDetailViewMetadataAccessible() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -117,7 +117,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test tab buttons are accessible
     func testTabButtonsAccessible() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -155,7 +155,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test action buttons describe their purpose
     func testActionButtonsDescribePurpose() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -242,7 +242,7 @@ final class VoiceOverTests: XCTestCase {
 
     /// Test arrow key navigation in list
     func testArrowKeyNavigationInList() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 

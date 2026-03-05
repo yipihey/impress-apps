@@ -199,7 +199,7 @@ final class ToolbarTests: XCTestCase {
     func testToolbarContextualActions() throws {
         let sidebar = SidebarPage(app: app)
         _ = sidebar.waitForSidebar()
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
 
         let list = PublicationListPage(app: app)
         _ = list.waitForPublications()
@@ -216,7 +216,7 @@ final class ToolbarTests: XCTestCase {
 
         let sidebar = SidebarPage(app: app)
         _ = sidebar.waitForSidebar()
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
 
         let list = PublicationListPage(app: app)
         _ = list.waitForPublications()

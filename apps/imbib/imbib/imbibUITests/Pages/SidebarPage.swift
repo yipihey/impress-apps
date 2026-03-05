@@ -33,11 +33,6 @@ struct SidebarPage {
         return sidebar.cells.containing(.staticText, identifier: "Inbox").firstMatch
     }
 
-    /// The All Publications row - first "All Publications" text found
-    var allPublicationsRow: XCUIElement {
-        sidebar.staticTexts["All Publications"].firstMatch
-    }
-
     /// The Search section - look for "Search" section header
     var searchSourcesRow: XCUIElement {
         // The section might be called "Search" not "Search Sources"
@@ -76,14 +71,6 @@ struct SidebarPage {
             // Try clicking the first cell that contains "Inbox"
             let inboxCell = sidebar.cells.containing(.staticText, identifier: "Inbox").firstMatch
             inboxCell.click()
-        }
-    }
-
-    /// Select All Publications (first library's All Publications)
-    func selectAllPublications() {
-        let allPubs = sidebar.staticTexts["All Publications"].firstMatch
-        if allPubs.waitForExistence(timeout: 2) {
-            allPubs.click()
         }
     }
 

@@ -124,7 +124,7 @@ final class SearchWorkflowTests: XCTestCase {
     /// Test filtering the publication list with Cmd+F
     func testLocalFilterSearch() throws {
         // Given: Publications are displayed
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         let initialCount = list.rows.count
@@ -140,7 +140,7 @@ final class SearchWorkflowTests: XCTestCase {
     /// Test clearing the filter
     func testClearFilterSearch() throws {
         // Given: A filter is active
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         let initialCount = list.rows.count
 

@@ -34,7 +34,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test exporting library as BibTeX via File menu
     func testExportLibraryAsBibTeX() throws {
         // Given: A library with publications
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         // When: I use File > Export Library (Cmd+Shift+E)
@@ -51,7 +51,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test exporting selected publications as BibTeX
     func testExportSelectionAsBibTeX() throws {
         // Given: Publications are selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -71,7 +71,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test copying citation to clipboard
     func testCopyCitation() throws {
         // Given: A publication is selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -89,7 +89,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test copying DOI/URL
     func testCopyDOI() throws {
         // Given: A publication with DOI is selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -106,7 +106,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test copying BibTeX to clipboard
     func testCopyBibTeX() throws {
         // Given: A publication is selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -125,7 +125,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test sharing via Share menu
     func testSharePublication() throws {
         // Given: A publication is selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -146,7 +146,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test exporting multiple publications
     func testBulkExport() throws {
         // Given: Multiple publications are selected
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectAll()
 
@@ -170,7 +170,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test exporting as RIS
     func testExportAsRIS() throws {
         // Given: Publications to export
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 

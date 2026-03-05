@@ -27,7 +27,7 @@ final class DetailPanelTests: XCTestCase {
         detail = DetailViewPage(app: app)
 
         _ = sidebar.waitForSidebar()
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
     }
 

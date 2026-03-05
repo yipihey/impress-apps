@@ -85,7 +85,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test arrow keys navigate publication list
     func testArrowKeysNavigateList() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -129,7 +129,7 @@ final class KeyboardNavigationTests: XCTestCase {
         app.typeKey("3", modifierFlags: .command) // Show Inbox
 
         // Detail tab shortcuts (need selection first)
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -168,7 +168,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test Enter opens selected publication
     func testEnterOpensSelected() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -195,7 +195,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test Space toggles selection in list
     func testSpaceTogglesSelection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -209,7 +209,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test Delete key deletes selected publication
     func testDeleteKeyDeletesSelected() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -240,7 +240,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test Shift+Arrow extends selection
     func testShiftArrowExtendsSelection() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -254,7 +254,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test Cmd+A selects all
     func testCmdASelectsAll() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
 
         // Select all
@@ -283,7 +283,7 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test context menu via keyboard
     func testContextMenuViaKeyboard() throws {
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
         _ = list.waitForPublications()
         list.selectFirst()
 

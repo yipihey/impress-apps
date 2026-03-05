@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// main-actor contention during batch indexing operations.
 public struct ImbibSpotlightProvider: SpotlightItemProvider {
     public let domain = SpotlightDomain.paper
+    public let legacyDomains = ["com.imbib.publication"]
 
     public init() {}
 

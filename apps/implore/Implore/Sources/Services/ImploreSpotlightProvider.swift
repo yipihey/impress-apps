@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// `LibraryFigure` entries into `SpotlightItem`s for system Spotlight.
 public struct ImploreSpotlightProvider: SpotlightItemProvider {
     public let domain = SpotlightDomain.figure
+    public let legacyDomains = ["com.implore.figure"]
 
     public init() {}
 

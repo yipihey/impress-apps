@@ -29,11 +29,21 @@ public protocol SpotlightItemProvider: Sendable {
     /// The Spotlight domain this provider manages (e.g. "com.impress.paper").
     var domain: String { get }
 
+    /// Legacy domain identifiers that were used in older versions of this app.
+    ///
+    /// These will be removed from the Spotlight index on first launch after upgrade
+    /// to prevent duplicate results from old and new domain entries.
+    var legacyDomains: [String] { get }
+
     /// Returns all item IDs currently in the data store.
     func allItemIDs() async -> Set<UUID>
 
     /// Converts a batch of IDs into SpotlightItems for indexing.
     func spotlightItems(for ids: [UUID]) async -> [any SpotlightItem]
+}
+
+extension SpotlightItemProvider {
+    public var legacyDomains: [String] { [] }
 }
 
 // MARK: - Domain Constants

@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 /// metadata to the shared `SpotlightSyncCoordinator`.
 public struct ImprintSpotlightProvider: SpotlightItemProvider {
     public let domain = SpotlightDomain.document
+    public let legacyDomains = ["com.imprint.document"]
 
     public init() {}
 

@@ -48,6 +48,7 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
     // MARK: - State
 
     private var userToken: String?
+    private var pendingDeviceID: String?
     private let settings = RemarkableSettingsStore.shared
     private let session: URLSession
 
@@ -81,78 +82,44 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
 
     // MARK: - Authentication
 
-    /// Start the device code authentication flow.
+    /// Prepare for device registration.
     ///
-    /// Returns a code that the user must enter at my.remarkable.com/device/browser/connect
+    /// Generates a stable `deviceID` for this app installation and returns the
+    /// URL where the user must obtain a one-time code. No network call is made.
+    /// After calling this, instruct the user to visit the URL and then call
+    /// `completeRegistration(userCode:)` with the code they receive.
     public func startAuthentication() async throws -> DeviceCodeResponse {
-        let uuid = UUID().uuidString.lowercased()
-        let body = DeviceCodeRequest(
-            code: uuid,
-            deviceDesc: "desktop-macos",
-            deviceID: uuid
+        let deviceID = UUID().uuidString.lowercased()
+        pendingDeviceID = deviceID
+        return DeviceCodeResponse(
+            deviceCode: deviceID,
+            userCode: "",
+            verificationURL: "https://my.remarkable.com/device/browser/connect"
         )
-
-        var request = URLRequest(url: URL(string: Self.deviceCodeURL)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw RemarkableError.authFailed("Invalid response")
-        }
-
-        // reMarkable API returns 200 with empty body for device code request
-        if httpResponse.statusCode == 200 {
-            // Post notification with the code for UI display
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .remarkableShowAuthCode,
-                    object: nil,
-                    userInfo: ["code": uuid]
-                )
-            }
-
-            return DeviceCodeResponse(
-                deviceCode: uuid,
-                userCode: uuid,
-                verificationURL: "https://my.remarkable.com/device/browser/connect"
-            )
-        }
-
-        logger.error("Auth request failed: \(httpResponse.statusCode)")
-        throw RemarkableError.authFailed("Server returned \(httpResponse.statusCode)")
     }
 
-    /// Poll for authentication completion after user enters code.
-    public func pollForAuthCompletion(deviceCode: String, timeout: TimeInterval = 120) async throws {
-        let startTime = Date()
-        let pollInterval: TimeInterval = 2.0
-
-        while Date().timeIntervalSince(startTime) < timeout {
-            do {
-                let deviceToken = try await fetchDeviceToken(code: deviceCode)
-                userToken = try await refreshUserToken(deviceToken: deviceToken)
-
-                // Store token securely
-                await MainActor.run {
-                    try? settings.storeToken(deviceToken)
-                    settings.isAuthenticated = true
-                }
-
-                logger.info("Authentication successful")
-                return
-            } catch {
-                // Continue polling
-                try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
-            }
+    /// Complete registration using the one-time code the user obtained from reMarkable's website.
+    ///
+    /// POSTs `{ code, deviceDesc, deviceID }` to the device token endpoint,
+    /// then exchanges the resulting device token for a user token.
+    public func completeRegistration(userCode: String) async throws {
+        guard let deviceID = pendingDeviceID else {
+            throw RemarkableError.authFailed("No pending registration — call startAuthentication() first")
         }
 
-        throw RemarkableError.authTimeout
+        let deviceToken = try await fetchDeviceToken(code: userCode, deviceID: deviceID)
+        userToken = try await refreshUserToken(deviceToken: deviceToken)
+        pendingDeviceID = nil
+
+        await MainActor.run {
+            try? settings.storeToken(deviceToken)
+            settings.isAuthenticated = true
+        }
+
+        logger.info("Authentication successful")
     }
 
-    private func fetchDeviceToken(code: String) async throws -> String {
+    private func fetchDeviceToken(code: String, deviceID: String) async throws -> String {
         var request = URLRequest(url: URL(string: Self.deviceTokenURL)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -160,7 +127,7 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
         let body: [String: String] = [
             "code": code,
             "deviceDesc": "desktop-macos",
-            "deviceID": code
+            "deviceID": deviceID
         ]
         request.httpBody = try JSONEncoder().encode(body)
 
@@ -168,7 +135,7 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw RemarkableError.authFailed("Device token request failed")
+            throw RemarkableError.authFailed("Device token request failed — ensure the code is correct and has not expired")
         }
 
         // Token is returned as plain text
@@ -199,8 +166,12 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
     }
 
     public func authenticate() async throws {
-        let codeResponse = try await startAuthentication()
-        try await pollForAuthCompletion(deviceCode: codeResponse.deviceCode)
+        // Cloud authentication is a two-step UI-driven flow:
+        // 1. Call startAuthentication() to get the verification URL
+        // 2. Direct user to the URL to obtain a one-time code
+        // 3. Call completeRegistration(userCode:) with the code
+        // This method cannot complete the flow without UI — use RemarkableSettingsView instead.
+        throw RemarkableError.authFailed("Use the reMarkable settings panel to connect your account")
     }
 
     public func disconnect() async {

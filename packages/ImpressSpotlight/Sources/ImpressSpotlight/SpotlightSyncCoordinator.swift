@@ -52,6 +52,10 @@ public actor SpotlightSyncCoordinator {
 
         if storedVersion < Self.currentSchemaVersion {
             Logger.spotlight.info("Spotlight schema version \(storedVersion) < \(Self.currentSchemaVersion), rebuilding '\(self.provider.domain)'")
+            // Remove any legacy domain entries to prevent duplicate results after domain rename
+            for legacy in provider.legacyDomains {
+                await SpotlightIndexer.shared.removeAll(domain: legacy)
+            }
             let allIDs = await provider.allItemIDs()
             let items = await provider.spotlightItems(for: Array(allIDs))
             await SpotlightIndexer.shared.rebuild(items: items, domain: provider.domain)

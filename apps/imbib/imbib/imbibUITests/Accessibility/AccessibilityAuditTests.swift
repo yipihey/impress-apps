@@ -69,7 +69,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // Navigate to show detail view
         let sidebar = SidebarPage(app: app)
         _ = sidebar.waitForSidebar()
-        sidebar.selectAllPublications()
+        sidebar.selectInbox()
 
         let list = PublicationListPage(app: app)
         _ = list.waitForPublications()
