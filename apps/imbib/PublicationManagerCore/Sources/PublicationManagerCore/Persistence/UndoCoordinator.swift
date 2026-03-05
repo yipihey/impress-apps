@@ -15,7 +15,9 @@ public final class UndoCoordinator: UndoRegistering {
     public static let shared = UndoCoordinator()
 
     /// The window's UndoManager, set by the root view via @Environment(\.undoManager).
-    public var undoManager: UndoManager?
+    public var undoManager: UndoManager? {
+        didSet { undoManager?.levelsOfUndo = 50 }
+    }
 
     /// Register an undoable action after a mutation completes.
     ///

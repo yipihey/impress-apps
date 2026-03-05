@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressEmbeddings
 
 // MARK: - Embedding Settings View
 
@@ -127,6 +128,9 @@ public struct EmbeddingSettingsView: View {
         isLoadingStatus = true
         defer { isLoadingStatus = false }
 
+        // Ensure the embedding provider is registered so we can query it
+        await EmbeddingService.shared.registerProviderIfNeeded()
+
         let store = RustEmbeddingStoreSession()
         let opened = await store.openDefault()
         guard opened else { return }
@@ -150,9 +154,15 @@ public struct EmbeddingSettingsView: View {
         let hasIndex = await EmbeddingService.shared.hasIndex
         let indexCount = hasIndex ? await EmbeddingService.shared.indexedCount() : 0
 
+        // Query the active provider dynamically
+        let registry = EmbeddingProviderRegistry.shared
+        let providerId = await registry.activeProvider?.id
+        let providerName = Self.displayName(for: providerId)
+        let dimension = await registry.activeDimension
+
         embeddingStatus = EmbeddingStatusInfo(
-            providerName: "Apple Natural Language",
-            dimension: 384,
+            providerName: providerName,
+            dimension: dimension,
             indexedPapers: max(Int(chunkedPubs), indexCount),
             totalPapers: totalPubs,
             vectorCount: Int(vectorCount),
@@ -192,9 +202,25 @@ public struct EmbeddingSettingsView: View {
             await store.close()
         }
 
-        indexingProgress = "Rebuilding index..."
+        indexingProgress = "Rebuilding metadata index..."
         await EmbeddingService.shared.forceRebuild()
+
+        indexingProgress = "Indexing PDF content..."
+        await EmbeddingService.shared.indexChunksForUnprocessedPublications()
+
         await loadStatus()
+    }
+
+    private static func displayName(for providerId: String?) -> String {
+        switch providerId {
+        case "apple-contextual": return "Apple Contextual Embeddings"
+        case "apple-nl": return "Apple Natural Language"
+        case "fastembed": return "FastEmbed (MiniLM)"
+        case "ollama": return "Ollama"
+        case "openai": return "OpenAI"
+        case let id?: return id
+        case nil: return "Not configured"
+        }
     }
 }
 

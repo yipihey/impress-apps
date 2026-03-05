@@ -415,7 +415,7 @@ public final class InboxManager {
         trackDismissal(publicationID)
 
         // Move to dismissed library instead of deleting
-        let dismissedLib = LibraryManager.shared.getOrCreateDismissedLibrary()
+        let dismissedLib = LibraryManager().getOrCreateDismissedLibrary()
         store.movePublications(ids: [publicationID], toLibraryId: dismissedLib.id)
         updateUnreadCount()
     }

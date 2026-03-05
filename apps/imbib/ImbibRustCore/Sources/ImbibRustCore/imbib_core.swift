@@ -733,7 +733,7 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func deleteTagUndoable(path: String) throws  -> TagDeleteSnapshot
     
-    func dismissPaper(doi: String?, arxivId: String?, bibcode: String?) throws  -> DismissedPaperRow
+    func dismissPaper(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?) throws  -> DismissedPaperRow
     
     func duplicatePublications(ids: [String], toLibraryId: String) throws  -> [String]
     
@@ -799,7 +799,7 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func importFromBibtexFile(path: String, libraryId: String) throws  -> UInt32
     
-    func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?) throws  -> Bool
+    func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?) throws  -> Bool
     
     /**
      * Link an artifact to a publication via RelatesTo edge.
@@ -1482,12 +1482,13 @@ open func deleteTagUndoable(path: String)throws  -> TagDeleteSnapshot {
 })
 }
     
-open func dismissPaper(doi: String?, arxivId: String?, bibcode: String?)throws  -> DismissedPaperRow {
+open func dismissPaper(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?)throws  -> DismissedPaperRow {
     return try  FfiConverterTypeDismissedPaperRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_dismiss_paper(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(doi),
         FfiConverterOptionString.lower(arxivId),
-        FfiConverterOptionString.lower(bibcode),$0
+        FfiConverterOptionString.lower(bibcode),
+        FfiConverterOptionString.lower(citeKey),$0
     )
 })
 }
@@ -1720,12 +1721,13 @@ open func importFromBibtexFile(path: String, libraryId: String)throws  -> UInt32
 })
 }
     
-open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?)throws  -> Bool {
+open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_is_paper_dismissed(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(doi),
         FfiConverterOptionString.lower(arxivId),
-        FfiConverterOptionString.lower(bibcode),$0
+        FfiConverterOptionString.lower(bibcode),
+        FfiConverterOptionString.lower(citeKey),$0
     )
 })
 }
@@ -5508,15 +5510,17 @@ public struct DismissedPaperRow {
     public var doi: String?
     public var arxivId: String?
     public var bibcode: String?
+    public var citeKey: String?
     public var dateDismissed: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, doi: String?, arxivId: String?, bibcode: String?, dateDismissed: Int64) {
+    public init(id: String, doi: String?, arxivId: String?, bibcode: String?, citeKey: String?, dateDismissed: Int64) {
         self.id = id
         self.doi = doi
         self.arxivId = arxivId
         self.bibcode = bibcode
+        self.citeKey = citeKey
         self.dateDismissed = dateDismissed
     }
 }
@@ -5537,6 +5541,9 @@ extension DismissedPaperRow: Equatable, Hashable {
         if lhs.bibcode != rhs.bibcode {
             return false
         }
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
         if lhs.dateDismissed != rhs.dateDismissed {
             return false
         }
@@ -5548,6 +5555,7 @@ extension DismissedPaperRow: Equatable, Hashable {
         hasher.combine(doi)
         hasher.combine(arxivId)
         hasher.combine(bibcode)
+        hasher.combine(citeKey)
         hasher.combine(dateDismissed)
     }
 }
@@ -5564,6 +5572,7 @@ public struct FfiConverterTypeDismissedPaperRow: FfiConverterRustBuffer {
                 doi: FfiConverterOptionString.read(from: &buf), 
                 arxivId: FfiConverterOptionString.read(from: &buf), 
                 bibcode: FfiConverterOptionString.read(from: &buf), 
+                citeKey: FfiConverterOptionString.read(from: &buf), 
                 dateDismissed: FfiConverterInt64.read(from: &buf)
         )
     }
@@ -5573,6 +5582,7 @@ public struct FfiConverterTypeDismissedPaperRow: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.doi, into: &buf)
         FfiConverterOptionString.write(value.arxivId, into: &buf)
         FfiConverterOptionString.write(value.bibcode, into: &buf)
+        FfiConverterOptionString.write(value.citeKey, into: &buf)
         FfiConverterInt64.write(value.dateDismissed, into: &buf)
     }
 }
@@ -20417,6 +20427,19 @@ public func searchIndexSearch(handleId: UInt64, query: String, limit: UInt32, li
 })
 }
 /**
+ * Search the index and return results with snippets from abstracts/titles
+ */
+public func searchIndexSearchWithSnippets(handleId: UInt64, query: String, limit: UInt32, libraryId: String?)throws  -> [SearchHit] {
+    return try  FfiConverterSequenceTypeSearchHit.lift(try rustCallWithError(FfiConverterTypeSearchIndexError.lift) {
+    uniffi_imbib_core_fn_func_search_index_search_with_snippets(
+        FfiConverterUInt64.lower(handleId),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limit),
+        FfiConverterOptionString.lower(libraryId),$0
+    )
+})
+}
+/**
  * Serialize annotations to JSON
  */
 public func serializeAnnotations(annotations: PublicationAnnotations)throws  -> String {
@@ -21060,6 +21083,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_search_index_search() != 18445) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_search_index_search_with_snippets() != 22891) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_serialize_annotations() != 26309) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21213,7 +21239,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_tag_undoable() != 40268) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_dismiss_paper() != 42764) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_dismiss_paper() != 28298) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_duplicate_publications() != 35705) {
@@ -21291,7 +21317,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_import_from_bibtex_file() != 59232) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 19934) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 12541) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_link_artifact_to_publication() != 6040) {

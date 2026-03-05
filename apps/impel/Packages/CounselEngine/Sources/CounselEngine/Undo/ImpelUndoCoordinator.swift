@@ -22,7 +22,9 @@ public final class ImpelUndoCoordinator: UndoRegistering {
     public static let shared = ImpelUndoCoordinator()
 
     /// The window's UndoManager, set by wireUndo modifier.
-    public var undoManager: UndoManager?
+    public var undoManager: UndoManager? {
+        didSet { undoManager?.levelsOfUndo = 50 }
+    }
 
     /// Register an undoable action with a compensating closure.
     ///
