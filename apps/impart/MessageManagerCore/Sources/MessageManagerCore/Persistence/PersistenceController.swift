@@ -94,6 +94,13 @@ public final class PersistenceController: Sendable {
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
+        // Enable undo tracking for user-initiated mutations on the viewContext.
+        // User-initiated CRUD (folder management, message triage) uses viewContext;
+        // bulk/sync operations remain on background contexts without undo managers.
+        let um = UndoManager()
+        um.levelsOfUndo = 50
+        container.viewContext.undoManager = um
+
         // Pin to current query generation for consistent reads
         try? container.viewContext.setQueryGenerationFrom(.current)
     }

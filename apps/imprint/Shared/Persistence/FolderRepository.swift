@@ -58,6 +58,8 @@ public actor FolderRepository {
             folder.workspace = workspace
         }
 
+        context.undoManager?.setActionName("Create Folder")
+        context.processPendingChanges()
         try context.save()
 
         logger.infoCapture("Created folder '\(name)' (parent: \(parent?.name ?? "root"), sortOrder: \(nextSortOrder))", category: "folders")
@@ -70,6 +72,8 @@ public actor FolderRepository {
         let context = persistence.viewContext
         let oldName = folder.name
         folder.name = newName
+        context.undoManager?.setActionName("Rename Folder")
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Renamed folder '\(oldName)' → '\(newName)'", category: "folders")
     }
@@ -110,6 +114,8 @@ public actor FolderRepository {
         }
         folder.sortOrder = Int16((siblings.filter { $0 !== folder }.last?.sortOrder ?? -1) + 1)
 
+        context.undoManager?.setActionName("Move Folder")
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Moved folder '\(folder.name)' to \(newParent?.name ?? "root")", category: "folders")
     }
@@ -119,7 +125,9 @@ public actor FolderRepository {
     public func deleteFolder(_ folder: CDFolder) throws {
         let context = persistence.viewContext
         let name = folder.name
+        context.undoManager?.setActionName("Delete Folder")
         context.delete(folder)
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Deleted folder '\(name)'", category: "folders")
     }
@@ -131,6 +139,8 @@ public actor FolderRepository {
         for (index, folder) in folders.enumerated() {
             folder.sortOrder = Int16(index)
         }
+        context.undoManager?.setActionName("Reorder Folders")
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Reordered \(folders.count) folders", category: "folders")
     }
@@ -173,6 +183,8 @@ public actor FolderRepository {
         docRefSet.add(ref)
         ref.folder = folder
 
+        context.undoManager?.setActionName("Add Document")
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Added document ref '\(title ?? "Untitled")' to folder '\(folder.name)'", category: "folders")
         return ref
@@ -184,7 +196,9 @@ public actor FolderRepository {
         let context = persistence.viewContext
         let title = ref.displayTitle
         let folderName = ref.folder?.name ?? "unknown"
+        context.undoManager?.setActionName("Remove Document")
         context.delete(ref)
+        context.processPendingChanges()
         try context.save()
         logger.infoCapture("Removed document ref '\(title)' from folder '\(folderName)'", category: "folders")
     }

@@ -15,6 +15,10 @@ private let folderLogger = Logger(subsystem: "com.impart", category: "folders")
 // MARK: - Folder Manager
 
 /// Actor-based service for folder management.
+///
+/// User-initiated CRUD operations (create, rename, move, delete) use the
+/// viewContext for NSUndoManager support. System/bulk operations
+/// (ensureSystemFolders) remain on background contexts.
 public actor FolderManager {
 
     private let persistenceController: PersistenceController
@@ -91,133 +95,139 @@ public actor FolderManager {
 
     // MARK: - Folder CRUD
 
-    /// Create a new folder.
+    /// Create a new folder (uses viewContext for undo support).
+    @MainActor
     public func createFolder(
         name: String,
         parent: UUID? = nil,
         accountId: UUID
-    ) async throws -> UUID {
-        try await persistenceController.performBackgroundTask { context in
-            // Fetch account
-            let accountFetch: NSFetchRequest<CDAccount> = NSFetchRequest(entityName: "CDAccount")
-            accountFetch.predicate = NSPredicate(format: "id == %@", accountId as CVarArg)
-            guard let account = try context.fetch(accountFetch).first else {
-                throw FolderError.accountNotFound
-            }
+    ) throws -> UUID {
+        let context = persistenceController.viewContext
 
-            // Fetch parent folder if specified
-            var parentFolder: CDFolder?
-            if let parentId = parent {
-                let parentFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-                parentFetch.predicate = NSPredicate(format: "id == %@", parentId as CVarArg)
-                parentFolder = try context.fetch(parentFetch).first
-            }
-
-            // Compute full path
-            let fullPath: String
-            if let parent = parentFolder {
-                fullPath = "\(parent.fullPath)/\(name)"
-            } else {
-                fullPath = name
-            }
-
-            // Check for duplicate name at same level
-            let duplicateFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-            if let parentFolder = parentFolder {
-                duplicateFetch.predicate = NSPredicate(
-                    format: "account == %@ AND parentFolder == %@ AND name == %@",
-                    account, parentFolder, name
-                )
-            } else {
-                duplicateFetch.predicate = NSPredicate(
-                    format: "account == %@ AND parentFolder == nil AND name == %@",
-                    account, name
-                )
-            }
-            if try !context.fetch(duplicateFetch).isEmpty {
-                throw FolderError.duplicateName
-            }
-
-            // Create folder
-            let folder = NSEntityDescription.insertNewObject(
-                forEntityName: "CDFolder",
-                into: context
-            ) as! CDFolder
-
-            let folderId = UUID()
-            folder.id = folderId
-            folder.name = name
-            folder.fullPath = fullPath
-            folder.roleRaw = FolderRole.custom.rawValue
-            folder.isSystemFolder = false
-            folder.isVirtualFolder = false
-            folder.messageCount = 0
-            folder.unreadCount = 0
-            folder.dateCreated = Date()
-            folder.sortOrder = 100  // User folders after system folders
-            folder.account = account
-            folder.parentFolder = parentFolder
-
-            try context.save()
-
-            folderLogger.info("Created folder '\(name)' with ID \(folderId)")
-            return folderId
+        // Fetch account
+        let accountFetch: NSFetchRequest<CDAccount> = NSFetchRequest(entityName: "CDAccount")
+        accountFetch.predicate = NSPredicate(format: "id == %@", accountId as CVarArg)
+        guard let account = try context.fetch(accountFetch).first else {
+            throw FolderError.accountNotFound
         }
+
+        // Fetch parent folder if specified
+        var parentFolder: CDFolder?
+        if let parentId = parent {
+            let parentFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+            parentFetch.predicate = NSPredicate(format: "id == %@", parentId as CVarArg)
+            parentFolder = try context.fetch(parentFetch).first
+        }
+
+        // Compute full path
+        let fullPath: String
+        if let parent = parentFolder {
+            fullPath = "\(parent.fullPath)/\(name)"
+        } else {
+            fullPath = name
+        }
+
+        // Check for duplicate name at same level
+        let duplicateFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+        if let parentFolder = parentFolder {
+            duplicateFetch.predicate = NSPredicate(
+                format: "account == %@ AND parentFolder == %@ AND name == %@",
+                account, parentFolder, name
+            )
+        } else {
+            duplicateFetch.predicate = NSPredicate(
+                format: "account == %@ AND parentFolder == nil AND name == %@",
+                account, name
+            )
+        }
+        if try !context.fetch(duplicateFetch).isEmpty {
+            throw FolderError.duplicateName
+        }
+
+        // Create folder
+        let folder = NSEntityDescription.insertNewObject(
+            forEntityName: "CDFolder",
+            into: context
+        ) as! CDFolder
+
+        let folderId = UUID()
+        folder.id = folderId
+        folder.name = name
+        folder.fullPath = fullPath
+        folder.roleRaw = FolderRole.custom.rawValue
+        folder.isSystemFolder = false
+        folder.isVirtualFolder = false
+        folder.messageCount = 0
+        folder.unreadCount = 0
+        folder.dateCreated = Date()
+        folder.sortOrder = 100  // User folders after system folders
+        folder.account = account
+        folder.parentFolder = parentFolder
+
+        context.undoManager?.setActionName("Create Folder")
+        context.processPendingChanges()
+        try context.save()
+
+        folderLogger.info("Created folder '\(name)' with ID \(folderId)")
+        return folderId
     }
 
-    /// Rename a folder.
-    public func renameFolder(_ folderId: UUID, to newName: String) async throws {
-        try await persistenceController.performBackgroundTask { context in
-            let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-            fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
+    /// Rename a folder (uses viewContext for undo support).
+    @MainActor
+    public func renameFolder(_ folderId: UUID, to newName: String) throws {
+        let context = persistenceController.viewContext
 
-            guard let folder = try context.fetch(fetchRequest).first else {
-                throw FolderError.folderNotFound
-            }
+        let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
 
-            // Can't rename system folders
-            guard !folder.isSystemFolder else {
-                throw FolderError.cannotModifySystemFolder
-            }
-
-            // Check for duplicate name at same level
-            guard let account = folder.account else {
-                throw FolderError.accountNotFound
-            }
-
-            let duplicateFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-            if let parentFolder = folder.parentFolder {
-                duplicateFetch.predicate = NSPredicate(
-                    format: "account == %@ AND parentFolder == %@ AND name == %@ AND id != %@",
-                    account, parentFolder, newName, folderId as CVarArg
-                )
-            } else {
-                duplicateFetch.predicate = NSPredicate(
-                    format: "account == %@ AND parentFolder == nil AND name == %@ AND id != %@",
-                    account, newName, folderId as CVarArg
-                )
-            }
-            if try !context.fetch(duplicateFetch).isEmpty {
-                throw FolderError.duplicateName
-            }
-
-            let oldName = folder.name
-            folder.name = newName
-
-            // Update full path
-            if let parent = folder.parentFolder {
-                folder.fullPath = "\(parent.fullPath)/\(newName)"
-            } else {
-                folder.fullPath = newName
-            }
-
-            // Update child folder paths recursively
-            Self.updateChildPaths(of: folder)
-
-            try context.save()
-
-            folderLogger.info("Renamed folder from '\(oldName)' to '\(newName)'")
+        guard let folder = try context.fetch(fetchRequest).first else {
+            throw FolderError.folderNotFound
         }
+
+        // Can't rename system folders
+        guard !folder.isSystemFolder else {
+            throw FolderError.cannotModifySystemFolder
+        }
+
+        // Check for duplicate name at same level
+        guard let account = folder.account else {
+            throw FolderError.accountNotFound
+        }
+
+        let duplicateFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+        if let parentFolder = folder.parentFolder {
+            duplicateFetch.predicate = NSPredicate(
+                format: "account == %@ AND parentFolder == %@ AND name == %@ AND id != %@",
+                account, parentFolder, newName, folderId as CVarArg
+            )
+        } else {
+            duplicateFetch.predicate = NSPredicate(
+                format: "account == %@ AND parentFolder == nil AND name == %@ AND id != %@",
+                account, newName, folderId as CVarArg
+            )
+        }
+        if try !context.fetch(duplicateFetch).isEmpty {
+            throw FolderError.duplicateName
+        }
+
+        let oldName = folder.name
+        folder.name = newName
+
+        // Update full path
+        if let parent = folder.parentFolder {
+            folder.fullPath = "\(parent.fullPath)/\(newName)"
+        } else {
+            folder.fullPath = newName
+        }
+
+        // Update child folder paths recursively
+        Self.updateChildPaths(of: folder)
+
+        context.undoManager?.setActionName("Rename Folder")
+        context.processPendingChanges()
+        try context.save()
+
+        folderLogger.info("Renamed folder from '\(oldName)' to '\(newName)'")
     }
 
     /// Update full paths of child folders recursively.
@@ -229,97 +239,102 @@ public actor FolderManager {
         }
     }
 
-    /// Move a folder to a new parent.
-    public func moveFolder(_ folderId: UUID, to newParentId: UUID?) async throws {
-        try await persistenceController.performBackgroundTask { context in
-            let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-            fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
+    /// Move a folder to a new parent (uses viewContext for undo support).
+    @MainActor
+    public func moveFolder(_ folderId: UUID, to newParentId: UUID?) throws {
+        let context = persistenceController.viewContext
 
-            guard let folder = try context.fetch(fetchRequest).first else {
-                throw FolderError.folderNotFound
-            }
+        let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
 
-            // Can't move system folders
-            guard !folder.isSystemFolder else {
-                throw FolderError.cannotModifySystemFolder
-            }
-
-            // Fetch new parent if specified
-            var newParent: CDFolder?
-            if let newParentId = newParentId {
-                let parentFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-                parentFetch.predicate = NSPredicate(format: "id == %@", newParentId as CVarArg)
-                newParent = try context.fetch(parentFetch).first
-
-                // Validate parent is in same account
-                guard newParent?.account?.id == folder.account?.id else {
-                    throw FolderError.crossAccountMove
-                }
-
-                // Validate not creating a cycle
-                guard folder.canReparent(to: newParent) else {
-                    throw FolderError.circularHierarchy
-                }
-            }
-
-            folder.parentFolder = newParent
-
-            // Update full path
-            if let parent = newParent {
-                folder.fullPath = "\(parent.fullPath)/\(folder.name)"
-            } else {
-                folder.fullPath = folder.name
-            }
-
-            // Update child paths
-            Self.updateChildPaths(of: folder)
-
-            try context.save()
-
-            folderLogger.info("Moved folder \(folderId) to parent \(newParentId?.uuidString ?? "root")")
+        guard let folder = try context.fetch(fetchRequest).first else {
+            throw FolderError.folderNotFound
         }
+
+        // Can't move system folders
+        guard !folder.isSystemFolder else {
+            throw FolderError.cannotModifySystemFolder
+        }
+
+        // Fetch new parent if specified
+        var newParent: CDFolder?
+        if let newParentId = newParentId {
+            let parentFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+            parentFetch.predicate = NSPredicate(format: "id == %@", newParentId as CVarArg)
+            newParent = try context.fetch(parentFetch).first
+
+            // Validate parent is in same account
+            guard newParent?.account?.id == folder.account?.id else {
+                throw FolderError.crossAccountMove
+            }
+
+            // Validate not creating a cycle
+            guard folder.canReparent(to: newParent) else {
+                throw FolderError.circularHierarchy
+            }
+        }
+
+        folder.parentFolder = newParent
+
+        // Update full path
+        if let parent = newParent {
+            folder.fullPath = "\(parent.fullPath)/\(folder.name)"
+        } else {
+            folder.fullPath = folder.name
+        }
+
+        // Update child paths
+        Self.updateChildPaths(of: folder)
+
+        context.undoManager?.setActionName("Move Folder")
+        context.processPendingChanges()
+        try context.save()
+
+        folderLogger.info("Moved folder \(folderId) to parent \(newParentId?.uuidString ?? "root")")
     }
 
-    /// Delete a folder.
+    /// Delete a folder (uses viewContext for undo support).
+    @MainActor
     public func deleteFolder(
         _ folderId: UUID,
         moveMessagesTo targetFolderId: UUID? = nil
-    ) async throws {
-        try await persistenceController.performBackgroundTask { context in
-            let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-            fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
+    ) throws {
+        let context = persistenceController.viewContext
 
-            guard let folder = try context.fetch(fetchRequest).first else {
-                throw FolderError.folderNotFound
-            }
+        let fetchRequest: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
 
-            // Can't delete system folders
-            guard !folder.isSystemFolder else {
-                throw FolderError.cannotModifySystemFolder
-            }
+        guard let folder = try context.fetch(fetchRequest).first else {
+            throw FolderError.folderNotFound
+        }
 
-            // Move messages to target folder if specified
-            if let targetId = targetFolderId, let messages = folder.messages, !messages.isEmpty {
-                let targetFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-                targetFetch.predicate = NSPredicate(format: "id == %@", targetId as CVarArg)
+        // Can't delete system folders
+        guard !folder.isSystemFolder else {
+            throw FolderError.cannotModifySystemFolder
+        }
 
-                if let target = try context.fetch(targetFetch).first {
-                    for message in messages {
-                        message.folder = target
-                    }
+        // Move messages to target folder if specified
+        if let targetId = targetFolderId, let messages = folder.messages, !messages.isEmpty {
+            let targetFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+            targetFetch.predicate = NSPredicate(format: "id == %@", targetId as CVarArg)
+
+            if let target = try context.fetch(targetFetch).first {
+                for message in messages {
+                    message.folder = target
                 }
             }
-
-            // Delete child folders recursively
-            Self.deleteChildren(of: folder, context: context)
-
-            // Delete the folder
-            context.delete(folder)
-
-            try context.save()
-
-            folderLogger.info("Deleted folder \(folderId)")
         }
+
+        // Delete child folders recursively
+        Self.deleteChildren(of: folder, context: context)
+
+        // Delete the folder
+        context.undoManager?.setActionName("Delete Folder")
+        context.delete(folder)
+        context.processPendingChanges()
+        try context.save()
+
+        folderLogger.info("Deleted folder \(folderId)")
     }
 
     /// Delete child folders recursively.
@@ -333,51 +348,54 @@ public actor FolderManager {
 
     // MARK: - Smart Folders
 
-    /// Create a smart (virtual) folder with a predicate.
+    /// Create a smart (virtual) folder with a predicate (uses viewContext for undo support).
+    @MainActor
     public func createSmartFolder(
         name: String,
         predicate: String,
         accountId: UUID
-    ) async throws -> UUID {
-        try await persistenceController.performBackgroundTask { context in
-            // Validate predicate - NSPredicate throws ObjC exceptions, not Swift errors
-            // Use a simple validation approach
-            guard !predicate.isEmpty else {
-                throw FolderError.invalidPredicate
-            }
-
-            // Fetch account
-            let accountFetch: NSFetchRequest<CDAccount> = NSFetchRequest(entityName: "CDAccount")
-            accountFetch.predicate = NSPredicate(format: "id == %@", accountId as CVarArg)
-            guard let account = try context.fetch(accountFetch).first else {
-                throw FolderError.accountNotFound
-            }
-
-            // Create smart folder
-            let folder = NSEntityDescription.insertNewObject(
-                forEntityName: "CDFolder",
-                into: context
-            ) as! CDFolder
-
-            let folderId = UUID()
-            folder.id = folderId
-            folder.name = name
-            folder.fullPath = name
-            folder.roleRaw = FolderRole.custom.rawValue
-            folder.isSystemFolder = false
-            folder.isVirtualFolder = true
-            folder.predicate = predicate
-            folder.messageCount = 0
-            folder.unreadCount = 0
-            folder.dateCreated = Date()
-            folder.sortOrder = 200  // Smart folders after user folders
-            folder.account = account
-
-            try context.save()
-
-            folderLogger.info("Created smart folder '\(name)' with predicate: \(predicate)")
-            return folderId
+    ) throws -> UUID {
+        // Validate predicate - NSPredicate throws ObjC exceptions, not Swift errors
+        // Use a simple validation approach
+        guard !predicate.isEmpty else {
+            throw FolderError.invalidPredicate
         }
+
+        let context = persistenceController.viewContext
+
+        // Fetch account
+        let accountFetch: NSFetchRequest<CDAccount> = NSFetchRequest(entityName: "CDAccount")
+        accountFetch.predicate = NSPredicate(format: "id == %@", accountId as CVarArg)
+        guard let account = try context.fetch(accountFetch).first else {
+            throw FolderError.accountNotFound
+        }
+
+        // Create smart folder
+        let folder = NSEntityDescription.insertNewObject(
+            forEntityName: "CDFolder",
+            into: context
+        ) as! CDFolder
+
+        let folderId = UUID()
+        folder.id = folderId
+        folder.name = name
+        folder.fullPath = name
+        folder.roleRaw = FolderRole.custom.rawValue
+        folder.isSystemFolder = false
+        folder.isVirtualFolder = true
+        folder.predicate = predicate
+        folder.messageCount = 0
+        folder.unreadCount = 0
+        folder.dateCreated = Date()
+        folder.sortOrder = 200  // Smart folders after user folders
+        folder.account = account
+
+        context.undoManager?.setActionName("Create Smart Folder")
+        context.processPendingChanges()
+        try context.save()
+
+        folderLogger.info("Created smart folder '\(name)' with predicate: \(predicate)")
+        return folderId
     }
 
     // MARK: - Hierarchy Queries
