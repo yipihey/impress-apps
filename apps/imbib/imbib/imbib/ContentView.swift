@@ -86,6 +86,9 @@ struct ContentView: View {
     /// Whether to show the command palette (Cmd+Shift+P)
     @State private var showCommandPalette = false
 
+    /// Whether to show the NL Smart Search overlay (Cmd+S)
+    @State private var showNLSearch = false
+
     /// Whether to show the onboarding sheet
     @State private var showOnboarding = false
 
@@ -255,6 +258,9 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showGlobalSearch)) { _ in
                 showGlobalSearch = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showNLSearch)) { _ in
+                showNLSearch = true
+            }
             .overlay {
                 if showGlobalSearch {
                     GlobalSearchPaletteView(
@@ -272,11 +278,22 @@ struct ContentView: View {
                     CommandPaletteView(isPresented: $showCommandPalette)
                 }
             }
+            .overlay {
+                if showNLSearch {
+                    NLSearchOverlayView(isPresented: $showNLSearch)
+                }
+            }
             .background {
                 Button("Global Search") {
                     showGlobalSearch = true
                 }
                 .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+
+                Button("Smart Search") {
+                    showNLSearch = true
+                }
+                .keyboardShortcut("s", modifiers: .command)
                 .opacity(0)
 
                 Button("Filter") {

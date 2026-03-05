@@ -161,6 +161,7 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "openReferences", title: "Open References", category: .paper, shortcut: "⇧⌘R", notificationName: .openReferences))
 
         // Search
+        register(Command(id: "nlSearch", title: "Smart Search (AI)", category: .search, shortcut: "⌘S", notificationName: .showNLSearch))
         register(Command(id: "globalSearch", title: "Global Search", category: .search, shortcut: "⌘F", notificationName: .focusSearch))
         register(Command(id: "toggleUnreadFilter", title: "Toggle Unread Filter", category: .search, shortcut: "⌘\\", notificationName: .toggleUnreadFilter))
         register(Command(id: "togglePDFFilter", title: "Toggle PDF Filter", category: .search, shortcut: "⇧⌘\\", notificationName: .togglePDFFilter))

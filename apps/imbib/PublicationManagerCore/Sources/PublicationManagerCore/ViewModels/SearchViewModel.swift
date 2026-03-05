@@ -450,6 +450,7 @@ public final class SearchViewModel {
         case arxiv
         case openalex
         case vagueMemory
+        case nlSearch
     }
 
     /// The form type to use for the current edit (determined when loading)
@@ -510,6 +511,7 @@ public final class SearchViewModel {
         case .arxiv: formValue = arxivFormState.maxResults
         case .openalex: formValue = openAlexFormState.maxResults
         case .vagueMemory: formValue = vagueMemoryFormState.maxResults
+        case .nlSearch: formValue = 0 // use global default
         }
         if formValue > 0 { return formValue }
         return Int(await SmartSearchSettingsStore.shared.settings.defaultMaxResults)

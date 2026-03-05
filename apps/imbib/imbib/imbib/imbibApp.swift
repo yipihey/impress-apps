@@ -777,6 +777,11 @@ struct AppCommands: Commands {
 
             // Find submenu (⌘F is handled by ContentView for global search)
             Menu("Find") {
+                Button("Smart Search (AI)...") {
+                    NotificationCenter.default.post(name: .showNLSearch, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+
                 Button("Focus Search") {
                     NotificationCenter.default.post(name: .focusSearch, object: nil)
                 }

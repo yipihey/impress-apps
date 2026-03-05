@@ -11,6 +11,7 @@ import Foundation
 
 /// Types of search forms available in the sidebar
 public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatable, Sendable {
+    case nlSearch = "nl-search"
     case adsModern = "ads-modern"
     case adsClassic = "ads-classic"
     case adsPaper = "ads-paper"
@@ -24,6 +25,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
 
     public var displayName: String {
         switch self {
+        case .nlSearch: return "Smart Search (AI)"
         case .adsModern: return "SciX Search"
         case .adsClassic: return "ADS Classic"
         case .adsPaper: return "SciX Paper"
@@ -37,6 +39,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
 
     public var icon: String {
         switch self {
+        case .nlSearch: return "sparkle.magnifyingglass"
         case .adsModern: return "magnifyingglass"
         case .adsClassic: return "list.bullet.rectangle"
         case .adsPaper: return "doc.text.magnifyingglass"
@@ -50,6 +53,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
 
     public var description: String {
         switch self {
+        case .nlSearch: return "Describe what you want in plain language — AI translates to ADS query"
         case .adsModern: return "Single search box with SciX/ADS field syntax"
         case .adsClassic: return "Multi-field form (authors, title, abstract, year)"
         case .adsPaper: return "Find papers by bibcode, DOI, or arXiv ID"
@@ -64,7 +68,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
     /// Whether this form type requires ADS API credentials to be shown
     public var requiresADSCredentials: Bool {
         switch self {
-        case .adsVagueMemory:
+        case .adsVagueMemory, .nlSearch:
             return true
         default:
             return false
@@ -90,7 +94,7 @@ public actor SearchFormStore {
 
     // MARK: - Default Values
 
-    public static let defaultOrder: [SearchFormType] = [.adsModern, .adsClassic, .adsPaper, .adsVagueMemory, .arxivAdvanced, .arxivFeed, .arxivGroupFeed, .openalex]
+    public static let defaultOrder: [SearchFormType] = [.nlSearch, .adsModern, .adsClassic, .adsPaper, .adsVagueMemory, .arxivAdvanced, .arxivFeed, .arxivGroupFeed, .openalex]
 
     // MARK: - Order Methods
 
