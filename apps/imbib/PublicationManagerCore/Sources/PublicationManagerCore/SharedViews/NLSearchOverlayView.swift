@@ -3,7 +3,7 @@
 //  PublicationManagerCore
 //
 //  Spotlight-like overlay for natural language search powered by Apple Foundation Models.
-//  Translates plain English into ADS/SciX queries and auto-executes.
+//  Translates plain English into ADS/SciX queries for review and execution.
 //
 
 import SwiftUI
@@ -13,9 +13,9 @@ import OSLog
 
 // MARK: - NL Search Overlay View
 
-/// A Spotlight-style overlay that accepts natural language search descriptions,
-/// translates them into ADS query syntax using the on-device Foundation Model,
-/// and auto-executes the search.
+/// A Spotlight-style overlay that accepts natural language search descriptions
+/// and translates them into ADS query syntax using the on-device Foundation Model.
+/// The user reviews the translated query and presses Enter/Search to execute.
 ///
 /// Triggered by Cmd+S. Results appear in the Exploration section of the sidebar,
 /// following the same flow as other search forms.
@@ -36,6 +36,7 @@ public struct NLSearchOverlayView: View {
     @State private var inputText = ""
     @State private var editableQuery = ""
     @State private var isEditingQuery = false
+    @State private var translationTask: Task<Void, Never>?
     @FocusState private var isInputFocused: Bool
     @FocusState private var isQueryFieldFocused: Bool
 
@@ -413,8 +414,6 @@ public struct NLSearchOverlayView: View {
         .padding(.vertical, 10)
         .onAppear {
             editableQuery = query
-            // Auto-execute the search
-            autoExecuteSearch(query: query)
         }
     }
 
@@ -556,8 +555,9 @@ public struct NLSearchOverlayView: View {
         let text = inputText
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        // Capture before Task
-        Task {
+        // Cancel any in-flight translation before starting a new one
+        translationTask?.cancel()
+        translationTask = Task {
             let _ = await nlService.translate(text)
         }
     }
@@ -592,10 +592,6 @@ public struct NLSearchOverlayView: View {
         }
     }
 
-    private func autoExecuteSearch(query: String) {
-        executeSearch(query: query)
-    }
-
     private func reExecuteQuery() {
         let query = editableQuery
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -603,6 +599,8 @@ public struct NLSearchOverlayView: View {
     }
 
     private func dismiss() {
+        translationTask?.cancel()
+        translationTask = nil
         isPresented = false
     }
 }

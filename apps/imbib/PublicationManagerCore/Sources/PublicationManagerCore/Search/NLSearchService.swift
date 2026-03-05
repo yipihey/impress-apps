@@ -65,7 +65,8 @@ public enum NLSearchResultType: Sendable, Equatable {
 ///
 /// Requires macOS 26+ with Apple Intelligence enabled.
 @Observable
-public final class NLSearchService: @unchecked Sendable {
+@MainActor
+public final class NLSearchService {
 
     // MARK: - Properties
 
@@ -110,11 +111,12 @@ public final class NLSearchService: @unchecked Sendable {
 
     // MARK: - Availability
 
-    /// Whether the on-device Foundation Models framework is available
+    /// Whether the on-device Foundation Models framework is available AND
+    /// Apple Intelligence is enabled on this device.
     public static var isAvailable: Bool {
         #if canImport(FoundationModels)
         if #available(macOS 26, iOS 26, *) {
-            return true
+            return SystemLanguageModel.default.isAvailable
         }
         #endif
         return false
@@ -132,7 +134,6 @@ public final class NLSearchService: @unchecked Sendable {
     ///
     /// - Parameter naturalLanguage: The user's natural language search description
     /// - Returns: The generated ADS query string, or nil if translation failed
-    @MainActor
     public func translate(_ naturalLanguage: String) async -> String? {
         guard !naturalLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
@@ -165,7 +166,6 @@ public final class NLSearchService: @unchecked Sendable {
 
     #if canImport(FoundationModels)
     @available(macOS 26, iOS 26, *)
-    @MainActor
     private func translateWithFoundationModels(_ naturalLanguage: String) async -> String? {
         do {
             // Get or create session (cached for conversational refinement)
@@ -231,26 +231,37 @@ public final class NLSearchService: @unchecked Sendable {
                 category: "nlsearch"
             )
 
+            // Set state first, then fetch count in background (avoids race where
+            // the background task completes before this line and gets overwritten)
+            estimatedCount = nil
+            state = .translated(query: finalQuery, interpretation: lastInterpretation, estimatedCount: nil)
+
             // Fetch count preview in background
             let capturedQuery = finalQuery
             let capturedInterpretation = lastInterpretation
-            estimatedCount = nil
             Task.detached { [weak self] in
                 guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
-                let count = try? scixCount(token: apiKey, query: capturedQuery)
-                await MainActor.run {
-                    self?.estimatedCount = count
-                    if let count {
-                        self?.state = .translated(
-                            query: capturedQuery,
-                            interpretation: capturedInterpretation,
-                            estimatedCount: count
-                        )
+                do {
+                    let count = try scixCount(token: apiKey, query: capturedQuery)
+                    await MainActor.run {
+                        self?.estimatedCount = count
+                        // Only update state if still showing this query's translation
+                        if case .translated(let q, _, _) = self?.state, q == capturedQuery {
+                            self?.state = .translated(
+                                query: capturedQuery,
+                                interpretation: capturedInterpretation,
+                                estimatedCount: count
+                            )
+                        }
                     }
+                } catch {
+                    Logger.viewModels.warningCapture(
+                        "NLSearch: count preview failed: \(error.localizedDescription)",
+                        category: "nlsearch"
+                    )
                 }
             }
 
-            state = .translated(query: finalQuery, interpretation: lastInterpretation, estimatedCount: nil)
             return finalQuery
         } catch {
             let message = error.localizedDescription
@@ -295,7 +306,7 @@ public final class NLSearchService: @unchecked Sendable {
     /// Call after the startup grace period (90s) to avoid cold-start latency on first Cmd+S.
     @available(macOS 26, iOS 26, *)
     public func prewarm() {
-        Task.detached { [weak self] in
+        Task { [weak self] in
             _ = try? await self?.getOrCreateSession()
         }
     }
@@ -303,56 +314,64 @@ public final class NLSearchService: @unchecked Sendable {
 
     // MARK: - System Prompt
 
+    /// Current year for dynamic query generation
+    private static var currentYear: Int {
+        Calendar.current.component(.year, from: Date())
+    }
+
     /// Comprehensive system prompt teaching ADS query syntax.
     /// Used as session instructions for Foundation Models.
-    static let adsQuerySystemPrompt = """
-    You are an expert at NASA ADS (Astrophysics Data System) / SciX search queries. \
-    Your job is to translate natural language descriptions of papers into precise ADS query strings \
-    by calling the search_papers tool.
+    static var adsQuerySystemPrompt: String {
+        let year = currentYear
+        return """
+        You are an expert at NASA ADS (Astrophysics Data System) / SciX search queries. \
+        Your job is to translate natural language descriptions of papers into precise ADS query strings \
+        by calling the search_papers tool.
 
-    ADS Query Syntax Reference:
-    - author:"Last, First" or author:"Last" — search by author name
-    - first_author:"Last" — first author only
-    - title:"words" — search in title
-    - abs:"words" — search in abstract
-    - year:YYYY — exact year
-    - year:YYYY-YYYY — year range
-    - object:"name" — astronomical object (e.g., "M31", "NGC 1234")
-    - property:refereed — only refereed (peer-reviewed) papers
-    - property:eprint_openaccess — open access preprints
-    - doctype:article — journal articles only
-    - bibcode:XXXX — specific bibcode
-    - doi:XXXX — specific DOI
-    - arXiv:XXXX — arXiv identifier
-    - citations(bibcode:XXXX) — papers that cite a specific paper
-    - references(bibcode:XXXX) — papers cited by a specific paper
-    - similar(bibcode:XXXX) — similar papers
+        ADS Query Syntax Reference:
+        - author:"Last, First" or author:"Last" — search by author name
+        - first_author:"Last" — first author only
+        - title:"words" — search in title
+        - abs:"words" — search in abstract
+        - year:YYYY — exact year
+        - year:YYYY-YYYY — year range
+        - object:"name" — astronomical object (e.g., "M31", "NGC 1234")
+        - property:refereed — only refereed (peer-reviewed) papers
+        - property:eprint_openaccess — open access preprints
+        - doctype:article — journal articles only
+        - bibcode:XXXX — specific bibcode
+        - doi:XXXX — specific DOI
+        - arXiv:XXXX — arXiv identifier
+        - citations(bibcode:XXXX) — papers that cite a specific paper
+        - references(bibcode:XXXX) — papers cited by a specific paper
+        - similar(bibcode:XXXX) — similar papers
 
-    Boolean operators: AND, OR, NOT (uppercase)
-    Grouping: use parentheses for complex queries
-    Wildcards: * for prefix matching (e.g., author:"Ein*")
+        Boolean operators: AND, OR, NOT (uppercase)
+        Grouping: use parentheses for complex queries
+        Wildcards: * for prefix matching (e.g., author:"Ein*")
 
-    Rules:
-    1. Always call the search_papers tool to validate and count results
-    2. Always use field qualifiers (author:, abs:, title:, year:, etc.)
-    3. Multi-word values MUST be quoted: abs:"dark matter"
-    4. Multiple authors: author:"Last1" AND author:"Last2" or author:("Last1" "Last2")
-    5. When the user says "recent" or "last N years", calculate from 2026
-    6. When the user mentions a specific topic, use abs: for the most relevant keywords
-    7. When the user says "refereed" or "published" or "peer-reviewed", add property:refereed
-    8. Prefer abs: over title: for topic searches (broader match)
-    9. Keep queries concise — don't over-constrain
-    10. For vague descriptions, use the most specific terms available
-    11. For follow-up requests like "narrow to refereed", modify the previous query
-    12. If the user mentions citations of a paper and you know the bibcode, use citations(bibcode:XXXX) syntax
-    13. If the user mentions similar papers, use similar(bibcode:XXXX) syntax
-    14. If the user mentions references of a paper, use references(bibcode:XXXX) syntax
+        Rules:
+        1. Always call the search_papers tool to validate and count results
+        2. Always use field qualifiers (author:, abs:, title:, year:, etc.)
+        3. Multi-word values MUST be quoted: abs:"dark matter"
+        4. Multiple authors: author:"Last1" AND author:"Last2" or author:("Last1" "Last2")
+        5. When the user says "recent" or "last N years", calculate from \(year)
+        6. When the user mentions a specific topic, use abs: for the most relevant keywords
+        7. When the user says "refereed" or "published" or "peer-reviewed", add property:refereed
+        8. Prefer abs: over title: for topic searches (broader match)
+        9. Keep queries concise — don't over-constrain
+        10. For vague descriptions, use the most specific terms available
+        11. For follow-up requests like "narrow to refereed", modify the previous query
+        12. If the user mentions citations of a paper and you know the bibcode, use citations(bibcode:XXXX) syntax
+        13. If the user mentions similar papers, use similar(bibcode:XXXX) syntax
+        14. If the user mentions references of a paper, use references(bibcode:XXXX) syntax
 
-    For citation/reference/similar requests, use ADS operator syntax in the query field: \
-    citations(bibcode:XXXX), references(bibcode:XXXX), similar(bibcode:XXXX). \
-    Use the get_citations, get_references, get_similar, get_coreads tools to explore \
-    the citation network and gather bibcodes, then construct a query using those bibcodes.
-    """
+        For citation/reference/similar requests, use ADS operator syntax in the query field: \
+        citations(bibcode:XXXX), references(bibcode:XXXX), similar(bibcode:XXXX). \
+        Use the get_citations, get_references, get_similar, get_coreads tools to explore \
+        the citation network and gather bibcodes, then construct a query using those bibcodes.
+        """
+    }
 
     // MARK: - Query Description
 
@@ -435,9 +454,10 @@ public final class NLSearchService: @unchecked Sendable {
             }
 
             // Detect "since YYYY" or "after YYYY"
+            let thisYear = Self.currentYear
             if (word == "since" || word == "after") && i + 1 < words.count {
                 if let year = Int(words[i + 1]), year >= 1900 && year <= 2100 {
-                    queryParts.append("year:\(year)-2026")
+                    queryParts.append("year:\(year)-\(thisYear)")
                     i += 2
                     continue
                 }
@@ -445,13 +465,13 @@ public final class NLSearchService: @unchecked Sendable {
 
             // Detect "recent" / "last N years"
             if word == "recent" || word == "latest" {
-                queryParts.append("year:2022-2026")
+                queryParts.append("year:\(thisYear - 4)-\(thisYear)")
                 i += 1
                 continue
             }
             if word == "last" && i + 2 < words.count && words[i + 2] == "years" {
                 if let n = Int(words[i + 1]) {
-                    queryParts.append("year:\(2026 - n)-2026")
+                    queryParts.append("year:\(thisYear - n)-\(thisYear)")
                     i += 3
                     continue
                 }
@@ -500,7 +520,6 @@ public final class NLSearchService: @unchecked Sendable {
 
     /// Reset to idle state and clear the cached session (start fresh conversation).
     /// Use this when the user explicitly clears the search or starts over.
-    @MainActor
     public func reset() {
         state = .idle
         lastNaturalLanguageInput = ""
@@ -520,7 +539,6 @@ public final class NLSearchService: @unchecked Sendable {
     /// Start a new conversation while preserving the last results.
     /// Used when the overlay closes — keeps recent results visible but resets the session
     /// so the next search starts fresh.
-    @MainActor
     public func startNewConversation() {
         conversationTurnCount = 0
 
@@ -532,13 +550,11 @@ public final class NLSearchService: @unchecked Sendable {
     }
 
     /// Update state to indicate search is executing
-    @MainActor
     public func markSearching() {
         state = .searching
     }
 
     /// Update state to indicate search completed with results
-    @MainActor
     public func markComplete(resultCount: Int) {
         state = .complete(query: lastGeneratedQuery, resultCount: resultCount)
         Logger.viewModels.infoCapture(
