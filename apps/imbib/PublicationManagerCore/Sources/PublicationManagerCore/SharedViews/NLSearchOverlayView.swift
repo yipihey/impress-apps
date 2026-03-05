@@ -29,10 +29,10 @@ public struct NLSearchOverlayView: View {
 
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(NLSearchService.self) private var nlService
 
     // MARK: - State
 
-    @State private var nlService = NLSearchService()
     @State private var inputText = ""
     @State private var editableQuery = ""
     @State private var isEditingQuery = false
@@ -64,6 +64,11 @@ public struct NLSearchOverlayView: View {
                 // Input field
                 inputField
 
+                // Source, max results, refereed options
+                optionsBar
+
+                Divider()
+
                 // State-dependent content
                 stateContent
             }
@@ -93,20 +98,23 @@ public struct NLSearchOverlayView: View {
             }
         }
         .onDisappear {
-            nlService.reset()
+            // Don't fully reset — preserve results so user can re-open and refine.
+            // A new conversation will start on next translate() call.
+            nlService.startNewConversation()
         }
     }
 
     // MARK: - Dynamic Height
 
     private var dynamicHeight: CGFloat {
+        let optionsHeight: CGFloat = 36  // options bar + divider
         switch nlService.state {
-        case .idle: return 140
-        case .thinking: return 180
-        case .translated: return 260
-        case .searching: return 200
-        case .complete: return 200
-        case .error: return 220
+        case .idle: return 140 + optionsHeight
+        case .thinking: return 180 + optionsHeight
+        case .translated: return 260 + optionsHeight
+        case .searching: return 200 + optionsHeight
+        case .complete: return 200 + optionsHeight
+        case .error: return 240 + optionsHeight
         }
     }
 
@@ -182,6 +190,80 @@ public struct NLSearchOverlayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Options Bar
+
+    @ViewBuilder
+    private var optionsBar: some View {
+        @Bindable var service = nlService
+
+        HStack(spacing: 12) {
+            // Source pills
+            HStack(spacing: 4) {
+                sourcePill("ADS", id: "ads")
+                sourcePill("arXiv", id: "arxiv")
+                sourcePill("OpenAlex", id: "openalex")
+            }
+
+            Divider()
+                .frame(height: 16)
+
+            // Max results
+            HStack(spacing: 4) {
+                Text("Max:")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Picker("", selection: $service.maxResults) {
+                    Text("Default").tag(0)
+                    Text("25").tag(25)
+                    Text("50").tag(50)
+                    Text("100").tag(100)
+                    Text("200").tag(200)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.mini)
+                .frame(width: 70)
+            }
+
+            Divider()
+                .frame(height: 16)
+
+            // Refereed toggle
+            Toggle(isOn: $service.refereedOnly) {
+                Text("Refereed")
+                    .font(.caption2)
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.mini)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func sourcePill(_ label: String, id: String) -> some View {
+        let isSelected = nlService.selectedSourceIDs.contains(id)
+        Button {
+            if isSelected && nlService.selectedSourceIDs.count > 1 {
+                nlService.selectedSourceIDs.remove(id)
+            } else if !isSelected {
+                nlService.selectedSourceIDs.insert(id)
+            }
+        } label: {
+            Text(label)
+                .font(.caption2)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isSelected ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
+                .clipShape(Capsule())
+                .foregroundStyle(isSelected ? .primary : .secondary)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - State Content
@@ -428,23 +510,37 @@ public struct NLSearchOverlayView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
 
-            HStack {
+            HStack(spacing: 8) {
                 Button("Try Again") {
-                    let query = inputText
-                    Task { await nlService.translate(query) }
+                    let text = inputText
+                    Task { await nlService.translate(text) }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
                 Button("Search as Keywords") {
-                    // Fall back to raw text search
                     let query = inputText
+                    let sourceIDs = nlService.selectedSourceIDs
                     searchViewModel.query = query
-                    searchViewModel.selectedSourceIDs = ["ads"]
+                    searchViewModel.selectedSourceIDs = sourceIDs
                     searchViewModel.editFormType = .nlSearch
                     let vm = searchViewModel
                     Task { await vm.search() }
                     dismiss()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Open ADS Form") {
+                    // Copy input to clipboard and switch to ADS Modern form
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(inputText, forType: .string)
+                    dismiss()
+                    // Post notification to switch to ADS Modern form
+                    NotificationCenter.default.post(
+                        name: .switchToSearchForm,
+                        object: SearchFormType.adsModern
+                    )
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -470,7 +566,8 @@ public struct NLSearchOverlayView: View {
         nlService.markSearching()
 
         searchViewModel.query = query
-        searchViewModel.selectedSourceIDs = ["ads"]
+        searchViewModel.selectedSourceIDs = nlService.selectedSourceIDs
+        searchViewModel.nlSearchMaxResults = nlService.maxResults
         searchViewModel.editFormType = .nlSearch
 
         // Capture before Task

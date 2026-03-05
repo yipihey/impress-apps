@@ -27,18 +27,7 @@ public struct ADSQueryResult: Sendable {
     public var interpretation: String
 }
 
-// MARK: - Tool Result Wrapper
-
-/// A result from any sciX tool operation, containing either papers or a count/status.
-@available(macOS 26, iOS 26, *)
-public enum NLSearchToolResult: Sendable {
-    /// A search query was generated and should be executed via the standard search pipeline
-    case searchQuery(query: String, interpretation: String)
-    /// A bibcode-based operation (citations, similar, references, coreads) returned papers
-    case papers(bibcodes: [String], operation: String, sourceBibcode: String)
-    /// A count-only result
-    case count(query: String, count: UInt32)
-}
+// (NLSearchToolResult removed — structured output now flows through ADSQueryResult via guided generation)
 
 // MARK: - SciX Search Tool
 
@@ -112,12 +101,16 @@ struct SciXCitationsTool: Tool {
             let papers = try scixFetchCitations(
                 token: apiToken,
                 bibcode: arguments.bibcode,
-                maxResults: 50
+                maxResults: 200
             )
             let bibcodes = papers.map(\.bibcode)
-            return "Found \(papers.count) papers citing \(arguments.bibcode).\nBibcodes: \(bibcodes.joined(separator: ", "))"
+            return """
+                Found \(papers.count) papers citing \(arguments.bibcode).
+                ADS query: citations(bibcode:\(arguments.bibcode))
+                Bibcodes: \(bibcodes.prefix(20).joined(separator: ", "))\(papers.count > 20 ? "..." : "")
+                """
         } catch {
-            return "Error fetching citations: \(error.localizedDescription)"
+            return "Error fetching citations: \(error.localizedDescription). Use query: citations(bibcode:\(arguments.bibcode))"
         }
     }
 }
@@ -152,12 +145,16 @@ struct SciXReferencesTool: Tool {
             let papers = try scixFetchReferences(
                 token: apiToken,
                 bibcode: arguments.bibcode,
-                maxResults: 50
+                maxResults: 200
             )
             let bibcodes = papers.map(\.bibcode)
-            return "Found \(papers.count) papers referenced by \(arguments.bibcode).\nBibcodes: \(bibcodes.joined(separator: ", "))"
+            return """
+                Found \(papers.count) papers referenced by \(arguments.bibcode).
+                ADS query: references(bibcode:\(arguments.bibcode))
+                Bibcodes: \(bibcodes.prefix(20).joined(separator: ", "))\(papers.count > 20 ? "..." : "")
+                """
         } catch {
-            return "Error fetching references: \(error.localizedDescription)"
+            return "Error fetching references: \(error.localizedDescription). Use query: references(bibcode:\(arguments.bibcode))"
         }
     }
 }
@@ -192,12 +189,16 @@ struct SciXSimilarTool: Tool {
             let papers = try scixFetchSimilar(
                 token: apiToken,
                 bibcode: arguments.bibcode,
-                maxResults: 50
+                maxResults: 200
             )
             let bibcodes = papers.map(\.bibcode)
-            return "Found \(papers.count) papers similar to \(arguments.bibcode).\nBibcodes: \(bibcodes.joined(separator: ", "))"
+            return """
+                Found \(papers.count) papers similar to \(arguments.bibcode).
+                ADS query: similar(bibcode:\(arguments.bibcode))
+                Bibcodes: \(bibcodes.prefix(20).joined(separator: ", "))\(papers.count > 20 ? "..." : "")
+                """
         } catch {
-            return "Error fetching similar papers: \(error.localizedDescription)"
+            return "Error fetching similar papers: \(error.localizedDescription). Use query: similar(bibcode:\(arguments.bibcode))"
         }
     }
 }
@@ -233,10 +234,13 @@ struct SciXCoreadsTool: Tool {
             let papers = try scixFetchCoreads(
                 token: apiToken,
                 bibcode: arguments.bibcode,
-                maxResults: 50
+                maxResults: 200
             )
             let bibcodes = papers.map(\.bibcode)
-            return "Found \(papers.count) co-read papers for \(arguments.bibcode).\nBibcodes: \(bibcodes.joined(separator: ", "))"
+            return """
+                Found \(papers.count) co-read papers for \(arguments.bibcode).
+                Use the bibcodes to build a query: bibcode:(\(bibcodes.prefix(10).joined(separator: " OR "))\(papers.count > 10 ? " ..." : ""))
+                """
         } catch {
             return "Error fetching co-reads: \(error.localizedDescription)"
         }

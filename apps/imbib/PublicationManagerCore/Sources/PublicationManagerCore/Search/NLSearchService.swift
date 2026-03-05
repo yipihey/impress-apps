@@ -57,7 +57,8 @@ public enum NLSearchResultType: Sendable, Equatable {
 ///
 /// Uses guided generation with tool calling so the on-device LLM autonomously
 /// selects the right sciX operation (search, citations, similar, coreads, etc.)
-/// based on the user's natural language request.
+/// based on the user's natural language request, then returns a structured
+/// `ADSQueryResult` via constrained decoding.
 ///
 /// The session is cached for conversational refinement — follow-up prompts like
 /// "narrow to refereed only" refine the previous query using session transcript memory.
@@ -77,6 +78,15 @@ public final class NLSearchService: @unchecked Sendable {
 
     /// Number of turns in the current conversation (for refinement tracking)
     public private(set) var conversationTurnCount: Int = 0
+
+    /// User-configurable max results (passed through to search pipeline)
+    public var maxResults: Int = 0
+
+    /// User-selected source IDs (default ADS, can include arXiv, OpenAlex, etc.)
+    public var selectedSourceIDs: Set<String> = ["ads"]
+
+    /// Whether to restrict to refereed/peer-reviewed papers
+    public var refereedOnly: Bool = false
 
     // MARK: - Session Cache
 
@@ -161,48 +171,69 @@ public final class NLSearchService: @unchecked Sendable {
             // Get or create session (cached for conversational refinement)
             let session = try await getOrCreateSession()
 
-            // Use tool-calling: the model picks search_papers, get_citations, etc.
+            // Build the prompt with any user-selected constraints
+            var constraints: [String] = []
+            if refereedOnly { constraints.append("Only include refereed (peer-reviewed) papers.") }
+
+            let constraintClause = constraints.isEmpty ? "" : "\n\nConstraints: \(constraints.joined(separator: " "))"
+
             let userPrompt: String
             if conversationTurnCount == 0 {
                 userPrompt = """
                 Translate this search request into an ADS query by calling the search_papers tool:
 
-                "\(naturalLanguage)"
+                "\(naturalLanguage)"\(constraintClause)
                 """
             } else {
                 // Follow-up refinement — the session has context from previous turns
                 userPrompt = """
                 Refine the previous search based on this:
 
-                "\(naturalLanguage)"
+                "\(naturalLanguage)"\(constraintClause)
 
                 Call search_papers with the updated query.
                 """
             }
 
-            let response = try await session.respond(to: userPrompt)
+            // Use guided generation: tools execute, then the model returns a structured ADSQueryResult.
+            // session.respond(to:generating:) returns a GeneratedContent<ADSQueryResult>
+            // whose .content is the typed result.
+            let response = try await session.respond(
+                to: userPrompt,
+                generating: ADSQueryResult.self
+            )
             conversationTurnCount += 1
 
-            // Parse the tool response to extract query and interpretation
-            let responseText = response.content
-            let (query, interpretation) = parseToolResponse(responseText)
+            // Guided generation guarantees structured output via .content
+            let result = response.content
+            let query = result.query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let interpretation = result.interpretation.trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !query.isEmpty else {
                 state = .error("Model returned empty query")
                 return nil
             }
 
-            lastGeneratedQuery = query
-            lastInterpretation = interpretation
-            lastResultType = .querySearch(query: query)
+            // Append refereed filter if user toggled it and model didn't include it
+            let finalQuery: String
+            if refereedOnly && !query.contains("property:refereed") {
+                finalQuery = "\(query) property:refereed"
+            } else {
+                finalQuery = query
+            }
+
+            lastGeneratedQuery = finalQuery
+            lastInterpretation = interpretation.isEmpty ? describeQuery(finalQuery) : interpretation
+            lastResultType = .querySearch(query: finalQuery)
 
             Logger.viewModels.infoCapture(
-                "NLSearch: translated to '\(query)' — \(interpretation)",
+                "NLSearch: translated to '\(finalQuery)' — \(lastInterpretation)",
                 category: "nlsearch"
             )
 
             // Fetch count preview in background
-            let capturedQuery = query
+            let capturedQuery = finalQuery
+            let capturedInterpretation = lastInterpretation
             estimatedCount = nil
             Task.detached { [weak self] in
                 guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
@@ -212,15 +243,15 @@ public final class NLSearchService: @unchecked Sendable {
                     if let count {
                         self?.state = .translated(
                             query: capturedQuery,
-                            interpretation: interpretation,
+                            interpretation: capturedInterpretation,
                             estimatedCount: count
                         )
                     }
                 }
             }
 
-            state = .translated(query: query, interpretation: interpretation, estimatedCount: nil)
-            return query
+            state = .translated(query: finalQuery, interpretation: lastInterpretation, estimatedCount: nil)
+            return finalQuery
         } catch {
             let message = error.localizedDescription
             state = .error(message)
@@ -260,36 +291,13 @@ public final class NLSearchService: @unchecked Sendable {
         return session
     }
 
-    /// Parse the tool response text to extract query and interpretation.
-    /// Tool responses come in format: "Query: ...\nInterpretation: ...\n..."
-    private func parseToolResponse(_ text: String) -> (query: String, interpretation: String) {
-        var query = ""
-        var interpretation = ""
-
-        let lines = text.components(separatedBy: "\n")
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("Query: ") {
-                query = String(trimmed.dropFirst("Query: ".count))
-            } else if trimmed.hasPrefix("Interpretation: ") {
-                interpretation = String(trimmed.dropFirst("Interpretation: ".count))
-            }
+    /// Prewarm the Foundation Models session in the background.
+    /// Call after the startup grace period (90s) to avoid cold-start latency on first Cmd+S.
+    @available(macOS 26, iOS 26, *)
+    public func prewarm() {
+        Task.detached { [weak self] in
+            _ = try? await self?.getOrCreateSession()
         }
-
-        // If structured parsing fails, try to use the whole response as a query
-        if query.isEmpty {
-            query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            if interpretation.isEmpty {
-                interpretation = describeQuery(query)
-            }
-        }
-
-        if interpretation.isEmpty {
-            interpretation = describeQuery(query)
-        }
-
-        return (query, interpretation)
     }
     #endif
 
@@ -325,7 +333,7 @@ public final class NLSearchService: @unchecked Sendable {
     Wildcards: * for prefix matching (e.g., author:"Ein*")
 
     Rules:
-    1. Always call the search_papers tool — never reply with plain text
+    1. Always call the search_papers tool to validate and count results
     2. Always use field qualifiers (author:, abs:, title:, year:, etc.)
     3. Multi-word values MUST be quoted: abs:"dark matter"
     4. Multiple authors: author:"Last1" AND author:"Last2" or author:("Last1" "Last2")
@@ -336,11 +344,14 @@ public final class NLSearchService: @unchecked Sendable {
     9. Keep queries concise — don't over-constrain
     10. For vague descriptions, use the most specific terms available
     11. For follow-up requests like "narrow to refereed", modify the previous query
-    12. If the user mentions citations, similar papers, or co-reads, use the appropriate tool instead
+    12. If the user mentions citations of a paper and you know the bibcode, use citations(bibcode:XXXX) syntax
+    13. If the user mentions similar papers, use similar(bibcode:XXXX) syntax
+    14. If the user mentions references of a paper, use references(bibcode:XXXX) syntax
 
-    For citation/reference/similar/co-read requests, use the corresponding tool \
-    (get_citations, get_references, get_similar, get_coreads) when you know the bibcode. \
-    If you don't know the bibcode, use search_papers first to find it.
+    For citation/reference/similar requests, use ADS operator syntax in the query field: \
+    citations(bibcode:XXXX), references(bibcode:XXXX), similar(bibcode:XXXX). \
+    Use the get_citations, get_references, get_similar, get_coreads tools to explore \
+    the citation network and gather bibcodes, then construct a query using those bibcodes.
     """
 
     // MARK: - Query Description
@@ -487,7 +498,8 @@ public final class NLSearchService: @unchecked Sendable {
 
     // MARK: - State Management
 
-    /// Reset to idle state and clear the cached session (start fresh conversation)
+    /// Reset to idle state and clear the cached session (start fresh conversation).
+    /// Use this when the user explicitly clears the search or starts over.
     @MainActor
     public func reset() {
         state = .idle
@@ -496,6 +508,20 @@ public final class NLSearchService: @unchecked Sendable {
         lastInterpretation = ""
         lastResultType = nil
         estimatedCount = nil
+        conversationTurnCount = 0
+
+        #if canImport(FoundationModels)
+        if #available(macOS 26, iOS 26, *) {
+            cachedSession = nil
+        }
+        #endif
+    }
+
+    /// Start a new conversation while preserving the last results.
+    /// Used when the overlay closes — keeps recent results visible but resets the session
+    /// so the next search starts fresh.
+    @MainActor
+    public func startNewConversation() {
         conversationTurnCount = 0
 
         #if canImport(FoundationModels)

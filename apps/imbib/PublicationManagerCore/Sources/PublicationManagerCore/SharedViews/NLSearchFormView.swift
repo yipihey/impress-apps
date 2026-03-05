@@ -25,10 +25,10 @@ public struct NLSearchFormView: View {
 
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(NLSearchService.self) private var nlService
 
     // MARK: - State
 
-    @State private var nlService = NLSearchService()
     @State private var inputText = ""
     @State private var generatedQuery = ""
     @State private var showQueryPreview = true
@@ -67,6 +67,9 @@ public struct NLSearchFormView: View {
 
                 // Natural language input
                 inputSection
+
+                // Search options (source, max results, refereed)
+                searchOptionsSection
 
                 // Generated query preview
                 if !generatedQuery.isEmpty {
@@ -174,6 +177,70 @@ public struct NLSearchFormView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Search Options
+
+    @ViewBuilder
+    private var searchOptionsSection: some View {
+        @Bindable var service = nlService
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Search Options")
+                .font(.headline)
+
+            // Source selection
+            HStack(spacing: 8) {
+                Text("Sources:")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                ForEach(["ads", "arxiv", "openalex"], id: \.self) { sourceID in
+                    let label: String = switch sourceID {
+                    case "ads": "ADS/SciX"
+                    case "arxiv": "arXiv"
+                    case "openalex": "OpenAlex"
+                    default: sourceID
+                    }
+                    Toggle(label, isOn: Binding(
+                        get: { service.selectedSourceIDs.contains(sourceID) },
+                        set: { newVal in
+                            if newVal {
+                                service.selectedSourceIDs.insert(sourceID)
+                            } else if service.selectedSourceIDs.count > 1 {
+                                service.selectedSourceIDs.remove(sourceID)
+                            }
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                }
+            }
+
+            HStack(spacing: 16) {
+                // Max results
+                HStack(spacing: 8) {
+                    Text("Max Results:")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $service.maxResults) {
+                        Text("Default").tag(0)
+                        Text("25").tag(25)
+                        Text("50").tag(50)
+                        Text("100").tag(100)
+                        Text("200").tag(200)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 90)
+                }
+
+                // Refereed toggle
+                Toggle("Refereed only", isOn: $service.refereedOnly)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+            }
+        }
+    }
+
     // MARK: - Query Preview
 
     @ViewBuilder
@@ -207,9 +274,20 @@ public struct NLSearchFormView: View {
             }
 
             if showQueryPreview {
-                TextField("ADS Query", text: $generatedQuery)
-                    .font(.system(.body, design: .monospaced))
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    TextField("ADS Query", text: $generatedQuery)
+                        .font(.system(.body, design: .monospaced))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { executeEditedQuery() }
+
+                    if generatedQuery != nlService.lastGeneratedQuery {
+                        Button("Run") {
+                            executeEditedQuery()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
             }
         }
     }
@@ -255,13 +333,29 @@ public struct NLSearchFormView: View {
             }
 
         case .error(let message):
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                HStack(spacing: 8) {
+                    Button("Try Again") {
+                        let text = inputText
+                        Task { await nlService.translate(text) }
+                    }
+                    .controlSize(.small)
+
+                    Button("Edit Query Manually") {
+                        // Switch to ADS Modern form with user's text as seed
+                        generatedQuery = inputText
+                        showQueryPreview = true
+                    }
+                    .controlSize(.small)
+                }
             }
 
         default:
@@ -317,6 +411,7 @@ public struct NLSearchFormView: View {
 
         let vm = searchViewModel
         let manager = libraryManager
+        let sourceIDs = nlService.selectedSourceIDs
 
         Task {
             guard let query = await nlService.translate(text) else { return }
@@ -325,9 +420,37 @@ public struct NLSearchFormView: View {
             // Auto-execute the search
             nlService.markSearching()
             vm.query = query
-            vm.selectedSourceIDs = ["ads"]
+            vm.selectedSourceIDs = sourceIDs
+            vm.nlSearchMaxResults = nlService.maxResults
             vm.editFormType = .nlSearch
 
+            await vm.search()
+
+            var count = 0
+            if let collection = manager.getOrCreateLastSearchCollection() {
+                count = RustStoreAdapter.shared.countPublications(
+                    for: .collection(collection.id)
+                )
+            }
+            await nlService.markComplete(resultCount: count)
+        }
+    }
+
+    private func executeEditedQuery() {
+        let query = generatedQuery
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let vm = searchViewModel
+        let manager = libraryManager
+        let sourceIDs = nlService.selectedSourceIDs
+
+        nlService.markSearching()
+        vm.query = query
+        vm.selectedSourceIDs = sourceIDs
+        vm.nlSearchMaxResults = nlService.maxResults
+        vm.editFormType = .nlSearch
+
+        Task {
             await vm.search()
 
             var count = 0
@@ -361,6 +484,9 @@ public struct NLSearchFormView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         isCreating = true
 
+        let sourceIDs = Array(nlService.selectedSourceIDs)
+        let feedMaxResults = nlService.maxResults > 0 ? nlService.maxResults : 50
+
         Task {
             guard let query = await nlService.translate(text) else {
                 isCreating = false
@@ -369,7 +495,8 @@ public struct NLSearchFormView: View {
 
             let name = feedName.isEmpty ? "AI: \(text.prefix(40))" : feedName
             let feed = RustStoreAdapter.shared.createInboxFeed(
-                name: name, query: query, sourceIDs: ["ads"],
+                name: name, query: query, sourceIDs: sourceIDs,
+                maxResults: Int16(feedMaxResults),
                 refreshIntervalSeconds: Int64(refreshPreset.rawValue)
             )
             if let feed {
@@ -390,10 +517,20 @@ public struct NLSearchFormView: View {
         let text = inputText
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
+        let feedMaxResults = nlService.maxResults > 0 ? nlService.maxResults : 50
+
         Task {
-            guard let query = await nlService.translate(text) else { return }
+            // Use the edited query if available, otherwise translate
+            let query: String
+            if !generatedQuery.isEmpty {
+                query = generatedQuery
+            } else if let translated = await nlService.translate(text) {
+                query = translated
+            } else {
+                return
+            }
             let name = feedName.isEmpty ? "AI: \(text.prefix(40))" : feedName
-            RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: 50)
+            RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: Int64(feedMaxResults))
             RustStoreAdapter.shared.updateIntField(id: feedID, field: "refresh_interval_seconds", value: Int64(refreshPreset.rawValue))
             NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
         }
@@ -402,7 +539,22 @@ public struct NLSearchFormView: View {
     private func loadFeedForEditing(_ feedID: UUID) {
         guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return }
         feedName = feed.name
-        inputText = feed.query
+        // Load the ADS query into the editable query field
+        generatedQuery = feed.query
+        // For NL-created feeds ("AI: description"), extract the original description as input hint
+        if feed.name.hasPrefix("AI: ") {
+            inputText = String(feed.name.dropFirst("AI: ".count))
+        } else {
+            inputText = feed.query
+        }
+        // Load source IDs
+        if !feed.sourceIDs.isEmpty {
+            nlService.selectedSourceIDs = Set(feed.sourceIDs)
+        }
+        // Load max results
+        if feed.maxResults > 0 {
+            nlService.maxResults = feed.maxResults
+        }
         if let preset = RefreshIntervalPreset(rawValue: Int32(feed.refreshIntervalSeconds)) {
             refreshPreset = preset
         }
@@ -418,8 +570,8 @@ public struct NLSearchFormView: View {
 
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(NLSearchService.self) private var nlService
 
-    @State private var nlService = NLSearchService()
     @State private var inputText = ""
     @State private var generatedQuery = ""
 
@@ -508,6 +660,7 @@ public struct NLSearchFormView: View {
         let text = inputText
         let vm = searchViewModel
         let manager = libraryManager
+        let sourceIDs = nlService.selectedSourceIDs
 
         Task {
             guard let query = await nlService.translate(text) else { return }
@@ -515,7 +668,7 @@ public struct NLSearchFormView: View {
 
             nlService.markSearching()
             vm.query = query
-            vm.selectedSourceIDs = ["ads"]
+            vm.selectedSourceIDs = sourceIDs
             vm.editFormType = .nlSearch
 
             await vm.search()
