@@ -25,4 +25,13 @@ public struct CollectionModel: Identifiable, Hashable, Sendable {
         self.publicationCount = Int(row.publicationCount)
         self.sortOrder = Int(row.sortOrder)
     }
+
+    public init(id: UUID, name: String, parentID: UUID? = nil, isSmart: Bool = false, publicationCount: Int = 0, sortOrder: Int = 0) {
+        self.id = id
+        self.name = name
+        self.parentID = parentID
+        self.isSmart = isSmart
+        self.publicationCount = publicationCount
+        self.sortOrder = sortOrder
+    }
 }

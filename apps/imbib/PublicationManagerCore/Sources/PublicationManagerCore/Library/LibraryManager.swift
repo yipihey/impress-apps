@@ -108,7 +108,7 @@ public final class LibraryManager {
 
     // MARK: - Dependencies
 
-    private var store: RustStoreAdapter { RustStoreAdapter.shared }
+    private let store: any PublicationStoreProtocol
 
     /// Track previous library count to avoid redundant logging
     private var previousLibraryCount: Int = -1
@@ -118,7 +118,8 @@ public final class LibraryManager {
 
     // MARK: - Initialization
 
-    public init() {
+    public init(store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
+        self.store = store
         loadLibraries()
 
         // Load default library set if none exist (first run)

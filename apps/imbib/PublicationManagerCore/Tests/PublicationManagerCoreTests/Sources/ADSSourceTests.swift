@@ -23,7 +23,7 @@ final class ADSSourceTests: XCTestCase {
         MockURLProtocol.reset()
         mockSession = MockURLProtocol.mockURLSession()
 
-        source = ADSSource(session: mockSession, credentialManager: mockCredentialManager)
+        source = ADSSource(credentialManager: mockCredentialManager)
     }
 
     override func tearDown() async throws {

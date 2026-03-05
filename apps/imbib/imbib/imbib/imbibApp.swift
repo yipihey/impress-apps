@@ -9,6 +9,7 @@ import SwiftUI
 import CoreSpotlight
 import PublicationManagerCore
 import ImpressKit
+import ImpressAI
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
@@ -427,6 +428,10 @@ struct imbibApp: App {
             }()
 
             _ = await (ftsInit, sourcesInit)
+
+            // Register AI providers (enables Apple Intelligence: summary, auto-tag, inbox rationale)
+            await AIProviderManager.shared.registerBuiltInProviders()
+            appLogger.info("AI providers registered")
 
             // These can run after both FTS and sources are done
             await EmbeddingService.shared.setupChangeObservers()

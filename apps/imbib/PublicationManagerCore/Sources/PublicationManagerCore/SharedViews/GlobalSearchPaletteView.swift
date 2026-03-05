@@ -190,6 +190,13 @@ public struct GlobalSearchPaletteView: View {
         let isSelected = index == viewModel.selectedIndex
 
         return Button {
+            if let page = result.pageNumber {
+                NotificationCenter.default.post(
+                    name: .openPDFAtPage,
+                    object: nil,
+                    userInfo: ["publicationID": result.id, "pageNumber": page]
+                )
+            }
             onSelect(result.id)
             dismiss()
         } label: {
@@ -237,8 +244,21 @@ public struct GlobalSearchPaletteView: View {
 
                 Spacer()
 
-                // Match type badge
-                matchTypeBadge(result.matchType, isSelected: isSelected)
+                HStack(spacing: 6) {
+                    // Page number badge for chunk results
+                    if let page = result.pageNumber {
+                        Text("p. \(page + 1)")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(isSelected ? Color.white.opacity(0.2) : Color.teal.opacity(0.12))
+                            .foregroundStyle(isSelected ? .white : Color.teal)
+                            .clipShape(Capsule())
+                    }
+
+                    // Match type badge
+                    matchTypeBadge(result.matchType, isSelected: isSelected)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -275,6 +295,8 @@ public struct GlobalSearchPaletteView: View {
             return AnyShapeStyle(Color.purple.opacity(0.15))
         case .both:
             return AnyShapeStyle(Color.orange.opacity(0.15))
+        case .full:
+            return AnyShapeStyle(Color.teal.opacity(0.15))
         }
     }
 
@@ -286,6 +308,8 @@ public struct GlobalSearchPaletteView: View {
             return .purple
         case .both:
             return .orange
+        case .full:
+            return .teal
         }
     }
 
@@ -527,6 +551,13 @@ public struct GlobalSearchPaletteView: View {
 
     private func selectCurrentResult() {
         if let result = viewModel.selectedResult {
+            if let page = result.pageNumber {
+                NotificationCenter.default.post(
+                    name: .openPDFAtPage,
+                    object: nil,
+                    userInfo: ["publicationID": result.id, "pageNumber": page]
+                )
+            }
             onSelect(result.id)
             dismiss()
         }

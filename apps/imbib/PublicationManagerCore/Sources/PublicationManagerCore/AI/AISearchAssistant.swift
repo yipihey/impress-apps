@@ -47,6 +47,13 @@ public final class AISearchAssistant {
         self.executor = executor
     }
 
+    // MARK: - Availability
+
+    /// Whether the Apple Foundation Models (on-device) provider is registered and available.
+    public func isFoundationModelsAvailable() async -> Bool {
+        await providerManager.provider(for: "apple-foundation-models") != nil
+    }
+
     // MARK: - Query Expansion
 
     /// Expand a search query with synonyms and related concepts.

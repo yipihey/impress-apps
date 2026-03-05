@@ -163,13 +163,17 @@ public struct EmbeddingSettingsView: View {
 
     private func indexUnprocessed() async {
         isIndexing = true
-        indexingProgress = "Building index..."
+        indexingProgress = "Building metadata index..."
         defer {
             isIndexing = false
             indexingProgress = ""
         }
 
         await EmbeddingService.shared.ensureIndexReady()
+
+        indexingProgress = "Indexing PDF content..."
+        await EmbeddingService.shared.indexChunksForUnprocessedPublications()
+
         await loadStatus()
     }
 

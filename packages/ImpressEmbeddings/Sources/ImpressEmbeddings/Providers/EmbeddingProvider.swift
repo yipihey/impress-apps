@@ -55,7 +55,7 @@ public extension EmbeddingProvider {
         var results: [[Float]] = []
         results.reserveCapacity(texts.count)
         for text in texts {
-            try results.append(embed(text))
+            try results.append(await embed(text))
         }
         return results
     }

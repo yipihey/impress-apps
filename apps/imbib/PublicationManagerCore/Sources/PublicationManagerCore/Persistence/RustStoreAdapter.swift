@@ -21,11 +21,16 @@ import OSLog
 /// Mutations bump `dataVersion` so `@Observable` views update automatically.
 @MainActor
 @Observable
-public final class RustStoreAdapter {
+public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Shared singleton instance.
+    /// When launched with `--ui-testing`, uses an in-memory store for deterministic tests.
     public static let shared: RustStoreAdapter = {
         do {
+            let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+            if isUITesting {
+                return try RustStoreAdapter(inMemory: true)
+            }
             return try RustStoreAdapter()
         } catch {
             fatalError("Failed to initialize RustStoreAdapter: \(error)")

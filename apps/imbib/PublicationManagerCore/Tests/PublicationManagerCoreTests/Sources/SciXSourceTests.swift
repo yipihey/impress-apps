@@ -23,7 +23,7 @@ final class SciXSourceTests: XCTestCase {
         MockURLProtocol.reset()
         mockSession = MockURLProtocol.mockURLSession()
 
-        source = SciXSource(session: mockSession, credentialManager: mockCredentialManager)
+        source = SciXSource(credentialManager: mockCredentialManager)
     }
 
     override func tearDown() async throws {

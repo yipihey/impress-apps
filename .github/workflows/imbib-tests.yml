@@ -6,12 +6,14 @@ on:
     paths:
       - 'apps/imbib/**'
       - 'packages/**'
+      - 'crates/**'
       - '.github/workflows/imbib-tests.yml'
   pull_request:
     branches: [main, develop]
     paths:
       - 'apps/imbib/**'
       - 'packages/**'
+      - 'crates/**'
       - '.github/workflows/imbib-tests.yml'
 
 jobs:
@@ -120,11 +122,13 @@ jobs:
         working-directory: apps/imbib/imbib
         run: xcodegen generate
 
-      - name: Build and Test macOS
+      - name: Build and Test macOS (Unit Tests)
         working-directory: apps/imbib/imbib
         run: |
           xcodebuild test \
             -scheme imbib \
+            -testPlan imbib \
+            -only-test-configuration "Unit Tests" \
             -destination 'platform=macOS' \
             -resultBundlePath ${{ runner.temp }}/TestResults-macOS.xcresult \
             CODE_SIGN_IDENTITY="-" \

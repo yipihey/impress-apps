@@ -115,7 +115,7 @@ public actor DocumentPipeline {
 
         // Stage 2: Chunk the text
         let chunkStart = DispatchTime.now()
-        let chunks = TextChunker.chunkPages(pages, publicationId: publicationId, config: chunkerConfig)
+        let chunks = TextChunker.chunkPages(pages.map { (page: $0.page, text: $0.text) }, publicationId: publicationId, config: chunkerConfig)
         let chunkingMs = millisSince(chunkStart)
 
         guard !chunks.isEmpty else {

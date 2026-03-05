@@ -82,11 +82,17 @@ final class ImbibSidebarViewModel {
 
     private let scixRepository = SciXLibraryRepository.shared
     private let dragDropCoordinator = DragDropCoordinator.shared
-    private var store: RustStoreAdapter { RustStoreAdapter.shared }
+    private let store: any PublicationStoreProtocol
     private static let logger = Logger(subsystem: "com.imbib.app", category: "sidebar")
 
     // Node lookup for tab → nodeID reverse mapping
     private var tabToNodeID: [ImbibTab: UUID] = [:]
+
+    // MARK: - Initialization
+
+    init(store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
+        self.store = store
+    }
 
     // MARK: - Configure
 

@@ -122,6 +122,38 @@ final class SidebarTests: XCTestCase {
         // Should have different options than library
     }
 
+    /// Regression: Verify "Move Section Up/Down" does not appear in any sidebar context menu
+    func testNoMoveSectionInContextMenu() throws {
+        // Right-click on a library
+        let physicsCell = sidebar.sidebar.staticTexts["Physics"]
+        guard physicsCell.exists else { throw XCTSkip("Physics library not found in test data") }
+        physicsCell.rightClick()
+
+        let contextMenu = app.menus.firstMatch
+        XCTAssertTrue(contextMenu.waitForExistence(timeout: 2), "Context menu should appear")
+
+        XCTAssertFalse(app.menuItems["Move Section Up"].exists, "Context menu should NOT contain 'Move Section Up'")
+        XCTAssertFalse(app.menuItems["Move Section Down"].exists, "Context menu should NOT contain 'Move Section Down'")
+
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    /// Regression: Verify library context menu has expected items
+    func testLibraryContextMenuItems() throws {
+        let physicsCell = sidebar.sidebar.staticTexts["Physics"]
+        guard physicsCell.exists else { throw XCTSkip("Physics library not found in test data") }
+        physicsCell.rightClick()
+
+        let contextMenu = app.menus.firstMatch
+        XCTAssertTrue(contextMenu.waitForExistence(timeout: 2))
+
+        // Libraries should have rename and delete
+        let hasRename = app.menuItems["Rename..."].exists || app.menuItems["Rename"].exists
+        XCTAssertTrue(hasRename, "Library context menu should have Rename")
+
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     // MARK: - Drag and Drop Tests
 
     /// Test reordering libraries via drag

@@ -26,7 +26,7 @@ final class ADSEnrichmentTests: XCTestCase {
         credentialManager = MockCredentialManager()
         try await credentialManager.storeAPIKey("test-api-key-12345", for: "ads")
 
-        source = ADSSource(session: session, credentialManager: credentialManager)
+        source = ADSSource(credentialManager: credentialManager)
     }
 
     override func tearDown() {
@@ -324,7 +324,7 @@ final class ADSEnrichmentTests: XCTestCase {
     func testEnrichRequiresAPIKey() async throws {
         // Create source with no API key
         let emptyCredentialManager = MockCredentialManager()
-        let sourceNoKey = ADSSource(session: session, credentialManager: emptyCredentialManager)
+        let sourceNoKey = ADSSource(credentialManager: emptyCredentialManager)
 
         let identifiers: [IdentifierType: String] = [.bibcode: "test"]
 

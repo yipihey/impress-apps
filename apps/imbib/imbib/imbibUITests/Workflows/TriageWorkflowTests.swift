@@ -163,6 +163,76 @@ final class TriageWorkflowTests: XCTestCase {
         list.assertPublicationCount(initialCount - 2)
     }
 
+    // MARK: - Rapid Triage Regression Tests
+
+    /// Regression: Rapid 'd' key presses should dismiss papers sequentially without stalling
+    func testRapidDismissDoesNotStall() throws {
+        sidebar.selectInbox()
+        _ = list.waitForPublications()
+
+        let initialCount = list.rows.count
+        guard initialCount >= 5 else { throw XCTSkip("Need at least 5 papers for rapid triage test") }
+
+        list.selectFirst()
+
+        // Rapidly press 'd' five times
+        for _ in 0..<5 {
+            app.typeKey("d", modifierFlags: [])
+            // Brief pause to let the action register
+            usleep(100_000) // 100ms
+        }
+
+        // Wait for UI to settle
+        _ = app.waitForIdle(timeout: 3)
+
+        // Should have 5 fewer papers
+        let finalCount = list.rows.count
+        XCTAssertEqual(finalCount, initialCount - 5, "Rapid dismiss should remove papers sequentially")
+    }
+
+    /// Regression: Rapid 's' key presses should save papers sequentially
+    func testRapidSaveDoesNotStall() throws {
+        sidebar.selectInbox()
+        _ = list.waitForPublications()
+
+        let initialCount = list.rows.count
+        guard initialCount >= 3 else { throw XCTSkip("Need at least 3 papers for rapid save test") }
+
+        list.selectFirst()
+
+        // Rapidly press 's' three times
+        for _ in 0..<3 {
+            app.typeKey("s", modifierFlags: [])
+            usleep(100_000) // 100ms
+        }
+
+        _ = app.waitForIdle(timeout: 3)
+
+        // Should have 3 fewer papers in inbox
+        let finalCount = list.rows.count
+        XCTAssertEqual(finalCount, initialCount - 3, "Rapid save should move papers sequentially")
+    }
+
+    /// Regression: 'S' (shift+s) should save and star the paper
+    func testShiftSSavesAndStars() throws {
+        sidebar.selectInbox()
+        _ = list.waitForPublications()
+
+        let initialCount = list.rows.count
+        guard initialCount >= 1 else { throw XCTSkip("Need at least 1 paper") }
+
+        list.selectFirst()
+
+        // Press Shift+S to save and star
+        app.typeKey("s", modifierFlags: .shift)
+
+        _ = app.waitForIdle(timeout: 2)
+
+        // Paper should be removed from inbox (saved)
+        let finalCount = list.rows.count
+        XCTAssertEqual(finalCount, initialCount - 1, "Save+star should remove paper from inbox")
+    }
+
     // MARK: - Navigation During Triage Tests
 
     /// Test that after keeping, the next paper is automatically selected

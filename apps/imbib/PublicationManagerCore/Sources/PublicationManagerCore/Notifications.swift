@@ -431,6 +431,9 @@ public extension Notification.Name {
 
     // MARK: - Command Palette
 
+    /// Toggle the "Ask Papers" RAG chat panel (⌥⌘A)
+    static let toggleRAGPanel = Notification.Name("toggleRAGPanel")
+
     /// Show the command palette (⇧⌘P)
     static let showCommandPalette = Notification.Name("showCommandPalette")
 
@@ -520,6 +523,13 @@ public extension Notification.Name {
     /// userInfo:
     /// - `query`: The search query string
     static let pdfSearchRequested = Notification.Name("pdfSearchRequested")
+
+    /// Posted when global search selects a chunk result, requesting PDF jump to a specific page.
+    ///
+    /// userInfo:
+    /// - `publicationID`: UUID of the publication
+    /// - `pageNumber`: Int (0-indexed) page to scroll to
+    static let openPDFAtPage = Notification.Name("openPDFAtPage")
 
     // MARK: - imprint Integration
 

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressKit
 import ImpressSidebar
 import OSLog
 
@@ -94,29 +95,31 @@ struct TabContentView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { _ in
-            viewModel.refreshFromStore()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
-            if let collectionID = notification.userInfo?["collectionID"] as? UUID {
+        .onNotifications([
+            (.storeDidMutate, { _ in
+                viewModel.refreshFromStore()
+            }),
+            (.navigateToCollection, { notification in
+                if let collectionID = notification.userInfo?["collectionID"] as? UUID {
+                    libraryManager.loadLibraries()
+                    viewModel.navigateToTab(.explorationCollection(collectionID))
+                    viewModel.explorationRefreshTrigger = UUID()
+                    viewModel.bumpDataVersion()
+                }
+            }),
+            (.explorationLibraryDidChange, { _ in
                 libraryManager.loadLibraries()
-                viewModel.navigateToTab(.explorationCollection(collectionID))
                 viewModel.explorationRefreshTrigger = UUID()
                 viewModel.bumpDataVersion()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
-            libraryManager.loadLibraries()
-            viewModel.explorationRefreshTrigger = UUID()
-            viewModel.bumpDataVersion()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToSmartSearch)) { notification in
-            if let searchID = notification.object as? UUID {
-                viewModel.navigateToTab(.exploration(searchID))
-                viewModel.explorationRefreshTrigger = UUID()
-                viewModel.bumpDataVersion()
-            }
-        }
+            }),
+            (.navigateToSmartSearch, { notification in
+                if let searchID = notification.object as? UUID {
+                    viewModel.navigateToTab(.exploration(searchID))
+                    viewModel.explorationRefreshTrigger = UUID()
+                    viewModel.bumpDataVersion()
+                }
+            }),
+        ])
         .alert("Delete Library", isPresented: $viewModel.showDeleteConfirmation, presenting: viewModel.libraryToDelete) { library in
             Button("Delete", role: .destructive) {
                 try? libraryManager.deleteLibrary(id: library.id)

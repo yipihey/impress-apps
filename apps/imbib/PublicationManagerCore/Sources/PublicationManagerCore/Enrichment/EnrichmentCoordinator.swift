@@ -100,7 +100,7 @@ public actor EnrichmentCoordinator {
         // Wire up the persistence callbacks.
         // The batch callback wraps all saves in one outer beginBatchMutation/endBatchMutation,
         // so only ONE .fieldDidChange + .storeDidMutate notification fires per batch of 50.
-        await service.setOnBatchEnrichmentComplete { results in
+        await service.setOnBatchEnrichmentComplete { [weak self] results in
             await MainActor.run {
                 let store = RustStoreAdapter.shared
                 store.beginBatchMutation()
@@ -108,6 +108,10 @@ public actor EnrichmentCoordinator {
                     Self.saveEnrichmentResult(publicationID: publicationID, result: result)
                 }
                 store.endBatchMutation()
+            }
+            // Fire auto-tagging in the background after persistence (Apple Intelligence, macOS 26+)
+            if #available(macOS 26, iOS 26, *) {
+                await self?.classifyAndTagAfterEnrichment(results: results)
             }
         }
         // Keep per-item callback as fallback
@@ -319,6 +323,74 @@ public actor EnrichmentCoordinator {
         )
 
         return successCount
+    }
+}
+
+// MARK: - Auto-Tag Classification
+
+extension EnrichmentCoordinator {
+
+    /// After enrichment, classify newly-enriched papers and apply suggested tags.
+    ///
+    /// Only fires when Apple Intelligence is available (macOS 26+). Skips papers
+    /// that already have tags, and only applies classification with confidence ≥ 0.7.
+    @available(macOS 26, iOS 26, *)
+    func classifyAndTagAfterEnrichment(
+        results: [(UUID, EnrichmentResult)]
+    ) async {
+        let service = FoundationModelsService.shared
+        guard await service.isAvailable else { return }
+
+        // Only process papers that gained an abstract
+        let candidates = results.filter { _, result in result.data.abstract != nil }
+        guard !candidates.isEmpty else { return }
+
+        Logger.enrichment.infoCapture(
+            "Auto-tagging: classifying \(candidates.count) newly-enriched papers",
+            category: "enrichment"
+        )
+
+        for (pubID, result) in candidates {
+            // Fetch row data to check existing tags and get title
+            guard let row = await withStore({ $0.getPublication(id: pubID) }),
+                  !row.title.isEmpty else { continue }
+            let title = row.title
+
+            // Don't overwrite existing curation
+            guard row.tagDisplays.isEmpty else { continue }
+
+            let abstract = result.data.abstract
+            guard let classification = await service.classifyPaper(
+                title: title,
+                abstract: abstract
+            ) else { continue }
+
+            guard classification.confidence >= 0.7 else {
+                Logger.enrichment.debug(
+                    "Auto-tag skipped '\(title.prefix(40))': low confidence \(classification.confidence, format: .fixed(precision: 2))"
+                )
+                continue
+            }
+
+            // Apply tags via RustStoreAdapter
+            let tagsToApply = ([classification.field, classification.paperType] + classification.tags)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+
+            await MainActor.run {
+                let store = RustStoreAdapter.shared
+                for tag in tagsToApply {
+                    // Ensure tag definition exists, then assign
+                    store.createTag(path: "ai/\(tag)")
+                    store.addTag(ids: [pubID], tagPath: "ai/\(tag)")
+                }
+            }
+
+            Logger.enrichment.infoCapture(
+                "Auto-tagged '\(title.prefix(40))': \(tagsToApply.joined(separator: ", "))",
+                category: "enrichment"
+            )
+        }
     }
 }
 

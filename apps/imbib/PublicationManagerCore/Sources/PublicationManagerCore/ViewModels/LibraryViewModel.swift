@@ -57,12 +57,13 @@ public final class LibraryViewModel {
 
     // MARK: - Dependencies
 
-    private var store: RustStoreAdapter { RustStoreAdapter.shared }
+    private let store: any PublicationStoreProtocol
 
     // MARK: - Initialization
 
-    public init(libraryID: UUID = UUID()) {
+    public init(libraryID: UUID = UUID(), store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
         self.libraryID = libraryID
+        self.store = store
     }
 
     /// Legacy initializer — ignores repository parameter.

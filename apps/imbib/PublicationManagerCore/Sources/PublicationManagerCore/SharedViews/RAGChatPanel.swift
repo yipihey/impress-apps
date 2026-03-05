@@ -204,14 +204,42 @@ public struct RAGChatPanel: View {
     // MARK: - Source Cards
 
     private func sourceCardsSection(_ sources: [RAGChatViewModel.SourceReference]) -> some View {
-        DisclosureGroup {
+        let hasCitationInfo = sources.contains { $0.isCited != nil }
+        let cited = hasCitationInfo ? sources.filter { $0.isCited == true } : []
+        let retrieved = hasCitationInfo ? sources.filter { $0.isCited != true } : sources
+
+        return DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(sources) { source in
-                    sourceCard(source)
+                if hasCitationInfo && !cited.isEmpty {
+                    Text("Cited")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 4)
+                    ForEach(cited) { source in
+                        sourceCard(source)
+                    }
+                    if !retrieved.isEmpty {
+                        Text("Also retrieved")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 2)
+                            .padding(.leading, 4)
+                        ForEach(retrieved) { source in
+                            sourceCard(source)
+                        }
+                    }
+                } else {
+                    ForEach(sources) { source in
+                        sourceCard(source)
+                    }
                 }
             }
         } label: {
-            Label("\(sources.count) sources", systemImage: "doc.text")
+            let citedCount = hasCitationInfo ? cited.count : sources.count
+            let label = hasCitationInfo
+                ? "\(citedCount) cited · \(sources.count) retrieved"
+                : "\(sources.count) sources"
+            Label(label, systemImage: "doc.text")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -300,7 +328,7 @@ public struct RAGChatPanel: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(inputText.isEmpty ? .tertiary : .blue)
+                    .foregroundStyle(Color.accentColor.opacity(inputText.isEmpty ? 0.3 : 1.0))
             }
             .buttonStyle(.plain)
             .disabled(inputText.isEmpty || viewModel.isGenerating)

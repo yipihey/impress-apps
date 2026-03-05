@@ -8,6 +8,8 @@
 import Foundation
 import OSLog
 import NaturalLanguage
+import ImpressEmbeddings
+import ImbibRustCore
 
 // Logger extension for recommendation subsystem
 extension Logger {
@@ -55,7 +57,6 @@ public actor EmbeddingService {
     private var annIndex: RustAnnIndex?
     private var isIndexBuilt = false
     private var indexedPublicationIDs: Set<String> = []
-    private let embeddingDimension = 384  // Common dimension for sentence embeddings
 
     // Cache similarity scores to avoid repeated ANN queries
     private var similarityCache: [UUID: Double] = [:]
@@ -96,6 +97,15 @@ public actor EmbeddingService {
         needsLazyBuild = true
     }
 
+    /// Register the Apple contextual embedding provider if none is active.
+    private func setupEmbeddingProvider() async {
+        guard await EmbeddingProviderRegistry.shared.activeProvider == nil else { return }
+        if #available(macOS 14, iOS 17, *) {
+            await EmbeddingProviderRegistry.shared.register(AppleContextualEmbeddingProvider())
+            Logger.embeddingService.infoCapture("Registered AppleContextualEmbeddingProvider", category: "embeddings")
+        }
+    }
+
     /// Ensure the index is ready, building it if needed (lazy build on first use).
     /// Returns true if the index is available.
     @discardableResult
@@ -103,6 +113,9 @@ public actor EmbeddingService {
         if isIndexBuilt { return true }
         guard needsLazyBuild, isAvailable, !isBuilding else { return false }
         needsLazyBuild = false
+
+        // Register embedding provider before building the index
+        await setupEmbeddingProvider()
 
         Logger.embeddingService.infoCapture("Lazy-building embedding index on first use...", category: "embedding")
 
@@ -168,10 +181,8 @@ public actor EmbeddingService {
             }
 
             for pub in publications {
-                // Extract embedding vector from publication metadata
                 let pubID = pub.id.uuidString
-                let vector = computeEmbeddingFromRowData(pub)
-
+                let vector = await computeEmbeddingFromRowData(pub)
                 items.append((pubID, vector))
                 indexedPublicationIDs.insert(pubID)
                 indexedCount += 1
@@ -211,7 +222,7 @@ public actor EmbeddingService {
         }
 
         let pubID = publicationID.uuidString
-        let vector = computeEmbeddingFromModel(pub)
+        let vector = await computeEmbeddingFromModel(pub)
 
         if await index.add(publicationId: pubID, embedding: vector) {
             indexedPublicationIDs.insert(pubID)
@@ -243,7 +254,7 @@ public actor EmbeddingService {
             return []
         }
 
-        let embedding = computeEmbeddingFromModel(pub)
+        let embedding = await computeEmbeddingFromModel(pub)
         return await index.findSimilar(to: embedding, topK: topK)
     }
 
@@ -267,7 +278,7 @@ public actor EmbeddingService {
             return []
         }
 
-        let embedding = computeTextEmbedding(query)
+        let embedding = await embedText(query)
         return await index.findSimilar(to: embedding, topK: topK)
     }
 
@@ -324,9 +335,15 @@ public actor EmbeddingService {
         Logger.embeddingService.info("Embedding index cleared")
     }
 
-    /// Compute an embedding for arbitrary text (public wrapper for RAG query embedding).
-    public nonisolated func embedText(_ text: String) -> [Float] {
-        computeTextEmbedding(text)
+    /// Compute an embedding for arbitrary text.
+    ///
+    /// Uses the active `EmbeddingProviderRegistry` provider (contextual, 512-dim) if available,
+    /// falling back to the sync word-embedding implementation (384-dim).
+    public func embedText(_ text: String) async -> [Float] {
+        if let provider = await EmbeddingProviderRegistry.shared.activeProvider {
+            return (try? await provider.embed(text)) ?? []
+        }
+        return computeTextEmbedding(text)
     }
 
     /// Force a full rebuild of the embedding index from all libraries.
@@ -421,14 +438,20 @@ public actor EmbeddingService {
             RustStoreAdapter.shared.queryPublications(parentId: libraryID)
         }
 
-        let libraryEmbeddings: [[Float]] = libraryPubs.map { computeEmbeddingFromRowData($0) }
+        var libraryEmbeddings: [[Float]] = []
+        for pub in libraryPubs {
+            libraryEmbeddings.append(await computeEmbeddingFromRowData(pub))
+        }
 
         guard !libraryEmbeddings.isEmpty else { return [] }
 
+        let dim = libraryEmbeddings[0].count
+        guard dim > 0 else { return [] }
+
         // Average all embeddings to get group centroid
-        var centroid = [Float](repeating: 0, count: embeddingDimension)
+        var centroid = [Float](repeating: 0, count: dim)
         for emb in libraryEmbeddings {
-            for i in 0..<embeddingDimension {
+            for i in 0..<min(dim, emb.count) {
                 centroid[i] += emb[i]
             }
         }
@@ -448,11 +471,11 @@ public actor EmbeddingService {
                 continue
             }
 
-            let embedding = computeEmbeddingFromModel(pub)
+            let embedding = await computeEmbeddingFromModel(pub)
 
             // Cosine similarity
             var dot: Float = 0
-            for i in 0..<embeddingDimension {
+            for i in 0..<min(dim, embedding.count) {
                 dot += centroid[i] * embedding[i]
             }
             scored.append((candidateID, dot))
@@ -466,8 +489,7 @@ public actor EmbeddingService {
     // MARK: - Private Methods
 
     /// Compute an embedding vector from a PublicationRowData.
-    nonisolated private func computeEmbeddingFromRowData(_ pub: PublicationRowData) -> [Float] {
-        // Combine relevant text fields
+    private func computeEmbeddingFromRowData(_ pub: PublicationRowData) async -> [Float] {
         var text = pub.title + " "
         text += pub.authorString + " "
         if let venue = pub.venue {
@@ -476,27 +498,22 @@ public actor EmbeddingService {
         if let category = pub.primaryCategory {
             text += category
         }
-
-        return computeTextEmbedding(text)
+        return await embedText(text)
     }
 
     /// Compute an embedding vector from a PublicationModel.
-    nonisolated private func computeEmbeddingFromModel(_ pub: PublicationModel) -> [Float] {
-        // Combine relevant text fields
+    private func computeEmbeddingFromModel(_ pub: PublicationModel) async -> [Float] {
         var text = pub.title + " "
         if let abstract = pub.abstract {
             text += abstract + " "
         }
-        // Add author names
         for author in pub.authors {
             text += author.familyName + " "
         }
-        // Add keywords if available
         if let keywords = pub.fields["keywords"] {
             text += keywords
         }
-
-        return computeTextEmbedding(text)
+        return await embedText(text)
     }
 
     /// Compute a semantic embedding from text using Apple's NaturalLanguage framework.
@@ -507,7 +524,8 @@ public actor EmbeddingService {
     ///
     /// Falls back to hash-based embeddings for unsupported languages or missing words.
     nonisolated private func computeTextEmbedding(_ text: String) -> [Float] {
-        var embedding = [Float](repeating: 0.0, count: embeddingDimension)
+        let wordEmbeddingDimension = 384
+        var embedding = [Float](repeating: 0.0, count: wordEmbeddingDimension)
 
         // Tokenize using NaturalLanguage
         let tokenizer = NLTokenizer(unit: .word)
@@ -581,10 +599,9 @@ public actor EmbeddingService {
             aggregated = aggregated.map { $0 / norm }
         }
 
-        // Resize to target dimension (384) using truncation or PCA-style projection
-        // For simplicity, we'll use strided sampling to reduce from 512 to 384
-        let stride = Double(nlDimension) / Double(embeddingDimension)
-        for i in 0..<embeddingDimension {
+        // Resize to target dimension (384) using strided sampling from 512
+        let stride = Double(nlDimension) / Double(wordEmbeddingDimension)
+        for i in 0..<wordEmbeddingDimension {
             let sourceIdx = min(Int(Double(i) * stride), nlDimension - 1)
             embedding[i] = Float(aggregated[sourceIdx])
         }
@@ -600,16 +617,17 @@ public actor EmbeddingService {
 
     /// Hash-based fallback embedding for when word embeddings aren't available.
     nonisolated private func hashBasedEmbedding(_ tokens: [String]) -> [Float] {
-        var embedding = [Float](repeating: 0.0, count: embeddingDimension)
+        let wordEmbeddingDimension = 384
+        var embedding = [Float](repeating: 0.0, count: wordEmbeddingDimension)
 
         for word in tokens where word.count >= 3 {
             let hash1 = abs(word.hashValue)
             let hash2 = abs(word.hashValue &* 31)
             let hash3 = abs(word.hashValue &* 37)
 
-            let idx1 = hash1 % embeddingDimension
-            let idx2 = hash2 % embeddingDimension
-            let idx3 = hash3 % embeddingDimension
+            let idx1 = hash1 % wordEmbeddingDimension
+            let idx2 = hash2 % wordEmbeddingDimension
+            let idx3 = hash3 % wordEmbeddingDimension
 
             embedding[idx1] += 1.0
             embedding[idx2] += 0.5
@@ -700,6 +718,139 @@ extension EmbeddingService {
         return true
     }
 
+}
+
+// MARK: - Chunk Indexing (DocumentPipeline)
+
+extension EmbeddingService {
+
+    /// Process and chunk-index a publication's PDF.
+    ///
+    /// - Parameters:
+    ///   - publicationId: The publication to process.
+    ///   - libraryId: Optional library ID for PDF path resolution.
+    /// - Returns: Number of chunks stored, or 0 on failure.
+    @discardableResult
+    public func indexChunksForPublication(_ publicationId: UUID, libraryId: UUID? = nil) async -> Int {
+        // Resolve the linked PDF URL
+        let pdfURL: URL? = await MainActor.run {
+            let linkedFiles = RustStoreAdapter.shared.listLinkedFiles(publicationId: publicationId)
+            guard let pdfFile = linkedFiles.first(where: { $0.isPDF && $0.isLocallyMaterialized }) else {
+                return nil
+            }
+            return AttachmentManager.shared.resolveURL(for: pdfFile, in: libraryId)
+        }
+
+        guard let pdfURL else {
+            Logger.embeddingService.debug("No local PDF for chunk indexing: \(publicationId)")
+            return 0
+        }
+
+        // Get an embedding provider
+        guard let provider = await EmbeddingProviderRegistry.shared.activeProvider else {
+            Logger.embeddingService.warning("No active embedding provider for chunk indexing")
+            return 0
+        }
+
+        do {
+            let pipeline = DocumentPipeline(provider: provider)
+            let docResult = try await pipeline.processDocument(publicationId: publicationId, pdfURL: pdfURL)
+
+            guard !docResult.chunks.isEmpty else { return 0 }
+
+            // Persist chunks and vectors to SQLite
+            let store = RustEmbeddingStoreSession()
+            guard await store.openDefault() else { return 0 }
+
+            let storedChunks = docResult.chunks.map { chunk in
+                StoredChunk(
+                    id: "\(publicationId.uuidString)-chunk-\(chunk.chunkIndex)",
+                    publicationId: publicationId.uuidString,
+                    text: chunk.text,
+                    pageNumber: chunk.pageNumber.map { UInt32($0) },
+                    charOffset: UInt32(chunk.charOffset),
+                    charLength: UInt32(chunk.charLength),
+                    chunkIndex: UInt32(chunk.chunkIndex)
+                )
+            }
+            await store.saveChunks(storedChunks)
+
+            let storedVectors = zip(storedChunks, docResult.embeddings).map { chunk, emb in
+                StoredVector(
+                    id: chunk.id,
+                    sourceId: chunk.id,
+                    sourceType: "chunk",
+                    vector: emb,
+                    model: provider.id,
+                    createdAt: ISO8601DateFormatter().string(from: Date())
+                )
+            }
+            await store.saveVectors(storedVectors)
+            await store.close()
+
+            // Update the live in-memory index
+            let indexItems = zip(storedChunks, docResult.embeddings).map { chunk, emb in
+                ChunkIndexItem(chunkId: chunk.id, publicationId: publicationId.uuidString, embedding: emb)
+            }
+            await ChunkSearchService.shared.addChunks(indexItems)
+
+            Logger.embeddingService.infoCapture(
+                "Chunk-indexed \(docResult.chunks.count) chunks for \(publicationId)",
+                category: "embeddings"
+            )
+            return docResult.chunks.count
+        } catch {
+            Logger.embeddingService.warning("Chunk indexing failed for \(publicationId): \(error)")
+            return 0
+        }
+    }
+
+    /// Check whether a publication already has chunks stored.
+    public func isChunkIndexed(_ publicationId: UUID) async -> Bool {
+        let store = RustEmbeddingStoreSession()
+        guard await store.openDefault() else { return false }
+        let chunks = await store.getChunks(publicationId: publicationId.uuidString)
+        await store.close()
+        return !chunks.isEmpty
+    }
+
+    /// Index PDFs for all publications that don't yet have chunk data.
+    ///
+    /// Called from the "Index Unprocessed Papers" button in Settings.
+    /// Processes publications in batches, skipping those already chunk-indexed.
+    public func indexChunksForUnprocessedPublications() async {
+        Logger.embeddingService.infoCapture("Starting chunk indexing for unprocessed publications", category: "embeddings")
+
+        let publications: [PublicationRowData] = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            let libraries = store.listLibraries()
+            var all: [PublicationRowData] = []
+            for lib in libraries {
+                all.append(contentsOf: store.queryPublications(parentId: lib.id))
+            }
+            return all
+        }
+
+        var processed = 0
+        var skipped = 0
+
+        for pub in publications {
+            guard !Task.isCancelled else { break }
+
+            if await isChunkIndexed(pub.id) {
+                skipped += 1
+                continue
+            }
+
+            let count = await indexChunksForPublication(pub.id)
+            if count > 0 { processed += 1 }
+        }
+
+        Logger.embeddingService.infoCapture(
+            "Chunk indexing complete: \(processed) processed, \(skipped) already indexed",
+            category: "embeddings"
+        )
+    }
 }
 
 // MARK: - Notifications

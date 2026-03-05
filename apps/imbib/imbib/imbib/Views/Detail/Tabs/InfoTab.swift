@@ -63,6 +63,11 @@ struct InfoTab: View {
     @State private var annotationSettings: QuickAnnotationSettings = .defaults
     @State private var annotations: [String: String] = [:]
 
+    // AI summary state (Apple Intelligence)
+    @State private var aiSummary: String?
+    @State private var isLoadingSummary = false
+    @State private var foundationModelsAvailable = false
+
     /// Cached publication model — loaded once per paper switch, refreshed on mutations.
     /// Replaces the computed property that was calling FFI ~15 times per body evaluation.
     @State private var cachedPublication: PublicationModel?
@@ -91,6 +96,12 @@ struct InfoTab: View {
                         .padding(.top, 40)
 
                     Divider()
+
+                    // MARK: - AI Summary (Apple Intelligence)
+                    if foundationModelsAvailable {
+                        aiSummarySection
+                        Divider()
+                    }
 
                     // MARK: - Explore (References & Citations)
                     if canExploreReferences {
@@ -169,6 +180,12 @@ struct InfoTab: View {
         .task {
             // Load annotation field settings
             annotationSettings = await QuickAnnotationSettingsStore.shared.settings
+        }
+        .task(id: publicationID) {
+            // Reset AI summary state on paper change, then check provider availability
+            aiSummary = nil
+            isLoadingSummary = false
+            foundationModelsAvailable = await AISearchAssistant.shared.isFoundationModelsAvailable()
         }
         .onChange(of: publicationID, initial: true) { _, _ in
             loadPublication()
@@ -1014,6 +1031,56 @@ struct InfoTab: View {
                     AuthorAnnotationChip(label: field.label, value: annotations[field.id] ?? "")
                 }
             }
+        }
+    }
+
+    // MARK: - AI Summary
+
+    @ViewBuilder
+    private var aiSummarySection: some View {
+        infoSection("AI Summary") {
+            if isLoadingSummary {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Generating summary…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let summary = aiSummary {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(summary)
+                        .font(.callout)
+                    Button("Regenerate") {
+                        Task { await generateSummary() }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            } else {
+                Button("Generate Summary") {
+                    Task { await generateSummary() }
+                }
+                .buttonStyle(.borderless)
+                .font(.callout)
+            }
+        }
+    }
+
+    private func generateSummary() async {
+        guard let pub = publication else { return }
+        isLoadingSummary = true
+        defer { isLoadingSummary = false }
+        do {
+            let result = try await AISearchAssistant.shared.summarizePaper(
+                title: pub.title,
+                abstract: pub.abstract
+            )
+            aiSummary = result.briefSummary
+        } catch {
+            // Silent failure — section stays in "Generate" state
         }
     }
 

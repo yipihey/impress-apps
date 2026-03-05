@@ -22,8 +22,7 @@ final class PDFManagerTests: XCTestCase {
             .appendingPathComponent("PDFManagerTests-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
 
-        // Use preview persistence controller to avoid Core Data entity conflicts in tests
-        pdfManager = AttachmentManager(persistenceController: .preview)
+        pdfManager = AttachmentManager()
     }
 
     override func tearDown() {

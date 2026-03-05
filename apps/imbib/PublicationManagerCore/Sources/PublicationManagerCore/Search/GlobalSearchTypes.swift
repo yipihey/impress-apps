@@ -17,8 +17,8 @@ public enum GlobalSearchMatchType: String, Sendable, Codable {
     case semantic
     /// Matched by both fulltext and semantic search
     case both
-    /// Matched via chunk-level search inside PDF content
-    case passage
+    /// Matched via chunk-level content search inside PDF
+    case full
 }
 
 // MARK: - Global Search Result
@@ -46,6 +46,8 @@ public struct GlobalSearchResult: Identifiable, Sendable {
     public let citationCount: Int
     /// Whether the publication is starred
     public let isStarred: Bool
+    /// Page number (0-indexed) of the best matching chunk, nil for non-chunk results
+    public let pageNumber: Int?
 
     public init(
         id: UUID,
@@ -60,7 +62,8 @@ public struct GlobalSearchResult: Identifiable, Sendable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         citationCount: Int = 0,
-        isStarred: Bool = false
+        isStarred: Bool = false,
+        pageNumber: Int? = nil
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -75,6 +78,7 @@ public struct GlobalSearchResult: Identifiable, Sendable {
         self.dateModified = dateModified
         self.citationCount = citationCount
         self.isStarred = isStarred
+        self.pageNumber = pageNumber
     }
 }
 
@@ -142,8 +146,8 @@ extension GlobalSearchMatchType {
             return "Similar"
         case .both:
             return "Both"
-        case .passage:
-            return "Passage"
+        case .full:
+            return "Full"
         }
     }
 
@@ -156,8 +160,8 @@ extension GlobalSearchMatchType {
             return "brain.head.profile"
         case .both:
             return "star.fill"
-        case .passage:
-            return "text.page"
+        case .full:
+            return "doc.text.fill"
         }
     }
 }

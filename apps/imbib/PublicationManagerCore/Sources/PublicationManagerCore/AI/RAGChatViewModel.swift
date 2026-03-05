@@ -55,6 +55,9 @@ public final class RAGChatViewModel {
         public let chunkText: String
         public let pageNumber: Int?
         public let similarity: Float
+        /// Whether this source was explicitly cited in the structured answer (Apple Intelligence only).
+        /// When `nil`, structured output was not used and all retrieved sources are shown equally.
+        public let isCited: Bool?
     }
 
     public enum SearchScope: Sendable, Equatable {
@@ -115,11 +118,33 @@ public final class RAGChatViewModel {
             // 3. Assemble context from chunks
             let (contextText, sources) = assembleContext(from: chunkResults)
 
-            // 4. Generate answer via LLM
-            let answer = try await generateAnswer(question: question, context: contextText)
+            // 4. Generate answer via LLM (structured path first, plain-text fallback)
+            let (answer, citedBibkeys) = try await generateAnswer(
+                question: question,
+                context: contextText
+            )
 
-            // 5. Add assistant message with sources
-            messages.append(ChatMessage(role: .assistant, text: answer, sources: sources))
+            // 5. Annotate sources with isCited when structured output was used
+            let annotatedSources: [SourceReference]
+            if let citedBibkeys {
+                let citedSet = Set(citedBibkeys)
+                annotatedSources = sources.map { src in
+                    SourceReference(
+                        publicationId: src.publicationId,
+                        bibkey: src.bibkey,
+                        title: src.title,
+                        authors: src.authors,
+                        chunkText: src.chunkText,
+                        pageNumber: src.pageNumber,
+                        similarity: src.similarity,
+                        isCited: citedSet.contains(src.bibkey)
+                    )
+                }
+            } else {
+                annotatedSources = sources
+            }
+
+            messages.append(ChatMessage(role: .assistant, text: answer, sources: annotatedSources))
 
             logger.info("RAG answer generated: \(sources.count) sources, scope=\(self.scope.displayName)")
         } catch {
@@ -229,7 +254,8 @@ public final class RAGChatViewModel {
                 authors: authors,
                 chunkText: chunk.chunkText,
                 pageNumber: chunk.pageNumber,
-                similarity: chunk.similarity
+                similarity: chunk.similarity,
+                isCited: nil
             ))
         }
 
@@ -237,7 +263,29 @@ public final class RAGChatViewModel {
     }
 
     /// Generate an LLM answer given the question and assembled context.
-    private func generateAnswer(question: String, context: String) async throws -> String {
+    ///
+    /// Returns `(answerText, citedBibkeys?)`. When Apple Intelligence is available,
+    /// uses `@Generable` structured output and returns the explicit list of cited bibkeys.
+    /// Otherwise, falls back to the cloud provider and returns `nil` for cited bibkeys.
+    private func generateAnswer(
+        question: String,
+        context: String
+    ) async throws -> (String, [String]?) {
+        // Try structured output via Apple Intelligence first
+        if #available(macOS 26, iOS 26, *) {
+            let fmService = FoundationModelsService.shared
+            if await fmService.isAvailable, !context.isEmpty {
+                if let structured = await fmService.extractRAGAnswer(
+                    question: question,
+                    context: context
+                ) {
+                    logger.info("RAG: structured output path, \(structured.citedBibkeys.count) cited bibkeys")
+                    return (structured.answer, structured.citedBibkeys)
+                }
+            }
+        }
+
+        // Fallback: cloud provider path
         let systemPrompt = """
         You are a research assistant. Answer the user's question using ONLY the provided paper excerpts.
         Cite papers using their BibTeX keys in square brackets, e.g. [Smith2024].
@@ -271,7 +319,7 @@ public final class RAGChatViewModel {
         guard let response = result, let text = response.text else {
             throw RAGError.noResponse
         }
-        return text
+        return (text, nil)
     }
 
     /// Extract publication ID from a stored vector (source_id may be chunk_id, linked via store).

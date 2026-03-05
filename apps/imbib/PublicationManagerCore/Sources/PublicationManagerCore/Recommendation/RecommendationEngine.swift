@@ -29,6 +29,7 @@ public actor RecommendationEngine {
 
     private var lastRankDate: Date?
     private var cachedRanking: [UUID: RecommendationScore] = [:]
+    private var cachedRationale: [UUID: (InboxScoringRationale, Date)] = [:]
     private let settingsStore = RecommendationSettingsStore.shared
     private let embeddingService = EmbeddingService.shared
 
@@ -450,10 +451,62 @@ public actor RecommendationEngine {
         )
     }
 
+    // MARK: - Inbox Scoring Rationale (Apple Intelligence)
+
+    /// Generate a natural-language rationale for why a paper was recommended.
+    ///
+    /// Uses `@Generable` constrained decoding (Apple Intelligence only).
+    /// Returns `nil` when Apple Intelligence is unavailable — callers should
+    /// hide the "Why recommended?" UI affordance in that case.
+    /// Results are cached for 5 minutes alongside the recommendation score.
+    @available(macOS 26, iOS 26, *)
+    public func rationale(for publicationID: UUID) async -> InboxScoringRationale? {
+        // Check cache (5-min TTL matches score cache)
+        if let (cached, ts) = cachedRationale[publicationID],
+           Date().timeIntervalSince(ts) < 300 {
+            return cached
+        }
+
+        // Get score breakdown for the top features
+        let breakdown = await scoreBreakdown(publicationID)
+        let topFeatures = breakdown.components
+            .filter { $0.isPositiveContribution }
+            .prefix(3)
+            .map { (name: $0.feature.displayName, contribution: $0.contribution) }
+
+        guard !topFeatures.isEmpty else { return nil }
+
+        // Derive brief topic context from the profile
+        let profile = await getRecommendationProfile()
+        let topTopics = profile?.topicAffinities
+            .sorted { $0.value > $1.value }
+            .prefix(3)
+            .map(\.key)
+            ?? []
+        let topicContext = topTopics.isEmpty
+            ? "general research"
+            : topTopics.joined(separator: ", ")
+
+        guard let title = await withStore({ $0.getPublication(id: publicationID)?.title }) else {
+            return nil
+        }
+
+        let fmService = FoundationModelsService.shared
+        guard let rationale = await fmService.explainRecommendation(
+            title: title,
+            topFeatures: topFeatures,
+            topicContext: topicContext
+        ) else { return nil }
+
+        cachedRationale[publicationID] = (rationale, Date())
+        return rationale
+    }
+
     // MARK: - Cache Management
 
     public func invalidateCache() async {
         cachedRanking.removeAll()
+        cachedRationale.removeAll()
         lastRankDate = nil
         await embeddingService.invalidateCache()
         Logger.recommendation.debug("Recommendation cache invalidated")
@@ -461,6 +514,7 @@ public actor RecommendationEngine {
 
     public func invalidateCache(for publicationID: UUID) async {
         cachedRanking.removeValue(forKey: publicationID)
+        cachedRationale.removeValue(forKey: publicationID)
     }
 
     // MARK: - Profile Access
