@@ -10,26 +10,31 @@ import SwiftUI
 /// Filters interactively as you type via `onTextChanged`.
 /// - Enter: dismiss the input (filter stays active)
 /// - ESC: clear filter and dismiss
+/// - ?: toggle syntax help
 public struct FilterInput: View {
 
     @Binding public var isPresented: Bool
     public var currentText: String
+    public var matchCount: Int?
     public var onTextChanged: ((String) -> Void)?
     public var onDismiss: (() -> Void)?
     public var onCancel: (() -> Void)?
 
     @State private var text: String
+    @State private var showHelp = false
     @FocusState private var isFocused: Bool
 
     public init(
         isPresented: Binding<Bool>,
         currentText: String = "",
+        matchCount: Int? = nil,
         onTextChanged: ((String) -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         self._isPresented = isPresented
         self.currentText = currentText
+        self.matchCount = matchCount
         self.onTextChanged = onTextChanged
         self.onDismiss = onDismiss
         self.onCancel = onCancel
@@ -37,40 +42,69 @@ public struct FilterInput: View {
     }
 
     public var body: some View {
-        HStack(spacing: 6) {
-            ModeIndicator("FILTER", color: .purple)
+        VStack(alignment: .leading, spacing: 2) {
+            if showHelp {
+                filterHelpView
+            }
 
-            TextField("f:r t:methods unread search text...", text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
-                .focused($isFocused)
-                .onSubmit {
-                    // Enter: keep filter active, just dismiss the input
-                    isPresented = false
-                    onDismiss?()
-                }
-                .onKeyPress(.escape) {
-                    // ESC: clear filter and dismiss
-                    text = ""
-                    onTextChanged?("")
-                    isPresented = false
-                    onCancel?()
-                    return .handled
-                }
-                .onChange(of: text) { _, newValue in
-                    onTextChanged?(newValue)
-                }
+            HStack(spacing: 6) {
+                ModeIndicator("FILTER", color: .purple)
 
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                    onTextChanged?("")
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                TextField("type to filter... (? for help)", text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .focused($isFocused)
+                    .onSubmit {
+                        // Enter: keep filter active, just dismiss the input
+                        isPresented = false
+                        onDismiss?()
+                    }
+                    .onKeyPress(.escape) {
+                        if showHelp {
+                            showHelp = false
+                            return .handled
+                        }
+                        // ESC: clear filter and dismiss
+                        text = ""
+                        onTextChanged?("")
+                        isPresented = false
+                        onCancel?()
+                        return .handled
+                    }
+                    .onChange(of: text) { _, newValue in
+                        onTextChanged?(newValue)
+                    }
+
+                if let count = matchCount, !text.isEmpty {
+                    Text("\(count)")
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                }
+
+                Button {
+                    showHelp.toggle()
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(showHelp ? .purple : .secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Filter syntax help")
+
+                if !text.isEmpty {
+                    Button {
+                        text = ""
+                        onTextChanged?("")
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -79,6 +113,57 @@ public struct FilterInput: View {
         .task {
             try? await Task.sleep(for: .milliseconds(100))
             isFocused = true
+        }
+    }
+
+    private var filterHelpView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Filter Syntax")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.purple)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                helpRow("word", "Search all fields")
+                helpRow("\"exact phrase\"", "Match exact phrase")
+                helpRow("-word", "Exclude matches")
+                helpRow("title:word  (ti:)", "Search title only")
+                helpRow("author:name (au:)", "Search authors only")
+                helpRow("abstract:term (ab:)", "Search abstract only")
+                helpRow("venue:name  (ve:)", "Search venue only")
+                helpRow("year:2024   (y:)", "Exact year")
+                helpRow("year:2020-2024", "Year range")
+                helpRow("year:>2020", "After year (also <, >=, <=)")
+                helpRow("flag:red    (f:)", "Has flag color")
+                helpRow("flag:*  -flag:*", "Any flag / no flag")
+                helpRow("tags:path   (t:)", "Has tag prefix")
+                helpRow("tags:a+b", "Multiple tags (AND)")
+                helpRow("-tags:path", "Exclude tag")
+                helpRow("read  unread", "Read state")
+            }
+
+            HStack(spacing: 4) {
+                Text("Enter")
+                    .fontWeight(.medium)
+                Text("keep filter")
+                Text("·")
+                Text("Esc")
+                    .fontWeight(.medium)
+                Text("clear & close")
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder private func helpRow(_ syntax: String, _ desc: String) -> some View {
+        GridRow {
+            Text(syntax)
+                .foregroundStyle(.primary)
+            Text(desc)
+                .foregroundStyle(.secondary)
         }
     }
 }

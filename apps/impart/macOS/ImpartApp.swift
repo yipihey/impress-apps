@@ -5,10 +5,13 @@
 //  Main application entry point for impart on macOS.
 //
 
-import SwiftUI
-import MessageManagerCore
+import CoreData
+import CoreSpotlight
 import ImpressKit
 import ImpressKeyboard
+import ImpressSpotlight
+import MessageManagerCore
+import SwiftUI
 
 // MARK: - App Entry Point
 
@@ -35,6 +38,19 @@ struct ImpartApp: App {
         Task { @MainActor in
             ImpartStoreAdapter.shared.setup()
         }
+
+        // Spotlight indexing — deferred 90s per startup grace period
+        Task.detached {
+            try? await Task.sleep(for: .seconds(90))
+            guard !Task.isCancelled else { return }
+
+            let coordinator = SpotlightSyncCoordinator(provider: ImpartSpotlightProvider())
+            await coordinator.initialRebuildIfNeeded()
+            await coordinator.startObserving(
+                mutationName: NSManagedObjectContext.didSaveObjectsNotification
+            )
+            await SpotlightBridge.shared.setCoordinator(coordinator)
+        }
     }
 
     var body: some Scene {
@@ -50,6 +66,15 @@ struct ImpartApp: App {
                             ImpressNotification.postHeartbeat(from: .impart)
                             try? await Task.sleep(for: .seconds(25))
                         }
+                    }
+                }
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .impart) { uuid, _ in
+                        NotificationCenter.default.post(
+                            name: .showMessage,
+                            object: nil,
+                            userInfo: ["conversationID": uuid.uuidString]
+                        )
                     }
                 }
                 .onOpenURL { url in

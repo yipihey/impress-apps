@@ -400,7 +400,7 @@ impl SqliteItemStore {
                 item.schema,
                 payload_json,
                 item.created.timestamp_millis(),
-                item.created.timestamp_millis(), // modified = created initially
+                item.modified.timestamp_millis(),
                 item.author,
                 author_kind,
                 item.is_read as i32,
@@ -556,6 +556,7 @@ impl SqliteItemStore {
             schema: "core/operation".into(),
             payload: op_payload,
             created: Utc::now(),
+            modified: Utc::now(),
             author: spec.author.clone(),
             author_kind: spec.author_kind,
             logical_clock: clock,
@@ -643,6 +644,7 @@ impl SqliteItemStore {
                 schema: "core/operation".into(),
                 payload: op_payload,
                 created: Utc::now(),
+                modified: Utc::now(),
                 author: spec.author.clone(),
                 author_kind: spec.author_kind,
                 logical_clock: clock,
@@ -1622,7 +1624,7 @@ impl SqliteItemStore {
         let created_ms: i64 = row
             .get(3)
             .map_err(|e| StoreError::Storage(format!("row created: {}", e)))?;
-        let _modified_ms: i64 = row
+        let modified_ms: i64 = row
             .get(4)
             .map_err(|e| StoreError::Storage(format!("row modified: {}", e)))?;
         let author: String = row
@@ -1684,6 +1686,10 @@ impl SqliteItemStore {
             .timestamp_millis_opt(created_ms)
             .single()
             .unwrap_or_else(Utc::now);
+        let modified = Utc
+            .timestamp_millis_opt(modified_ms)
+            .single()
+            .unwrap_or(created);
         let author_kind = parse_actor_kind(&author_kind_str);
         let flag = flag_color.map(|color| FlagState {
             color,
@@ -1707,6 +1713,7 @@ impl SqliteItemStore {
             schema: schema_ref,
             payload,
             created,
+            modified,
             author,
             author_kind,
             logical_clock: logical_clock as u64,
@@ -2440,6 +2447,7 @@ mod tests {
             schema: schema.into(),
             payload,
             created: Utc::now(),
+            modified: Utc::now(),
             author: "test@example.com".into(),
             author_kind: ActorKind::Human,
             logical_clock: 0,

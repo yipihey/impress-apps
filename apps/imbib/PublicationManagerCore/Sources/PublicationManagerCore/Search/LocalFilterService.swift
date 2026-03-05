@@ -6,32 +6,71 @@
 import Foundation
 import ImpressFTUI
 
+/// Searchable fields for field-qualified terms.
+public enum SearchField: Equatable, Sendable {
+    case title, author, abstract_, venue
+}
+
+/// A field-qualified text search term (e.g., `title:galaxy`).
+public struct FieldTerm: Equatable, Sendable {
+    public var field: SearchField
+    public var term: String
+}
+
+/// Year filter (e.g., `year:2020`, `year:2020-2024`, `year:>2020`).
+public enum YearFilter: Equatable, Sendable {
+    case exact(Int)
+    case range(Int, Int)
+    case after(Int)
+    case before(Int)
+
+    func matches(_ year: Int?) -> Bool {
+        guard let y = year else { return false }
+        switch self {
+        case .exact(let target): return y == target
+        case .range(let lo, let hi): return y >= lo && y <= hi
+        case .after(let target): return y > target
+        case .before(let target): return y < target
+        }
+    }
+}
+
 /// Parsed local filter that can be applied to `[PublicationRowData]`.
 ///
 /// Mirrors the Rust `ReferenceFilter` syntax:
 /// ```
-/// flag:red tags:methods/hydro unread "exact phrase"
+/// flag:red tags:methods/hydro unread "exact phrase" title:galaxy year:2020-2024 -excluded
 /// ```
 public struct LocalFilter: Equatable, Sendable {
     public var textTerms: [String] = []
+    public var negatedTextTerms: [String] = []
+    public var fieldTerms: [FieldTerm] = []
+    public var yearFilter: YearFilter?
     public var flagQuery: FlagFilterQuery?
     public var tagQueries: [TagFilterQuery] = []
     public var readState: ReadStateFilter?
 
     public init(
         textTerms: [String] = [],
+        negatedTextTerms: [String] = [],
+        fieldTerms: [FieldTerm] = [],
+        yearFilter: YearFilter? = nil,
         flagQuery: FlagFilterQuery? = nil,
         tagQueries: [TagFilterQuery] = [],
         readState: ReadStateFilter? = nil
     ) {
         self.textTerms = textTerms
+        self.negatedTextTerms = negatedTextTerms
+        self.fieldTerms = fieldTerms
+        self.yearFilter = yearFilter
         self.flagQuery = flagQuery
         self.tagQueries = tagQueries
         self.readState = readState
     }
 
     public var isEmpty: Bool {
-        textTerms.isEmpty && flagQuery == nil && tagQueries.isEmpty && readState == nil
+        textTerms.isEmpty && negatedTextTerms.isEmpty && fieldTerms.isEmpty
+            && yearFilter == nil && flagQuery == nil && tagQueries.isEmpty && readState == nil
     }
 }
 
@@ -104,6 +143,21 @@ public final class LocalFilterService {
                 }
             }
 
+            // Field-qualified text terms
+            if let ft = parseFieldTerm(token) {
+                filter.fieldTerms.append(ft)
+                continue
+            }
+
+            // Year filter
+            if token.hasPrefix("year:") || token.hasPrefix("y:") {
+                let value = token.hasPrefix("year:") ? String(token.dropFirst(5)) : String(token.dropFirst(2))
+                if let yf = parseYearFilter(value) {
+                    filter.yearFilter = yf
+                    continue
+                }
+            }
+
             // Read state
             switch token.lowercased() {
             case "unread":
@@ -114,6 +168,12 @@ public final class LocalFilterService {
                 continue
             default:
                 break
+            }
+
+            // Negated text term: -word (but not -flag: or -tags:)
+            if token.hasPrefix("-") && token.count > 1 {
+                filter.negatedTextTerms.append(String(token.dropFirst()))
+                continue
             }
 
             // Everything else is a text search term
@@ -137,12 +197,43 @@ public final class LocalFilterService {
     private func matches(_ pub: PublicationRowData, filter: LocalFilter) -> Bool {
         // Text terms: all must match (AND) against title, authors, abstract, venue
         for term in filter.textTerms {
-            let lower = term.lowercased()
-            let titleMatch = pub.title.localizedCaseInsensitiveContains(lower)
-            let authorMatch = pub.authorString.localizedCaseInsensitiveContains(lower)
-            let abstractMatch = pub.abstract?.localizedCaseInsensitiveContains(lower) ?? false
-            let venueMatch = (pub.venue ?? "").localizedCaseInsensitiveContains(lower)
+            let titleMatch = pub.title.localizedCaseInsensitiveContains(term)
+            let authorMatch = pub.authorString.localizedCaseInsensitiveContains(term)
+            let abstractMatch = pub.abstract?.localizedCaseInsensitiveContains(term) ?? false
+            let venueMatch = (pub.venue ?? "").localizedCaseInsensitiveContains(term)
             if !titleMatch && !authorMatch && !abstractMatch && !venueMatch {
+                return false
+            }
+        }
+
+        // Negated text terms: none must match
+        for term in filter.negatedTextTerms {
+            let titleMatch = pub.title.localizedCaseInsensitiveContains(term)
+            let authorMatch = pub.authorString.localizedCaseInsensitiveContains(term)
+            let abstractMatch = pub.abstract?.localizedCaseInsensitiveContains(term) ?? false
+            let venueMatch = (pub.venue ?? "").localizedCaseInsensitiveContains(term)
+            if titleMatch || authorMatch || abstractMatch || venueMatch {
+                return false
+            }
+        }
+
+        // Field-qualified text terms: each must match its specific field
+        for ft in filter.fieldTerms {
+            let fieldValue: String
+            switch ft.field {
+            case .title: fieldValue = pub.title
+            case .author: fieldValue = pub.authorString
+            case .abstract_: fieldValue = pub.abstract ?? ""
+            case .venue: fieldValue = pub.venue ?? ""
+            }
+            if !fieldValue.localizedCaseInsensitiveContains(ft.term) {
+                return false
+            }
+        }
+
+        // Year filter
+        if let yf = filter.yearFilter {
+            if !yf.matches(pub.year) {
                 return false
             }
         }
@@ -232,6 +323,55 @@ public final class LocalFilterService {
         }
 
         return tokens
+    }
+
+    /// Parse a field-qualified text term like `title:galaxy` or `au:smith`.
+    private func parseFieldTerm(_ token: String) -> FieldTerm? {
+        let prefixes: [(String, SearchField)] = [
+            ("title:", .title), ("author:", .author), ("abstract:", .abstract_), ("venue:", .venue),
+            ("ti:", .title), ("au:", .author), ("ab:", .abstract_), ("ve:", .venue),
+        ]
+        for (prefix, field) in prefixes {
+            if token.hasPrefix(prefix) {
+                let rest = String(token.dropFirst(prefix.count))
+                if !rest.isEmpty {
+                    return FieldTerm(field: field, term: rest)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Parse a year filter value like `2020`, `2020-2024`, `>2020`, `<2020`.
+    private func parseYearFilter(_ value: String) -> YearFilter? {
+        // Range: 2020-2024
+        if let dashIdx = value.firstIndex(of: "-"), dashIdx != value.startIndex {
+            let start = String(value[value.startIndex..<dashIdx])
+            let end = String(value[value.index(after: dashIdx)...])
+            if let s = Int(start), let e = Int(end), s <= e {
+                return .range(s, e)
+            }
+            return nil
+        }
+        // After: >=N or >N
+        if value.hasPrefix(">="), let y = Int(value.dropFirst(2)) {
+            return .range(y, 9999)
+        }
+        if value.hasPrefix(">"), let y = Int(value.dropFirst(1)) {
+            return .after(y)
+        }
+        // Before: <=N or <N
+        if value.hasPrefix("<="), let y = Int(value.dropFirst(2)) {
+            return .range(0, y)
+        }
+        if value.hasPrefix("<"), let y = Int(value.dropFirst(1)) {
+            return .before(y)
+        }
+        // Exact
+        if let y = Int(value) {
+            return .exact(y)
+        }
+        return nil
     }
 
     /// Parse `flag:` shorthand using the same grammar as flag input:

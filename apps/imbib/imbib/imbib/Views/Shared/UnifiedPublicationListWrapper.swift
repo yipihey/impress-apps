@@ -176,6 +176,8 @@ struct UnifiedPublicationListWrapper: View {
     @State private var filterText = ""
     @State private var activeFilter: LocalFilter?
     @State private var ftsFilterResults: Set<UUID>?  // nil = no FTS filter active
+    @State private var ftsDebounceTask: Task<Void, Never>?
+    @State private var filteredCount: Int?  // match count for display
 
     /// Focus state for keyboard navigation - list needs focus to receive key events
     @FocusState private var isListFocused: Bool
@@ -738,6 +740,7 @@ struct UnifiedPublicationListWrapper: View {
                     FilterInput(
                         isPresented: $isFilterActive,
                         currentText: filterText,
+                        matchCount: filteredCount,
                         onTextChanged: { text in
                             filterText = text
                             applyFilterText(text)
@@ -759,6 +762,14 @@ struct UnifiedPublicationListWrapper: View {
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        if let count = filteredCount {
+                            Text("\(count)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                        }
                         Spacer()
                         Button {
                             clearFilter()
@@ -1016,11 +1027,13 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        // Apply local filter syntax if active (flags, tags, read state)
+        // Apply local filter syntax if active
         if let filter = activeFilter, !filter.isEmpty {
             // Apply non-text filters locally (text terms handled by FTS)
             let nonTextFilter = LocalFilter(
-                textTerms: [],
+                negatedTextTerms: filter.negatedTextTerms,
+                fieldTerms: filter.fieldTerms,
+                yearFilter: filter.yearFilter,
                 flagQuery: filter.flagQuery,
                 tagQueries: filter.tagQueries,
                 readState: filter.readState
@@ -1032,6 +1045,13 @@ struct UnifiedPublicationListWrapper: View {
             if let ftsIDs = ftsFilterResults {
                 publications = publications.filter { ftsIDs.contains($0.id) }
             }
+        }
+
+        // Update filtered count for display
+        if activeFilter != nil, !(activeFilter?.isEmpty ?? true) {
+            filteredCount = publications.count
+        } else {
+            filteredCount = nil
         }
 
         logger.info("Refreshed: \(self.publications.count)/\(self.dataSource.totalCount) items")
@@ -1532,13 +1552,21 @@ struct UnifiedPublicationListWrapper: View {
         if trimmed.isEmpty {
             activeFilter = nil
             ftsFilterResults = nil
+            filteredCount = nil
         } else {
             activeFilter = LocalFilterService.shared.parse(trimmed)
-            // If there are text terms, do async FTS search
+            // If there are text terms, do debounced async FTS search
             if let filter = activeFilter, !filter.textTerms.isEmpty {
                 let query = filter.textTerms.joined(separator: " ")
                 let libraryID = currentLibraryID
-                Task {
+                // Cancel previous FTS task and debounce
+                ftsDebounceTask?.cancel()
+                ftsDebounceTask = Task {
+                    do {
+                        try await Task.sleep(for: .milliseconds(150))
+                    } catch {
+                        return  // cancelled
+                    }
                     if let results = await FullTextSearchService.shared.search(
                         query: query, limit: 500, libraryId: libraryID
                     ) {
@@ -1550,6 +1578,7 @@ struct UnifiedPublicationListWrapper: View {
                     refreshPublicationsList(force: true)
                 }
             } else {
+                ftsDebounceTask?.cancel()
                 ftsFilterResults = nil
             }
         }
@@ -1561,6 +1590,8 @@ struct UnifiedPublicationListWrapper: View {
         filterText = ""
         activeFilter = nil
         ftsFilterResults = nil
+        ftsDebounceTask?.cancel()
+        filteredCount = nil
         refreshPublicationsList(force: true)
     }
 

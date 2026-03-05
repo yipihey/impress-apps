@@ -910,6 +910,14 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             modifiers: .command,
             notificationName: "showKeyboardShortcuts"
         ),
+        KeyboardShortcutBinding(
+            id: "showNLSearch",
+            displayName: "Smart Search (AI)",
+            category: .app,
+            key: .character("s"),
+            modifiers: .command,
+            notificationName: "showNLSearch"
+        ),
     ])
 
     // MARK: - Documentation Export

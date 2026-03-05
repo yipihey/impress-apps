@@ -12,6 +12,7 @@ import SwiftUI
 /// - Tab accepts the highlighted completion
 /// - Enter commits the tag
 /// - ESC cancels
+/// - ?: toggle syntax help
 public struct TagInput: View {
 
     @Binding public var isPresented: Bool
@@ -21,6 +22,7 @@ public struct TagInput: View {
     public var onTextChanged: ((String) -> Void)?
 
     @State private var text = ""
+    @State private var showHelp = false
     @State private var selectedCompletionIndex = 0
     @FocusState private var isFocused: Bool
 
@@ -40,18 +42,26 @@ public struct TagInput: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if showHelp {
+                tagHelpView
+            }
+
             HStack(spacing: 6) {
                 ModeIndicator("TAG", color: .green)
 
-                TextField("methods/hydro...", text: $text)
+                TextField("methods/hydro... (? for help)", text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
-                    .frame(minWidth: 120)
+                    .frame(minWidth: 160)
                     .focused($isFocused)
                     .onSubmit {
                         commitTag()
                     }
                     .onKeyPress(.escape) {
+                        if showHelp {
+                            showHelp = false
+                            return .handled
+                        }
                         dismiss()
                         return .handled
                     }
@@ -71,6 +81,16 @@ public struct TagInput: View {
                         selectedCompletionIndex = 0
                         onTextChanged?(newValue)
                     }
+
+                Button {
+                    showHelp.toggle()
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(showHelp ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Tag syntax help")
             }
 
             // Completion dropdown
@@ -114,6 +134,62 @@ public struct TagInput: View {
             isFocused = true
         }
     }
+
+    // MARK: - Help View
+
+    private var tagHelpView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Tag Syntax")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.green)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                GridRow {
+                    Text("methods/hydro")
+                        .foregroundStyle(.primary)
+                    Text("hierarchical path")
+                        .foregroundStyle(.secondary)
+                }
+                GridRow {
+                    Text("theory/gravity")
+                        .foregroundStyle(.primary)
+                    Text("use / for nesting")
+                        .foregroundStyle(.secondary)
+                }
+                GridRow {
+                    Text("review")
+                        .foregroundStyle(.primary)
+                    Text("single-level tag")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 4) {
+                Text("Tab")
+                    .fontWeight(.medium)
+                Text("accept completion")
+                Text("·")
+                Text("↑/↓")
+                    .fontWeight(.medium)
+                Text("cycle")
+                Text("·")
+                Text("Enter")
+                    .fontWeight(.medium)
+                Text("commit")
+                Text("·")
+                Text("Esc")
+                    .fontWeight(.medium)
+                Text("cancel")
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Actions
 
     private func commitTag() {
         let trimmed = text.trimmingCharacters(in: .whitespaces)

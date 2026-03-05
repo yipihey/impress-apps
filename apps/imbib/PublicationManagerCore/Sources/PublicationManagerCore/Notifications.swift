@@ -98,6 +98,12 @@ public extension Notification.Name {
     /// Show search view
     static let showSearch = Notification.Name("showSearch")
 
+    /// Show the NL Smart Search overlay (⌘S)
+    static let showNLSearch = Notification.Name("showNLSearch")
+
+    /// Switch to a specific search form type (object: SearchFormType)
+    static let switchToSearchForm = Notification.Name("switchToSearchForm")
+
     // MARK: - Publication Actions (Command Dispatch)
 
     /// Toggle read/unread status of selected publications

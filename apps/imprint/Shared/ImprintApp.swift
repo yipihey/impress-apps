@@ -1,7 +1,10 @@
 #if os(macOS)
-import SwiftUI
 import AppKit
+import CoreData
+import CoreSpotlight
 import ImpressKit
+import ImpressSpotlight
+import SwiftUI
 
 // MARK: - Appearance Modifier
 
@@ -48,6 +51,20 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         // and all storeSection() calls are no-ops.
         Task { @MainActor in
             _ = ImprintStoreAdapter.shared.isReady
+        }
+
+        // Spotlight indexing — deferred 90s per startup grace period
+        Task.detached {
+            try? await Task.sleep(for: .seconds(90))
+            guard !Task.isCancelled else { return }
+
+            let coordinator = SpotlightSyncCoordinator(provider: ImprintSpotlightProvider())
+            await coordinator.initialRebuildIfNeeded()
+            // Observe Core Data saves for incremental updates
+            await coordinator.startObserving(
+                mutationName: NSManagedObjectContext.didSaveObjectsNotification
+            )
+            await SpotlightBridge.shared.setCoordinator(coordinator)
         }
     }
 
@@ -164,6 +181,15 @@ struct ImprintApp: App {
                 .onChange(of: file.document) { _, newDoc in
                     // Update registry when document changes
                     DocumentRegistry.shared.register(newDoc, fileURL: file.fileURL)
+                }
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imprint) { uuid, _ in
+                        NotificationCenter.default.post(
+                            name: .openDocument,
+                            object: nil,
+                            userInfo: ["documentID": uuid.uuidString]
+                        )
+                    }
                 }
                 .onOpenURL { url in
                     Task {

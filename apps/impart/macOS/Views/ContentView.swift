@@ -6,10 +6,11 @@
 //  Integrates view modes, keyboard navigation, and AI agent support.
 //
 
-import SwiftUI
-import MessageManagerCore
 import ImpressKeyboard
 import ImpressKit
+import ImpressSpotlight
+import MessageManagerCore
+import SwiftUI
 
 // MARK: - Content View
 
@@ -852,6 +853,14 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Automation", systemImage: "terminal")
                 }
+
+            Form {
+                SpotlightSettingsSection()
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("Spotlight", systemImage: "magnifyingglass")
+            }
         }
         .frame(width: 550, height: 500)
     }

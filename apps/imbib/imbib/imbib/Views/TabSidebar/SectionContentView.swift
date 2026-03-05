@@ -450,6 +450,9 @@ struct SectionContentView: View {
         }()
 
         switch formType {
+        case .nlSearch:
+            NLSearchFormView(mode: mode, editingFeedID: editingFeedID)
+                .navigationTitle(mode == .inboxFeed ? "Create AI Feed" : "Smart Search (AI)")
         case .adsModern:
             ADSModernSearchFormView(mode: mode, editingFeedID: editingFeedID)
                 .navigationTitle(mode == .inboxFeed ? "Create ADS Feed" : "SciX Search")
@@ -555,6 +558,11 @@ struct SectionContentView: View {
     private func feedFormTypeForFeed(_ feedID: UUID) -> SearchFormType? {
         guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return nil }
         let sourceIDs = feed.sourceIDs
+
+        // NL-created feeds (name starts with "AI: ")
+        if feed.name.hasPrefix("AI: ") {
+            return .nlSearch
+        }
 
         // arXiv feeds with category queries
         if sourceIDs == ["arxiv"] {

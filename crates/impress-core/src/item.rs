@@ -196,7 +196,7 @@ pub struct FlagState {
 /// The immutable envelope (id, schema, created, author) is set at creation.
 /// Mutable classification fields (tags, flag, is_read, is_starred, priority,
 /// visibility) are materialized projections of the operation history.
-/// `modified` is computed from the latest operation and stored only in SQL.
+/// `modified` tracks the latest mutation timestamp.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Item {
     pub id: ItemId,
@@ -205,6 +205,8 @@ pub struct Item {
 
     // Universal metadata (immutable envelope)
     pub created: DateTime<Utc>,
+    #[serde(default = "Utc::now")]
+    pub modified: DateTime<Utc>,
     pub author: ActorId,
     pub author_kind: ActorKind,
 
@@ -270,6 +272,7 @@ mod tests {
                 m
             },
             created: Utc::now(),
+            modified: Utc::now(),
             author: "user@example.com".into(),
             author_kind: ActorKind::Human,
             logical_clock: 42,

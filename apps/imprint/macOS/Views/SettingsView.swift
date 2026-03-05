@@ -1,5 +1,6 @@
-import SwiftUI
 import ImpressHelixCore
+import ImpressSpotlight
+import SwiftUI
 
 /// Application settings view
 struct SettingsView: View {
@@ -58,6 +59,15 @@ struct SettingsView: View {
                     Label("Automation", systemImage: "gearshape.2")
                 }
                 .accessibilityIdentifier("settings.tabs.automation")
+
+            Form {
+                SpotlightSettingsSection()
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("Spotlight", systemImage: "magnifyingglass")
+            }
+            .accessibilityIdentifier("settings.tabs.spotlight")
         }
         .frame(width: 500, height: 500)
         .accessibilityIdentifier("settings.container")

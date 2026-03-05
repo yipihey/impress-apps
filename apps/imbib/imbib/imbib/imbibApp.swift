@@ -13,6 +13,10 @@ import ImpressAI
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
+import ImpressSpotlight
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -211,14 +215,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
         case CSSearchableItemActionType:
-            // User tapped a Spotlight search result
-            if let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-               let uuid = UUID(uuidString: identifier) {
-                debugLog("Opening from Spotlight: \(identifier)")
-                // Navigate to the paper via URL scheme
-                Task {
-                    await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
-                }
+            // User tapped a Spotlight search result — bypass automation gate
+            if SpotlightDeepLinkHandler.handle(userActivity, currentApp: .imbib, onLocalNavigation: { uuid, _ in
+                NotificationCenter.default.post(
+                    name: .navigateToPublication,
+                    object: nil,
+                    userInfo: ["publicationID": uuid]
+                )
+            }) {
                 return true
             }
 
@@ -244,6 +248,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
+    @State private var nlSearchService = NLSearchService()
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
     /// Development mode: edit the bundled default library set
@@ -451,7 +456,23 @@ struct imbibApp: App {
             // Cleanup old exploration collections based on retention setting
             await cleanupExplorationCollectionsOnStartup()
 
-            // Core Data migration removed — clean break to Rust store
+            // Spotlight indexing — deferred 90s per startup grace period
+            Task.detached {
+                try? await Task.sleep(for: .seconds(90))
+                guard !Task.isCancelled else { return }
+
+                let coordinator = SpotlightSyncCoordinator(provider: ImbibSpotlightProvider())
+                await coordinator.initialRebuildIfNeeded()
+                await coordinator.startObserving(
+                    mutationName: .storeDidMutate,
+                    fieldChangeName: .fieldDidChange,
+                    extractIDs: { notification in
+                        notification.userInfo?["publicationIDs"] as? [UUID] ?? []
+                    }
+                )
+                await SpotlightBridge.shared.setCoordinator(coordinator)
+                appLogger.info("SpotlightSyncCoordinator started for imbib")
+            }
         }
     }
 
@@ -478,6 +499,7 @@ struct imbibApp: App {
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
+                .environment(nlSearchService)
                 .environment(settingsViewModel)
                 .task {
                     // Start heartbeat for SiblingDiscovery
@@ -487,6 +509,17 @@ struct imbibApp: App {
                             try? await Task.sleep(for: .seconds(25))
                         }
                     }
+
+                    // Prewarm Foundation Models session after startup grace period
+                    #if canImport(FoundationModels)
+                    if #available(macOS 26, iOS 26, *) {
+                        Task.detached { [nlSearchService] in
+                            try? await Task.sleep(for: .seconds(90))
+                            guard !Task.isCancelled else { return }
+                            nlSearchService.prewarm()
+                        }
+                    }
+                    #endif
                 }
                 .onAppear {
                     ensureMainWindowVisible()
@@ -581,14 +614,15 @@ struct imbibApp: App {
                         )
                     }
                 }
-                // Handle Spotlight search results
+                // Handle Spotlight search results — bypass automation gate
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
-                    if let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-                       let uuid = UUID(uuidString: identifier) {
-                        Task {
-                            await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
-                        }
-                    }
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imbib, onLocalNavigation: { uuid, _ in
+                        NotificationCenter.default.post(
+                            name: .navigateToPublication,
+                            object: nil,
+                            userInfo: ["publicationID": uuid]
+                        )
+                    })
                 }
                 #endif
         }
@@ -782,6 +816,11 @@ struct AppCommands: Commands {
 
             // Find submenu (⌘F is handled by ContentView for global search)
             Menu("Find") {
+                Button("Smart Search (AI)...") {
+                    NotificationCenter.default.post(name: .showNLSearch, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+
                 Button("Focus Search") {
                     NotificationCenter.default.post(name: .focusSearch, object: nil)
                 }

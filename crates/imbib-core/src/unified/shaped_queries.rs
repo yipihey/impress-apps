@@ -365,7 +365,7 @@ pub fn item_to_bibliography_row(
         venue: get_str(payload, "venue"),
         note: get_str(payload, "note"),
         date_added: item.created.timestamp_millis(),
-        date_modified: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
         primary_category: primary_class,
         categories,
         tags,
@@ -466,7 +466,7 @@ pub fn item_to_publication_detail(
         tags,
         authors,
         date_added: item.created.timestamp_millis(),
-        date_modified: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
         linked_files,
         citation_count: get_i64(payload, "citation_count").unwrap_or(0) as i32,
         reference_count: get_i64(payload, "reference_count").unwrap_or(0) as i32,
@@ -631,7 +631,7 @@ pub fn item_to_annotation_row(item: &Item) -> AnnotationRow {
         selected_text: get_str(payload, "selected_text"),
         author_name: get_str(payload, "author_name"),
         date_created: item.created.timestamp_millis(),
-        date_modified: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
         linked_file_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
     }
 }
@@ -648,7 +648,7 @@ pub fn item_to_comment_row(item: &Item) -> CommentRow {
         author_identifier: get_str(payload, "author_identifier"),
         author_display_name: get_str(payload, "author_display_name"),
         date_created: item.created.timestamp_millis(),
-        date_modified: item.created.timestamp_millis(), // TODO: pass SQL modified column through when available
+        date_modified: item.modified.timestamp_millis(),
         parent_comment_id: get_str(payload, "parent_comment_id"),
         parent_item_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
         parent_schema: None,

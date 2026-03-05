@@ -1,28 +1,63 @@
 //! Combined filter parser for reference lists.
 //!
 //! Parses filter expressions that combine text search, flag queries, tag queries,
-//! and read state into a unified filter.
+//! field-qualified terms, year filters, and read state into a unified filter.
 //!
 //! # Syntax
 //!
 //! ```text
-//! flag:red tags:methods/hydro unread "exact phrase"
+//! title:galaxy year:2020-2024 -simulation flag:red tags:methods unread "exact phrase"
 //! ```
 //!
 //! Tokens:
-//! - `flag:*`, `flag:red`, `-flag:*` — flag queries
-//! - `tags:methods`, `tags:a+b`, `-tags:methods` — tag queries
+//! - `flag:*`, `flag:red`, `-flag:*` — flag queries (shorthand: `f:`)
+//! - `tags:methods`, `tags:a+b`, `-tags:methods` — tag queries (shorthand: `t:`)
+//! - `title:word`, `author:name`, `abstract:term`, `venue:name` — field-qualified search
+//!   (shorthand: `ti:`, `au:`, `ab:`, `ve:`)
+//! - `year:2020`, `year:2020-2024`, `year:>2020`, `year:<2020` — year filter (shorthand: `y:`)
+//! - `-word` — negated text term (exclude matches)
 //! - `unread`, `read` — read state
 //! - Everything else — text search terms
 
 use impress_flags::{parse_flag_query, FlagQuery};
 use impress_tags::{parse_tag_query, TagQuery};
 
+/// A field-qualified text search term (e.g., `title:galaxy`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldTerm {
+    pub field: SearchField,
+    pub term: String,
+}
+
+/// Searchable fields for field-qualified terms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchField {
+    Title,
+    Author,
+    Abstract,
+    Venue,
+}
+
+/// Year filter (e.g., `year:2020`, `year:2020-2024`, `year:>2020`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum YearFilter {
+    Exact(u16),
+    Range(u16, u16),
+    After(u16),
+    Before(u16),
+}
+
 /// A combined filter for publications.
 #[derive(Debug, Clone, Default)]
 pub struct ReferenceFilter {
     /// Text search terms (matched against title, authors, abstract)
     pub text_terms: Vec<String>,
+    /// Negated text terms (exclude matches)
+    pub negated_text_terms: Vec<String>,
+    /// Field-qualified text terms (e.g., title:galaxy)
+    pub field_terms: Vec<FieldTerm>,
+    /// Year filter
+    pub year_filter: Option<YearFilter>,
     /// Flag filter
     pub flag_query: Option<FlagQuery>,
     /// Tag filters (all must match — implicit AND)
@@ -63,6 +98,25 @@ impl ReferenceFilter {
                 }
             }
 
+            // Field-qualified text terms
+            if let Some(ft) = parse_field_term(&token) {
+                filter.field_terms.push(ft);
+                continue;
+            }
+
+            // Year filter
+            if token.starts_with("year:") || token.starts_with("y:") {
+                let value = if token.starts_with("year:") {
+                    &token[5..]
+                } else {
+                    &token[2..]
+                };
+                if let Some(yf) = parse_year_filter(value) {
+                    filter.year_filter = Some(yf);
+                    continue;
+                }
+            }
+
             // Read state
             match token.to_lowercase().as_str() {
                 "unread" => {
@@ -76,6 +130,12 @@ impl ReferenceFilter {
                 _ => {}
             }
 
+            // Negated text term: -word (but not -flag: or -tags:)
+            if token.starts_with('-') && token.len() > 1 {
+                filter.negated_text_terms.push(token[1..].to_string());
+                continue;
+            }
+
             // Everything else is a text search term
             filter.text_terms.push(token);
         }
@@ -86,10 +146,74 @@ impl ReferenceFilter {
     /// Whether this filter is empty (matches everything).
     pub fn is_empty(&self) -> bool {
         self.text_terms.is_empty()
+            && self.negated_text_terms.is_empty()
+            && self.field_terms.is_empty()
+            && self.year_filter.is_none()
             && self.flag_query.is_none()
             && self.tag_queries.is_empty()
             && self.read_state.is_none()
     }
+}
+
+/// Parse a field-qualified text term like `title:galaxy` or `author:smith`.
+fn parse_field_term(token: &str) -> Option<FieldTerm> {
+    let prefixes: &[(&str, SearchField)] = &[
+        ("title:", SearchField::Title),
+        ("author:", SearchField::Author),
+        ("abstract:", SearchField::Abstract),
+        ("venue:", SearchField::Venue),
+        // Shorthand
+        ("ti:", SearchField::Title),
+        ("au:", SearchField::Author),
+        ("ab:", SearchField::Abstract),
+        ("ve:", SearchField::Venue),
+    ];
+
+    for (prefix, field) in prefixes {
+        if let Some(rest) = token.strip_prefix(prefix) {
+            if !rest.is_empty() {
+                return Some(FieldTerm {
+                    field: *field,
+                    term: rest.to_string(),
+                });
+            }
+        }
+    }
+    None
+}
+
+/// Parse a year filter value like `2020`, `2020-2024`, `>2020`, `<2020`.
+fn parse_year_filter(value: &str) -> Option<YearFilter> {
+    // Range: 2020-2024
+    if let Some((start, end)) = value.split_once('-') {
+        let s: u16 = start.parse().ok()?;
+        let e: u16 = end.parse().ok()?;
+        if s <= e {
+            return Some(YearFilter::Range(s, e));
+        }
+        return None;
+    }
+    // After: >2020 or >=2020
+    if let Some(rest) = value.strip_prefix(">=") {
+        let y: u16 = rest.parse().ok()?;
+        return Some(YearFilter::Range(y, u16::MAX));
+    }
+    if let Some(rest) = value.strip_prefix('>') {
+        let y: u16 = rest.parse().ok()?;
+        return Some(YearFilter::After(y));
+    }
+    // Before: <2020 or <=2020
+    if let Some(rest) = value.strip_prefix("<=") {
+        let y: u16 = rest.parse().ok()?;
+        return Some(YearFilter::Range(0, y));
+    }
+    if let Some(rest) = value.strip_prefix('<') {
+        let y: u16 = rest.parse().ok()?;
+        return Some(YearFilter::Before(y));
+    }
+    // Exact: 2020
+    let y: u16 = value.parse().ok()?;
+    Some(YearFilter::Exact(y))
 }
 
 /// Tokenize a filter string, respecting quoted strings.
@@ -136,6 +260,12 @@ fn tokenize(input: &str) -> Vec<String> {
 pub struct ParsedFilter {
     /// Text search terms (matched against title, authors, abstract)
     pub text_terms: Vec<String>,
+    /// Negated text terms (exclude matches)
+    pub negated_text_terms: Vec<String>,
+    /// Field-qualified terms as "field:term" strings (e.g., ["title:galaxy", "author:smith"])
+    pub field_term_raws: Vec<String>,
+    /// Year filter as string if present (e.g., "2020", "2020-2024", ">2020")
+    pub year_filter_raw: Option<String>,
     /// Flag query string if present (e.g., "flag:red", "flag:*", "-flag:*")
     pub flag_query_raw: Option<String>,
     /// Tag query strings if present (e.g., ["tags:methods/hydro", "-tags:obs"])
@@ -165,6 +295,23 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
 
     let tag_query_raws: Vec<String> = filter.tag_queries.iter().map(format_tag_query).collect();
 
+    let field_term_raws: Vec<String> = filter.field_terms.iter().map(|ft| {
+        let field_name = match ft.field {
+            SearchField::Title => "title",
+            SearchField::Author => "author",
+            SearchField::Abstract => "abstract",
+            SearchField::Venue => "venue",
+        };
+        format!("{}:{}", field_name, ft.term)
+    }).collect();
+
+    let year_filter_raw = filter.year_filter.as_ref().map(|yf| match yf {
+        YearFilter::Exact(y) => format!("{}", y),
+        YearFilter::Range(s, e) => format!("{}-{}", s, e),
+        YearFilter::After(y) => format!(">{}", y),
+        YearFilter::Before(y) => format!("<{}", y),
+    });
+
     let read_state = filter.read_state.map(|rs| match rs {
         ReadState::Read => "read".to_string(),
         ReadState::Unread => "unread".to_string(),
@@ -172,6 +319,9 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
 
     ParsedFilter {
         text_terms: filter.text_terms.clone(),
+        negated_text_terms: filter.negated_text_terms.clone(),
+        field_term_raws,
+        year_filter_raw,
         flag_query_raw,
         tag_query_raws,
         read_state,
@@ -275,5 +425,73 @@ mod tests {
     fn tokenize_mixed() {
         let tokens = tokenize("hello \"world foo\" bar");
         assert_eq!(tokens, vec!["hello", "world foo", "bar"]);
+    }
+
+    #[test]
+    fn parse_field_terms() {
+        let filter = ReferenceFilter::parse("title:galaxy author:smith");
+        assert!(filter.text_terms.is_empty());
+        assert_eq!(filter.field_terms.len(), 2);
+        assert_eq!(filter.field_terms[0].field, SearchField::Title);
+        assert_eq!(filter.field_terms[0].term, "galaxy");
+        assert_eq!(filter.field_terms[1].field, SearchField::Author);
+        assert_eq!(filter.field_terms[1].term, "smith");
+    }
+
+    #[test]
+    fn parse_field_shorthand() {
+        let filter = ReferenceFilter::parse("ti:dark au:einstein");
+        assert_eq!(filter.field_terms.len(), 2);
+        assert_eq!(filter.field_terms[0].field, SearchField::Title);
+        assert_eq!(filter.field_terms[1].field, SearchField::Author);
+    }
+
+    #[test]
+    fn parse_year_exact() {
+        let filter = ReferenceFilter::parse("year:2020");
+        assert_eq!(filter.year_filter, Some(YearFilter::Exact(2020)));
+    }
+
+    #[test]
+    fn parse_year_range() {
+        let filter = ReferenceFilter::parse("year:2020-2024");
+        assert_eq!(filter.year_filter, Some(YearFilter::Range(2020, 2024)));
+    }
+
+    #[test]
+    fn parse_year_after() {
+        let filter = ReferenceFilter::parse("year:>2020");
+        assert_eq!(filter.year_filter, Some(YearFilter::After(2020)));
+    }
+
+    #[test]
+    fn parse_year_before() {
+        let filter = ReferenceFilter::parse("year:<2020");
+        assert_eq!(filter.year_filter, Some(YearFilter::Before(2020)));
+    }
+
+    #[test]
+    fn parse_year_shorthand() {
+        let filter = ReferenceFilter::parse("y:2023");
+        assert_eq!(filter.year_filter, Some(YearFilter::Exact(2023)));
+    }
+
+    #[test]
+    fn parse_negated_text() {
+        let filter = ReferenceFilter::parse("galaxy -cosmology");
+        assert_eq!(filter.text_terms, vec!["galaxy"]);
+        assert_eq!(filter.negated_text_terms, vec!["cosmology"]);
+    }
+
+    #[test]
+    fn parse_combined_new_features() {
+        let filter = ReferenceFilter::parse("title:galaxy year:2020-2024 -simulation flag:red");
+        assert_eq!(filter.field_terms.len(), 1);
+        assert_eq!(filter.field_terms[0].field, SearchField::Title);
+        assert_eq!(filter.field_terms[0].term, "galaxy");
+        assert_eq!(filter.year_filter, Some(YearFilter::Range(2020, 2024)));
+        assert_eq!(filter.negated_text_terms, vec!["simulation"]);
+        assert!(filter.flag_query.is_some());
+        assert!(filter.text_terms.is_empty());
     }
 }

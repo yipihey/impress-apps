@@ -334,6 +334,7 @@ fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> I
         schema,
         payload,
         created: Utc::now(),
+        modified: Utc::now(),
         author: "local".into(),
         author_kind: ActorKind::Human,
         logical_clock: 0,

@@ -432,6 +432,9 @@ public final class SearchViewModel {
     /// Vague Memory form state - persists when navigating away and back
     public var vagueMemoryFormState = VagueMemoryFormState()
 
+    /// NL Search max results (set by NLSearchService; 0 = use global default)
+    public var nlSearchMaxResults: Int = 0
+
     // MARK: - Edit Mode State
 
     /// The smart search being edited (nil = new search / ad-hoc search mode)
@@ -450,6 +453,7 @@ public final class SearchViewModel {
         case arxiv
         case openalex
         case vagueMemory
+        case nlSearch
     }
 
     /// The form type to use for the current edit (determined when loading)
@@ -510,6 +514,7 @@ public final class SearchViewModel {
         case .arxiv: formValue = arxivFormState.maxResults
         case .openalex: formValue = openAlexFormState.maxResults
         case .vagueMemory: formValue = vagueMemoryFormState.maxResults
+        case .nlSearch: formValue = nlSearchMaxResults
         }
         if formValue > 0 { return formValue }
         return Int(await SmartSearchSettingsStore.shared.settings.defaultMaxResults)
@@ -852,6 +857,8 @@ public final class SearchViewModel {
             newQuery = openAlexFormState.searchText
         case .vagueMemory:
             newQuery = VagueMemoryQueryBuilder.buildQuery(from: vagueMemoryFormState)
+        case .nlSearch:
+            newQuery = query
         }
 
         // Get maxResults from the current form
@@ -863,6 +870,7 @@ public final class SearchViewModel {
         case .arxiv: formMaxResults = arxivFormState.maxResults
         case .openalex: formMaxResults = openAlexFormState.maxResults
         case .vagueMemory: formMaxResults = vagueMemoryFormState.maxResults
+        case .nlSearch: formMaxResults = 0
         }
 
         // Update the smart search via the Rust store

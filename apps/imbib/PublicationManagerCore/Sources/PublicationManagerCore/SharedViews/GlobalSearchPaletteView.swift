@@ -37,6 +37,7 @@ public struct GlobalSearchPaletteView: View {
     // MARK: - State
 
     @State private var viewModel = GlobalSearchViewModel()
+    @State private var showHelp = false
     @FocusState private var isSearchFieldFocused: Bool
 
     // MARK: - Body
@@ -67,6 +68,11 @@ public struct GlobalSearchPaletteView: View {
 
                 // Search field
                 searchField
+
+                // Help panel (toggled by ? button)
+                if showHelp {
+                    searchHelpView
+                }
 
                 Divider()
 
@@ -101,6 +107,10 @@ public struct GlobalSearchPaletteView: View {
                 return .handled
             }
             .onKeyPress(.escape) {
+                if showHelp {
+                    showHelp = false
+                    return .handled
+                }
                 dismiss()
                 return .handled
             }
@@ -140,6 +150,15 @@ public struct GlobalSearchPaletteView: View {
                         viewModel.search()
                     }
                 }
+
+            Button {
+                showHelp.toggle()
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(showHelp ? .blue : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Search syntax help")
 
             if !viewModel.query.isEmpty {
                 Button {
@@ -539,6 +558,55 @@ public struct GlobalSearchPaletteView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Search Help
+
+    private var searchHelpView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Search Syntax")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.blue)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                helpGridRow("word", "search all fields")
+                helpGridRow("\"dark matter\"", "exact phrase")
+                helpGridRow("dark OR matter", "match either term")
+                helpGridRow("-excluded", "exclude a term")
+                helpGridRow("title:galaxy", "search title field")
+                helpGridRow("authors:smith", "search authors field")
+                helpGridRow("abstract:clustering", "search abstract field")
+                helpGridRow("cosmo*", "wildcard prefix")
+            }
+
+            HStack(spacing: 4) {
+                Text("↑/↓")
+                    .fontWeight(.medium)
+                Text("navigate")
+                Text("·")
+                Text("Enter")
+                    .fontWeight(.medium)
+                Text("select")
+                Text("·")
+                Text("Esc")
+                    .fontWeight(.medium)
+                Text("close")
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder private func helpGridRow(_ syntax: String, _ desc: String) -> some View {
+        GridRow {
+            Text(syntax)
+                .foregroundStyle(.primary)
+            Text(desc)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Helpers
