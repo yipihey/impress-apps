@@ -29,7 +29,8 @@ let package = Package(
         .package(path: "../../../packages/ImpressMailStyle"),
         .package(path: "../../../packages/ImpressLogging"),
         .package(path: "../../../packages/ImpressOperationQueue"),
-        .package(path: "../../../packages/ImpressKit")
+        .package(path: "../../../packages/ImpressKit"),
+        .package(path: "../../../packages/ImpressSpotlight")
     ],
     targets: [
         .target(
@@ -49,7 +50,8 @@ let package = Package(
                 "ImpressMailStyle",
                 "ImpressLogging",
                 "ImpressOperationQueue",
-                "ImpressKit"
+                "ImpressKit",
+                "ImpressSpotlight"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),

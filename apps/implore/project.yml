@@ -37,6 +37,8 @@ packages:
     path: ../../packages/ImpressKeyboard
   ImpressRustCore:
     path: ../../packages/ImpressRustCore
+  ImpressSpotlight:
+    path: ../../packages/ImpressSpotlight
 
 targets:
   implore:
@@ -67,6 +69,7 @@ targets:
       - package: ImpressLogging
       - package: ImpressKit
       - package: ImpressKeyboard
+      - package: ImpressSpotlight
     info:
       path: Implore/Info.plist
       properties:

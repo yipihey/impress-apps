@@ -39,6 +39,8 @@ packages:
     path: ../../packages/ImpressMailStyle
   ImpressRustCore:
     path: ../../packages/ImpressRustCore
+  ImpressSpotlight:
+    path: ../../packages/ImpressSpotlight
 
 targets:
   impart:
@@ -65,6 +67,7 @@ targets:
       - package: ImpressKit
       - package: ImpressFTUI
       - package: ImpressMailStyle
+      - package: ImpressSpotlight
       - target: impart-Widgets
         embed: true
     info:
@@ -169,6 +172,7 @@ targets:
       - package: ImpressKit
       - package: ImpressFTUI
       - package: ImpressMailStyle
+      - package: ImpressSpotlight
       - target: impart-ShareExtension
         embed: true
     info:

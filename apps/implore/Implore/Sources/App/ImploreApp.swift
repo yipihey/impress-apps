@@ -1,5 +1,8 @@
-import SwiftUI
+import CoreSpotlight
 import ImpressKit
+import ImpressSpotlight
+import OSLog
+import SwiftUI
 
 /// implore - Scientific Data Visualization
 ///
@@ -74,6 +77,23 @@ struct ImploreApp: App {
                             ImpressNotification.postHeartbeat(from: .implore)
                             try? await Task.sleep(for: .seconds(25))
                         }
+                    }
+
+                    // Spotlight — deferred 90s per startup grace period
+                    Task.detached {
+                        try? await Task.sleep(for: .seconds(90))
+                        guard !Task.isCancelled else { return }
+                        let coordinator = SpotlightSyncCoordinator(provider: ImploreSpotlightProvider())
+                        await coordinator.initialRebuildIfNeeded()
+                        // implore uses a JSON-file library with no mutation notifications;
+                        // rely on manual rebuild via Settings for now.
+                        Logger(subsystem: "com.impress.implore", category: "spotlight")
+                            .info("SpotlightSyncCoordinator started for implore")
+                    }
+                }
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .implore) { uuid, _ in
+                        LibraryManager.shared.selectedFigureId = uuid.uuidString
                     }
                 }
                 .onOpenURL { url in
