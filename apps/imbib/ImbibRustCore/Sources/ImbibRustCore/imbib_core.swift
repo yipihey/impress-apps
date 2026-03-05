@@ -709,7 +709,17 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func deleteLibrary(id: String) throws 
     
+    /**
+     * Delete a library with snapshot for undo.
+     */
+    func deleteLibraryUndoable(id: String) throws  -> LibraryDeleteSnapshot
+    
     func deletePublications(ids: [String]) throws 
+    
+    /**
+     * Delete publications with snapshot for undo. Returns snapshots of deleted items.
+     */
+    func deletePublicationsUndoable(ids: [String]) throws  -> [ItemSnapshot]
     
     func deleteRecommendationProfile(libraryId: String) throws 
     
@@ -717,6 +727,11 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Delete a tag definition and remove the tag from all publications.
      */
     func deleteTag(path: String) throws 
+    
+    /**
+     * Delete a tag definition and remove from all publications, returning snapshot for undo.
+     */
+    func deleteTagUndoable(path: String) throws  -> TagDeleteSnapshot
     
     func dismissPaper(doi: String?, arxivId: String?, bibcode: String?) throws  -> DismissedPaperRow
     
@@ -877,6 +892,21 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
      */
     func reparentItem(id: String, newParentId: String) throws 
+    
+    /**
+     * Restore a deleted library and re-parent its children.
+     */
+    func restoreLibrary(snapshot: LibraryDeleteSnapshot) throws 
+    
+    /**
+     * Restore previously-deleted items from snapshots.
+     */
+    func restoreSnapshots(snapshots: [ItemSnapshot]) throws 
+    
+    /**
+     * Restore a deleted tag definition and re-tag publications.
+     */
+    func restoreTag(snapshot: TagDeleteSnapshot) throws 
     
     /**
      * Search artifacts by text across title, notes, source_url, and original_author.
@@ -1395,11 +1425,33 @@ open func deleteLibrary(id: String)throws  {try rustCallWithError(FfiConverterTy
 }
 }
     
+    /**
+     * Delete a library with snapshot for undo.
+     */
+open func deleteLibraryUndoable(id: String)throws  -> LibraryDeleteSnapshot {
+    return try  FfiConverterTypeLibraryDeleteSnapshot.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_library_undoable(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
 open func deletePublications(ids: [String])throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_delete_publications(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),$0
     )
 }
+}
+    
+    /**
+     * Delete publications with snapshot for undo. Returns snapshots of deleted items.
+     */
+open func deletePublicationsUndoable(ids: [String])throws  -> [ItemSnapshot] {
+    return try  FfiConverterSequenceTypeItemSnapshot.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_publications_undoable(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(ids),$0
+    )
+})
 }
     
 open func deleteRecommendationProfile(libraryId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -1417,6 +1469,17 @@ open func deleteTag(path: String)throws  {try rustCallWithError(FfiConverterType
         FfiConverterString.lower(path),$0
     )
 }
+}
+    
+    /**
+     * Delete a tag definition and remove from all publications, returning snapshot for undo.
+     */
+open func deleteTagUndoable(path: String)throws  -> TagDeleteSnapshot {
+    return try  FfiConverterTypeTagDeleteSnapshot.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_tag_undoable(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),$0
+    )
+})
 }
     
 open func dismissPaper(doi: String?, arxivId: String?, bibcode: String?)throws  -> DismissedPaperRow {
@@ -1970,6 +2033,36 @@ open func reparentItem(id: String, newParentId: String)throws  {try rustCallWith
     uniffi_imbib_core_fn_method_imbibstore_reparent_item(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(newParentId),$0
+    )
+}
+}
+    
+    /**
+     * Restore a deleted library and re-parent its children.
+     */
+open func restoreLibrary(snapshot: LibraryDeleteSnapshot)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_restore_library(self.uniffiClonePointer(),
+        FfiConverterTypeLibraryDeleteSnapshot.lower(snapshot),$0
+    )
+}
+}
+    
+    /**
+     * Restore previously-deleted items from snapshots.
+     */
+open func restoreSnapshots(snapshots: [ItemSnapshot])throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_restore_snapshots(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeItemSnapshot.lower(snapshots),$0
+    )
+}
+}
+    
+    /**
+     * Restore a deleted tag definition and re-tag publications.
+     */
+open func restoreTag(snapshot: TagDeleteSnapshot)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_restore_tag(self.uniffiClonePointer(),
+        FfiConverterTypeTagDeleteSnapshot.lower(snapshot),$0
     )
 }
 }
@@ -7165,6 +7258,87 @@ public func FfiConverterTypeInsertCitationCommand_lower(_ value: InsertCitationC
 
 
 /**
+ * Snapshot of an item and its children, for undo of delete operations.
+ */
+public struct ItemSnapshot {
+    /**
+     * JSON-serialized Item.
+     */
+    public var itemJson: String
+    /**
+     * JSON-serialized child Items (linked files, annotations, comments, etc).
+     */
+    public var childJsons: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * JSON-serialized Item.
+         */itemJson: String, 
+        /**
+         * JSON-serialized child Items (linked files, annotations, comments, etc).
+         */childJsons: [String]) {
+        self.itemJson = itemJson
+        self.childJsons = childJsons
+    }
+}
+
+
+
+extension ItemSnapshot: Equatable, Hashable {
+    public static func ==(lhs: ItemSnapshot, rhs: ItemSnapshot) -> Bool {
+        if lhs.itemJson != rhs.itemJson {
+            return false
+        }
+        if lhs.childJsons != rhs.childJsons {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(itemJson)
+        hasher.combine(childJsons)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeItemSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ItemSnapshot {
+        return
+            try ItemSnapshot(
+                itemJson: FfiConverterString.read(from: &buf), 
+                childJsons: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ItemSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.itemJson, into: &buf)
+        FfiConverterSequenceString.write(value.childJsons, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeItemSnapshot_lift(_ buf: RustBuffer) throws -> ItemSnapshot {
+    return try FfiConverterTypeItemSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeItemSnapshot_lower(_ value: ItemSnapshot) -> RustBuffer {
+    return FfiConverterTypeItemSnapshot.lower(value)
+}
+
+
+/**
  * A library (collection of publications, typically from a .bib file)
  */
 public struct Library {
@@ -7431,6 +7605,101 @@ public func FfiConverterTypeLibraryContext_lift(_ buf: RustBuffer) throws -> Lib
 #endif
 public func FfiConverterTypeLibraryContext_lower(_ value: LibraryContext) -> RustBuffer {
     return FfiConverterTypeLibraryContext.lower(value)
+}
+
+
+/**
+ * Snapshot for undoing a library deletion.
+ */
+public struct LibraryDeleteSnapshot {
+    /**
+     * JSON-serialized library Item.
+     */
+    public var libraryJson: String
+    /**
+     * IDs of publications that had this library as parent (as UUID strings).
+     */
+    public var childPublicationIds: [String]
+    /**
+     * IDs of collections that had this library as parent.
+     */
+    public var childCollectionIds: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * JSON-serialized library Item.
+         */libraryJson: String, 
+        /**
+         * IDs of publications that had this library as parent (as UUID strings).
+         */childPublicationIds: [String], 
+        /**
+         * IDs of collections that had this library as parent.
+         */childCollectionIds: [String]) {
+        self.libraryJson = libraryJson
+        self.childPublicationIds = childPublicationIds
+        self.childCollectionIds = childCollectionIds
+    }
+}
+
+
+
+extension LibraryDeleteSnapshot: Equatable, Hashable {
+    public static func ==(lhs: LibraryDeleteSnapshot, rhs: LibraryDeleteSnapshot) -> Bool {
+        if lhs.libraryJson != rhs.libraryJson {
+            return false
+        }
+        if lhs.childPublicationIds != rhs.childPublicationIds {
+            return false
+        }
+        if lhs.childCollectionIds != rhs.childCollectionIds {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(libraryJson)
+        hasher.combine(childPublicationIds)
+        hasher.combine(childCollectionIds)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibraryDeleteSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibraryDeleteSnapshot {
+        return
+            try LibraryDeleteSnapshot(
+                libraryJson: FfiConverterString.read(from: &buf), 
+                childPublicationIds: FfiConverterSequenceString.read(from: &buf), 
+                childCollectionIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LibraryDeleteSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.libraryJson, into: &buf)
+        FfiConverterSequenceString.write(value.childPublicationIds, into: &buf)
+        FfiConverterSequenceString.write(value.childCollectionIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryDeleteSnapshot_lift(_ buf: RustBuffer) throws -> LibraryDeleteSnapshot {
+    return try FfiConverterTypeLibraryDeleteSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryDeleteSnapshot_lower(_ value: LibraryDeleteSnapshot) -> RustBuffer {
+    return FfiConverterTypeLibraryDeleteSnapshot.lower(value)
 }
 
 
@@ -12213,6 +12482,101 @@ public func FfiConverterTypeTag_lift(_ buf: RustBuffer) throws -> Tag {
 #endif
 public func FfiConverterTypeTag_lower(_ value: Tag) -> RustBuffer {
     return FfiConverterTypeTag.lower(value)
+}
+
+
+/**
+ * Snapshot for undoing a tag deletion.
+ */
+public struct TagDeleteSnapshot {
+    /**
+     * JSON-serialized tag definition Item.
+     */
+    public var tagDefinitionJson: String
+    /**
+     * IDs of publications that had this tag (as UUID strings).
+     */
+    public var taggedPublicationIds: [String]
+    /**
+     * The tag path that was deleted.
+     */
+    public var tagPath: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * JSON-serialized tag definition Item.
+         */tagDefinitionJson: String, 
+        /**
+         * IDs of publications that had this tag (as UUID strings).
+         */taggedPublicationIds: [String], 
+        /**
+         * The tag path that was deleted.
+         */tagPath: String) {
+        self.tagDefinitionJson = tagDefinitionJson
+        self.taggedPublicationIds = taggedPublicationIds
+        self.tagPath = tagPath
+    }
+}
+
+
+
+extension TagDeleteSnapshot: Equatable, Hashable {
+    public static func ==(lhs: TagDeleteSnapshot, rhs: TagDeleteSnapshot) -> Bool {
+        if lhs.tagDefinitionJson != rhs.tagDefinitionJson {
+            return false
+        }
+        if lhs.taggedPublicationIds != rhs.taggedPublicationIds {
+            return false
+        }
+        if lhs.tagPath != rhs.tagPath {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(tagDefinitionJson)
+        hasher.combine(taggedPublicationIds)
+        hasher.combine(tagPath)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTagDeleteSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TagDeleteSnapshot {
+        return
+            try TagDeleteSnapshot(
+                tagDefinitionJson: FfiConverterString.read(from: &buf), 
+                taggedPublicationIds: FfiConverterSequenceString.read(from: &buf), 
+                tagPath: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TagDeleteSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.tagDefinitionJson, into: &buf)
+        FfiConverterSequenceString.write(value.taggedPublicationIds, into: &buf)
+        FfiConverterString.write(value.tagPath, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTagDeleteSnapshot_lift(_ buf: RustBuffer) throws -> TagDeleteSnapshot {
+    return try FfiConverterTypeTagDeleteSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTagDeleteSnapshot_lower(_ value: TagDeleteSnapshot) -> RustBuffer {
+    return FfiConverterTypeTagDeleteSnapshot.lower(value)
 }
 
 
@@ -17547,6 +17911,31 @@ fileprivate struct FfiConverterSequenceTypeHeuristicExtractedFields: FfiConverte
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeItemSnapshot: FfiConverterRustBuffer {
+    typealias SwiftType = [ItemSnapshot]
+
+    public static func write(_ value: [ItemSnapshot], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeItemSnapshot.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ItemSnapshot] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ItemSnapshot]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeItemSnapshot.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLibraryRow: FfiConverterRustBuffer {
     typealias SwiftType = [LibraryRow]
 
@@ -20764,13 +21153,22 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_library() != 48813) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_library_undoable() != 64489) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications() != 51586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications_undoable() != 21601) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_recommendation_profile() != 13961) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_tag() != 4864) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_tag_undoable() != 40268) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_dismiss_paper() != 42764) {
@@ -20942,6 +21340,15 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_reparent_item() != 7572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_restore_library() != 32065) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_restore_snapshots() != 26045) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_restore_tag() != 8206) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_search_artifacts() != 15549) {

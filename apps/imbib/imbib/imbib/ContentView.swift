@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressKit
 import OSLog
 
 private let contentLogger = Logger(subsystem: "com.imbib.app", category: "content")
@@ -65,7 +66,6 @@ struct ContentView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
-    @Environment(\.undoManager) private var undoManager
 
     // MARK: - State
 
@@ -146,9 +146,7 @@ struct ContentView: View {
     var body: some View {
         let _ = contentLogger.info("⏱ ContentView.body START")
         tabSidebarContent
-            .onAppear {
-                UndoCoordinator.shared.undoManager = undoManager
-            }
+            .wireUndo(to: UndoCoordinator.shared)
             .task {
                 // Only dedup on startup if papers were imported since last launch.
                 // This avoids an 86-second FTS rebuild every single startup.
@@ -182,9 +180,6 @@ struct ContentView: View {
                         await FullTextSearchService.shared.rebuildIndex()
                     }
                 }
-            }
-            .onChange(of: undoManager) { _, newValue in
-                UndoCoordinator.shared.undoManager = newValue
             }
     }
 

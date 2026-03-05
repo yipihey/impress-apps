@@ -124,6 +124,20 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+
+        // Undo tracking: the window's UndoManager is assigned to viewContext
+        // by ImprintUndoCoordinator.syncUndoState() once the SwiftUI environment
+        // provides it via .wireUndo(). This ensures Core Data mutations register
+        // on the same UndoManager that Cmd+Z targets.
+
+        // Clear undo stack when remote changes merge to prevent stale reversals.
+        NotificationCenter.default.addObserver(
+            forName: .NSPersistentStoreRemoteChange,
+            object: container.persistentStoreCoordinator,
+            queue: .main
+        ) { [weak self] _ in
+            self?.viewContext.undoManager?.removeAllActions()
+        }
     }
 
     // MARK: - Default Workspace

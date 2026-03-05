@@ -487,6 +487,23 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             didMutate()
             UserDefaults.standard.set(true, forKey: "needsStartupDedup")
             let imported = ids.compactMap { UUID(uuidString: $0) }
+            if !ids.isEmpty {
+                let count = ids.count
+                let desc = count == 1 ? "Import Paper" : "Import \(count) Papers"
+                let capturedStore = store
+                let capturedIds = ids
+                UndoCoordinator.shared.registerUndoClosure(
+                    actionName: desc,
+                    undo: { [weak self] in
+                        do {
+                            try capturedStore.deletePublications(ids: capturedIds)
+                            self?.didMutate()
+                        } catch {
+                            Logger.library.error("Undo importBibTeX failed: \(error)")
+                        }
+                    }
+                )
+            }
             return imported
         } catch {
             Logger.library.error("importBibTeX failed: \(error)")
@@ -494,17 +511,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Import from a BibTeX file on disk.
+    /// Import from a BibTeX file on disk (undoable via importBibTeX).
     public func importFromBibTeXFile(path: String, libraryId: UUID) -> UInt32 {
-        do {
-            let count = try store.importFromBibtexFile(path: path, libraryId: libraryId.uuidString)
-            didMutate()
-            UserDefaults.standard.set(true, forKey: "needsStartupDedup")
-            return count
-        } catch {
-            Logger.library.error("importFromBibTeXFile failed: \(error)")
+        guard let bibtex = try? String(contentsOfFile: path, encoding: .utf8) else {
+            Logger.library.error("importFromBibTeXFile: cannot read file \(path)")
             return 0
         }
+        let imported = importBibTeX(bibtex, libraryId: libraryId)
+        return UInt32(imported.count)
     }
 
     /// Set read state for publications.
@@ -596,21 +610,63 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Delete publications.
+    /// Delete publications (undoable — snapshots items before deletion).
     public func deletePublications(ids: [UUID]) {
         do {
-            try store.deletePublications(ids: ids.map(\.uuidString))
+            let snapshots = try store.deletePublicationsUndoable(ids: ids.map(\.uuidString))
             didMutate()
+            let count = ids.count
+            let desc = count == 1 ? "Delete Paper" : "Delete \(count) Papers"
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: desc,
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.restoreSnapshots(snapshots: snapshots)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo deletePublications failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.deletePublications(ids: ids.map(\.uuidString))
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo deletePublications failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("deletePublications failed: \(error)")
         }
     }
 
-    /// Delete any item by ID.
+    /// Delete any item by ID (undoable — snapshots item before deletion).
     public func deleteItem(id: UUID) {
         do {
-            try store.deleteItem(id: id.uuidString)
+            let snapshots = try store.deletePublicationsUndoable(ids: [id.uuidString])
             didMutate()
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Delete",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.restoreSnapshots(snapshots: snapshots)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo deleteItem failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.deleteItem(id: id.uuidString)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo deleteItem failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("deleteItem failed: \(error)")
         }
@@ -627,12 +683,28 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Duplicate publications to another library.
+    /// Duplicate publications to another library (undoable).
     public func duplicatePublications(ids: [UUID], toLibraryId: UUID) -> [UUID] {
         do {
             let newIds = try store.duplicatePublications(ids: ids.map(\.uuidString), toLibraryId: toLibraryId.uuidString)
             didMutate()
-            return newIds.compactMap { UUID(uuidString: $0) }
+            let newUUIDs = newIds.compactMap { UUID(uuidString: $0) }
+            if !newIds.isEmpty {
+                let capturedStore = store
+                let capturedNewIds = newIds
+                UndoCoordinator.shared.registerUndoClosure(
+                    actionName: "Duplicate Papers",
+                    undo: { [weak self] in
+                        do {
+                            try capturedStore.deletePublications(ids: capturedNewIds)
+                            self?.didMutate()
+                        } catch {
+                            Logger.library.error("Undo duplicatePublications failed: \(error)")
+                        }
+                    }
+                )
+            }
+            return newUUIDs
         } catch {
             Logger.library.error("duplicatePublications failed: \(error)")
             return []
@@ -684,11 +756,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Create a new library.
+    /// Create a new library (undoable).
     public func createLibrary(name: String) -> LibraryModel? {
         do {
             let row = try store.createLibrary(name: name)
             didMutate()
+            let newId = row.id
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Create Library",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.deleteLibrary(id: newId)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo createLibrary failed: \(error)")
+                    }
+                }
+            )
             return LibraryModel(from: row)
         } catch {
             Logger.library.error("createLibrary failed: \(error)")
@@ -696,11 +781,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Create an inbox library.
+    /// Create an inbox library (undoable).
     public func createInboxLibrary(name: String) -> LibraryModel? {
         do {
             let row = try store.createInboxLibrary(name: name)
             didMutate()
+            let newId = row.id
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Create Inbox Library",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.deleteLibrary(id: newId)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo createInboxLibrary failed: \(error)")
+                    }
+                }
+            )
             return LibraryModel(from: row)
         } catch {
             Logger.library.error("createInboxLibrary failed: \(error)")
@@ -708,21 +806,68 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Set a library as the default.
+    /// Set a library as the default (undoable).
     public func setLibraryDefault(id: UUID) {
         do {
+            // Find current default before changing
+            let libs = try store.listLibraries()
+            let prevDefaultId = libs.first(where: { $0.isDefault })?.id
+
             try store.setLibraryDefault(id: id.uuidString)
             didMutate()
+
+            if let prevId = prevDefaultId, prevId != id.uuidString {
+                let capturedStore = store
+                UndoCoordinator.shared.registerUndoClosure(
+                    actionName: "Set Default Library",
+                    undo: { [weak self] in
+                        do {
+                            try capturedStore.setLibraryDefault(id: prevId)
+                            self?.didMutate()
+                        } catch {
+                            Logger.library.error("Undo setLibraryDefault failed: \(error)")
+                        }
+                    },
+                    redo: { [weak self] in
+                        do {
+                            try capturedStore.setLibraryDefault(id: id.uuidString)
+                            self?.didMutate()
+                        } catch {
+                            Logger.library.error("Redo setLibraryDefault failed: \(error)")
+                        }
+                    }
+                )
+            }
         } catch {
             Logger.library.error("setLibraryDefault failed: \(error)")
         }
     }
 
-    /// Delete a library.
+    /// Delete a library (undoable — snapshots library and records child IDs).
     public func deleteLibrary(id: UUID) {
         do {
-            try store.deleteLibrary(id: id.uuidString)
+            let snapshot = try store.deleteLibraryUndoable(id: id.uuidString)
             didMutate()
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Delete Library",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.restoreLibrary(snapshot: snapshot)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo deleteLibrary failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.deleteLibrary(id: id.uuidString)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo deleteLibrary failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("deleteLibrary failed: \(error)")
         }
@@ -740,11 +885,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Create a collection.
+    /// Create a collection (undoable).
     public func createCollection(name: String, libraryId: UUID, isSmart: Bool = false, query: String? = nil) -> CollectionModel? {
         do {
             let row = try store.createCollection(name: name, libraryId: libraryId.uuidString, isSmart: isSmart, query: query)
             didMutate()
+            let newId = row.id
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Create Collection",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.deleteItem(id: newId)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo createCollection failed: \(error)")
+                    }
+                }
+            )
             return CollectionModel(from: row)
         } catch {
             Logger.library.error("createCollection failed: \(error)")
@@ -804,11 +962,23 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Create a tag definition.
+    /// Create a tag definition (undoable).
     public func createTag(path: String, colorLight: String? = nil, colorDark: String? = nil) {
         do {
             try store.createTag(path: path, colorLight: colorLight, colorDark: colorDark)
             didMutate()
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Create Tag",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.deleteTag(path: path)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo createTag failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("createTag failed: \(error)")
         }
@@ -840,31 +1010,98 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Rename a tag definition and all assignments.
+    /// Rename a tag definition and all assignments (undoable).
     public func renameTag(oldPath: String, newPath: String) {
         do {
             try store.renameTag(oldPath: oldPath, newPath: newPath)
             didMutate()
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Rename Tag",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.renameTag(oldPath: newPath, newPath: oldPath)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo renameTag failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.renameTag(oldPath: oldPath, newPath: newPath)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo renameTag failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("renameTag failed: \(error)")
         }
     }
 
-    /// Delete a tag definition and remove from all publications.
+    /// Delete a tag definition and remove from all publications (undoable).
     public func deleteTag(path: String) {
         do {
-            try store.deleteTag(path: path)
+            let snapshot = try store.deleteTagUndoable(path: path)
             didMutate()
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Delete Tag '\(path.split(separator: "/").last ?? Substring(path))'",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.restoreTag(snapshot: snapshot)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo deleteTag failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.deleteTag(path: path)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo deleteTag failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("deleteTag failed: \(error)")
         }
     }
 
-    /// Update tag definition colors.
+    /// Update tag definition colors (undoable).
     public func updateTag(path: String, colorLight: String?, colorDark: String?) {
         do {
+            // Snapshot current colors before update
+            let tags = try store.listTags()
+            let prevTag = tags.first(where: { $0.path == path })
+            let prevLight = prevTag?.colorLight
+            let prevDark = prevTag?.colorDark
+
             try store.updateTag(path: path, colorLight: colorLight, colorDark: colorDark)
             didMutate()
+
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Update Tag",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.updateTag(path: path, colorLight: prevLight, colorDark: prevDark)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Undo updateTag failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.updateTag(path: path, colorLight: colorLight, colorDark: colorDark)
+                        self?.didMutate()
+                    } catch {
+                        Logger.library.error("Redo updateTag failed: \(error)")
+                    }
+                }
+            )
         } catch {
             Logger.library.error("updateTag failed: \(error)")
         }

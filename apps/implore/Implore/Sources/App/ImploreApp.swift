@@ -1,5 +1,6 @@
 import SwiftUI
 import ImpressKit
+import ImpressKeyboard
 
 /// implore - Scientific Data Visualization
 ///
@@ -130,12 +131,48 @@ struct ImploreApp: App {
                 .keyboardShortcut(.tab, modifiers: [])
             }
 
+            // Edit menu - context-aware pasteboard commands
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copy") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                    } else {
+                        NotificationCenter.default.post(name: .copyFigure, object: nil)
+                    }
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Cut") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Paste") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("v", modifiers: .command)
+
+                Divider()
+
+                Button("Select All") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                    } else {
+                        appState.selectAll()
+                    }
+                }
+                .keyboardShortcut("a", modifiers: .command)
+            }
+
             // Selection menu
             CommandMenu("Selection") {
-                Button("Select All") {
+                Button("Select All Data Points") {
                     appState.selectAll()
                 }
-                .keyboardShortcut("a")
 
                 Button("Select None") {
                     appState.selectNone()
@@ -260,6 +297,13 @@ struct VisualizationSession {
         session.fieldNames = ["x", "y", "z", "color", "size", "density"]
         return session
     }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    /// Copy the current figure/visualization to the clipboard as a PNG image
+    static let copyFigure = Notification.Name("com.implore.copyFigure")
 }
 
 // MARK: - UI Testing Support

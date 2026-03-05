@@ -138,6 +138,13 @@ public final class CounselDatabase: Sendable {
         }
     }
 
+    /// Delete a conversation and all its messages/tool executions (cascade).
+    public func deleteConversation(id: String) throws {
+        try dbWriter.write { db in
+            _ = try CounselConversation.deleteOne(db, key: id)
+        }
+    }
+
     public func fetchConversation(id: String) throws -> CounselConversation? {
         try dbWriter.read { db in
             try CounselConversation.fetchOne(db, key: id)

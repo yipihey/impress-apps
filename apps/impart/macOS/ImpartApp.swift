@@ -8,6 +8,7 @@
 import SwiftUI
 import MessageManagerCore
 import ImpressKit
+import ImpressKeyboard
 
 // MARK: - App Entry Point
 
@@ -110,6 +111,46 @@ struct ImpartApp: App {
                     NotificationCenter.default.post(name: .deleteMessage, object: nil)
                 }
                 .keyboardShortcut(.delete, modifiers: [.command])
+            }
+
+            // Edit menu - context-aware pasteboard commands
+            // When a text field has focus, use system clipboard; otherwise, use message clipboard
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copy") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                    } else {
+                        NotificationCenter.default.post(name: .copyMessages, object: nil)
+                    }
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Cut") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+                    }
+                    // No cut for messages — messages can't be moved via clipboard
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Paste") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                    }
+                    // No paste for messages — not applicable
+                }
+                .keyboardShortcut("v", modifiers: .command)
+
+                Divider()
+
+                Button("Select All") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                    } else {
+                        NotificationCenter.default.post(name: .selectAllMessages, object: nil)
+                    }
+                }
+                .keyboardShortcut("a", modifiers: .command)
             }
 
             // View menu additions
@@ -246,4 +287,8 @@ extension Notification.Name {
     static let deleteMessage = Notification.Name("deleteMessage")
     static let toggleSidebar = Notification.Name("toggleSidebar")
     static let showMessage = Notification.Name("showMessage")
+
+    // Clipboard operations
+    static let copyMessages = Notification.Name("com.impart.copyMessages")
+    static let selectAllMessages = Notification.Name("com.impart.selectAllMessages")
 }
