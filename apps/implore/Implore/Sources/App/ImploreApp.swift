@@ -87,6 +87,7 @@ struct ImploreApp: App {
                         await coordinator.initialRebuildIfNeeded()
                         // implore uses a JSON-file library with no mutation notifications;
                         // rely on manual rebuild via Settings for now.
+                        await SpotlightBridge.shared.setCoordinator(coordinator)
                         Logger(subsystem: "com.impress.implore", category: "spotlight")
                             .info("SpotlightSyncCoordinator started for implore")
                     }

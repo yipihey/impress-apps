@@ -465,6 +465,7 @@ struct imbibApp: App {
                         notification.userInfo?["publicationIDs"] as? [UUID] ?? []
                     }
                 )
+                await SpotlightBridge.shared.setCoordinator(coordinator)
                 appLogger.info("SpotlightSyncCoordinator started for imbib")
             }
         }

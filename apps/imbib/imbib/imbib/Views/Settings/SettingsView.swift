@@ -5,8 +5,9 @@
 //  Created by Claude on 2026-01-04.
 //
 
-import SwiftUI
+import ImpressSpotlight
 import PublicationManagerCore
+import SwiftUI
 
 struct SettingsView: View {
 
@@ -345,6 +346,7 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            SpotlightSettingsSection()
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)

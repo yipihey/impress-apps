@@ -10,7 +10,8 @@ import AppKit
 /// Handles Spotlight deep-link activations across all impress apps.
 ///
 /// When a user taps a Spotlight result, macOS delivers a `CSSearchableItemActionType`
-/// user activity. This handler extracts the item UUID and domain, then either:
+/// user activity. This handler extracts the item UUID and domain from the compound
+/// identifier (`"{domain}::{uuid}"`), then either:
 /// - Calls a local navigation callback (if the owning app is already frontmost)
 /// - Opens the owning app via its URL scheme (cross-app activation)
 ///
@@ -37,17 +38,22 @@ public struct SpotlightDeepLinkHandler {
     ) -> Bool {
         guard userActivity.activityType == CSSearchableItemActionType else { return false }
 
-        guard let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-              let uuid = UUID(uuidString: identifier) else {
-            Logger.spotlight.warning("Spotlight deep-link: missing or invalid identifier")
+        guard let rawIdentifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String else {
+            Logger.spotlight.warning("Spotlight deep-link: missing identifier")
             return false
         }
 
-        // Determine which app owns this item from the domain identifier
-        let domain = userActivity.userInfo?["kCSSearchableItemDomainIdentifier"] as? String ?? ""
+        // Parse compound identifier: "{domain}::{uuid}"
+        guard let parsed = SpotlightIndexer.parseIdentifier(rawIdentifier) else {
+            Logger.spotlight.warning("Spotlight deep-link: invalid identifier '\(rawIdentifier)'")
+            return false
+        }
+
+        let domain = parsed.domain
+        let uuid = parsed.uuid
         let owningApp = appForDomain(domain)
 
-        Logger.spotlight.info("Spotlight deep-link: id=\(identifier) domain=\(domain) owner=\(owningApp?.rawValue ?? "unknown")")
+        Logger.spotlight.info("Spotlight deep-link: id=\(uuid.uuidString) domain=\(domain) owner=\(owningApp?.rawValue ?? "unknown")")
 
         if owningApp == nil || owningApp == currentApp {
             // Local navigation
