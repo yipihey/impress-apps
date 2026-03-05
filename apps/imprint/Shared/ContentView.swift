@@ -61,6 +61,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: appState.isFocusMode)
+        .wireUndo(to: ImprintUndoCoordinator.shared)
     }
 
     @ViewBuilder

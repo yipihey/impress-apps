@@ -124,6 +124,14 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+
+        // Enable undo tracking for user-initiated mutations on the viewContext.
+        // FolderRepository operations (create, rename, move, delete, reorder) are
+        // all @MainActor and use viewContext directly, so Core Data's built-in
+        // undo manager captures all object graph changes automatically.
+        let um = UndoManager()
+        um.levelsOfUndo = 50
+        container.viewContext.undoManager = um
     }
 
     // MARK: - Default Workspace

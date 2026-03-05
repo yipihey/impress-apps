@@ -1,16 +1,17 @@
 import Foundation
 import ImbibRustCore
+import ImpressKit
 import OSLog
 
 /// Coordinates undo/redo with the system UndoManager and the Rust operation log.
 ///
 /// Usage:
-/// 1. Set `undoManager` from the SwiftUI environment (in ContentView).
+/// 1. Wire via `.wireUndo(to: UndoCoordinator.shared)` in ContentView.
 /// 2. After each mutation on RustStoreAdapter, call `registerUndo(info:)`.
 /// 3. macOS automatically wires Cmd+Z / Cmd+Shift+Z through the responder chain.
 @MainActor
 @Observable
-public final class UndoCoordinator {
+public final class UndoCoordinator: UndoRegistering {
     public static let shared = UndoCoordinator()
 
     /// The window's UndoManager, set by the root view via @Environment(\.undoManager).

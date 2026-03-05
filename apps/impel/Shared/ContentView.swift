@@ -3,6 +3,7 @@ import ImpelCore
 import ImpelMail
 import CounselEngine
 import ImpressKeyboard
+import ImpressKit
 
 /// Main content view showing the impel dashboard
 struct ContentView: View {
@@ -31,6 +32,7 @@ struct ContentView: View {
                 systemStatus
             }
         }
+        .wireUndo(to: ImpelUndoCoordinator.shared)
         .focusable()
         .focusEffectDisabled()
         .keyboardGuarded { press in

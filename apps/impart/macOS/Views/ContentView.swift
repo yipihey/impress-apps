@@ -9,6 +9,7 @@
 import SwiftUI
 import MessageManagerCore
 import ImpressKeyboard
+import ImpressKit
 
 // MARK: - Content View
 
@@ -55,6 +56,7 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .wireUndo(to: ImpartUndoCoordinator.shared)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 // View mode picker

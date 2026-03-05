@@ -101,6 +101,9 @@ public struct SelectionAdvancement {
 // MARK: - Message Triage Service
 
 /// Actor-based service for message triage operations.
+///
+/// All triage methods use the viewContext for NSUndoManager support.
+/// The user can undo triage actions (dismiss, save, star, move, etc.) via Cmd+Z.
 public actor MessageTriageService {
 
     private let persistenceController: PersistenceController
@@ -117,17 +120,13 @@ public actor MessageTriageService {
 
     // MARK: - Dismiss
 
-    /// Dismiss (archive) messages.
-    /// - Parameters:
-    ///   - ids: Message IDs to dismiss.
-    ///   - orderedIds: All message IDs in current view order.
-    ///   - currentSelection: Currently selected message ID.
-    /// - Returns: Triage result with next selection.
+    /// Dismiss (archive) messages (uses viewContext for undo support).
+    @MainActor
     public func dismiss(
         ids: Set<UUID>,
         from orderedIds: [UUID],
         currentSelection: UUID?
-    ) async -> MessageTriageResult {
+    ) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: currentSelection)
         }
@@ -139,22 +138,22 @@ public actor MessageTriageService {
         )
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                let messages = try context.fetch(fetchRequest)
-                for message in messages {
-                    message.isDismissed = true
-                    message.isRead = true  // Dismissing marks as read
-                }
-
-                try context.save()
-                return messages.count
+            let messages = try context.fetch(fetchRequest)
+            for message in messages {
+                message.isDismissed = true
+                message.isRead = true  // Dismissing marks as read
             }
 
-            triageLogger.info("Dismissed \(count) messages")
-            return MessageTriageResult(affectedCount: count, nextSelection: nextSelection)
+            context.undoManager?.setActionName("Dismiss")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Dismissed \(messages.count) messages")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nextSelection)
         } catch {
             triageLogger.error("Failed to dismiss messages: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -163,17 +162,13 @@ public actor MessageTriageService {
 
     // MARK: - Save
 
-    /// Save (keep) messages.
-    /// - Parameters:
-    ///   - ids: Message IDs to save.
-    ///   - orderedIds: All message IDs in current view order.
-    ///   - currentSelection: Currently selected message ID.
-    /// - Returns: Triage result with next selection.
+    /// Save (keep) messages (uses viewContext for undo support).
+    @MainActor
     public func save(
         ids: Set<UUID>,
         from orderedIds: [UUID],
         currentSelection: UUID?
-    ) async -> MessageTriageResult {
+    ) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: currentSelection)
         }
@@ -185,22 +180,22 @@ public actor MessageTriageService {
         )
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                let messages = try context.fetch(fetchRequest)
-                for message in messages {
-                    message.isSaved = true
-                    message.isRead = true  // Saving marks as read
-                }
-
-                try context.save()
-                return messages.count
+            let messages = try context.fetch(fetchRequest)
+            for message in messages {
+                message.isSaved = true
+                message.isRead = true  // Saving marks as read
             }
 
-            triageLogger.info("Saved \(count) messages")
-            return MessageTriageResult(affectedCount: count, nextSelection: nextSelection)
+            context.undoManager?.setActionName("Save Message")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Saved \(messages.count) messages")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nextSelection)
         } catch {
             triageLogger.error("Failed to save messages: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -209,37 +204,35 @@ public actor MessageTriageService {
 
     // MARK: - Toggle Star
 
-    /// Toggle star status on messages.
-    /// - Parameters:
-    ///   - ids: Message IDs to toggle.
-    ///   - orderedIds: All message IDs in current view order.
+    /// Toggle star status on messages (uses viewContext for undo support).
+    @MainActor
     public func toggleStar(
         ids: Set<UUID>,
         from orderedIds: [UUID]
-    ) async -> MessageTriageResult {
+    ) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: nil)
         }
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                let messages = try context.fetch(fetchRequest)
+            let messages = try context.fetch(fetchRequest)
 
-                // If any are unstarred, star all. Otherwise unstar all.
-                let anyUnstarred = messages.contains { !$0.isStarred }
-                for message in messages {
-                    message.isStarred = anyUnstarred
-                }
-
-                try context.save()
-                return messages.count
+            // If any are unstarred, star all. Otherwise unstar all.
+            let anyUnstarred = messages.contains { !$0.isStarred }
+            for message in messages {
+                message.isStarred = anyUnstarred
             }
 
-            triageLogger.info("Toggled star on \(count) messages")
-            return MessageTriageResult(affectedCount: count, nextSelection: nil)
+            context.undoManager?.setActionName(anyUnstarred ? "Star" : "Unstar")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Toggled star on \(messages.count) messages")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nil)
         } catch {
             triageLogger.error("Failed to toggle star: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -248,28 +241,29 @@ public actor MessageTriageService {
 
     // MARK: - Mark Read
 
-    /// Mark messages as read.
-    public func markRead(ids: Set<UUID>) async -> MessageTriageResult {
+    /// Mark messages as read (uses viewContext for undo support).
+    @MainActor
+    public func markRead(ids: Set<UUID>) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: nil)
         }
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                let messages = try context.fetch(fetchRequest)
-                for message in messages {
-                    message.isRead = true
-                }
-
-                try context.save()
-                return messages.count
+            let messages = try context.fetch(fetchRequest)
+            for message in messages {
+                message.isRead = true
             }
 
-            triageLogger.info("Marked \(count) messages as read")
-            return MessageTriageResult(affectedCount: count, nextSelection: nil)
+            context.undoManager?.setActionName("Mark as Read")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Marked \(messages.count) messages as read")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nil)
         } catch {
             triageLogger.error("Failed to mark read: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -278,28 +272,29 @@ public actor MessageTriageService {
 
     // MARK: - Mark Unread
 
-    /// Mark messages as unread.
-    public func markUnread(ids: Set<UUID>) async -> MessageTriageResult {
+    /// Mark messages as unread (uses viewContext for undo support).
+    @MainActor
+    public func markUnread(ids: Set<UUID>) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: nil)
         }
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                let messages = try context.fetch(fetchRequest)
-                for message in messages {
-                    message.isRead = false
-                }
-
-                try context.save()
-                return messages.count
+            let messages = try context.fetch(fetchRequest)
+            for message in messages {
+                message.isRead = false
             }
 
-            triageLogger.info("Marked \(count) messages as unread")
-            return MessageTriageResult(affectedCount: count, nextSelection: nil)
+            context.undoManager?.setActionName("Mark as Unread")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Marked \(messages.count) messages as unread")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nil)
         } catch {
             triageLogger.error("Failed to mark unread: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -308,13 +303,14 @@ public actor MessageTriageService {
 
     // MARK: - Move to Folder
 
-    /// Move messages to a folder.
+    /// Move messages to a folder (uses viewContext for undo support).
+    @MainActor
     public func moveToFolder(
         ids: Set<UUID>,
         folderId: UUID,
         from orderedIds: [UUID],
         currentSelection: UUID?
-    ) async -> MessageTriageResult {
+    ) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: currentSelection)
         }
@@ -326,29 +322,30 @@ public actor MessageTriageService {
         )
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                // Fetch the target folder
-                let folderFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-                folderFetch.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
-                guard let folder = try context.fetch(folderFetch).first else {
-                    throw TriageError.folderNotFound
-                }
+            let context = persistenceController.viewContext
 
-                // Fetch and move messages
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
-
-                let messages = try context.fetch(fetchRequest)
-                for message in messages {
-                    message.folder = folder
-                }
-
-                try context.save()
-                return messages.count
+            // Fetch the target folder
+            let folderFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+            folderFetch.predicate = NSPredicate(format: "id == %@", folderId as CVarArg)
+            guard let folder = try context.fetch(folderFetch).first else {
+                throw TriageError.folderNotFound
             }
 
-            triageLogger.info("Moved \(count) messages to folder")
-            return MessageTriageResult(affectedCount: count, nextSelection: nextSelection)
+            // Fetch and move messages
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+
+            let messages = try context.fetch(fetchRequest)
+            for message in messages {
+                message.folder = folder
+            }
+
+            context.undoManager?.setActionName("Move Message")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Moved \(messages.count) messages to folder")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nextSelection)
         } catch {
             triageLogger.error("Failed to move messages: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
@@ -357,12 +354,13 @@ public actor MessageTriageService {
 
     // MARK: - Delete
 
-    /// Delete messages (move to trash).
+    /// Delete messages (move to trash, uses viewContext for undo support).
+    @MainActor
     public func delete(
         ids: Set<UUID>,
         from orderedIds: [UUID],
         currentSelection: UUID?
-    ) async -> MessageTriageResult {
+    ) -> MessageTriageResult {
         guard !ids.isEmpty else {
             return MessageTriageResult(affectedCount: 0, nextSelection: currentSelection)
         }
@@ -374,34 +372,34 @@ public actor MessageTriageService {
         )
 
         do {
-            let count = try await persistenceController.performBackgroundTask { context in
-                // Find trash folder for the account
-                let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
-                fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+            let context = persistenceController.viewContext
 
-                let messages = try context.fetch(fetchRequest)
+            let fetchRequest: NSFetchRequest<CDMessage> = NSFetchRequest(entityName: "CDMessage")
+            fetchRequest.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
-                for message in messages {
-                    // Find trash folder in same account
-                    if let account = message.folder?.account {
-                        let trashFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
-                        trashFetch.predicate = NSPredicate(
-                            format: "account == %@ AND roleRaw == %@",
-                            account,
-                            FolderRole.trash.rawValue
-                        )
-                        if let trash = try context.fetch(trashFetch).first {
-                            message.folder = trash
-                        }
+            let messages = try context.fetch(fetchRequest)
+
+            for message in messages {
+                // Find trash folder in same account
+                if let account = message.folder?.account {
+                    let trashFetch: NSFetchRequest<CDFolder> = NSFetchRequest(entityName: "CDFolder")
+                    trashFetch.predicate = NSPredicate(
+                        format: "account == %@ AND roleRaw == %@",
+                        account,
+                        FolderRole.trash.rawValue
+                    )
+                    if let trash = try context.fetch(trashFetch).first {
+                        message.folder = trash
                     }
                 }
-
-                try context.save()
-                return messages.count
             }
 
-            triageLogger.info("Deleted \(count) messages")
-            return MessageTriageResult(affectedCount: count, nextSelection: nextSelection)
+            context.undoManager?.setActionName("Delete")
+            context.processPendingChanges()
+            try context.save()
+
+            triageLogger.info("Deleted \(messages.count) messages")
+            return MessageTriageResult(affectedCount: messages.count, nextSelection: nextSelection)
         } catch {
             triageLogger.error("Failed to delete messages: \(error.localizedDescription)")
             return .failure(error.localizedDescription)
