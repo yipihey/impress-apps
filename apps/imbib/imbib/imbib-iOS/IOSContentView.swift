@@ -227,6 +227,8 @@ struct IOSContentView: View {
 
         case .searchForm(let formType):
             switch formType {
+            case .nlSearch:
+                NLSearchFormView()
             case .adsModern:
                 ADSModernSearchFormView()
             case .adsClassic:

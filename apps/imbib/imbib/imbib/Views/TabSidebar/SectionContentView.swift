@@ -450,6 +450,9 @@ struct SectionContentView: View {
         }()
 
         switch formType {
+        case .nlSearch:
+            NLSearchFormView(mode: mode, editingFeedID: editingFeedID)
+                .navigationTitle(mode == .inboxFeed ? "Create AI Feed" : "Smart Search (AI)")
         case .adsModern:
             ADSModernSearchFormView(mode: mode, editingFeedID: editingFeedID)
                 .navigationTitle(mode == .inboxFeed ? "Create ADS Feed" : "SciX Search")
