@@ -63,6 +63,40 @@ impl From<impress_core::UndoInfo> for UndoInfo {
     }
 }
 
+/// Snapshot of an item and its children, for undo of delete operations.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ItemSnapshot {
+    /// JSON-serialized Item.
+    pub item_json: String,
+    /// JSON-serialized child Items (linked files, annotations, comments, etc).
+    pub child_jsons: Vec<String>,
+}
+
+/// Snapshot for undoing a tag deletion.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct TagDeleteSnapshot {
+    /// JSON-serialized tag definition Item.
+    pub tag_definition_json: String,
+    /// IDs of publications that had this tag (as UUID strings).
+    pub tagged_publication_ids: Vec<String>,
+    /// The tag path that was deleted.
+    pub tag_path: String,
+}
+
+/// Snapshot for undoing a library deletion.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct LibraryDeleteSnapshot {
+    /// JSON-serialized library Item.
+    pub library_json: String,
+    /// IDs of publications that had this library as parent (as UUID strings).
+    pub child_publication_ids: Vec<String>,
+    /// IDs of collections that had this library as parent.
+    pub child_collection_ids: Vec<String>,
+}
+
 /// The main entry point for Swift. Wraps SqliteItemStore + SchemaRegistry.
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct ImbibStore {
@@ -125,6 +159,22 @@ impl ImbibStore {
             batch_id,
             description,
         })
+    }
+
+    /// Snapshot all child items of a parent item as JSON strings.
+    fn snapshot_children(&self, parent_id: uuid::Uuid) -> Result<Vec<String>, StoreApiError> {
+        let q = ItemQuery {
+            predicates: vec![Predicate::HasParent(parent_id)],
+            ..Default::default()
+        };
+        let children = self.store.query(&q)?;
+        children
+            .iter()
+            .map(|c| {
+                serde_json::to_string(c)
+                    .map_err(|e| StoreApiError::Storage(format!("serialize child: {}", e)))
+            })
+            .collect()
     }
 }
 
@@ -592,6 +642,165 @@ impl ImbibStore {
     /// Undo all operations in a batch. Returns UndoInfo for the redo batch.
     pub fn undo_batch(&self, batch_id: String) -> Result<UndoInfo, StoreApiError> {
         Ok(self.store.undo_batch(&batch_id)?.into())
+    }
+
+    // --- Undoable delete operations ---
+
+    /// Delete publications with snapshot for undo. Returns snapshots of deleted items.
+    pub fn delete_publications_undoable(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<ItemSnapshot>, StoreApiError> {
+        let mut snapshots = Vec::new();
+        for id_str in &ids {
+            let uuid = parse_uuid(id_str)?;
+            if let Some(item) = self.store.get(uuid)? {
+                let children = self.snapshot_children(uuid)?;
+                let item_json = serde_json::to_string(&item)
+                    .map_err(|e| StoreApiError::Storage(format!("serialize item: {}", e)))?;
+                snapshots.push(ItemSnapshot {
+                    item_json,
+                    child_jsons: children,
+                });
+                self.store.delete(uuid)?;
+            }
+        }
+        Ok(snapshots)
+    }
+
+    /// Delete a library with snapshot for undo.
+    pub fn delete_library_undoable(&self, id: String) -> Result<LibraryDeleteSnapshot, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+
+        // Snapshot the library item
+        let lib_item = self.store.get(uuid)?
+            .ok_or_else(|| StoreApiError::NotFound(id.clone()))?;
+        let library_json = serde_json::to_string(&lib_item)
+            .map_err(|e| StoreApiError::Storage(format!("serialize library: {}", e)))?;
+
+        // Record child publication IDs (they'll become orphaned on delete due to ON DELETE SET NULL)
+        let pub_q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::HasParent(uuid)],
+            ..Default::default()
+        };
+        let child_publication_ids: Vec<String> = self.store.query(&pub_q)?
+            .iter().map(|p| p.id.to_string()).collect();
+
+        // Record child collection IDs
+        let coll_q = ItemQuery {
+            schema: Some("imbib/collection".into()),
+            predicates: vec![Predicate::HasParent(uuid)],
+            ..Default::default()
+        };
+        let child_collection_ids: Vec<String> = self.store.query(&coll_q)?
+            .iter().map(|c| c.id.to_string()).collect();
+
+        // Delete the library (children get parent_id = NULL via ON DELETE SET NULL)
+        self.store.delete(uuid)?;
+
+        Ok(LibraryDeleteSnapshot {
+            library_json,
+            child_publication_ids,
+            child_collection_ids,
+        })
+    }
+
+    /// Restore a deleted library and re-parent its children.
+    pub fn restore_library(&self, snapshot: LibraryDeleteSnapshot) -> Result<(), StoreApiError> {
+        use impress_core::item::Item;
+
+        let item: Item = serde_json::from_str(&snapshot.library_json)
+            .map_err(|e| StoreApiError::Storage(format!("deserialize library: {}", e)))?;
+        let lib_id = item.id;
+        self.store.insert(item)?;
+
+        // Re-parent publications
+        for pub_id_str in &snapshot.child_publication_ids {
+            let pub_uuid = parse_uuid(pub_id_str)?;
+            self.store.update(pub_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
+        }
+
+        // Re-parent collections
+        for coll_id_str in &snapshot.child_collection_ids {
+            let coll_uuid = parse_uuid(coll_id_str)?;
+            self.store.update(coll_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
+        }
+
+        Ok(())
+    }
+
+    /// Delete a tag definition and remove from all publications, returning snapshot for undo.
+    pub fn delete_tag_undoable(&self, path: String) -> Result<TagDeleteSnapshot, StoreApiError> {
+        // 1. Snapshot the tag definition item
+        let q = ItemQuery {
+            schema: Some("imbib/tag-definition".into()),
+            predicates: vec![Predicate::Eq(
+                "canonical_path".into(),
+                Value::String(path.clone()),
+            )],
+            ..Default::default()
+        };
+        let tag_items = self.store.query(&q)?;
+        let tag_json = tag_items
+            .first()
+            .map(|item| serde_json::to_string(item).unwrap_or_default())
+            .unwrap_or_default();
+
+        // 2. Find all publications with this tag
+        let pub_q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::HasTag(path.clone())],
+            ..Default::default()
+        };
+        let tagged_pubs = self.store.query(&pub_q)?;
+        let tagged_pub_ids: Vec<String> = tagged_pubs.iter().map(|p| p.id.to_string()).collect();
+
+        // 3. Perform the actual delete
+        self.delete_tag(path.clone())?;
+
+        Ok(TagDeleteSnapshot {
+            tag_definition_json: tag_json,
+            tagged_publication_ids: tagged_pub_ids,
+            tag_path: path,
+        })
+    }
+
+    /// Restore a deleted tag definition and re-tag publications.
+    pub fn restore_tag(&self, snapshot: TagDeleteSnapshot) -> Result<(), StoreApiError> {
+        use impress_core::item::Item;
+
+        // Restore tag definition item
+        if !snapshot.tag_definition_json.is_empty() {
+            let item: Item = serde_json::from_str(&snapshot.tag_definition_json)
+                .map_err(|e| StoreApiError::Storage(format!("deserialize tag: {}", e)))?;
+            self.store.insert(item)?;
+        }
+
+        // Re-tag publications
+        for pub_id_str in &snapshot.tagged_publication_ids {
+            let pub_uuid = parse_uuid(pub_id_str)?;
+            self.store.update(pub_uuid, vec![FieldMutation::AddTag(snapshot.tag_path.clone())])?;
+        }
+
+        Ok(())
+    }
+
+    /// Restore previously-deleted items from snapshots.
+    pub fn restore_snapshots(&self, snapshots: Vec<ItemSnapshot>) -> Result<(), StoreApiError> {
+        use impress_core::item::Item;
+
+        for snapshot in &snapshots {
+            let item: Item = serde_json::from_str(&snapshot.item_json)
+                .map_err(|e| StoreApiError::Storage(format!("deserialize item: {}", e)))?;
+            self.store.insert(item)?;
+            for child_json in &snapshot.child_jsons {
+                let child: Item = serde_json::from_str(child_json)
+                    .map_err(|e| StoreApiError::Storage(format!("deserialize child: {}", e)))?;
+                self.store.insert(child)?;
+            }
+        }
+        Ok(())
     }
 
     // --- Generic field helpers ---
@@ -3926,5 +4135,115 @@ mod tests {
             .unwrap();
         assert_eq!(tag_page.len(), 1);
         assert_eq!(tag_page[0].year, Some(2015));
+    }
+
+    #[test]
+    fn delete_publications_undoable_and_restore() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{a1, title={Paper One}, author={Smith}}\n@article{a2, title={Paper Two}, author={Jones}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        assert_eq!(ids.len(), 2);
+
+        // Delete with snapshot
+        let snapshots = store.delete_publications_undoable(ids.clone()).unwrap();
+        assert_eq!(snapshots.len(), 2);
+
+        // Verify deleted
+        let pubs = store.query_publications(lib.id.clone(), "title".into(), true, None, None).unwrap();
+        assert_eq!(pubs.len(), 0);
+
+        // Restore from snapshots
+        store.restore_snapshots(snapshots).unwrap();
+
+        // Verify restored
+        let pubs = store.query_publications(lib.id.clone(), "title".into(), true, None, None).unwrap();
+        assert_eq!(pubs.len(), 2);
+    }
+
+    #[test]
+    fn delete_library_undoable_and_restore() {
+        let store = make_store();
+        let lib = store.create_library("Physics".into()).unwrap();
+        let lib_id = lib.id.clone();
+        store
+            .import_bibtex("@article{x, title={Dark Matter}}".into(), lib_id.clone())
+            .unwrap();
+        store.create_collection("Favorites".into(), lib_id.clone(), false, None).unwrap();
+
+        // Delete library
+        let snapshot = store.delete_library_undoable(lib_id.clone()).unwrap();
+        assert_eq!(snapshot.child_publication_ids.len(), 1);
+        assert_eq!(snapshot.child_collection_ids.len(), 1);
+
+        // Library is gone
+        assert!(store.get_library(lib_id.clone()).unwrap().is_none());
+
+        // Publications still exist but orphaned (parent = NULL)
+        let detail = store.get_publication_detail(snapshot.child_publication_ids[0].clone()).unwrap();
+        assert!(detail.is_some()); // item still exists
+
+        // Restore library
+        store.restore_library(snapshot).unwrap();
+
+        // Library is back
+        let restored = store.get_library(lib_id.clone()).unwrap();
+        assert!(restored.is_some());
+        assert_eq!(restored.unwrap().name, "Physics");
+
+        // Publications are re-parented
+        let pubs = store.query_publications(lib_id.clone(), "title".into(), true, None, None).unwrap();
+        assert_eq!(pubs.len(), 1);
+        assert_eq!(pubs[0].title, "Dark Matter");
+
+        // Collection is re-parented
+        let colls = store.list_collections(lib_id).unwrap();
+        assert_eq!(colls.len(), 1);
+    }
+
+    #[test]
+    fn delete_tag_undoable_and_restore() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex("@article{t1, title={Tagged Paper}}".into(), lib.id.clone())
+            .unwrap();
+
+        // Create tag and assign
+        store.create_tag("methods/ml".into(), Some("#ff0000".into()), None).unwrap();
+        store.add_tag(ids.clone(), "methods/ml".into()).unwrap();
+
+        // Verify tag exists
+        let tags = store.list_tags().unwrap();
+        assert!(tags.iter().any(|t| t.path == "methods/ml"));
+
+        // Delete tag with snapshot
+        let snapshot = store.delete_tag_undoable("methods/ml".into()).unwrap();
+        assert!(!snapshot.tag_definition_json.is_empty());
+        assert_eq!(snapshot.tagged_publication_ids.len(), 1);
+        assert_eq!(snapshot.tag_path, "methods/ml");
+
+        // Tag is gone
+        let tags = store.list_tags().unwrap();
+        assert!(!tags.iter().any(|t| t.path == "methods/ml"));
+
+        // Publication no longer has tag
+        let detail = store.get_publication_detail(ids[0].clone()).unwrap().unwrap();
+        assert!(!detail.tags.iter().any(|t| t.path == "methods/ml"));
+
+        // Restore tag
+        store.restore_tag(snapshot).unwrap();
+
+        // Tag definition is back
+        let tags = store.list_tags().unwrap();
+        assert!(tags.iter().any(|t| t.path == "methods/ml"));
+
+        // Publication has tag again
+        let detail = store.get_publication_detail(ids[0].clone()).unwrap().unwrap();
+        assert!(detail.tags.iter().any(|t| t.path == "methods/ml"));
     }
 }

@@ -54,5 +54,30 @@ public final class UndoCoordinator: UndoRegistering {
         um.setActionName(description)
     }
 
+    /// Register a closure-based undo action for insert/delete operations
+    /// that bypass the operation log.
+    ///
+    /// The `undo` closure performs the compensating action. To support redo,
+    /// pass a `redo` closure; when the undo fires, a redo is registered automatically.
+    public func registerUndoClosure(
+        actionName: String,
+        undo undoClosure: @escaping @MainActor () -> Void,
+        redo redoClosure: (@escaping @MainActor () -> Void)? = nil
+    ) {
+        guard let um = undoManager else { return }
+
+        um.registerUndo(withTarget: self) { [weak self] _ in
+            Task { @MainActor in
+                undoClosure()
+                // Register redo if provided
+                if let redo = redoClosure, let self {
+                    self.registerUndoClosure(actionName: actionName, undo: redo, redo: undoClosure)
+                }
+            }
+        }
+
+        um.setActionName(actionName)
+    }
+
     private init() {}
 }
