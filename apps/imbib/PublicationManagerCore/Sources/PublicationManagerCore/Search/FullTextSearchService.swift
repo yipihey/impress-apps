@@ -344,7 +344,7 @@ public actor FullTextSearchService {
     /// Strip MathML markup from abstract text so search queries match clean Unicode.
     private nonisolated func cleanAbstract(_ text: String?) -> String? {
         guard let text else { return nil }
-        return parseMathml(mathml: text)
+        return parseMathml(text: text)
     }
 
     private func indexPublicationFromStore(id: UUID, using index: RustSearchIndexSession, fullText: String? = nil) async {

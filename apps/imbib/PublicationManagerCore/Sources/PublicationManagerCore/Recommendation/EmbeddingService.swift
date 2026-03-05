@@ -473,9 +473,12 @@ public actor EmbeddingService {
 
             let embedding = await computeEmbeddingFromModel(pub)
 
-            // Cosine similarity via Rust
-            let similarity = ImbibRustCore.cosineSimilarity(a: centroid, b: embedding)
-            scored.append((candidateID, similarity))
+            // Cosine similarity
+            var dot: Float = 0
+            for i in 0..<min(dim, embedding.count) {
+                dot += centroid[i] * embedding[i]
+            }
+            scored.append((candidateID, dot))
         }
 
         // Sort by similarity descending and return top-K
