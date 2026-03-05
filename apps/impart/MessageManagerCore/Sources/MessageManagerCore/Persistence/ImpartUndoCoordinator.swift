@@ -18,23 +18,22 @@ public final class ImpartUndoCoordinator: UndoRegistering {
     public static let shared = ImpartUndoCoordinator()
 
     /// The window's UndoManager, set by wireUndo modifier.
+    /// We assign this directly to viewContext.undoManager so Core Data
+    /// tracks mutations on the same UndoManager that Cmd+Z targets.
     public var undoManager: UndoManager? {
-        didSet {
-            syncUndoState()
-        }
+        didSet { syncUndoState() }
     }
 
-    /// The Core Data viewContext's undo manager.
-    private var coreDataUndoManager: UndoManager? {
-        PersistenceController.shared.viewContext.undoManager
-    }
-
-    /// Sync undo/redo availability from Core Data to the window.
+    /// Bridge: assign the window's UndoManager to Core Data's viewContext
+    /// so that mutations register on the UndoManager that the Edit menu sees.
     private func syncUndoState() {
-        // Core Data's viewContext.undoManager is the authoritative source.
-        // The window's undo manager routes through the NSResponder chain,
-        // so when the message list or folder sidebar has focus, Cmd+Z triggers
-        // the Core Data undo manager's undo operation.
+        let context = PersistenceController.shared.viewContext
+        if let um = undoManager {
+            um.levelsOfUndo = 50
+            context.undoManager = um
+        } else {
+            context.undoManager = nil
+        }
     }
 
     private init() {}
