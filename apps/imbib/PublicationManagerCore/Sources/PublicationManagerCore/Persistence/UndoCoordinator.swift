@@ -62,7 +62,7 @@ public final class UndoCoordinator: UndoRegistering {
     public func registerUndoClosure(
         actionName: String,
         undo undoClosure: @escaping @MainActor () -> Void,
-        redo redoClosure: (@escaping @MainActor () -> Void)? = nil
+        redo redoClosure: (@MainActor () -> Void)? = nil
     ) {
         guard let um = undoManager else { return }
 
