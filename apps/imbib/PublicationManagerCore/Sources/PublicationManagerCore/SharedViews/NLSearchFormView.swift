@@ -530,7 +530,7 @@ public struct NLSearchFormView: View {
                 return
             }
             let name = feedName.isEmpty ? "AI: \(text.prefix(40))" : feedName
-            RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: Int64(feedMaxResults))
+            RustStoreAdapter.shared.updateSmartSearch(feedID, name: name, query: query, maxResults: Int16(feedMaxResults))
             RustStoreAdapter.shared.updateIntField(id: feedID, field: "refresh_interval_seconds", value: Int64(refreshPreset.rawValue))
             NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
         }

@@ -9455,6 +9455,18 @@ public struct ParsedFilter {
      */
     public var textTerms: [String]
     /**
+     * Negated text terms (exclude matches)
+     */
+    public var negatedTextTerms: [String]
+    /**
+     * Field-qualified terms as "field:term" strings (e.g., ["title:galaxy", "author:smith"])
+     */
+    public var fieldTermRaws: [String]
+    /**
+     * Year filter as string if present (e.g., "2020", "2020-2024", ">2020")
+     */
+    public var yearFilterRaw: String?
+    /**
      * Flag query string if present (e.g., "flag:red", "flag:*", "-flag:*")
      */
     public var flagQueryRaw: String?
@@ -9478,6 +9490,15 @@ public struct ParsedFilter {
          * Text search terms (matched against title, authors, abstract)
          */textTerms: [String], 
         /**
+         * Negated text terms (exclude matches)
+         */negatedTextTerms: [String], 
+        /**
+         * Field-qualified terms as "field:term" strings (e.g., ["title:galaxy", "author:smith"])
+         */fieldTermRaws: [String], 
+        /**
+         * Year filter as string if present (e.g., "2020", "2020-2024", ">2020")
+         */yearFilterRaw: String?, 
+        /**
          * Flag query string if present (e.g., "flag:red", "flag:*", "-flag:*")
          */flagQueryRaw: String?, 
         /**
@@ -9490,6 +9511,9 @@ public struct ParsedFilter {
          * Whether this filter is empty (matches everything)
          */isEmpty: Bool) {
         self.textTerms = textTerms
+        self.negatedTextTerms = negatedTextTerms
+        self.fieldTermRaws = fieldTermRaws
+        self.yearFilterRaw = yearFilterRaw
         self.flagQueryRaw = flagQueryRaw
         self.tagQueryRaws = tagQueryRaws
         self.readState = readState
@@ -9502,6 +9526,15 @@ public struct ParsedFilter {
 extension ParsedFilter: Equatable, Hashable {
     public static func ==(lhs: ParsedFilter, rhs: ParsedFilter) -> Bool {
         if lhs.textTerms != rhs.textTerms {
+            return false
+        }
+        if lhs.negatedTextTerms != rhs.negatedTextTerms {
+            return false
+        }
+        if lhs.fieldTermRaws != rhs.fieldTermRaws {
+            return false
+        }
+        if lhs.yearFilterRaw != rhs.yearFilterRaw {
             return false
         }
         if lhs.flagQueryRaw != rhs.flagQueryRaw {
@@ -9521,6 +9554,9 @@ extension ParsedFilter: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(textTerms)
+        hasher.combine(negatedTextTerms)
+        hasher.combine(fieldTermRaws)
+        hasher.combine(yearFilterRaw)
         hasher.combine(flagQueryRaw)
         hasher.combine(tagQueryRaws)
         hasher.combine(readState)
@@ -9537,6 +9573,9 @@ public struct FfiConverterTypeParsedFilter: FfiConverterRustBuffer {
         return
             try ParsedFilter(
                 textTerms: FfiConverterSequenceString.read(from: &buf), 
+                negatedTextTerms: FfiConverterSequenceString.read(from: &buf), 
+                fieldTermRaws: FfiConverterSequenceString.read(from: &buf), 
+                yearFilterRaw: FfiConverterOptionString.read(from: &buf), 
                 flagQueryRaw: FfiConverterOptionString.read(from: &buf), 
                 tagQueryRaws: FfiConverterSequenceString.read(from: &buf), 
                 readState: FfiConverterOptionString.read(from: &buf), 
@@ -9546,6 +9585,9 @@ public struct FfiConverterTypeParsedFilter: FfiConverterRustBuffer {
 
     public static func write(_ value: ParsedFilter, into buf: inout [UInt8]) {
         FfiConverterSequenceString.write(value.textTerms, into: &buf)
+        FfiConverterSequenceString.write(value.negatedTextTerms, into: &buf)
+        FfiConverterSequenceString.write(value.fieldTermRaws, into: &buf)
+        FfiConverterOptionString.write(value.yearFilterRaw, into: &buf)
         FfiConverterOptionString.write(value.flagQueryRaw, into: &buf)
         FfiConverterSequenceString.write(value.tagQueryRaws, into: &buf)
         FfiConverterOptionString.write(value.readState, into: &buf)

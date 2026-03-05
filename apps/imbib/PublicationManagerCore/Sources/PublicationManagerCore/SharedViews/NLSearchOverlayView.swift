@@ -79,7 +79,7 @@ public struct NLSearchOverlayView: View {
                 // State-dependent content
                 stateContent
             }
-            .frame(width: 600, idealHeight: dynamicHeight)
+            .frame(width: 600)
             .fixedSize(horizontal: false, vertical: true)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -376,7 +376,7 @@ public struct NLSearchOverlayView: View {
         .padding(.vertical, 8)
     }
 
-    private func nlHelpRow(_ syntax: String, _ desc: String) -> some GridRow<some View> {
+    @ViewBuilder private func nlHelpRow(_ syntax: String, _ desc: String) -> some View {
         GridRow {
             Text(syntax)
                 .foregroundStyle(.primary)

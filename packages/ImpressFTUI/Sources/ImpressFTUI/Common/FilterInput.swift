@@ -158,7 +158,7 @@ public struct FilterInput: View {
         .padding(.vertical, 4)
     }
 
-    private func helpRow(_ syntax: String, _ desc: String) -> some GridRow<some View> {
+    @ViewBuilder private func helpRow(_ syntax: String, _ desc: String) -> some View {
         GridRow {
             Text(syntax)
                 .foregroundStyle(.primary)

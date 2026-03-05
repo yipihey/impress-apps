@@ -288,8 +288,8 @@ public final class NLSearchService {
             // Full tool-calling session with sciX tools
             let tools = NLSearchToolFactory.makeTools(apiToken: token)
             session = LanguageModelSession(
-                instructions: Self.adsQuerySystemPrompt,
-                tools: tools
+                tools: tools,
+                instructions: Self.adsQuerySystemPrompt
             )
         } else {
             // No API key — session without tools, just query generation

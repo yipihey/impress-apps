@@ -600,7 +600,7 @@ public struct GlobalSearchPaletteView: View {
         .padding(.vertical, 8)
     }
 
-    private func helpGridRow(_ syntax: String, _ desc: String) -> some GridRow<some View> {
+    @ViewBuilder private func helpGridRow(_ syntax: String, _ desc: String) -> some View {
         GridRow {
             Text(syntax)
                 .foregroundStyle(.primary)
