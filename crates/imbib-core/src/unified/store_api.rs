@@ -1153,11 +1153,17 @@ impl ImbibStore {
         doi: Option<String>,
         arxiv_id: Option<String>,
         bibcode: Option<String>,
+        cite_key: Option<String>,
     ) -> Result<DismissedPaperRow, StoreApiError> {
+        // Normalize identifiers to lowercase for case-insensitive matching
+        let doi = doi.map(|d| d.to_lowercase());
+        let arxiv_id = arxiv_id.map(|a| a.to_lowercase());
+        let bibcode = bibcode.map(|b| b.to_lowercase());
         let item = conversion::dismissed_paper_to_item(
             doi.as_deref(),
             arxiv_id.as_deref(),
             bibcode.as_deref(),
+            cite_key.as_deref(),
         );
         self.store.insert(item.clone())?;
         Ok(item_to_dismissed_paper_row(&item))
@@ -1168,16 +1174,26 @@ impl ImbibStore {
         doi: Option<String>,
         arxiv_id: Option<String>,
         bibcode: Option<String>,
+        cite_key: Option<String>,
     ) -> Result<bool, StoreApiError> {
         let mut or_preds = Vec::new();
         if let Some(d) = doi {
-            or_preds.push(Predicate::Eq("doi".into(), Value::String(d)));
+            or_preds.push(Predicate::Eq("doi".into(), Value::String(d.to_lowercase())));
         }
         if let Some(a) = arxiv_id {
-            or_preds.push(Predicate::Eq("arxiv_id".into(), Value::String(a)));
+            or_preds.push(Predicate::Eq(
+                "arxiv_id".into(),
+                Value::String(a.to_lowercase()),
+            ));
         }
         if let Some(b) = bibcode {
-            or_preds.push(Predicate::Eq("bibcode".into(), Value::String(b)));
+            or_preds.push(Predicate::Eq(
+                "bibcode".into(),
+                Value::String(b.to_lowercase()),
+            ));
+        }
+        if let Some(ck) = cite_key {
+            or_preds.push(Predicate::Eq("cite_key".into(), Value::String(ck)));
         }
         if or_preds.is_empty() {
             return Ok(false);
@@ -3240,19 +3256,70 @@ mod tests {
 
         // Dismissed papers
         let dismissed = store
-            .dismiss_paper(Some("10.1234/test".into()), None, None)
+            .dismiss_paper(Some("10.1234/test".into()), None, None, None)
             .unwrap();
         assert_eq!(dismissed.doi, Some("10.1234/test".into()));
 
         assert!(store
-            .is_paper_dismissed(Some("10.1234/test".into()), None, None)
+            .is_paper_dismissed(Some("10.1234/test".into()), None, None, None)
             .unwrap());
         assert!(!store
-            .is_paper_dismissed(Some("10.9999/other".into()), None, None)
+            .is_paper_dismissed(Some("10.9999/other".into()), None, None, None)
             .unwrap());
 
         let papers = store.list_dismissed_papers(None, None).unwrap();
         assert_eq!(papers.len(), 1);
+    }
+
+    #[test]
+    fn dismiss_paper_case_insensitive() {
+        let store = make_store();
+
+        // Dismiss with mixed-case DOI
+        store
+            .dismiss_paper(Some("10.1234/ABC".into()), None, None, None)
+            .unwrap();
+
+        // Should match regardless of case (stored as lowercase)
+        assert!(store
+            .is_paper_dismissed(Some("10.1234/abc".into()), None, None, None)
+            .unwrap());
+        assert!(store
+            .is_paper_dismissed(Some("10.1234/ABC".into()), None, None, None)
+            .unwrap());
+        assert!(store
+            .is_paper_dismissed(Some("10.1234/Abc".into()), None, None, None)
+            .unwrap());
+
+        // Non-matching DOI should still return false
+        assert!(!store
+            .is_paper_dismissed(Some("10.9999/xyz".into()), None, None, None)
+            .unwrap());
+    }
+
+    #[test]
+    fn dismiss_paper_by_cite_key() {
+        let store = make_store();
+
+        // Dismiss with cite_key only (no DOI/arXiv/bibcode)
+        store
+            .dismiss_paper(None, None, None, Some("Einstein2005".into()))
+            .unwrap();
+
+        // Should find by cite_key
+        assert!(store
+            .is_paper_dismissed(None, None, None, Some("Einstein2005".into()))
+            .unwrap());
+
+        // Different cite_key should not match
+        assert!(!store
+            .is_paper_dismissed(None, None, None, Some("Bohr1913".into()))
+            .unwrap());
+
+        // No identifiers at all should return false
+        assert!(!store
+            .is_paper_dismissed(None, None, None, None)
+            .unwrap());
     }
 
     #[test]

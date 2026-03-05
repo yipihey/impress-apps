@@ -171,7 +171,7 @@ public actor EverythingExporter {
         if options.includeTriageHistory {
             let papers = await withStore { $0.listDismissedPapers() }
             dismissedPapers = papers.map {
-                DismissedPaperInfo(doi: $0.doi, arxivID: $0.arxivID, bibcode: $0.bibcode, dateDismissed: $0.dateDismissed)
+                DismissedPaperInfo(doi: $0.doi, arxivID: $0.arxivID, bibcode: $0.bibcode, citeKey: $0.citeKey, dateDismissed: $0.dateDismissed)
             }
         }
 

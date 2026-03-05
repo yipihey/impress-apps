@@ -414,8 +414,9 @@ public final class InboxManager {
         // Track dismissal so paper won't reappear
         trackDismissal(publicationID)
 
-        // Delete from inbox library
-        store.deletePublications(ids: [publicationID])
+        // Move to dismissed library instead of deleting
+        let dismissedLib = LibraryManager.shared.getOrCreateDismissedLibrary()
+        store.movePublications(ids: [publicationID], toLibraryId: dismissedLib.id)
         updateUnreadCount()
     }
 
@@ -454,31 +455,33 @@ public final class InboxManager {
         let doi = pub.doi
         let arxivID = pub.arxivID
         let bibcode = pub.bibcode
+        let citeKey: String? = pub.citeKey.isEmpty ? nil : pub.citeKey
 
-        guard doi != nil || arxivID != nil || bibcode != nil else {
+        guard doi != nil || arxivID != nil || bibcode != nil || citeKey != nil else {
             Logger.inbox.debugCapture("Cannot track dismissal for paper without identifiers", category: "dismiss")
             return
         }
 
         // Check if already tracked
-        if wasDismissed(doi: doi, arxivID: arxivID, bibcode: bibcode) {
+        if wasDismissed(doi: doi, arxivID: arxivID, bibcode: bibcode, citeKey: citeKey) {
             return
         }
 
-        store.dismissPaper(doi: doi, arxivId: arxivID, bibcode: bibcode)
-        Logger.inbox.infoCapture("Tracked dismissal for paper: DOI=\(doi ?? "nil"), arXiv=\(arxivID ?? "nil"), bibcode=\(bibcode ?? "nil")", category: "dismiss")
+        store.dismissPaper(doi: doi, arxivId: arxivID, bibcode: bibcode, citeKey: citeKey)
+        Logger.inbox.infoCapture("Tracked dismissal for paper: DOI=\(doi ?? "nil"), arXiv=\(arxivID ?? "nil"), bibcode=\(bibcode ?? "nil"), citeKey=\(citeKey ?? "nil")", category: "dismiss")
     }
 
     /// Check if a paper was previously dismissed
-    public func wasDismissed(doi: String?, arxivID: String?, bibcode: String?) -> Bool {
-        guard doi != nil || arxivID != nil || bibcode != nil else {
+    public func wasDismissed(doi: String?, arxivID: String?, bibcode: String?, citeKey: String? = nil) -> Bool {
+        guard doi != nil || arxivID != nil || bibcode != nil || citeKey != nil else {
             return false
         }
-        return store.isPaperDismissed(doi: doi, arxivId: arxivID, bibcode: bibcode)
+        return store.isPaperDismissed(doi: doi, arxivId: arxivID, bibcode: bibcode, citeKey: citeKey)
     }
 
     /// Check if a search result was previously dismissed
     public func wasDismissed(result: SearchResult) -> Bool {
+        // SearchResult doesn't have citeKey — DOI/arXiv/bibcode check handles most cases
         wasDismissed(doi: result.doi, arxivID: result.arxivID, bibcode: result.bibcode)
     }
 

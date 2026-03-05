@@ -14,6 +14,7 @@ public struct DismissedPaper: Identifiable, Hashable, Sendable {
     public let doi: String?
     public let arxivID: String?
     public let bibcode: String?
+    public let citeKey: String?
     public let dateDismissed: Date
 
     public init(from row: DismissedPaperRow) {
@@ -21,6 +22,7 @@ public struct DismissedPaper: Identifiable, Hashable, Sendable {
         self.doi = row.doi
         self.arxivID = row.arxivId
         self.bibcode = row.bibcode
+        self.citeKey = row.citeKey
         self.dateDismissed = Date(timeIntervalSince1970: TimeInterval(row.dateDismissed) / 1000.0)
     }
 }

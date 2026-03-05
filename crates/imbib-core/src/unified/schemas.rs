@@ -185,11 +185,12 @@ pub fn dismissed_paper_schema() -> Schema {
     Schema {
         id: "imbib/dismissed-paper".into(),
         name: "Dismissed Paper".into(),
-        version: "1.0.0".into(),
+        version: "1.0.1".into(),
         fields: vec![
             optional_string("doi"),
             optional_string("arxiv_id"),
             optional_string("bibcode"),
+            optional_string("cite_key"),
         ],
         expected_edges: vec![],
         inherits: None,

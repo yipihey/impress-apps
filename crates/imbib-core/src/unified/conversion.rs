@@ -495,11 +495,13 @@ pub fn dismissed_paper_to_item(
     doi: Option<&str>,
     arxiv_id: Option<&str>,
     bibcode: Option<&str>,
+    cite_key: Option<&str>,
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_opt_string(&mut payload, "doi", &doi.map(String::from));
     insert_opt_string(&mut payload, "arxiv_id", &arxiv_id.map(String::from));
     insert_opt_string(&mut payload, "bibcode", &bibcode.map(String::from));
+    insert_opt_string(&mut payload, "cite_key", &cite_key.map(String::from));
 
     Item {
         id: Uuid::new_v4(),
@@ -1127,11 +1129,12 @@ mod tests {
 
     #[test]
     fn dismissed_paper_to_item_fields() {
-        let item = dismissed_paper_to_item(Some("10.1234/test"), Some("2401.00001"), None);
+        let item = dismissed_paper_to_item(Some("10.1234/test"), Some("2401.00001"), None, None);
         assert_eq!(item.schema, "imbib/dismissed-paper");
         assert_eq!(get_string(&item.payload, "doi"), Some("10.1234/test".into()));
         assert_eq!(get_string(&item.payload, "arxiv_id"), Some("2401.00001".into()));
         assert!(get_string(&item.payload, "bibcode").is_none());
+        assert!(get_string(&item.payload, "cite_key").is_none());
     }
 
     #[test]
@@ -1204,7 +1207,7 @@ mod tests {
         assert!(reg.validate(&linked_file_to_item(pub_id, "test.pdf", None, None, 0, None, true)).is_ok());
         assert!(reg.validate(&smart_search_to_item("q", "test", lib_id, None, 100, false, false, 3600, None)).is_ok());
         assert!(reg.validate(&muted_item_to_item("author", "Smith")).is_ok());
-        assert!(reg.validate(&dismissed_paper_to_item(Some("10.1/x"), None, None)).is_ok());
+        assert!(reg.validate(&dismissed_paper_to_item(Some("10.1/x"), None, None, None)).is_ok());
         assert!(reg.validate(&scix_library_to_item("r1", "lib", None, false, "read", None, None)).is_ok());
         assert!(reg.validate(&annotation_to_item(file_id, "highlight", 1, None, None, None, None)).is_ok());
         assert!(reg.validate(&comment_to_item(pub_id, "hi", None, None, None)).is_ok());

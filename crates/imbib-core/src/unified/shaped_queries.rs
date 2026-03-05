@@ -155,6 +155,7 @@ pub struct DismissedPaperRow {
     pub doi: Option<String>,
     pub arxiv_id: Option<String>,
     pub bibcode: Option<String>,
+    pub cite_key: Option<String>,
     pub date_dismissed: i64,
 }
 
@@ -595,6 +596,7 @@ pub fn item_to_dismissed_paper_row(item: &Item) -> DismissedPaperRow {
         doi: get_str(payload, "doi"),
         arxiv_id: get_str(payload, "arxiv_id"),
         bibcode: get_str(payload, "bibcode"),
+        cite_key: get_str(payload, "cite_key"),
         date_dismissed: item.created.timestamp_millis(),
     }
 }

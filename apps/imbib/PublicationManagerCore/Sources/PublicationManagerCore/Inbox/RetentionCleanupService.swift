@@ -56,6 +56,7 @@ public final class RetentionCleanupService {
             let shouldRemoveAsRead = autoRemoveRead && pub.isRead
 
             if isOld || shouldRemoveAsRead {
+                InboxManager.shared.trackDismissal(pub.id)
                 store.deleteItem(id: pub.id)
                 removedCount += 1
             }

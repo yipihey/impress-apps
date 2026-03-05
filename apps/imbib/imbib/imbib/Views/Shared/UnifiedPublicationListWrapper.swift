@@ -2012,21 +2012,23 @@ struct UnifiedPublicationListWrapper: View {
         logger.info("Muted author: \(authorName)")
     }
 
-    /// Mute a paper (by DOI or bibcode)
+    /// Mute a paper (by DOI, arXiv ID, bibcode, or cite key)
     private func mutePaper(_ publicationID: UUID) {
         let store = RustStoreAdapter.shared
         guard let pub = store.getPublication(id: publicationID) else { return }
 
-        // Prefer DOI, then bibcode
-        if let doi = pub.doi, !doi.isEmpty {
-            _ = store.dismissPaper(doi: doi)
-            logger.info("Muted paper by DOI: \(doi)")
-        } else if let bibcode = pub.bibcode, !bibcode.isEmpty {
-            _ = store.dismissPaper(bibcode: bibcode)
-            logger.info("Muted paper by bibcode: \(bibcode)")
-        } else {
-            logger.warning("Cannot mute paper - no DOI or bibcode available")
+        let doi = pub.doi?.isEmpty == false ? pub.doi : nil
+        let arxivId = pub.arxivID?.isEmpty == false ? pub.arxivID : nil
+        let bibcode = pub.bibcode?.isEmpty == false ? pub.bibcode : nil
+        let citeKey: String? = pub.citeKey.isEmpty ? nil : pub.citeKey
+
+        guard doi != nil || arxivId != nil || bibcode != nil || citeKey != nil else {
+            logger.warning("Cannot mute paper - no identifiers available")
+            return
         }
+
+        _ = store.dismissPaper(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
+        logger.info("Muted paper: DOI=\(doi ?? "nil"), arXiv=\(arxivId ?? "nil"), bibcode=\(bibcode ?? "nil"), citeKey=\(citeKey ?? "nil")")
     }
 
     // MARK: - Helpers

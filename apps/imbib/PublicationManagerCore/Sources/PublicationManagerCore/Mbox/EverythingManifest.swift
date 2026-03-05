@@ -119,6 +119,9 @@ public struct DismissedPaperInfo: Sendable, Codable {
     /// ADS bibcode of the dismissed paper
     public let bibcode: String?
 
+    /// Cite key fallback for papers without standard identifiers
+    public let citeKey: String?
+
     /// When the paper was dismissed
     public let dateDismissed: Date?
 
@@ -126,17 +129,19 @@ public struct DismissedPaperInfo: Sendable, Codable {
         doi: String? = nil,
         arxivID: String? = nil,
         bibcode: String? = nil,
+        citeKey: String? = nil,
         dateDismissed: Date? = nil
     ) {
         self.doi = doi
         self.arxivID = arxivID
         self.bibcode = bibcode
+        self.citeKey = citeKey
         self.dateDismissed = dateDismissed
     }
 
     /// Whether this has at least one identifier
     public var hasIdentifier: Bool {
-        doi != nil || arxivID != nil || bibcode != nil
+        doi != nil || arxivID != nil || bibcode != nil || citeKey != nil
     }
 }
 

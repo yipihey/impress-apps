@@ -325,7 +325,7 @@ public actor EverythingImporter {
             for dismissedPaper in preview.manifest.dismissedPapers {
                 guard dismissedPaper.hasIdentifier else { continue }
                 _ = await withStore {
-                    $0.dismissPaper(doi: dismissedPaper.doi, arxivId: dismissedPaper.arxivID, bibcode: dismissedPaper.bibcode)
+                    $0.dismissPaper(doi: dismissedPaper.doi, arxivId: dismissedPaper.arxivID, bibcode: dismissedPaper.bibcode, citeKey: dismissedPaper.citeKey)
                 }
                 dismissedPapersImported += 1
             }

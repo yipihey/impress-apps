@@ -1509,9 +1509,9 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Dismiss a paper from inbox.
-    public func dismissPaper(doi: String? = nil, arxivId: String? = nil, bibcode: String? = nil) -> DismissedPaper? {
+    public func dismissPaper(doi: String? = nil, arxivId: String? = nil, bibcode: String? = nil, citeKey: String? = nil) -> DismissedPaper? {
         do {
-            let row = try store.dismissPaper(doi: doi, arxivId: arxivId, bibcode: bibcode)
+            let row = try store.dismissPaper(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
             didMutate()
             return DismissedPaper(from: row)
         } catch {
@@ -1521,9 +1521,9 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Check if a paper has been dismissed.
-    public func isPaperDismissed(doi: String? = nil, arxivId: String? = nil, bibcode: String? = nil) -> Bool {
+    public func isPaperDismissed(doi: String? = nil, arxivId: String? = nil, bibcode: String? = nil, citeKey: String? = nil) -> Bool {
         do {
-            return try store.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode)
+            return try store.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
         } catch {
             Logger.library.error("isPaperDismissed failed: \(error)")
             return false
@@ -2266,10 +2266,11 @@ extension RustStoreAdapter {
     nonisolated public func isPaperDismissedBackground(
         doi: String? = nil,
         arxivId: String? = nil,
-        bibcode: String? = nil
+        bibcode: String? = nil,
+        citeKey: String? = nil
     ) -> Bool {
         do {
-            return try imbibStore.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode)
+            return try imbibStore.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
         } catch {
             return false
         }

@@ -271,7 +271,8 @@ public actor SmartSearchProvider {
                         inboxMemberIDs = []
                     }
                     return existingPubs.compactMap { pub -> UUID? in
-                        if store.isPaperDismissed(doi: pub.doi, arxivId: pub.arxivID, bibcode: pub.bibcode) {
+                        let citeKey: String? = pub.citeKey.isEmpty ? nil : pub.citeKey
+                        if store.isPaperDismissed(doi: pub.doi, arxivId: pub.arxivID, bibcode: pub.bibcode, citeKey: citeKey) {
                             return nil
                         }
                         if inboxMemberIDs.contains(pub.id) { return nil }
