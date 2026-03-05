@@ -16,6 +16,7 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
     let mut entries = Vec::new();
     let mut current_entry: Option<RISEntry> = None;
     let mut raw_lines = Vec::new();
+    let mut last_tag: Option<String> = None;
 
     for line in input.lines() {
         // Skip empty lines
@@ -37,6 +38,7 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
                     }
                     raw_lines.clear();
                     raw_lines.push(line.to_string());
+                    last_tag = None;
 
                     let entry_type = RISType::from_str(&value);
                     current_entry = Some(RISEntry::new(entry_type));
@@ -49,19 +51,29 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
                         entries.push(entry);
                     }
                     raw_lines.clear();
+                    last_tag = None;
                 }
                 _ => {
                     // Regular tag
                     raw_lines.push(line.to_string());
                     if let Some(ref mut entry) = current_entry {
-                        entry.add_tag(tag, value);
+                        entry.add_tag(tag.clone(), value);
+                        last_tag = Some(tag);
                     }
                 }
             }
-        } else if let Some(ref mut _entry) = current_entry {
-            // Continuation line (doesn't start with tag)
+        } else if let Some(ref mut entry) = current_entry {
+            // Continuation line (doesn't start with tag) — append to last tag's value
             raw_lines.push(line.to_string());
-            // TODO: Append to previous tag value
+            if let Some(ref tag) = last_tag {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    if let Some(last) = entry.tags.iter_mut().rev().find(|t| t.tag == *tag) {
+                        last.value.push(' ');
+                        last.value.push_str(trimmed);
+                    }
+                }
+            }
         }
     }
 
@@ -78,12 +90,13 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
 fn parse_ris_line(line: &str) -> Option<(String, String)> {
     // RIS format: XX  - value (two chars, two spaces, dash, space, value)
     // Some variants: XX - value (two chars, space, dash, space, value)
+    // ER tags may appear as "ER  -" with no value
 
-    if line.len() < 6 {
+    if line.len() < 2 {
         return None;
     }
 
-    // Check for standard format: "XX  - " or "XX - "
+    // Check for valid tag prefix (two uppercase/digit characters)
     let tag = &line[0..2];
     if !tag
         .chars()
@@ -92,14 +105,19 @@ fn parse_ris_line(line: &str) -> Option<(String, String)> {
         return None;
     }
 
-    // Find the separator "  - " or " - "
     let rest = &line[2..];
+
+    // Find the separator "  - " or " - " or "- " (with value after)
+    // Also handle "  -" or " -" at end of line (no value, e.g. "ER  -")
     let value_start = if rest.starts_with("  - ") {
         4
     } else if rest.starts_with(" - ") {
         3
     } else if rest.starts_with("- ") {
         2
+    } else if rest.trim() == "-" || rest.trim().is_empty() {
+        // Tag with no value (e.g., "ER  -" or "ER")
+        return Some((tag.to_string(), String::new()));
     } else {
         return None;
     };
@@ -156,6 +174,31 @@ ER  -
 "#;
         let entries = parse(input.to_string()).unwrap();
         assert_eq!(entries[0].doi(), Some("10.1234/test.2024"));
+    }
+
+    #[test]
+    fn test_parse_multiline_continuation() {
+        let input = "TY  - JOUR\n\
+                      TI  - A Very Long Title That\n\
+                      Continues on the Next Line\n\
+                      AU  - Smith, John\n\
+                      AB  - This abstract spans\n\
+                      multiple lines and should\n\
+                      be concatenated together.\n\
+                      ER  -\n";
+        let entries = parse(input.to_string()).unwrap();
+        assert_eq!(entries.len(), 1);
+
+        let entry = &entries[0];
+        assert_eq!(
+            entry.title(),
+            Some("A Very Long Title That Continues on the Next Line")
+        );
+        assert_eq!(
+            entry.abstract_text(),
+            Some("This abstract spans multiple lines and should be concatenated together.")
+        );
+        assert_eq!(entry.authors(), vec!["Smith, John"]);
     }
 
     #[test]

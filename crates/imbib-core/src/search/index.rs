@@ -371,9 +371,104 @@ impl SearchIndex {
         limit: usize,
         library_id: Option<&str>,
     ) -> Result<Vec<SearchHit>, SearchIndexError> {
-        let results = self.search(query_str, limit, library_id)?;
-        // TODO: Generate snippets using Tantivy's snippet generator
-        // For now, snippets are computed client-side
+        let searcher = self.reader.searcher();
+
+        // Build the same query as search()
+        let mut query_parser = QueryParser::for_index(
+            &self.index,
+            vec![
+                self.title_field,
+                self.authors_field,
+                self.abstract_field,
+                self.full_text_field,
+                self.notes_field,
+            ],
+        );
+        query_parser.set_conjunction_by_default();
+
+        let effective_query = if !query_str.is_empty()
+            && !query_str.contains(|c: char| "+-\"*~^:(){}[]".contains(c))
+        {
+            let trimmed = query_str.trim();
+            if let Some(last_space) = trimmed.rfind(' ') {
+                format!("{} {}*", &trimmed[..last_space], &trimmed[last_space + 1..])
+            } else {
+                format!("{}*", trimmed)
+            }
+        } else {
+            query_str.to_string()
+        };
+
+        let text_query = query_parser.parse_query(&effective_query)?;
+
+        let final_query: Box<dyn tantivy::query::Query> = if let Some(lib_id) = library_id {
+            let lib_query = TermQuery::new(
+                Term::from_field_text(self.library_id_field, lib_id),
+                tantivy::schema::IndexRecordOption::Basic,
+            );
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Must, Box::new(text_query)),
+                (Occur::Must, Box::new(lib_query)),
+            ]))
+        } else {
+            Box::new(text_query)
+        };
+
+        let top_docs = searcher.search(&*final_query, &TopDocs::with_limit(limit))?;
+
+        // Tokenize query into terms for snippet generation
+        let query_terms: Vec<String> = query_str
+            .split_whitespace()
+            .filter(|w| w.len() >= 2)
+            .map(|w| w.to_string())
+            .collect();
+
+        let mut results = Vec::new();
+        for (score, doc_address) in top_docs {
+            let doc: TantivyDocument = searcher.doc(doc_address)?;
+
+            let id = doc
+                .get_first(self.id_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let cite_key = doc
+                .get_first(self.cite_key_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let title = doc
+                .get_first(self.title_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Generate snippet from stored abstract text (preferred) or title
+            let snippet = if !query_terms.is_empty() {
+                let abstract_text = doc
+                    .get_first(self.abstract_field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !abstract_text.is_empty() {
+                    crate::search::snippets::extract_snippet(abstract_text, &query_terms, 200)
+                } else {
+                    crate::search::snippets::extract_snippet(&title, &query_terms, 200)
+                }
+            } else {
+                None
+            };
+
+            results.push(SearchHit {
+                id,
+                cite_key,
+                title,
+                score,
+                snippet,
+            });
+        }
+
         Ok(results)
     }
 }
@@ -560,6 +655,25 @@ pub fn search_index_search(
         .search(&query, limit as usize, library_id.as_deref())
 }
 
+/// Search the index and return results with snippets from abstracts/titles
+#[uniffi::export]
+pub fn search_index_search_with_snippets(
+    handle_id: u64,
+    query: String,
+    limit: u32,
+    library_id: Option<String>,
+) -> Result<Vec<SearchHit>, SearchIndexError> {
+    let registry = INDEX_REGISTRY.read().unwrap();
+    let handle = registry
+        .get(&handle_id)
+        .ok_or_else(|| SearchIndexError::IndexError("Invalid handle".to_string()))?
+        .clone();
+
+    handle
+        .index
+        .search_with_snippets(&query, limit as usize, library_id.as_deref())
+}
+
 /// Close and release a search index handle
 #[uniffi::export]
 pub fn search_index_close(handle_id: u64) -> Result<(), SearchIndexError> {
@@ -607,6 +721,43 @@ mod tests {
         let results = index.search("relativity", 10, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].cite_key, "einstein1905");
+    }
+
+    #[test]
+    fn test_search_with_snippets() {
+        let index = SearchIndex::in_memory().unwrap();
+        let mut writer = index.writer(50_000_000).unwrap();
+
+        let mut pub1 = Publication::new(
+            "hawking1975".to_string(),
+            "article".to_string(),
+            "Particle Creation by Black Holes".to_string(),
+        );
+        pub1.abstract_text = Some(
+            "In the classical theory black holes can only absorb and not emit particles. \
+             However it is shown that quantum mechanical effects cause black holes to \
+             create and emit particles as if they were hot bodies."
+                .to_string(),
+        );
+        pub1.authors
+            .push(Author::new("Hawking".to_string()).with_given_name("Stephen"));
+
+        index
+            .index_publication(&mut writer, &pub1, None)
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let results = index
+            .search_with_snippets("quantum mechanical", 10, None)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        let hit = &results[0];
+        assert!(hit.snippet.is_some(), "snippet should be generated");
+        let snippet = hit.snippet.as_ref().unwrap();
+        assert!(
+            snippet.contains("quantum"),
+            "snippet should contain query term 'quantum'"
+        );
     }
 
     #[test]

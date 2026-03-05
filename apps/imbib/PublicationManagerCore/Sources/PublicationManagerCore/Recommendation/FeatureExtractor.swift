@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import ImbibRustCore
 
 // MARK: - Feature Extractor (ADR-020)
 
@@ -62,35 +63,144 @@ public struct FeatureExtractor {
     }
 
     /// Extract features from PublicationRowData (lightweight, for batch operations).
+    /// Delegates to Rust `extractFeaturesBatch()` for single-item extraction.
     @MainActor public static func extract(
         from row: PublicationRowData,
         profile: RecommendationProfile?,
         libraryPublications: [PublicationRowData]
     ) -> [FeatureType: Double] {
-        var features: [FeatureType: Double] = [:]
+        let results = extractBatch(from: [row], profile: profile, libraryPublications: libraryPublications)
+        return results.first ?? [:]
+    }
 
-        features[.authorStarred] = authorStarredScoreFromRow(row, profile: profile)
-        features[.collectionMatch] = collectionMatchScoreFromRow(row, profile: profile)
-        features[.tagMatch] = 0.0  // Simplified for row data
-        features[.mutedAuthor] = mutedAuthorPenaltyFromRow(row)
-        features[.mutedCategory] = mutedCategoryPenaltyFromRow(row)
-        features[.mutedVenue] = mutedVenuePenaltyFromRow(row)
+    /// Batch extract features for multiple publications via Rust.
+    /// Reduces FFI overhead by processing all publications in a single call.
+    @MainActor public static func extractBatch(
+        from rows: [PublicationRowData],
+        profile: RecommendationProfile?,
+        libraryPublications: [PublicationRowData]
+    ) -> [[FeatureType: Double]] {
+        let inputs = rows.map { Self.toFeatureInput($0) }
+        let profileData = Self.toProfileData(profile)
+        let libraryContext = Self.toLibraryContext(libraryPublications)
+        let mutedItems = Self.buildMutedItems()
 
-        features[.saveRateAuthor] = authorStarredScoreFromRow(row, profile: profile)
-        features[.saveRateVenue] = saveRateVenueFromRow(row, profile: profile)
-        features[.dismissRateAuthor] = dismissRateAuthorPenaltyFromRow(row, profile: profile)
-        features[.readingTimeTopic] = readingTimeTopicScoreFromRow(row, profile: profile)
-        features[.pdfDownloadAuthor] = authorStarredScoreFromRow(row, profile: profile) * 0.8
+        let rustResults = ImbibRustCore.extractFeaturesBatch(
+            publications: inputs,
+            profile: profileData,
+            library: libraryContext,
+            muted: mutedItems
+        )
 
-        features[.citationOverlap] = 0.0
-        features[.authorCoauthorship] = authorCoauthorshipFromRow(row, libraryPublications: libraryPublications)
-        features[.venueFrequency] = venueFrequencyFromRow(row, libraryPublications: libraryPublications)
-        features[.recency] = recencyScoreFromRow(row)
-        features[.fieldCitationVelocity] = citationVelocityFromRow(row)
-        features[.smartSearchMatch] = 0.0
-        features[.librarySimilarity] = 0.0
+        return rustResults.map { Self.fromFeatureVector($0) }
+    }
 
-        return features
+    // MARK: - Rust FFI Conversion Helpers
+
+    /// Convert PublicationRowData to Rust PublicationFeatureInput.
+    private static func toFeatureInput(_ row: PublicationRowData) -> PublicationFeatureInput {
+        let authorFamilyNames = row.authorString
+            .components(separatedBy: ",")
+            .compactMap { name -> String? in
+                let familyName = name.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ").first ?? ""
+                return familyName.isEmpty ? nil : familyName.lowercased()
+            }
+
+        return PublicationFeatureInput(
+            authorFamilyNames: authorFamilyNames,
+            title: row.title,
+            tagNames: [],  // Row data doesn't carry tags
+            primaryClass: row.primaryCategory,
+            journal: row.venue?.lowercased(),
+            year: row.year.map { Int32($0) },
+            citationCount: Int32(row.citationCount),
+            inSmartSearch: false,
+            similarityScores: []
+        )
+    }
+
+    /// Convert RecommendationProfile to Rust ProfileData.
+    private static func toProfileData(_ profile: RecommendationProfile?) -> ProfileData {
+        guard let profile = profile else {
+            return ProfileData(authorAffinities: [:], topicAffinities: [:], venueAffinities: [:])
+        }
+        return ProfileData(
+            authorAffinities: profile.authorAffinities,
+            topicAffinities: profile.topicAffinities,
+            venueAffinities: profile.venueAffinities
+        )
+    }
+
+    /// Build Rust LibraryContext from library publications.
+    private static func toLibraryContext(_ libraryPublications: [PublicationRowData]) -> LibraryContext {
+        var authorNames: [String] = []
+        var venueCounts: [String: Int32] = [:]
+
+        for pub in libraryPublications {
+            for name in pub.authorString.components(separatedBy: ",") {
+                let familyName = name.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ").first ?? ""
+                if !familyName.isEmpty {
+                    authorNames.append(familyName.lowercased())
+                }
+            }
+            if let venue = pub.venue?.lowercased() {
+                venueCounts[venue, default: 0] += 1
+            }
+        }
+
+        return LibraryContext(
+            libraryAuthorNames: authorNames,
+            venueCounts: venueCounts,
+            currentYear: Int32(Calendar.current.component(.year, from: Date()))
+        )
+    }
+
+    /// Build Rust MutedItems from RustStoreAdapter.
+    @MainActor
+    private static func buildMutedItems() -> MutedItems {
+        let mutedAuthors = fetchMutedItems(type: "author").map { $0.lowercased() }
+        let mutedCategories = fetchMutedItems(type: "arxivCategory").map { $0.lowercased() }
+        let mutedVenues = fetchMutedItems(type: "venue").map { $0.lowercased() }
+        return MutedItems(
+            authors: Array(mutedAuthors),
+            categories: Array(mutedCategories),
+            venues: Array(mutedVenues)
+        )
+    }
+
+    /// Map Rust FeatureType → Swift FeatureType.
+    private static let rustToSwiftFeatureMap: [ImbibRustCore.FeatureType: FeatureType] = [
+        .authorStarred: .authorStarred,
+        .collectionMatch: .collectionMatch,
+        .tagMatch: .tagMatch,
+        .mutedAuthor: .mutedAuthor,
+        .mutedCategory: .mutedCategory,
+        .mutedVenue: .mutedVenue,
+        .keepRateAuthor: .saveRateAuthor,
+        .keepRateVenue: .saveRateVenue,
+        .dismissRateAuthor: .dismissRateAuthor,
+        .readingTimeTopic: .readingTimeTopic,
+        .pdfDownloadAuthor: .pdfDownloadAuthor,
+        .citationOverlap: .citationOverlap,
+        .authorCoauthorship: .authorCoauthorship,
+        .venueFrequency: .venueFrequency,
+        .recency: .recency,
+        .fieldCitationVelocity: .fieldCitationVelocity,
+        .smartSearchMatch: .smartSearchMatch,
+        .librarySimilarity: .librarySimilarity,
+    ]
+
+    /// Convert Rust FeatureVector to Swift feature dictionary.
+    private static func fromFeatureVector(_ vector: ImbibRustCore.FeatureVector) -> [FeatureType: Double] {
+        var result: [FeatureType: Double] = [:]
+        for (rustType, value) in vector.features {
+            if let swiftType = rustToSwiftFeatureMap[rustType] {
+                result[swiftType] = value
+            }
+        }
+        return result
     }
 
     /// Extract features with a pre-computed similarity score.
@@ -331,140 +441,11 @@ public struct FeatureExtractor {
         return tanh(velocity / 10.0)
     }
 
-    // MARK: - Row-based feature extractors (lightweight)
-
-    private static func authorStarredScoreFromRow(_ row: PublicationRowData, profile: RecommendationProfile?) -> Double {
-        guard let profile = profile else { return 0.0 }
-        // Parse author string for family names
-        var maxAffinity = 0.0
-        for name in row.authorString.components(separatedBy: ",") {
-            let familyName = name.trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""
-            let affinity = profile.authorAffinity(for: familyName)
-            maxAffinity = max(maxAffinity, affinity)
-        }
-        return tanh(maxAffinity)
-    }
-
-    private static func collectionMatchScoreFromRow(_ row: PublicationRowData, profile: RecommendationProfile?) -> Double {
-        guard let profile = profile else { return 0.0 }
-        let titleKeywords = extractKeywords(from: row.title)
-        var topicScore = 0.0
-        for keyword in titleKeywords {
-            topicScore += profile.topicAffinity(for: keyword)
-        }
-        return tanh(topicScore / max(1.0, Double(titleKeywords.count)))
-    }
-
-    @MainActor private static func mutedAuthorPenaltyFromRow(_ row: PublicationRowData) -> Double {
-        let mutedAuthors = fetchMutedItems(type: "author")
-        for name in row.authorString.components(separatedBy: ",") {
-            let familyName = name.trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""
-            if mutedAuthors.contains(familyName.lowercased()) { return -1.0 }
-        }
-        return 0.0
-    }
-
-    @MainActor private static func mutedCategoryPenaltyFromRow(_ row: PublicationRowData) -> Double {
-        let mutedCategories = fetchMutedItems(type: "arxivCategory")
-        if let category = row.primaryCategory?.lowercased() {
-            if mutedCategories.contains(category) { return -1.0 }
-        }
-        return 0.0
-    }
-
-    @MainActor private static func mutedVenuePenaltyFromRow(_ row: PublicationRowData) -> Double {
-        let mutedVenues = fetchMutedItems(type: "venue")
-        if let venue = row.venue?.lowercased() {
-            if mutedVenues.contains(venue) { return -1.0 }
-        }
-        return 0.0
-    }
-
-    private static func saveRateVenueFromRow(_ row: PublicationRowData, profile: RecommendationProfile?) -> Double {
-        guard let profile = profile, let venue = row.venue else { return 0.0 }
-        let affinity = profile.venueAffinity(for: venue)
-        return affinity > 0 ? tanh(affinity) : 0.0
-    }
-
-    private static func dismissRateAuthorPenaltyFromRow(_ row: PublicationRowData, profile: RecommendationProfile?) -> Double {
-        guard let profile = profile else { return 0.0 }
-        var minAffinity = 0.0
-        for name in row.authorString.components(separatedBy: ",") {
-            let familyName = name.trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""
-            let affinity = profile.authorAffinity(for: familyName)
-            if affinity < 0 { minAffinity = min(minAffinity, affinity) }
-        }
-        return minAffinity < 0 ? tanh(minAffinity) : 0.0
-    }
-
-    private static func readingTimeTopicScoreFromRow(_ row: PublicationRowData, profile: RecommendationProfile?) -> Double {
-        guard let profile = profile else { return 0.0 }
-        let titleKeywords = extractKeywords(from: row.title)
-        var totalAffinity = 0.0
-        for keyword in titleKeywords {
-            let affinity = profile.topicAffinity(for: keyword)
-            if affinity > 0 { totalAffinity += affinity }
-        }
-        return titleKeywords.isEmpty ? 0.0 : tanh(totalAffinity / Double(titleKeywords.count))
-    }
-
-    private static func authorCoauthorshipFromRow(_ row: PublicationRowData, libraryPublications: [PublicationRowData]) -> Double {
-        guard !libraryPublications.isEmpty else { return 0.0 }
-        var libraryAuthors = Set<String>()
-        for pub in libraryPublications {
-            for name in pub.authorString.components(separatedBy: ",") {
-                let familyName = name.trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""
-                if !familyName.isEmpty { libraryAuthors.insert(familyName.lowercased()) }
-            }
-        }
-        var matchCount = 0
-        let authorNames = row.authorString.components(separatedBy: ",")
-        for name in authorNames {
-            let familyName = name.trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""
-            if libraryAuthors.contains(familyName.lowercased()) { matchCount += 1 }
-        }
-        return authorNames.isEmpty ? 0.0 : Double(matchCount) / Double(authorNames.count)
-    }
-
-    private static func venueFrequencyFromRow(_ row: PublicationRowData, libraryPublications: [PublicationRowData]) -> Double {
-        guard let venue = row.venue?.lowercased() else { return 0.0 }
-        var venueCount = 0
-        for pub in libraryPublications {
-            if pub.venue?.lowercased() == venue { venueCount += 1 }
-        }
-        return tanh(Double(venueCount) / 5.0)
-    }
-
-    private static func recencyScoreFromRow(_ row: PublicationRowData) -> Double {
-        guard let year = row.year, year > 0 else { return 0.5 }
-        let currentYear = Calendar.current.component(.year, from: Date())
-        let age = currentYear - year
-        return exp(-Double(age) / 2.0)
-    }
-
-    private static func citationVelocityFromRow(_ row: PublicationRowData) -> Double {
-        let citationCount = row.citationCount
-        guard citationCount > 0 else { return 0.0 }
-        guard let year = row.year, year > 0 else { return 0.0 }
-        let currentYear = Calendar.current.component(.year, from: Date())
-        let age = max(1, currentYear - year)
-        let velocity = Double(citationCount) / Double(age)
-        return tanh(velocity / 10.0)
-    }
-
     // MARK: - Semantic Similarity
 
-    /// Compute library similarity score from ANN search results.
+    /// Compute library similarity score from ANN search results via Rust.
     public static func librarySimilarityScore(from similarities: [Float]) -> Double {
-        guard !similarities.isEmpty else { return 0.0 }
-
-        let maxSimilarity = Double(similarities.max() ?? 0)
-        let count = Double(similarities.count)
-        let avgSimilarity = Double(similarities.reduce(0, +)) / count
-        let countBonus = tanh(count / 5.0) * 0.2
-
-        let score = maxSimilarity * 0.8 + avgSimilarity * 0.2 + countBonus
-        return min(1.0, score)
+        return ImbibRustCore.computeLibrarySimilarityScore(similarities: similarities)
     }
 
     // MARK: - Helpers
@@ -476,17 +457,9 @@ public struct FeatureExtractor {
         return Set(items.map { $0.value.lowercased() })
     }
 
-    /// Extract keywords from text.
+    /// Extract keywords from text via Rust.
     static func extractKeywords(from text: String) -> [String] {
-        let stopWords: Set<String> = [
-            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-            "of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
-            "using", "via", "based", "new", "novel", "approach", "method", "study"
-        ]
-
-        return text.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 4 && !stopWords.contains($0) }
+        return ImbibRustCore.extractTitleKeywords(title: text)
     }
 
     /// Hyperbolic tangent for normalizing unbounded values to [-1, 1].

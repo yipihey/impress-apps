@@ -178,7 +178,13 @@ pub fn item_to_publication(item: &Item) -> Publication {
         title,
         year: get_int(&item.payload, "year").map(|v| v as i32),
         month: get_string(&item.payload, "month"),
-        authors: vec![], // TODO: parse author_text or authors_json
+        authors: match item.payload.get("authors_json") {
+            Some(Value::String(json)) => serde_json::from_str(json).unwrap_or_default(),
+            _ => match get_string(&item.payload, "author_text") {
+                Some(text) => crate::domain::parse_author_string_internal(text),
+                None => vec![],
+            },
+        },
         editors: vec![],
         journal: get_string(&item.payload, "journal"),
         booktitle: get_string(&item.payload, "booktitle"),
@@ -1002,6 +1008,28 @@ mod tests {
         assert_eq!(pub_back.note, pub_data.note);
         assert_eq!(pub_back.tags, pub_data.tags);
         assert_eq!(pub_back.journal, pub_data.journal);
+        // Authors must survive the round-trip via authors_json
+        assert_eq!(pub_back.authors.len(), 2);
+        assert_eq!(pub_back.authors[0].family_name, "Smith");
+        assert_eq!(pub_back.authors[0].given_name, Some("John".into()));
+        assert_eq!(pub_back.authors[1].family_name, "Doe");
+        assert_eq!(pub_back.authors[1].given_name, Some("Jane".into()));
+    }
+
+    #[test]
+    fn item_to_publication_authors_from_author_text_fallback() {
+        // When authors_json is missing, parse author_text
+        let pub_data = make_publication();
+        let item = publication_to_item(&pub_data, None);
+
+        // Remove authors_json to force fallback
+        let mut payload = item.payload.clone();
+        payload.remove("authors_json");
+        let item_no_json = Item { payload, ..item };
+
+        let pub_back = item_to_publication(&item_no_json);
+        assert!(!pub_back.authors.is_empty(), "should parse authors from author_text");
+        assert_eq!(pub_back.authors[0].family_name, "Smith");
     }
 
     #[test]

@@ -8,6 +8,7 @@
 import Foundation
 import PDFKit
 import OSLog
+import ImbibRustCore
 
 // MARK: - PDF Extracted Metadata
 
@@ -61,7 +62,7 @@ public struct PDFExtractedMetadata: Sendable {
     public let heuristicJournal: String?
 
     /// Confidence of heuristic extraction
-    public let heuristicConfidence: HeuristicConfidence
+    public let heuristicConfidence: ImbibRustCore.HeuristicConfidence
 
     public init(
         title: String? = nil,
@@ -79,7 +80,7 @@ public struct PDFExtractedMetadata: Sendable {
         heuristicAuthors: [String] = [],
         heuristicYear: Int? = nil,
         heuristicJournal: String? = nil,
-        heuristicConfidence: HeuristicConfidence = .none
+        heuristicConfidence: ImbibRustCore.HeuristicConfidence = .none
     ) {
         self.title = title
         self.author = author
@@ -295,8 +296,9 @@ public actor PDFMetadataExtractor {
             confidence = max(confidence, .medium)
         }
 
-        // Phase 3: Heuristic extraction (fallback when no identifiers)
-        let heuristicFields = PDFTextMetadataExtractor.extract(from: firstPagePortion)
+        // Phase 3: Heuristic extraction via Rust (fallback when no identifiers)
+        let currentYear = Int32(Calendar.current.component(.year, from: Date()))
+        let heuristicFields = extractMetadataHeuristics(firstPageText: firstPagePortion, currentYear: currentYear)
 
         Logger.files.infoCapture(
             "Extracted metadata - title: \(title ?? "none"), DOI: \(extractedDOI ?? "none"), arXiv: \(extractedArXivID ?? "none"), heuristic: \(heuristicFields.confidence)",
@@ -317,7 +319,7 @@ public actor PDFMetadataExtractor {
             modificationDate: modificationDate,
             heuristicTitle: heuristicFields.title,
             heuristicAuthors: heuristicFields.authors,
-            heuristicYear: heuristicFields.year,
+            heuristicYear: heuristicFields.year.map { Int($0) },
             heuristicJournal: heuristicFields.journal,
             heuristicConfidence: heuristicFields.confidence
         )

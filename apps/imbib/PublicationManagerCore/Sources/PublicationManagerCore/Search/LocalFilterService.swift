@@ -88,6 +88,7 @@ public enum TagFilterQuery: Equatable, Sendable {
     case has(String)      // tags:methods/hydro — match prefix
     case hasNot(String)   // -tags:methods
     case hasAll([String]) // tags:a+b — both required
+    case hasAny([String]) // tags:a|b — either matches (OR)
 }
 
 public enum ReadStateFilter: Equatable, Sendable {
@@ -280,6 +281,15 @@ public final class LocalFilterService {
                     }
                     guard found else { return false }
                 }
+
+            case .hasAny(let paths):
+                let anyMatch = paths.contains { path in
+                    let lower = path.lowercased()
+                    return tags.contains { tag in
+                        tag.path.lowercased().hasPrefix(lower)
+                    }
+                }
+                guard anyMatch else { return false }
             }
         }
 
@@ -463,6 +473,14 @@ public final class LocalFilterService {
             let paths = value.components(separatedBy: "+").filter { !$0.isEmpty }
             if paths.count > 1 {
                 return .hasAll(paths)
+            }
+        }
+
+        // Check for OR: tags:a|b
+        if value.contains("|") {
+            let paths = value.components(separatedBy: "|").filter { !$0.isEmpty }
+            if paths.count > 1 {
+                return .hasAny(paths)
             }
         }
 

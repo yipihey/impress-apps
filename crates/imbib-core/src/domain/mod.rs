@@ -20,6 +20,7 @@ mod validation;
 
 // Re-export all types from local modules
 pub use author::{parse_author_string, Author};
+pub(crate) use author::parse_author_string_internal;
 pub use collection::Collection;
 pub use enrichment::{
     AuthorStats, EnrichmentCapability, EnrichmentData, EnrichmentPriority, OpenAccessStatus,

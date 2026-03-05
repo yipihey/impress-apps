@@ -8,6 +8,7 @@
 
 import Foundation
 import OSLog
+import ImbibRustCore
 
 // MARK: - Full-Text Search Service
 
@@ -209,7 +210,7 @@ public actor FullTextSearchService {
                 citeKey: pub.citeKey,
                 title: pub.title,
                 authors: pub.authorString,
-                abstractText: pub.abstract
+                abstractText: cleanAbstract(pub.abstract)
             ).toPublication()
         }
 
@@ -340,6 +341,12 @@ public actor FullTextSearchService {
 
     // MARK: - Private Methods
 
+    /// Strip MathML markup from abstract text so search queries match clean Unicode.
+    private nonisolated func cleanAbstract(_ text: String?) -> String? {
+        guard let text else { return nil }
+        return parseMathml(mathml: text)
+    }
+
     private func indexPublicationFromStore(id: UUID, using index: RustSearchIndexSession, fullText: String? = nil) async {
         let adapter = await MainActor.run { RustStoreAdapter.shared }
         guard let pub = adapter.getPublicationBackground(id: id) else { return }
@@ -349,7 +356,7 @@ public actor FullTextSearchService {
             citeKey: pub.citeKey,
             title: pub.title,
             authors: pub.authorString,
-            abstractText: pub.abstract
+            abstractText: cleanAbstract(pub.abstract)
         )
 
         do {
