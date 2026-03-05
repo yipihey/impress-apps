@@ -36,6 +36,7 @@ public struct NLSearchOverlayView: View {
     @State private var inputText = ""
     @State private var editableQuery = ""
     @State private var isEditingQuery = false
+    @State private var showHelp = false
     @State private var translationTask: Task<Void, Never>?
     @FocusState private var isInputFocused: Bool
     @FocusState private var isQueryFieldFocused: Bool
@@ -68,6 +69,11 @@ public struct NLSearchOverlayView: View {
                 // Source, max results, refereed options
                 optionsBar
 
+                // Help panel (toggled by ? button)
+                if showHelp {
+                    nlSearchHelpView
+                }
+
                 Divider()
 
                 // State-dependent content
@@ -79,6 +85,10 @@ public struct NLSearchOverlayView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
             .onKeyPress(.escape) {
+                if showHelp {
+                    showHelp = false
+                    return .handled
+                }
                 dismiss()
                 return .handled
             }
@@ -142,6 +152,15 @@ public struct NLSearchOverlayView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+
+            Button {
+                showHelp.toggle()
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(showHelp ? .purple : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Smart Search help")
 
             Button {
                 dismiss()
@@ -289,6 +308,80 @@ public struct NLSearchOverlayView: View {
 
         case .error(let message):
             errorView(message: message)
+        }
+    }
+
+    // MARK: - Help View
+
+    private var nlSearchHelpView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Smart Search Help")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.purple)
+
+            Text("Natural Language Examples")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.7))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                nlHelpRow("papers on dark energy by Riess since 2020", "topic + author + year")
+                nlHelpRow("galaxy rotation curves in the 1970s", "topic + decade")
+                nlHelpRow("what cites the original LIGO paper", "citation lookup")
+                nlHelpRow("recent JWST observations, refereed", "recency + filter")
+            }
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Text("Refinement (after translation)")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.7))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                nlHelpRow("narrow to refereed only", "add constraints")
+                nlHelpRow("also include Perlmutter", "expand authors")
+                nlHelpRow("limit to 2020-2024", "adjust year range")
+            }
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Text("ADS Query Syntax (in generated queries)")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.7))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                nlHelpRow("author:\"Last, F\"", "author search")
+                nlHelpRow("title:\"words\"", "title search")
+                nlHelpRow("abs:\"words\"", "abstract search")
+                nlHelpRow("year:YYYY-YYYY", "year range")
+                nlHelpRow("property:refereed", "refereed only")
+                nlHelpRow("AND / OR / NOT", "boolean operators")
+            }
+
+            HStack(spacing: 4) {
+                Text("Enter")
+                    .fontWeight(.medium)
+                Text("translate")
+                Text("·")
+                Text("Esc")
+                    .fontWeight(.medium)
+                Text("close")
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private func nlHelpRow(_ syntax: String, _ desc: String) -> some GridRow<some View> {
+        GridRow {
+            Text(syntax)
+                .foregroundStyle(.primary)
+            Text(desc)
+                .foregroundStyle(.secondary)
         }
     }
 
