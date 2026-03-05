@@ -854,6 +854,8 @@ public final class SearchViewModel {
             newQuery = openAlexFormState.searchText
         case .vagueMemory:
             newQuery = VagueMemoryQueryBuilder.buildQuery(from: vagueMemoryFormState)
+        case .nlSearch:
+            newQuery = query
         }
 
         // Get maxResults from the current form
@@ -865,6 +867,7 @@ public final class SearchViewModel {
         case .arxiv: formMaxResults = arxivFormState.maxResults
         case .openalex: formMaxResults = openAlexFormState.maxResults
         case .vagueMemory: formMaxResults = vagueMemoryFormState.maxResults
+        case .nlSearch: formMaxResults = 0
         }
 
         // Update the smart search via the Rust store

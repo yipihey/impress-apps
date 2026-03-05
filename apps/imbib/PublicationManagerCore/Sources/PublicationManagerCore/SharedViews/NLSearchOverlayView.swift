@@ -77,7 +77,7 @@ public struct NLSearchOverlayView: View {
                 return .handled
             }
             .onKeyPress(.return) {
-                if isInputFocused {
+                if isInputFocused && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     submitNaturalLanguage()
                     return .handled
                 } else if isQueryFieldFocused {
@@ -195,8 +195,8 @@ public struct NLSearchOverlayView: View {
         case .thinking:
             thinkingView
 
-        case .translated(let query, let interpretation):
-            translatedView(query: query, interpretation: interpretation)
+        case .translated(let query, let interpretation, let estimatedCount):
+            translatedView(query: query, interpretation: interpretation, estimatedCount: estimatedCount)
 
         case .searching:
             searchingView
@@ -266,7 +266,7 @@ public struct NLSearchOverlayView: View {
     // MARK: - Translated View
 
     @ViewBuilder
-    private func translatedView(query: String, interpretation: String) -> some View {
+    private func translatedView(query: String, interpretation: String, estimatedCount: UInt32?) -> some View {
         Divider()
 
         VStack(alignment: .leading, spacing: 8) {
@@ -278,6 +278,20 @@ public struct NLSearchOverlayView: View {
                 Text(interpretation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Spacer()
+
+                // Estimated count badge (from scix_count)
+                if let count = estimatedCount {
+                    Text("~\(count) results")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Capsule())
+                        .foregroundStyle(.blue)
+                }
             }
 
             // Generated query (editable)
@@ -302,10 +316,16 @@ public struct NLSearchOverlayView: View {
             .background(Color.blue.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            // Auto-execute hint
-            Text("Press Enter to search, or edit the query above")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            // Conversation hint
+            if nlService.conversationTurnCount > 0 {
+                Text("Type to refine: \"narrow to refereed\" or \"also by Perlmutter\"")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("Press Enter to search, or edit the query above")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -375,7 +395,11 @@ public struct NLSearchOverlayView: View {
                 .lineLimit(2)
 
             if resultCount > 0 {
-                Text("Results are in the Exploration section of the sidebar")
+                Text("Results are in the Exploration section — type to refine further")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("Try rephrasing or broadening your search")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }

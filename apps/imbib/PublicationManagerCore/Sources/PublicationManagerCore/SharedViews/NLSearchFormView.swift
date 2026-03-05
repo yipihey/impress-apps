@@ -227,6 +227,17 @@ public struct NLSearchFormView: View {
                     .foregroundStyle(.secondary)
             }
 
+        case .translated(_, _, let estimatedCount):
+            if let count = estimatedCount {
+                HStack(spacing: 8) {
+                    Image(systemName: "number.circle")
+                        .foregroundStyle(.blue)
+                    Text("~\(count) results available")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
         case .searching:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -448,6 +459,13 @@ public struct NLSearchFormView: View {
             case .thinking:
                 Section {
                     HStack { ProgressView(); Text("Translating...") }
+                }
+            case .translated(_, _, let estimatedCount):
+                if let count = estimatedCount {
+                    Section {
+                        Label("~\(count) results available", systemImage: "number.circle")
+                            .foregroundStyle(.blue)
+                    }
                 }
             case .searching:
                 Section {
