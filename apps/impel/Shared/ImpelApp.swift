@@ -4,6 +4,7 @@ import ImpelMail
 import CounselEngine
 import ImpressAI
 import ImpressKit
+import ImpressKeyboard
 import Foundation
 import OSLog
 
@@ -107,6 +108,39 @@ struct ImpelApp: App {
         }
         .handlesExternalEvents(matching: Set(["impel"]))
         .commands {
+            // Edit menu - ensure text field clipboard always works
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copy") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Cut") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Paste") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("v", modifiers: .command)
+
+                Divider()
+
+                Button("Select All") {
+                    if TextFieldFocusDetection.isTextFieldFocused() {
+                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("a", modifiers: .command)
+            }
+
             CommandGroup(after: .sidebar) {
                 Button("Refresh") {
                     Task { await client.refresh() }

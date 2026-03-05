@@ -100,6 +100,12 @@ struct ContentView: View {
         .keyboardShortcut("4", modifiers: .command) // Research view
         .keyboardShortcut("5", modifiers: .command) // Development view
         // Notification handlers
+        .onReceive(NotificationCenter.default.publisher(for: .copyMessages)) { _ in
+            copySelectedMessages()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAllMessages)) { _ in
+            appState.selectedMessageIds = Set(viewModel.sortedMessages.map(\.id))
+        }
         .onReceive(NotificationCenter.default.publisher(for: .composeMessage)) { notification in
             handleComposeNotification(notification)
         }
@@ -234,6 +240,24 @@ struct ContentView: View {
         }
 
         return .ignored
+    }
+
+    // MARK: - Clipboard Actions
+
+    private func copySelectedMessages() {
+        let selectedIds = appState.selectedMessageIds
+        guard !selectedIds.isEmpty else { return }
+
+        let messages = viewModel.sortedMessages.filter { selectedIds.contains($0.id) }
+        guard !messages.isEmpty else { return }
+
+        // Format as "Subject\nFrom: sender\nSnippet" for each message, joined by dividers
+        let text = messages.map { msg in
+            "\(msg.subject)\nFrom: \(msg.fromDisplayString)\n\(msg.snippet)"
+        }.joined(separator: "\n\n---\n\n")
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     // MARK: - Navigation Actions
