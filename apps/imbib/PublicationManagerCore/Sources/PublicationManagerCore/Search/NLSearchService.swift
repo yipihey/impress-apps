@@ -3,10 +3,19 @@
 //  PublicationManagerCore
 //
 //  Translates natural language search descriptions into ADS/SciX query syntax
-//  using Apple's on-device Foundation Models framework.
+//  using Apple's on-device Foundation Models framework with tool calling.
+//
+//  The on-device LLM autonomously selects the right sciX operation:
+//  - search_papers: topic/author/year queries → ADS query string
+//  - get_citations: "papers citing X" → citation network traversal
+//  - get_references: "what does X cite" → reference list
+//  - get_similar: "papers like X" → content similarity
+//  - get_coreads: "what else do readers of X read" → co-read discovery
+//  - count_results: preview query specificity
 //
 
 import Foundation
+import ImpressScixCore
 import OSLog
 
 #if canImport(FoundationModels)
@@ -19,7 +28,7 @@ import FoundationModels
 public enum NLSearchState: Sendable, Equatable {
     case idle
     case thinking
-    case translated(query: String, interpretation: String)
+    case translated(query: String, interpretation: String, estimatedCount: UInt32?)
     case searching
     case complete(query: String, resultCount: Int)
     case error(String)
@@ -32,12 +41,26 @@ public enum NLSearchState: Sendable, Equatable {
     }
 }
 
+// MARK: - NL Search Result Type
+
+/// The type of operation the model chose to perform
+public enum NLSearchResultType: Sendable, Equatable {
+    /// A standard ADS query search
+    case querySearch(query: String)
+    /// A bibcode-based operation (citations, references, similar, coreads)
+    case bibcodeOperation(bibcodes: [String], operation: String, sourceBibcode: String)
+}
+
 // MARK: - NL Search Service
 
 /// Service that uses Apple Foundation Models to translate natural language into ADS queries.
 ///
-/// The service uses guided generation to produce structured output containing both
-/// the ADS query string and a human-readable interpretation of what was understood.
+/// Uses guided generation with tool calling so the on-device LLM autonomously
+/// selects the right sciX operation (search, citations, similar, coreads, etc.)
+/// based on the user's natural language request.
+///
+/// The session is cached for conversational refinement — follow-up prompts like
+/// "narrow to refereed only" refine the previous query using session transcript memory.
 ///
 /// Requires macOS 26+ with Apple Intelligence enabled.
 @Observable
@@ -49,6 +72,27 @@ public final class NLSearchService: @unchecked Sendable {
     public private(set) var lastNaturalLanguageInput: String = ""
     public private(set) var lastGeneratedQuery: String = ""
     public private(set) var lastInterpretation: String = ""
+    public private(set) var lastResultType: NLSearchResultType?
+    public private(set) var estimatedCount: UInt32?
+
+    /// Number of turns in the current conversation (for refinement tracking)
+    public private(set) var conversationTurnCount: Int = 0
+
+    // MARK: - Session Cache
+
+    #if canImport(FoundationModels)
+    /// Cached Foundation Models session for conversational refinement.
+    /// The session maintains a transcript so follow-up prompts like
+    /// "narrow to refereed only" work in context.
+    @available(macOS 26, iOS 26, *)
+    private var _cachedSession: LanguageModelSession?
+
+    @available(macOS 26, iOS 26, *)
+    private var cachedSession: LanguageModelSession? {
+        get { _cachedSession }
+        set { _cachedSession = newValue }
+    }
+    #endif
 
     // MARK: - Initialization
 
@@ -70,9 +114,11 @@ public final class NLSearchService: @unchecked Sendable {
 
     /// Translate a natural language description into an ADS/SciX query string.
     ///
-    /// Uses the on-device Foundation Models LLM with guided generation to produce
-    /// a structured ADS query. The model understands astronomy terminology and
-    /// ADS query syntax fields.
+    /// Uses the on-device Foundation Models LLM with tool calling. The model
+    /// autonomously selects the right sciX operation based on user intent.
+    ///
+    /// The session is cached, so follow-up calls refine the previous query
+    /// using conversation context (e.g., "narrow to refereed only").
     ///
     /// - Parameter naturalLanguage: The user's natural language search description
     /// - Returns: The generated ADS query string, or nil if translation failed
@@ -86,7 +132,7 @@ public final class NLSearchService: @unchecked Sendable {
         state = .thinking
 
         Logger.viewModels.infoCapture(
-            "NLSearch: translating '\(naturalLanguage)'",
+            "NLSearch: translating '\(naturalLanguage)' (turn \(conversationTurnCount + 1))",
             category: "nlsearch"
         )
 
@@ -100,7 +146,8 @@ public final class NLSearchService: @unchecked Sendable {
         let query = fallbackTranslation(naturalLanguage)
         lastGeneratedQuery = query
         lastInterpretation = "Basic keyword search (Apple Intelligence not available)"
-        state = .translated(query: query, interpretation: lastInterpretation)
+        lastResultType = .querySearch(query: query)
+        state = .translated(query: query, interpretation: lastInterpretation, estimatedCount: nil)
         return query
     }
 
@@ -111,23 +158,34 @@ public final class NLSearchService: @unchecked Sendable {
     @MainActor
     private func translateWithFoundationModels(_ naturalLanguage: String) async -> String? {
         do {
-            let session = LanguageModelSession(
-                instructions: Self.adsQuerySystemPrompt
-            )
+            // Get or create session (cached for conversational refinement)
+            let session = try await getOrCreateSession()
 
-            let userPrompt = """
-            Translate this natural language search into an ADS query:
+            // Use tool-calling: the model picks search_papers, get_citations, etc.
+            let userPrompt: String
+            if conversationTurnCount == 0 {
+                userPrompt = """
+                Translate this search request into an ADS query by calling the search_papers tool:
 
-            "\(naturalLanguage)"
+                "\(naturalLanguage)"
+                """
+            } else {
+                // Follow-up refinement — the session has context from previous turns
+                userPrompt = """
+                Refine the previous search based on this:
 
-            Reply with ONLY the ADS query string. No explanation, no quotes, just the query.
-            """
+                "\(naturalLanguage)"
+
+                Call search_papers with the updated query.
+                """
+            }
 
             let response = try await session.respond(to: userPrompt)
+            conversationTurnCount += 1
 
-            let query = response.content
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            // Parse the tool response to extract query and interpretation
+            let responseText = response.content
+            let (query, interpretation) = parseToolResponse(responseText)
 
             guard !query.isEmpty else {
                 state = .error("Model returned empty query")
@@ -135,14 +193,33 @@ public final class NLSearchService: @unchecked Sendable {
             }
 
             lastGeneratedQuery = query
-            lastInterpretation = describeQuery(query)
-            state = .translated(query: query, interpretation: lastInterpretation)
+            lastInterpretation = interpretation
+            lastResultType = .querySearch(query: query)
 
             Logger.viewModels.infoCapture(
-                "NLSearch: translated to '\(query)'",
+                "NLSearch: translated to '\(query)' — \(interpretation)",
                 category: "nlsearch"
             )
 
+            // Fetch count preview in background
+            let capturedQuery = query
+            estimatedCount = nil
+            Task.detached { [weak self] in
+                guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
+                let count = try? scixCount(token: apiKey, query: capturedQuery)
+                await MainActor.run {
+                    self?.estimatedCount = count
+                    if let count {
+                        self?.state = .translated(
+                            query: capturedQuery,
+                            interpretation: interpretation,
+                            estimatedCount: count
+                        )
+                    }
+                }
+            }
+
+            state = .translated(query: query, interpretation: interpretation, estimatedCount: nil)
             return query
         } catch {
             let message = error.localizedDescription
@@ -154,14 +231,76 @@ public final class NLSearchService: @unchecked Sendable {
             return nil
         }
     }
+
+    @available(macOS 26, iOS 26, *)
+    private func getOrCreateSession() async throws -> LanguageModelSession {
+        if let session = cachedSession {
+            return session
+        }
+
+        // Get API token for sciX tools
+        let apiToken = await CredentialManager.shared.apiKey(for: "ads")
+
+        let session: LanguageModelSession
+        if let token = apiToken {
+            // Full tool-calling session with sciX tools
+            let tools = NLSearchToolFactory.makeTools(apiToken: token)
+            session = LanguageModelSession(
+                instructions: Self.adsQuerySystemPrompt,
+                tools: tools
+            )
+        } else {
+            // No API key — session without tools, just query generation
+            session = LanguageModelSession(
+                instructions: Self.adsQuerySystemPrompt
+            )
+        }
+
+        cachedSession = session
+        return session
+    }
+
+    /// Parse the tool response text to extract query and interpretation.
+    /// Tool responses come in format: "Query: ...\nInterpretation: ...\n..."
+    private func parseToolResponse(_ text: String) -> (query: String, interpretation: String) {
+        var query = ""
+        var interpretation = ""
+
+        let lines = text.components(separatedBy: "\n")
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Query: ") {
+                query = String(trimmed.dropFirst("Query: ".count))
+            } else if trimmed.hasPrefix("Interpretation: ") {
+                interpretation = String(trimmed.dropFirst("Interpretation: ".count))
+            }
+        }
+
+        // If structured parsing fails, try to use the whole response as a query
+        if query.isEmpty {
+            query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if interpretation.isEmpty {
+                interpretation = describeQuery(query)
+            }
+        }
+
+        if interpretation.isEmpty {
+            interpretation = describeQuery(query)
+        }
+
+        return (query, interpretation)
+    }
     #endif
 
     // MARK: - System Prompt
 
-    /// Comprehensive system prompt teaching ADS query syntax
+    /// Comprehensive system prompt teaching ADS query syntax.
+    /// Used as session instructions for Foundation Models.
     static let adsQuerySystemPrompt = """
     You are an expert at NASA ADS (Astrophysics Data System) / SciX search queries. \
-    Your job is to translate natural language descriptions of papers into precise ADS query strings.
+    Your job is to translate natural language descriptions of papers into precise ADS query strings \
+    by calling the search_papers tool.
 
     ADS Query Syntax Reference:
     - author:"Last, First" or author:"Last" — search by author name
@@ -186,21 +325,28 @@ public final class NLSearchService: @unchecked Sendable {
     Wildcards: * for prefix matching (e.g., author:"Ein*")
 
     Rules:
-    1. Always use field qualifiers (author:, abs:, title:, year:, etc.)
-    2. Multi-word values MUST be quoted: abs:"dark matter"
-    3. Multiple authors: author:"Last1" AND author:"Last2" or author:("Last1" "Last2")
-    4. When the user says "recent" or "last N years", calculate from 2026
-    5. When the user mentions a specific topic, use abs: for the most relevant keywords
-    6. When the user says "refereed" or "published" or "peer-reviewed", add property:refereed
-    7. Prefer abs: over title: for topic searches (broader match)
-    8. Keep queries concise — don't over-constrain
-    9. For vague descriptions, use the most specific terms available
-    10. Output ONLY the query string, nothing else
+    1. Always call the search_papers tool — never reply with plain text
+    2. Always use field qualifiers (author:, abs:, title:, year:, etc.)
+    3. Multi-word values MUST be quoted: abs:"dark matter"
+    4. Multiple authors: author:"Last1" AND author:"Last2" or author:("Last1" "Last2")
+    5. When the user says "recent" or "last N years", calculate from 2026
+    6. When the user mentions a specific topic, use abs: for the most relevant keywords
+    7. When the user says "refereed" or "published" or "peer-reviewed", add property:refereed
+    8. Prefer abs: over title: for topic searches (broader match)
+    9. Keep queries concise — don't over-constrain
+    10. For vague descriptions, use the most specific terms available
+    11. For follow-up requests like "narrow to refereed", modify the previous query
+    12. If the user mentions citations, similar papers, or co-reads, use the appropriate tool instead
+
+    For citation/reference/similar/co-read requests, use the corresponding tool \
+    (get_citations, get_references, get_similar, get_coreads) when you know the bibcode. \
+    If you don't know the bibcode, use search_papers first to find it.
     """
 
     // MARK: - Query Description
 
-    /// Generate a human-readable description of what an ADS query searches for
+    /// Generate a human-readable description of what an ADS query searches for.
+    /// Used as fallback when the model doesn't provide an interpretation.
     private func describeQuery(_ query: String) -> String {
         var parts: [String] = []
 
@@ -341,13 +487,22 @@ public final class NLSearchService: @unchecked Sendable {
 
     // MARK: - State Management
 
-    /// Reset to idle state
+    /// Reset to idle state and clear the cached session (start fresh conversation)
     @MainActor
     public func reset() {
         state = .idle
         lastNaturalLanguageInput = ""
         lastGeneratedQuery = ""
         lastInterpretation = ""
+        lastResultType = nil
+        estimatedCount = nil
+        conversationTurnCount = 0
+
+        #if canImport(FoundationModels)
+        if #available(macOS 26, iOS 26, *) {
+            cachedSession = nil
+        }
+        #endif
     }
 
     /// Update state to indicate search is executing
