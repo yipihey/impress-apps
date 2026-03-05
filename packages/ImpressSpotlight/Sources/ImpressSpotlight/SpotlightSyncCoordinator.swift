@@ -14,14 +14,16 @@ import OSLog
 /// ```swift
 /// let coordinator = SpotlightSyncCoordinator(provider: MyAppProvider())
 /// await coordinator.initialRebuildIfNeeded()
-/// await coordinator.startObserving()
+/// await coordinator.startObserving(...)
+/// await SpotlightBridge.shared.setCoordinator(coordinator) // keep alive!
 /// ```
 public actor SpotlightSyncCoordinator {
 
     // MARK: - Version Tracking
 
     /// Bump this when the indexing schema changes to force a rebuild.
-    private static let currentSchemaVersion = 1
+    /// Changed to 2 to force rebuild with new compound identifier format.
+    private static let currentSchemaVersion = 2
 
     private var indexVersionKey: String {
         "SpotlightIndexVersion_\(provider.domain)"
@@ -77,7 +79,7 @@ public actor SpotlightSyncCoordinator {
         }
 
         if !removed.isEmpty {
-            await SpotlightIndexer.shared.remove(ids: Array(removed))
+            await SpotlightIndexer.shared.remove(ids: Array(removed), domain: provider.domain)
         }
 
         if !added.isEmpty || !removed.isEmpty {
@@ -94,8 +96,11 @@ public actor SpotlightSyncCoordinator {
 
         debounceTask?.cancel()
         debounceTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return // Properly cancelled
+            }
             await self?.flushPendingFieldChanges()
         }
     }

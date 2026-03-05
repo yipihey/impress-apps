@@ -1,5 +1,6 @@
-import SwiftUI
 import ImpressHelixCore
+import ImpressSpotlight
+import SwiftUI
 
 /// Settings view for implore preferences
 struct SettingsView: View {
@@ -28,6 +29,15 @@ struct SettingsView: View {
                     Label("Keyboard", systemImage: "keyboard")
                 }
                 .accessibilityIdentifier("settings.tabs.keyboard")
+
+            Form {
+                SpotlightSettingsSection()
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("Spotlight", systemImage: "magnifyingglass")
+            }
+            .accessibilityIdentifier("settings.tabs.spotlight")
         }
         .frame(width: 500, height: 400)
         .accessibilityIdentifier("settings.container")

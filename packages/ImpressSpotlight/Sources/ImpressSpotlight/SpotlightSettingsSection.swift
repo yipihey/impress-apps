@@ -3,21 +3,18 @@ import OSLog
 
 /// A shared Settings section for Spotlight index management.
 ///
-/// Add this to any app's Settings > Advanced section to let users
-/// manually rebuild the Spotlight index.
+/// Add this to any app's Settings view to let users manually rebuild
+/// the Spotlight index. Reads the coordinator from `SpotlightBridge.shared`.
 ///
 /// ```swift
-/// SpotlightSettingsSection(coordinator: spotlightCoordinator)
+/// SpotlightSettingsSection()
 /// ```
 public struct SpotlightSettingsSection: View {
 
-    private let coordinator: SpotlightSyncCoordinator?
     @State private var isRebuilding = false
     @State private var lastResult: String?
 
-    public init(coordinator: SpotlightSyncCoordinator?) {
-        self.coordinator = coordinator
-    }
+    public init() {}
 
     public var body: some View {
         Section("Spotlight") {
@@ -40,7 +37,7 @@ public struct SpotlightSettingsSection: View {
                     Button("Rebuild") {
                         rebuildIndex()
                     }
-                    .disabled(coordinator == nil)
+                    .disabled(SpotlightBridge.shared.coordinator == nil)
                 }
             }
 
@@ -53,13 +50,12 @@ public struct SpotlightSettingsSection: View {
     }
 
     private func rebuildIndex() {
-        guard let coordinator else { return }
+        guard let coordinator = SpotlightBridge.shared.coordinator else { return }
         isRebuilding = true
         lastResult = nil
 
-        let capturedCoordinator = coordinator
         Task {
-            await capturedCoordinator.forceRebuild()
+            await coordinator.forceRebuild()
             isRebuilding = false
             lastResult = "Rebuild complete"
         }
