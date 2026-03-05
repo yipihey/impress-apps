@@ -28,7 +28,8 @@ let package = Package(
         .package(path: "../../../packages/ImpressOperationQueue"),
         .package(path: "../../../packages/ImpressFTUI"),
         .package(path: "../../../packages/ImpressMailStyle"),
-        .package(path: "../../../packages/ImpressRustCore")
+        .package(path: "../../../packages/ImpressRustCore"),
+        .package(path: "../../../packages/ImpressSpotlight")
     ],
     targets: [
         .target(
@@ -47,7 +48,8 @@ let package = Package(
                 "ImpressOperationQueue",
                 "ImpressFTUI",
                 "ImpressMailStyle",
-                "ImpressRustCore"
+                "ImpressRustCore",
+                "ImpressSpotlight"
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),

@@ -9,6 +9,8 @@ import SwiftUI
 import MessageManagerCore
 import ImpressKit
 import ImpressKeyboard
+import ImpressSpotlight
+import CoreData
 
 // MARK: - App Entry Point
 
@@ -34,6 +36,18 @@ struct ImpartApp: App {
         // to call after this point.
         Task { @MainActor in
             ImpartStoreAdapter.shared.setup()
+        }
+
+        // Spotlight indexing — deferred 90s per startup grace period
+        Task.detached {
+            try? await Task.sleep(for: .seconds(90))
+            guard !Task.isCancelled else { return }
+
+            let coordinator = SpotlightSyncCoordinator(provider: ImpartSpotlightProvider())
+            await coordinator.initialRebuildIfNeeded()
+            await coordinator.startObserving(
+                mutationName: NSManagedObjectContext.didSaveObjectsNotification
+            )
         }
     }
 

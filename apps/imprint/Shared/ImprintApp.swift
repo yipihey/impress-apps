@@ -2,6 +2,8 @@
 import SwiftUI
 import AppKit
 import ImpressKit
+import ImpressSpotlight
+import CoreData
 
 // MARK: - Appearance Modifier
 
@@ -48,6 +50,19 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         // and all storeSection() calls are no-ops.
         Task { @MainActor in
             _ = ImprintStoreAdapter.shared.isReady
+        }
+
+        // Spotlight indexing — deferred 90s per startup grace period
+        Task.detached {
+            try? await Task.sleep(for: .seconds(90))
+            guard !Task.isCancelled else { return }
+
+            let coordinator = SpotlightSyncCoordinator(provider: ImprintSpotlightProvider())
+            await coordinator.initialRebuildIfNeeded()
+            // Observe Core Data saves for incremental updates
+            await coordinator.startObserving(
+                mutationName: NSManagedObjectContext.didSaveObjectsNotification
+            )
         }
     }
 

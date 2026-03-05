@@ -13,6 +13,7 @@ import ImpressAI
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
+import ImpressSpotlight
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -214,14 +215,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
         case CSSearchableItemActionType:
-            // User tapped a Spotlight search result
-            if let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-               let uuid = UUID(uuidString: identifier) {
-                debugLog("Opening from Spotlight: \(identifier)")
-                // Navigate to the paper via URL scheme
-                Task {
-                    await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
-                }
+            // User tapped a Spotlight search result — bypass automation gate
+            if SpotlightDeepLinkHandler.handle(userActivity, currentApp: .imbib, onLocalNavigation: { uuid, _ in
+                NotificationCenter.default.post(
+                    name: .navigateToPublication,
+                    object: nil,
+                    userInfo: ["publicationID": uuid]
+                )
+            }) {
                 return true
             }
 
@@ -455,7 +456,22 @@ struct imbibApp: App {
             // Cleanup old exploration collections based on retention setting
             await cleanupExplorationCollectionsOnStartup()
 
-            // Core Data migration removed — clean break to Rust store
+            // Spotlight indexing — deferred 90s per startup grace period
+            Task.detached {
+                try? await Task.sleep(for: .seconds(90))
+                guard !Task.isCancelled else { return }
+
+                let coordinator = SpotlightSyncCoordinator(provider: ImbibSpotlightProvider())
+                await coordinator.initialRebuildIfNeeded()
+                await coordinator.startObserving(
+                    mutationName: .storeDidMutate,
+                    fieldChangeName: .fieldDidChange,
+                    extractIDs: { notification in
+                        notification.userInfo?["publicationIDs"] as? [UUID] ?? []
+                    }
+                )
+                appLogger.info("SpotlightSyncCoordinator started for imbib")
+            }
         }
     }
 
@@ -597,14 +613,15 @@ struct imbibApp: App {
                         )
                     }
                 }
-                // Handle Spotlight search results
+                // Handle Spotlight search results — bypass automation gate
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
-                    if let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-                       let uuid = UUID(uuidString: identifier) {
-                        Task {
-                            await URLSchemeHandler.shared.handle(URL(string: "imbib://paper/\(uuid.uuidString)")!)
-                        }
-                    }
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imbib, onLocalNavigation: { uuid, _ in
+                        NotificationCenter.default.post(
+                            name: .navigateToPublication,
+                            object: nil,
+                            userInfo: ["publicationID": uuid]
+                        )
+                    })
                 }
                 #endif
         }

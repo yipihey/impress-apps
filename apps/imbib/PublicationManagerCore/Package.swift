@@ -30,7 +30,8 @@ let package = Package(
         .package(path: "../../../packages/ImpressLogging"),
         .package(path: "../../../packages/ImpressOperationQueue"),
         .package(path: "../../../packages/ImpressKit"),
-        .package(path: "../../../packages/ImpressEmbeddings")
+        .package(path: "../../../packages/ImpressEmbeddings"),
+        .package(path: "../../../packages/ImpressSpotlight")
     ],
     targets: [
         .target(
@@ -51,7 +52,8 @@ let package = Package(
                 "ImpressLogging",
                 "ImpressOperationQueue",
                 "ImpressKit",
-                .product(name: "ImpressEmbeddings", package: "ImpressEmbeddings")
+                .product(name: "ImpressEmbeddings", package: "ImpressEmbeddings"),
+                "ImpressSpotlight"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),
