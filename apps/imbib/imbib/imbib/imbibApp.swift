@@ -13,6 +13,9 @@ import ImpressAI
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -244,6 +247,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
+    @State private var nlSearchService = NLSearchService()
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
     /// Development mode: edit the bundled default library set
@@ -478,6 +482,7 @@ struct imbibApp: App {
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
+                .environment(nlSearchService)
                 .environment(settingsViewModel)
                 .task {
                     // Start heartbeat for SiblingDiscovery
@@ -487,6 +492,17 @@ struct imbibApp: App {
                             try? await Task.sleep(for: .seconds(25))
                         }
                     }
+
+                    // Prewarm Foundation Models session after startup grace period
+                    #if canImport(FoundationModels)
+                    if #available(macOS 26, iOS 26, *) {
+                        Task.detached { [nlSearchService] in
+                            try? await Task.sleep(for: .seconds(90))
+                            guard !Task.isCancelled else { return }
+                            nlSearchService.prewarm()
+                        }
+                    }
+                    #endif
                 }
                 .onAppear {
                     ensureMainWindowVisible()

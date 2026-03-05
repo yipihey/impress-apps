@@ -559,6 +559,11 @@ struct SectionContentView: View {
         guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return nil }
         let sourceIDs = feed.sourceIDs
 
+        // NL-created feeds (name starts with "AI: ")
+        if feed.name.hasPrefix("AI: ") {
+            return .nlSearch
+        }
+
         // arXiv feeds with category queries
         if sourceIDs == ["arxiv"] {
             let query = feed.query

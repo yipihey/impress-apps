@@ -432,6 +432,9 @@ public final class SearchViewModel {
     /// Vague Memory form state - persists when navigating away and back
     public var vagueMemoryFormState = VagueMemoryFormState()
 
+    /// NL Search max results (set by NLSearchService; 0 = use global default)
+    public var nlSearchMaxResults: Int = 0
+
     // MARK: - Edit Mode State
 
     /// The smart search being edited (nil = new search / ad-hoc search mode)
@@ -511,7 +514,7 @@ public final class SearchViewModel {
         case .arxiv: formValue = arxivFormState.maxResults
         case .openalex: formValue = openAlexFormState.maxResults
         case .vagueMemory: formValue = vagueMemoryFormState.maxResults
-        case .nlSearch: formValue = 0 // use global default
+        case .nlSearch: formValue = nlSearchMaxResults
         }
         if formValue > 0 { return formValue }
         return Int(await SmartSearchSettingsStore.shared.settings.defaultMaxResults)

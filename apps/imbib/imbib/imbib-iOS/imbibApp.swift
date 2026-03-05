@@ -22,6 +22,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
+    @State private var nlSearchService = NLSearchService()
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
     @Environment(\.scenePhase) private var scenePhase
@@ -127,6 +128,7 @@ struct imbibApp: App {
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
+                .environment(nlSearchService)
                 .environment(settingsViewModel)
                 .onAppear {
                     setupBadgeObserver()
