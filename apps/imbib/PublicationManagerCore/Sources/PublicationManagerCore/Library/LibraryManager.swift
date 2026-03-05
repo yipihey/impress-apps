@@ -122,8 +122,10 @@ public final class LibraryManager {
         self.store = store
         loadLibraries()
 
-        // Load default library set if none exist (first run)
-        if libraries.isEmpty {
+        // Load default library set if none exist (first run).
+        // Skip when UI testing — test data seeding handles library creation.
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        if libraries.isEmpty && !isUITesting {
             Logger.library.infoCapture("No libraries found, loading default set", category: "library")
             do {
                 try DefaultLibrarySetManager.shared.loadDefaultSet()
