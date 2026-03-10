@@ -94,7 +94,9 @@ public actor SciXSyncManager {
                     store.updateField(id: existing.id, field: "permission_level", value: remote.permission)
                     store.updateField(id: existing.id, field: "owner_email", value: remote.owner)
                     store.updateIntField(id: existing.id, field: "document_count", value: Int64(remote.num_documents))
-                    store.updateIntField(id: existing.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
+                    // Do NOT set last_sync_date here — it should only be set by
+                    // pullLibraryPapers() when papers are actually synced. Setting it
+                    // during metadata-only sync prevents auto-refresh from triggering.
                     if let refreshed = store.getScixLibrary(id: existing.id) {
                         updatedLibraries.append(refreshed)
                     }
@@ -199,6 +201,7 @@ public actor SciXSyncManager {
             }
 
             // Add all publications to the SciX library
+            Logger.scix.info("Linking \(importedIDs.count) publications to SciX library \(library.id) (\(library.name))")
             if !importedIDs.isEmpty {
                 store.addToScixLibrary(publicationIds: importedIDs, scixLibraryId: library.id)
             }
@@ -210,7 +213,12 @@ public actor SciXSyncManager {
 
             store.endBatchMutation()
 
-            Logger.scix.info("Cached \(papers.count) papers for library \(libraryID)")
+            // Verify edges were created
+            if let updated = store.getScixLibrary(id: library.id) {
+                Logger.scix.info("Cached \(papers.count) papers for library \(libraryID), publicationCount=\(updated.publicationCount)")
+            } else {
+                Logger.scix.error("Library \(libraryID) not found after sync")
+            }
         }
     }
 

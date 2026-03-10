@@ -395,16 +395,19 @@ struct UnifiedPublicationListWrapper: View {
                     await queueBackgroundRefreshIfNeeded(ssID)
                 }
 
-                // Auto-refresh SciX libraries that haven't been synced yet
+                // Auto-refresh SciX libraries that haven't been synced yet,
+                // or whose papers are missing (edges lost, metadata-only sync, etc.)
                 if case .scixLibrary(let id) = source {
                     let store = RustStoreAdapter.shared
                     if let scix = store.getScixLibrary(id: id) {
-                        let needsRefresh = scix.syncState == "pending" || scix.lastSyncDate == nil
-                        if needsRefresh, let remoteID = Optional(scix.remoteID), !remoteID.isEmpty {
-                            logger.info("Auto-refreshing SciX library '\(scix.name)' (syncState=\(scix.syncState))")
+                        let neverSynced = scix.syncState == "pending" || scix.lastSyncDate == nil
+                        let edgesMissing = scix.publicationCount == 0 && scix.documentCount > 0
+                        let needsRefresh = neverSynced || edgesMissing
+                        if needsRefresh, !scix.remoteID.isEmpty {
+                            logger.info("Auto-refreshing SciX library '\(scix.name)' (syncState=\(scix.syncState), pubCount=\(scix.publicationCount), docCount=\(scix.documentCount))")
                             isBackgroundRefreshing = true
                             do {
-                                try await SciXSyncManager.shared.pullLibraryPapers(libraryID: remoteID)
+                                try await SciXSyncManager.shared.pullLibraryPapers(libraryID: scix.remoteID)
                                 await MainActor.run {
                                     isBackgroundRefreshing = false
                                     refreshPublicationsList(force: true)
@@ -1100,10 +1103,12 @@ struct UnifiedPublicationListWrapper: View {
             // Pull latest papers from SciX server, then refresh the list
             let scix = RustStoreAdapter.shared.getScixLibrary(id: id)
             let name = scix?.name ?? "unknown"
-            logger.info("SciX library refresh requested for: \(name)")
-            if let remoteID = scix?.remoteID {
+            logger.info("SciX library refresh requested for: \(name) (remoteID=\(scix?.remoteID ?? "nil"), pubCount=\(scix?.publicationCount ?? -1), docCount=\(scix?.documentCount ?? -1))")
+            if let remoteID = scix?.remoteID, !remoteID.isEmpty {
                 do {
                     try await SciXSyncManager.shared.pullLibraryPapers(libraryID: remoteID)
+                    let afterScix = RustStoreAdapter.shared.getScixLibrary(id: id)
+                    logger.info("SciX refresh complete for '\(name)': pubCount=\(afterScix?.publicationCount ?? -1)")
                     await MainActor.run {
                         refreshPublicationsList(force: true)
                     }
@@ -1111,6 +1116,8 @@ struct UnifiedPublicationListWrapper: View {
                     logger.error("SciX library refresh failed: \(error.localizedDescription)")
                     self.error = error
                 }
+            } else {
+                logger.error("SciX library '\(name)' has no remote ID — cannot refresh")
             }
 
         case .flagged:
