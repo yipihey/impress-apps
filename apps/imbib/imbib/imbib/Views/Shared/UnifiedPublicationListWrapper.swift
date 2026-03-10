@@ -511,12 +511,6 @@ struct UnifiedPublicationListWrapper: View {
                     refreshPublicationsList(force: true)
                 }
             ))
-            .onReceive(NotificationCenter.default.publisher(for: .lastSearchUpdated)) { _ in
-                // Refresh list when Last Search collection is updated
-                // TODO: implement with Rust store — lastSearch is no longer a separate case
-                logger.info("Last search updated notification received, refreshing list")
-                refreshPublicationsList(force: true)
-            }
             .onReceive(NotificationCenter.default.publisher(for: .activateFilter)) { _ in
                 _ = handleFilterKey()
             }

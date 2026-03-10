@@ -280,12 +280,6 @@ public extension Notification.Name {
     /// Focus search field (⌘F)
     static let focusSearch = Notification.Name("focusSearch")
 
-    /// Posted when the Last Search collection is updated with new search results.
-    ///
-    /// Views displaying the Last Search collection (via UnifiedPublicationListWrapper)
-    /// should observe this notification to refresh their list.
-    static let lastSearchUpdated = Notification.Name("lastSearchUpdated")
-
     /// Toggle unread filter (⌘\\)
     static let toggleUnreadFilter = Notification.Name("toggleUnreadFilter")
 

@@ -482,20 +482,11 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private var searchResultsView: some View {
-        if let lastSearchCollection = libraryManager.getOrCreateLastSearchCollection() {
-            UnifiedPublicationListWrapper(
-                source: .collection(lastSearchCollection.id),
-                selectedPublicationID: selectedPublicationIDBinding,
-                selectedPublicationIDs: $selectedPublicationIDs,
-                onDownloadPDFs: { _ in }
-            )
-        } else {
-            ContentUnavailableView(
-                "No Active Library",
-                systemImage: "magnifyingglass",
-                description: Text("Select a library to search within")
-            )
-        }
+        ContentUnavailableView(
+            "Search Results",
+            systemImage: "magnifyingglass",
+            description: Text("Results appear in the Exploration section of the sidebar.")
+        )
     }
 
     // MARK: - Feed Form Picker

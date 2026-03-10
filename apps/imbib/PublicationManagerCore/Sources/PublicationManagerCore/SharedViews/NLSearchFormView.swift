@@ -410,7 +410,6 @@ public struct NLSearchFormView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let vm = searchViewModel
-        let manager = libraryManager
         let sourceIDs = nlService.selectedSourceIDs
 
         Task {
@@ -425,14 +424,7 @@ public struct NLSearchFormView: View {
             vm.editFormType = .nlSearch
 
             await vm.search()
-
-            var count = 0
-            if let collection = manager.getOrCreateLastSearchCollection() {
-                count = RustStoreAdapter.shared.countPublications(
-                    for: .collection(collection.id)
-                )
-            }
-            await nlService.markComplete(resultCount: count)
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
         }
     }
 
@@ -441,7 +433,6 @@ public struct NLSearchFormView: View {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let vm = searchViewModel
-        let manager = libraryManager
         let sourceIDs = nlService.selectedSourceIDs
 
         nlService.markSearching()
@@ -452,14 +443,7 @@ public struct NLSearchFormView: View {
 
         Task {
             await vm.search()
-
-            var count = 0
-            if let collection = manager.getOrCreateLastSearchCollection() {
-                count = RustStoreAdapter.shared.countPublications(
-                    for: .collection(collection.id)
-                )
-            }
-            await nlService.markComplete(resultCount: count)
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
         }
     }
 
@@ -663,7 +647,6 @@ public struct NLSearchFormView: View {
     private func translateAndSearch() {
         let text = inputText
         let vm = searchViewModel
-        let manager = libraryManager
         let sourceIDs = nlService.selectedSourceIDs
 
         Task {
@@ -676,14 +659,7 @@ public struct NLSearchFormView: View {
             vm.editFormType = .nlSearch
 
             await vm.search()
-
-            var count = 0
-            if let collection = manager.getOrCreateLastSearchCollection() {
-                count = RustStoreAdapter.shared.countPublications(
-                    for: .collection(collection.id)
-                )
-            }
-            await nlService.markComplete(resultCount: count)
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
         }
     }
 }
