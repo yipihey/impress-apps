@@ -9,8 +9,7 @@
 import Foundation
 import OSLog
 import ImpressAI
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistant")
+import ImpressLogging
 
 // MARK: - AI Assistant Service
 
@@ -220,7 +219,7 @@ public final class AIAssistantService {
                 userMessage: userMessage,
                 maxTokens: maxTokens
             )
-            logger.info("AI response received: \(response.prefix(100))...")
+            Logger.ai.infoCapture("AI response received: \(response.prefix(100))...", category: "ai")
             return response
         } catch {
             let aiError: AIAssistantError

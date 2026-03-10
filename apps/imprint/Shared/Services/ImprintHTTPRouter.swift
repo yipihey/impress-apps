@@ -18,7 +18,6 @@ import OSLog
 import AppKit
 #endif
 
-private let routerLogger = Logger(subsystem: "com.imbib.imprint", category: "httpRouter")
 
 // MARK: - HTTP Automation Router
 
@@ -47,6 +46,9 @@ private let routerLogger = Logger(subsystem: "com.imbib.imprint", category: "htt
 /// - `POST /api/documents/create` - Create new document
 /// - `PUT /api/documents/{id}/metadata` - Update document metadata
 /// - `DELETE /api/documents/{id}/bibliography/{key}` - Remove citation
+/// - `GET /api/latex/status` - TeX distribution info and available engines
+/// - `GET /api/documents/{id}/diagnostics` - Structured compilation diagnostics
+/// - `GET /api/documents/{id}/synctex` - SyncTeX bidirectional lookup
 /// - `OPTIONS /*` - CORS preflight
 public actor ImprintHTTPRouter: HTTPRouter {
 
@@ -81,6 +83,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleListDocuments()
             }
 
+            if pathLower == "/api/latex/status" {
+                return await handleLaTeXStatus()
+            }
+
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
@@ -97,6 +103,18 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 if remainderLower.hasSuffix("/export/typst") {
                     let docId = String(remainder.dropLast("/export/typst".count))
                     return await handleExportTypst(id: docId)
+                }
+
+                // Check for /diagnostics suffix
+                if remainderLower.hasSuffix("/diagnostics") {
+                    let docId = String(remainder.dropLast("/diagnostics".count))
+                    return await handleGetDiagnostics(id: docId)
+                }
+
+                // Check for /synctex suffix
+                if remainderLower.hasSuffix("/synctex") {
+                    let docId = String(remainder.dropLast("/synctex".count))
+                    return await handleSyncTeX(id: docId, request: request)
                 }
 
                 // Check for /content suffix
@@ -953,6 +971,127 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ])
     }
 
+    // MARK: - LaTeX Handlers
+
+    /// GET /api/latex/status
+    /// Returns TeX distribution info and available engines.
+    private func handleLaTeXStatus() async -> HTTPResponse {
+        #if os(macOS)
+        let (distPath, isAvailable, engines) = await MainActor.run {
+            (
+                TeXDistributionManager.shared.distributionPath?.path,
+                TeXDistributionManager.shared.isAvailable,
+                TeXDistributionManager.shared.installedEngines.map(\.rawValue)
+            )
+        }
+
+        let response: [String: Any] = [
+            "status": "ok",
+            "latex": [
+                "available": isAvailable,
+                "distributionPath": distPath as Any,
+                "installedEngines": engines,
+            ]
+        ]
+        return .json(response)
+        #else
+        return .json(["status": "ok", "latex": ["available": false, "reason": "LaTeX compilation requires macOS"]])
+        #endif
+    }
+
+    /// GET /api/documents/{id}/diagnostics
+    /// Returns structured compilation diagnostics (errors + warnings).
+    private func handleGetDiagnostics(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid document ID format")
+        }
+
+        guard await findDocument(by: uuid) != nil else {
+            return .notFound("Document not found: \(id)")
+        }
+
+        #if os(macOS)
+        let diagnostics = await MainActor.run { DocumentRegistry.shared.cachedDiagnostics[uuid] ?? [] }
+
+        let items: [[String: Any]] = diagnostics.map { diag in
+            var item: [String: Any] = [
+                "file": diag.file,
+                "line": diag.line,
+                "message": diag.message,
+                "severity": diag.severity == .error ? "error" : (diag.severity == .warning ? "warning" : "info")
+            ]
+            if let col = diag.column { item["column"] = col }
+            if let ctx = diag.context { item["context"] = ctx }
+            return item
+        }
+
+        return .json([
+            "status": "ok",
+            "id": id,
+            "diagnostics": items,
+            "errorCount": diagnostics.filter { $0.severity == .error }.count,
+            "warningCount": diagnostics.filter { $0.severity == .warning }.count
+        ])
+        #else
+        return .json(["status": "ok", "id": id, "diagnostics": [], "errorCount": 0, "warningCount": 0])
+        #endif
+    }
+
+    /// GET /api/documents/{id}/synctex?direction=forward&line=42&file=main.tex
+    /// or GET /api/documents/{id}/synctex?direction=inverse&page=1&x=100&y=200
+    /// SyncTeX bidirectional lookup.
+    private func handleSyncTeX(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid document ID format")
+        }
+
+        guard await findDocument(by: uuid) != nil else {
+            return .notFound("Document not found: \(id)")
+        }
+
+        let direction = request.queryParams["direction"] ?? "forward"
+
+        #if os(macOS)
+        if direction == "forward" {
+            guard let lineStr = request.queryParams["line"],
+                  let line = Int(lineStr) else {
+                return .badRequest("Missing or invalid 'line' parameter")
+            }
+            let file = request.queryParams["file"] ?? "main.tex"
+            let column = Int(request.queryParams["column"] ?? "0") ?? 0
+
+            let positions = await SyncTeXService.shared.forwardSync(file: file, line: line, column: column)
+            let items: [[String: Any]] = positions.map { pos in
+                ["page": pos.page, "x": pos.x, "y": pos.y, "width": pos.width, "height": pos.height]
+            }
+            return .json(["status": "ok", "direction": "forward", "positions": items])
+
+        } else if direction == "inverse" {
+            guard let pageStr = request.queryParams["page"],
+                  let page = Int(pageStr),
+                  let xStr = request.queryParams["x"],
+                  let x = Double(xStr),
+                  let yStr = request.queryParams["y"],
+                  let y = Double(yStr) else {
+                return .badRequest("Missing or invalid 'page', 'x', or 'y' parameters")
+            }
+
+            if let loc = await SyncTeXService.shared.inverseSync(page: page, x: x, y: y) {
+                return .json([
+                    "status": "ok",
+                    "direction": "inverse",
+                    "source": ["file": loc.file, "line": loc.line, "column": loc.column]
+                ])
+            }
+            return .json(["status": "ok", "direction": "inverse", "source": NSNull()])
+        }
+
+        return .badRequest("direction must be 'forward' or 'inverse'")
+        #else
+        return .badRequest("SyncTeX is only available on macOS")
+        #endif
+    }
+
     // MARK: - Helpers
 
     /// CORS preflight response.
@@ -997,7 +1136,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "POST /api/documents/{id}/delete": "Delete text range (body: {start, end})",
                 "POST /api/documents/{id}/bibliography": "Add citation (body: {citeKey, bibtex})",
                 "PUT /api/documents/{id}/metadata": "Update metadata (body: {title?, authors?})",
-                "DELETE /api/documents/{id}/bibliography/{key}": "Remove citation"
+                "DELETE /api/documents/{id}/bibliography/{key}": "Remove citation",
+                "GET /api/latex/status": "TeX distribution info and available engines",
+                "GET /api/documents/{id}/diagnostics": "Structured compilation diagnostics",
+                "GET /api/documents/{id}/synctex": "SyncTeX lookup (params: direction, line/file or page/x/y)"
             ],
             "port": ImprintHTTPServer.defaultPort,
             "localhost_only": true

@@ -18,8 +18,6 @@ import ImpressLogging
 import AppKit
 #endif
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "folders")
-
 @MainActor @Observable
 public final class ProjectSidebarViewModel {
 
@@ -76,7 +74,7 @@ public final class ProjectSidebarViewModel {
         guard let workspace = workspace else { return }
         rootFolders = workspace.sortedRootFolders
         dataVersion += 1
-        logger.infoCapture("Loaded \(rootFolders.count) root folders", category: "folders")
+        Logger.folders.infoCapture("Loaded \(rootFolders.count) root folders", category: "sidebar")
     }
 
     // MARK: - Computed
@@ -140,7 +138,7 @@ public final class ProjectSidebarViewModel {
             selectedFolderID = folder.id
             editingFolderID = folder.id
         } catch {
-            logger.errorCapture("Failed to create folder: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to create folder: \(error.localizedDescription)", category: "sidebar")
         }
     }
 
@@ -154,7 +152,7 @@ public final class ProjectSidebarViewModel {
             try repository.renameFolder(folder, to: newName)
             reloadFolders()
         } catch {
-            logger.errorCapture("Failed to rename folder: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to rename folder: \(error.localizedDescription)", category: "sidebar")
         }
         editingFolderID = nil
     }
@@ -167,7 +165,7 @@ public final class ProjectSidebarViewModel {
             try repository.deleteFolder(folder)
             reloadFolders()
         } catch {
-            logger.errorCapture("Failed to delete folder: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to delete folder: \(error.localizedDescription)", category: "sidebar")
         }
     }
 
@@ -182,7 +180,7 @@ public final class ProjectSidebarViewModel {
             try repository.moveFolder(folder, to: newParent, in: workspace)
             reloadFolders()
         } catch {
-            logger.errorCapture("Failed to move folder: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to move folder: \(error.localizedDescription)", category: "sidebar")
         }
     }
 
@@ -194,9 +192,9 @@ public final class ProjectSidebarViewModel {
         do {
             try repository.reorderFolders(folders)
             reloadFolders()
-            logger.infoCapture("Reordered \(folders.count) sibling folders", category: "folders")
+            Logger.folders.infoCapture("Reordered \(folders.count) sibling folders", category: "sidebar")
         } catch {
-            logger.errorCapture("Failed to reorder folders: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to reorder folders: \(error.localizedDescription)", category: "sidebar")
         }
     }
 
@@ -207,9 +205,9 @@ public final class ProjectSidebarViewModel {
         moveFolder(folder, to: parentFolder)
         if let parentFolder = parentFolder {
             expansionState.expand(parentFolder.id)
-            logger.infoCapture("Reparented '\(folder.name)' into '\(parentFolder.name)'", category: "folders")
+            Logger.folders.infoCapture("Reparented '\(folder.name)' into '\(parentFolder.name)'", category: "sidebar")
         } else {
-            logger.infoCapture("Moved '\(folder.name)' to root", category: "folders")
+            Logger.folders.infoCapture("Moved '\(folder.name)' to root", category: "sidebar")
         }
     }
 
@@ -300,7 +298,7 @@ public final class ProjectSidebarViewModel {
             )
             reloadFolders()
         } catch {
-            logger.errorCapture("Failed to add document to folder: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to add document to folder: \(error.localizedDescription)", category: "sidebar")
         }
     }
 
@@ -309,7 +307,7 @@ public final class ProjectSidebarViewModel {
             try repository.removeDocumentReference(ref)
             reloadFolders()
         } catch {
-            logger.errorCapture("Failed to remove document reference: \(error.localizedDescription)", category: "folders")
+            Logger.folders.errorCapture("Failed to remove document reference: \(error.localizedDescription)", category: "sidebar")
         }
     }
 

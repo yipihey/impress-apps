@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import ImpressLogging
 
 /// Service for safely backing up .imprint document bundles.
 ///
@@ -56,7 +57,7 @@ public actor DocumentBackupService {
         // Copy the entire bundle
         try fileManager.copyItem(at: documentURL, to: backupURL)
 
-        Logger.backup.info("Created backup at: \(backupURL.path)")
+        Logger.backup.infoCapture("Created backup at: \(backupURL.path)", category: "backup")
         return backupURL
     }
 
@@ -74,7 +75,7 @@ public actor DocumentBackupService {
 
         try fileManager.copyItem(at: documentURL, to: destinationURL)
 
-        Logger.backup.info("Exported document to: \(destinationURL.path)")
+        Logger.backup.infoCapture("Exported document to: \(destinationURL.path)", category: "backup")
         return destinationURL
     }
 
@@ -174,7 +175,7 @@ public actor DocumentBackupService {
                 )
             }.sorted { $0.createdAt > $1.createdAt }
         } catch {
-            Logger.backup.warning("Failed to list backups: \(error.localizedDescription)")
+            Logger.backup.warningCapture("Failed to list backups: \(error.localizedDescription)", category: "backup")
             return []
         }
     }
@@ -198,7 +199,7 @@ public actor DocumentBackupService {
             let toDelete = docBackups.dropFirst(keepCount)
             for backup in toDelete {
                 try fileManager.removeItem(at: backup.url)
-                Logger.backup.info("Deleted old backup: \(backup.url.lastPathComponent)")
+                Logger.backup.infoCapture("Deleted old backup: \(backup.url.lastPathComponent)", category: "backup")
             }
         }
     }
@@ -219,14 +220,14 @@ public actor DocumentBackupService {
         // Create backup of existing document if present
         if fileManager.fileExists(atPath: destinationURL.path) {
             let existingBackup = try await backupDocument(at: destinationURL)
-            Logger.backup.info("Created backup of existing document: \(existingBackup.path)")
+            Logger.backup.infoCapture("Created backup of existing document: \(existingBackup.path)", category: "backup")
             try fileManager.removeItem(at: destinationURL)
         }
 
         // Copy backup to destination
         try fileManager.copyItem(at: backupURL, to: destinationURL)
 
-        Logger.backup.info("Restored document from backup to: \(destinationURL.path)")
+        Logger.backup.infoCapture("Restored document from backup to: \(destinationURL.path)", category: "backup")
         return destinationURL
     }
 
@@ -295,8 +296,3 @@ public enum DocumentBackupError: LocalizedError {
     }
 }
 
-// MARK: - Logger Extension
-
-private extension Logger {
-    static let backup = Logger(subsystem: "com.imbib.imprint", category: "backup")
-}

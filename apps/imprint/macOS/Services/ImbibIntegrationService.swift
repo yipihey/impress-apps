@@ -9,8 +9,7 @@
 import Foundation
 import AppKit
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "imbibIntegration")
+import ImpressLogging
 
 // MARK: - Imbib Integration Service
 
@@ -60,7 +59,7 @@ public final class ImbibIntegrationService {
     public func checkAvailability() async {
         // Check if imbib app is installed using NSWorkspace
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: imbibBundleID) {
-            logger.info("imbib found at: \(url.path)")
+            Logger.imbibIntegration.infoCapture("imbib found at: \(url.path)", category: "imbib")
             isAvailable = true
 
             // Assume automation is enabled if app is installed
@@ -70,7 +69,7 @@ public final class ImbibIntegrationService {
             // Probe HTTP API for fast search path
             await checkHTTPAvailability()
         } else {
-            logger.info("imbib not found")
+            Logger.imbibIntegration.infoCapture("imbib not found", category: "imbib")
             isAvailable = false
             isAutomationEnabled = false
             httpAvailable = false
@@ -90,7 +89,7 @@ public final class ImbibIntegrationService {
             let (_, response) = try await URLSession.shared.data(from: url)
             httpAvailable = (response as? HTTPURLResponse)?.statusCode == 200
             if httpAvailable {
-                logger.info("imbib HTTP API reachable on port \(self.imbibHTTPPort)")
+                Logger.imbibIntegration.infoCapture("imbib HTTP API reachable on port \(self.imbibHTTPPort)", category: "imbib")
             }
         } catch {
             httpAvailable = false
@@ -119,7 +118,7 @@ public final class ImbibIntegrationService {
             do {
                 return try await searchPapersHTTP(query: query, maxResults: maxResults)
             } catch {
-                logger.warning("HTTP search failed, falling back to URL scheme: \(error.localizedDescription)")
+                Logger.imbibIntegration.warningCapture("HTTP search failed, falling back to URL scheme: \(error.localizedDescription)", category: "imbib")
                 httpAvailable = false
             }
         }
@@ -132,7 +131,7 @@ public final class ImbibIntegrationService {
 
     /// Search papers via imbib's HTTP API at localhost:23120.
     private func searchPapersHTTP(query: String, maxResults: Int) async throws -> [CitationResult] {
-        logger.info("HTTP search for: \(query)")
+        Logger.imbibIntegration.infoCapture("HTTP search for: \(query)", category: "imbib")
 
         var components = URLComponents(string: "http://localhost:\(imbibHTTPPort)/api/search")!
         components.queryItems = [
@@ -190,7 +189,7 @@ public final class ImbibIntegrationService {
             )
         }
 
-        logger.info("HTTP search returned \(results.count) results")
+        Logger.imbibIntegration.infoCapture("HTTP search returned \(results.count) results", category: "imbib")
         return results
     }
 
@@ -198,7 +197,7 @@ public final class ImbibIntegrationService {
 
     /// Search papers via URL scheme + pasteboard polling (legacy fallback).
     private func searchPapersPasteboard(query: String, maxResults: Int) async throws -> [CitationResult] {
-        logger.info("Pasteboard search for: \(query)")
+        Logger.imbibIntegration.infoCapture("Pasteboard search for: \(query)", category: "imbib")
 
         // URL encode the query
         guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
@@ -258,7 +257,7 @@ public final class ImbibIntegrationService {
             }
         }
 
-        logger.info("Pasteboard search returned \(results.count) results")
+        Logger.imbibIntegration.infoCapture("Pasteboard search returned \(results.count) results", category: "imbib")
         return results
     }
 
@@ -280,7 +279,7 @@ public final class ImbibIntegrationService {
             return ""
         }
 
-        logger.info("Fetching BibTeX for \(citeKeys.count) keys")
+        Logger.imbibIntegration.infoCapture("Fetching BibTeX for \(citeKeys.count) keys", category: "imbib")
 
         // Try HTTP API first
         if !httpAvailable { await checkHTTPAvailability() }
@@ -288,7 +287,7 @@ public final class ImbibIntegrationService {
             do {
                 return try await getBibTeXHTTP(forCiteKeys: citeKeys)
             } catch {
-                logger.warning("HTTP BibTeX fetch failed, falling back: \(error.localizedDescription)")
+                Logger.imbibIntegration.warningCapture("HTTP BibTeX fetch failed, falling back: \(error.localizedDescription)", category: "imbib")
             }
         }
 
@@ -364,7 +363,7 @@ public final class ImbibIntegrationService {
             throw ImbibIntegrationError.notInstalled
         }
 
-        logger.info("Fetching metadata for: \(citeKey)")
+        Logger.imbibIntegration.infoCapture("Fetching metadata for: \(citeKey)", category: "imbib")
 
         // Search for the specific cite key
         let results = try await searchPapers(query: citeKey, maxResults: 1)
@@ -421,14 +420,14 @@ public final class ImbibIntegrationService {
     /// - Parameter query: The search query (typically from selected text or AI-extracted keywords)
     public func searchForCitation(query: String) {
         guard !query.isEmpty else {
-            logger.warning("Empty search query, opening imbib without search")
+            Logger.imbibIntegration.warningCapture("Empty search query, opening imbib without search", category: "imbib")
             openImbib()
             return
         }
 
         // URL encode the query
         guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            logger.error("Failed to encode search query")
+            Logger.imbibIntegration.errorCapture("Failed to encode search query", category: "imbib")
             openImbib()
             return
         }
@@ -436,12 +435,12 @@ public final class ImbibIntegrationService {
         // Open imbib with search query - brings imbib to front with search populated
         let urlString = "\(imbibURLScheme)://search?query=\(encodedQuery)"
         guard let url = URL(string: urlString) else {
-            logger.error("Invalid search URL")
+            Logger.imbibIntegration.errorCapture("Invalid search URL", category: "imbib")
             openImbib()
             return
         }
 
-        logger.info("Opening imbib search for: \(query)")
+        Logger.imbibIntegration.infoCapture("Opening imbib search for: \(query)", category: "imbib")
         NSWorkspace.shared.open(url)
     }
 
@@ -468,11 +467,11 @@ public final class ImbibIntegrationService {
 
     private func openURL(path: String) {
         guard let url = URL(string: "\(imbibURLScheme)://\(path)") else {
-            logger.error("Invalid URL path: \(path)")
+            Logger.imbibIntegration.errorCapture("Invalid URL path: \(path)", category: "imbib")
             return
         }
 
-        logger.info("Opening imbib URL: \(url)")
+        Logger.imbibIntegration.infoCapture("Opening imbib URL: \(url)", category: "imbib")
         NSWorkspace.shared.open(url)
     }
 

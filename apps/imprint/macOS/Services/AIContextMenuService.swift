@@ -8,8 +8,7 @@
 
 import Foundation
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "aiContextMenu")
+import ImpressLogging
 
 // MARK: - AI Context Menu Service
 
@@ -119,7 +118,7 @@ public final class AIContextMenuService {
             // Build the prompt with variable substitution
             let prompt = buildPrompt(action.systemPrompt, selectedText: selectedText, context: context)
 
-            logger.info("Executing action: \(action.id)")
+            Logger.ai.infoCapture("Executing action: \(action.id)", category: "ai-context-menu")
 
             // Execute via AI service
             let result = try await aiService.rewrite(prompt, style: .clearer)
@@ -138,7 +137,7 @@ public final class AIContextMenuService {
         } catch {
             let errorMessage = error.localizedDescription
             suggestionState = .error(errorMessage)
-            logger.error("Action failed: \(errorMessage)")
+            Logger.ai.errorCapture("Action failed: \(errorMessage)", category: "ai-context-menu")
             throw error
         }
     }
@@ -267,7 +266,7 @@ public final class AIContextMenuService {
         currentTask = nil
         isProcessing = false
         suggestionState = .idle
-        logger.info("Cancelled current AI action")
+        Logger.ai.infoCapture("Cancelled current AI action", category: "ai-context-menu")
     }
 
     /// Check if the AI service is configured with an API key.
@@ -294,7 +293,7 @@ public final class AIContextMenuService {
             imbibService.searchForCitation(query: searchQuery)
 
         default:
-            logger.warning("Unknown imbib action: \(action.id)")
+            Logger.ai.warningCapture("Unknown imbib action: \(action.id)", category: "ai-context-menu")
         }
     }
 
@@ -332,7 +331,7 @@ public final class AIContextMenuService {
     /// Load custom prompts from the YAML file.
     public func loadCustomPrompts() async {
         guard let url = Bundle.main.url(forResource: "ai-prompts", withExtension: "yaml") else {
-            logger.info("No custom prompts YAML found, using built-in actions")
+            Logger.ai.infoCapture("No custom prompts YAML found, using built-in actions", category: "ai-context-menu")
             return
         }
 
@@ -354,11 +353,11 @@ public final class AIContextMenuService {
                     }
                 }
                 actions = mergedActions
-                logger.info("Loaded \(customActions.count) custom prompts")
+                Logger.ai.infoCapture("Loaded \(customActions.count) custom prompts", category: "ai-context-menu")
             }
 
         } catch {
-            logger.error("Failed to load custom prompts: \(error)")
+            Logger.ai.errorCapture("Failed to load custom prompts: \(error)", category: "ai-context-menu")
         }
     }
 

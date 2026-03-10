@@ -9,10 +9,9 @@
 
 import Foundation
 import ImpressAI
+import ImpressLogging
 import OSLog
 import SwiftUI
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "aiAssistantCompat")
 
 // MARK: - AI Assistant Service (ImpressAI-backed)
 
@@ -201,7 +200,7 @@ public final class AIAssistantServiceCompat {
             )
 
             let response = try await providerManager.complete(request)
-            logger.info("AI response received: \(response.text.prefix(100))...")
+            Logger.ai.infoCapture("AI response received: \(response.text.prefix(100))...", category: "ai-compat")
             return response.text
         } catch let error as AIError {
             let aiError = mapError(error)

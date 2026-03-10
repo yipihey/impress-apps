@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import ImpressLogging
 
 /// Schema version tracking for .imprint document format.
 ///
@@ -272,16 +273,16 @@ public actor DocumentMigrator {
 
         switch checkResult {
         case .current:
-            Logger.document.info("Document already at current version")
+            Logger.documents.infoCapture("Document already at current version", category: "documents")
             return documentURL
 
         case .needsMigration(let fromVersion):
-            Logger.document.info("Migrating document from v\(fromVersion.displayString) to v\(DocumentSchemaVersion.current.displayString)")
+            Logger.documents.infoCapture("Migrating document from v\(fromVersion.displayString) to v\(DocumentSchemaVersion.current.displayString)", category: "documents")
             try await performMigration(at: documentURL, from: fromVersion)
             return documentURL
 
         case .legacy:
-            Logger.document.info("Migrating legacy document to v\(DocumentSchemaVersion.current.displayString)")
+            Logger.documents.infoCapture("Migrating legacy document to v\(DocumentSchemaVersion.current.displayString)", category: "documents")
             try await migrateLegacyDocument(at: documentURL)
             return documentURL
 
@@ -307,7 +308,7 @@ public actor DocumentMigrator {
         let backupURL = parentDir.appendingPathComponent(backupName)
 
         try fileManager.copyItem(at: url, to: backupURL)
-        Logger.document.info("Created backup at: \(backupURL.path)")
+        Logger.documents.infoCapture("Created backup at: \(backupURL.path)", category: "documents")
 
         return backupURL
     }
@@ -342,13 +343,13 @@ public actor DocumentMigrator {
         if !FileManager.default.fileExists(atPath: bibURL.path) {
             try "".write(to: bibURL, atomically: true, encoding: .utf8)
         }
-        Logger.document.info("Migrated v1.0 → v1.1: Added bibliography.bib")
+        Logger.documents.infoCapture("Migrated v1.0 → v1.1: Added bibliography.bib", category: "documents")
     }
 
     private func migrateFrom1_1To1_2(at url: URL) async throws {
         // v1.1 -> v1.2: Add empty CRDT state if not present
         // CRDT state is optional at this point, will be created on first edit
-        Logger.document.info("Migrated v1.1 → v1.2: Ready for CRDT state")
+        Logger.documents.infoCapture("Migrated v1.1 → v1.2: Ready for CRDT state", category: "documents")
     }
 
     private func migrateLegacyDocument(at url: URL) async throws {
@@ -387,7 +388,7 @@ public actor DocumentMigrator {
             try newData.write(to: metadataURL)
         }
 
-        Logger.document.info("Migrated legacy document to versioned format")
+        Logger.documents.infoCapture("Migrated legacy document to versioned format", category: "documents")
     }
 
     private func updateMetadataVersion(at url: URL, to version: DocumentSchemaVersion) async throws {
@@ -441,8 +442,3 @@ public enum DocumentMigrationError: LocalizedError {
     }
 }
 
-// MARK: - Logger Extension
-
-private extension Logger {
-    static let document = Logger(subsystem: "com.imbib.imprint", category: "document")
-}

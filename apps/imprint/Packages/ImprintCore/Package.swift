@@ -1,11 +1,11 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "ImprintCore",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18)
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(
@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../ImprintRustCore"),
         .package(path: "../../../../packages/ImpressKit"),
+        .package(path: "../../../../packages/ImpressLogging"),
         .package(path: "../../../../packages/ImpressRustCore")
     ],
     targets: [
@@ -24,6 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ImprintRustCore", package: "ImprintRustCore"),
                 .product(name: "ImpressKit", package: "ImpressKit"),
+                .product(name: "ImpressLogging", package: "ImpressLogging"),
                 "ImpressRustCore"
             ],
             path: "Sources/ImprintCore",

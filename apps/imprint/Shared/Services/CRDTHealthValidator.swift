@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import ImpressLogging
 
 /// Validates Automerge CRDT state on document load.
 ///
@@ -141,7 +142,7 @@ public actor CRDTHealthValidator {
         // Check for sync marker file
         let syncMarkerURL = documentURL.appendingPathComponent(".sync-in-progress")
         if fileManager.fileExists(atPath: syncMarkerURL.path) {
-            Logger.crdt.warning("Detected incomplete sync for document: \(documentURL.lastPathComponent)")
+            Logger.crdt.warningCapture("Detected incomplete sync for document: \(documentURL.lastPathComponent)", category: "crdt")
             return true
         }
 
@@ -150,7 +151,7 @@ public actor CRDTHealthValidator {
         let hasTempFiles = contents.contains { $0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent.contains("tmp") }
 
         if hasTempFiles {
-            Logger.crdt.warning("Detected temp files from interrupted operation: \(documentURL.lastPathComponent)")
+            Logger.crdt.warningCapture("Detected temp files from interrupted operation: \(documentURL.lastPathComponent)", category: "crdt")
             return true
         }
 
@@ -272,7 +273,7 @@ public actor CRDTHealthValidator {
             try fileManager.removeItem(at: crdtURL)
         }
 
-        Logger.crdt.info("Removed corrupted CRDT state for rebuild")
+        Logger.crdt.infoCapture("Removed corrupted CRDT state for rebuild", category: "crdt")
     }
 
     private func clearSyncState(at documentURL: URL) async throws {
@@ -317,7 +318,7 @@ public actor CRDTHealthValidator {
         // get the current content, and create a new document with just that content
         // For now, we just log the action
 
-        Logger.crdt.info("CRDT history compaction would be performed here")
+        Logger.crdt.infoCapture("CRDT history compaction would be performed here", category: "crdt")
     }
 }
 
@@ -381,8 +382,3 @@ public enum CRDTRepairError: LocalizedError {
     }
 }
 
-// MARK: - Logger Extension
-
-private extension Logger {
-    static let crdt = Logger(subsystem: "com.imbib.imprint", category: "crdt")
-}

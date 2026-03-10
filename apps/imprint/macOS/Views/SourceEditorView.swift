@@ -3,14 +3,15 @@ import AppKit
 import ImpressHelixCore
 import ImpressKit
 import UniformTypeIdentifiers
+import ImpressLogging
 import OSLog
 
-private let logger = Logger(subsystem: "com.imprint.app", category: "sourceEditor")
-
-/// Typst source code editor with syntax highlighting and inline AI completions
+/// Source code editor with format-aware syntax highlighting and inline AI completions.
+/// Supports both Typst and LaTeX syntax.
 struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
+    var syntaxMode: DocumentFormat = .typst
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
@@ -19,9 +20,10 @@ struct SourceEditorView: View {
     @State private var helixState = HelixState()
     private let inlineCompletionService = InlineCompletionService.shared
 
-    init(source: Binding<String>, cursorPosition: Binding<Int>, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
+    init(source: Binding<String>, cursorPosition: Binding<Int>, syntaxMode: DocumentFormat = .typst, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
         self._source = source
         self._cursorPosition = cursorPosition
+        self.syntaxMode = syntaxMode
         self.onSelectionChange = onSelectionChange
     }
 
@@ -33,6 +35,7 @@ struct SourceEditorView: View {
             TypstEditorRepresentable(
                 source: $source,
                 cursorPosition: $cursorPosition,
+                syntaxMode: syntaxMode,
                 helixState: helixState,
                 helixEnabled: helixModeEnabled,
                 inlineCompletionService: inlineCompletionService,
@@ -73,23 +76,32 @@ struct SourceEditorView: View {
         var handled = false
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.impressPaperReference.identifier) {
+                let mode = syntaxMode
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.impressPaperReference.identifier) { data, _ in
                     guard let data, let ref = try? JSONDecoder().decode(ImpressPaperRef.self, from: data) else { return }
                     Task { @MainActor in
-                        let citation = "@\(ref.citeKey)"
+                        let cite = mode.citationInsert
+                        let citation = "\(cite.prefix)\(ref.citeKey)\(cite.suffix)"
                         insertAtCursor(citation)
-                        logger.info("Inserted citation \(citation) from imbib drop")
+                        Logger.editor.infoCapture("Inserted citation \(citation) from imbib drop", category: "editor")
                     }
                 }
                 handled = true
             } else if provider.hasItemConformingToTypeIdentifier(UTType.impressFigureReference.identifier) {
+                let mode = syntaxMode
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.impressFigureReference.identifier) { data, _ in
                     guard let data, let ref = try? JSONDecoder().decode(ImpressFigureRef.self, from: data) else { return }
                     Task { @MainActor in
                         let title = ref.title ?? "figure"
-                        let snippet = "#figure(image(\"figures/\(ref.id.uuidString).\(ref.format ?? "png")\"), caption: [\(title)])"
+                        let snippet: String
+                        switch mode {
+                        case .typst:
+                            snippet = "#figure(image(\"figures/\(ref.id.uuidString).\(ref.format ?? "png")\"), caption: [\(title)])"
+                        case .latex:
+                            snippet = "\\begin{figure}\n  \\includegraphics{figures/\(ref.id.uuidString).\(ref.format ?? "png")}\n  \\caption{\(title)}\n\\end{figure}"
+                        }
                         insertAtCursor(snippet)
-                        logger.info("Inserted figure reference from implore drop")
+                        Logger.editor.infoCapture("Inserted figure reference from implore drop", category: "editor")
                     }
                 }
                 handled = true
@@ -106,10 +118,11 @@ struct SourceEditorView: View {
     }
 }
 
-/// NSTextView wrapper for Typst editing with inline AI completions
+/// NSTextView wrapper for Typst/LaTeX editing with inline AI completions
 struct TypstEditorRepresentable: NSViewRepresentable {
     @Binding var source: String
     @Binding var cursorPosition: Int
+    let syntaxMode: DocumentFormat
     let helixState: HelixState
     let helixEnabled: Bool
     let inlineCompletionService: InlineCompletionService
@@ -213,6 +226,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     }
 
     private func applySyntaxHighlighting(to textView: NSTextView) {
+        switch syntaxMode {
+        case .typst:
+            applyTypstHighlighting(to: textView)
+        case .latex:
+            applyLaTeXHighlighting(to: textView)
+        }
+    }
+
+    private func applyTypstHighlighting(to textView: NSTextView) {
         guard let textStorage = textView.textStorage else { return }
 
         let fullRange = NSRange(location: 0, length: textStorage.length)
@@ -226,37 +248,105 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
         let source = textStorage.string
 
-        // Highlight Typst keywords
         let keywords = ["let", "set", "show", "import", "include", "if", "else", "for", "while", "return", "break", "continue"]
         for keyword in keywords {
             highlightPattern("\\b\(keyword)\\b", in: source, textStorage: textStorage, color: .systemPurple)
         }
 
-        // Highlight headings (= Heading)
         highlightPattern("^=+\\s.*$", in: source, textStorage: textStorage, color: .systemBlue, options: .anchorsMatchLines)
-
-        // Highlight comments (// ...)
         highlightPattern("//.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines)
-
-        // Highlight citations (@citeKey)
         highlightPattern("@[a-zA-Z0-9_:-]+", in: source, textStorage: textStorage, color: .systemOrange)
-
-        // Highlight strings ("...")
         highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed)
-
-        // Highlight math ($...$)
         highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal)
-
-        // Highlight functions (#func())
         highlightPattern("#[a-zA-Z_][a-zA-Z0-9_]*", in: source, textStorage: textStorage, color: .systemIndigo)
 
         textStorage.endEditing()
     }
 
-    private func highlightPattern(_ pattern: String, in source: String, textStorage: NSTextStorage, color: NSColor, options: NSRegularExpression.Options = []) {
+    private func applyLaTeXHighlighting(to textView: NSTextView) {
+        guard let textStorage = textView.textStorage else { return }
+
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        let defaultAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.textColor
+        ]
+
+        textStorage.beginEditing()
+        textStorage.setAttributes(defaultAttributes, range: fullRange)
+
+        let source = textStorage.string
+
+        // Comments: % ...
+        highlightPattern("%.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines)
+
+        // Environment begin/end: \begin{...} and \end{...}
+        highlightPattern("\\\\(?:begin|end)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemBlue)
+
+        // Commands: \commandname
+        highlightPattern("\\\\[a-zA-Z@]+", in: source, textStorage: textStorage, color: .systemPurple)
+
+        // Citations, references, labels: \cite{...}, \ref{...}, \label{...}
+        highlightPattern("\\\\(?:cite|ref|eqref|pageref|label|autoref|cref|Cref|citep|citet|citealp|textcite|parencite|autocite)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemOrange)
+
+        // Math: $...$ and $$...$$
+        highlightPattern("\\$\\$[^\\$]+\\$\\$", in: source, textStorage: textStorage, color: .systemTeal)
+        highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal)
+
+        // Strings in arguments: "..."
+        highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed)
+
+        textStorage.endEditing()
+    }
+
+    /// Apply syntax highlighting only within the given range (plus context for multi-line patterns).
+    private func applySyntaxHighlightingRange(to textView: NSTextView, range: NSRange) {
+        guard let textStorage = textView.textStorage else { return }
+
+        // Expand range slightly to handle multi-line patterns (e.g. $$...$$)
+        let expandedStart = max(0, range.location - 100)
+        let expandedEnd = min(textStorage.length, NSMaxRange(range) + 100)
+        let expandedRange = NSRange(location: expandedStart, length: expandedEnd - expandedStart)
+
+        let defaultAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.textColor
+        ]
+
+        textStorage.beginEditing()
+        textStorage.setAttributes(defaultAttributes, range: expandedRange)
+
+        let source = textStorage.string
+
+        switch syntaxMode {
+        case .typst:
+            let keywords = ["let", "set", "show", "import", "include", "if", "else", "for", "while", "return", "break", "continue"]
+            for keyword in keywords {
+                highlightPattern("\\b\(keyword)\\b", in: source, textStorage: textStorage, color: .systemPurple, searchRange: expandedRange)
+            }
+            highlightPattern("^=+\\s.*$", in: source, textStorage: textStorage, color: .systemBlue, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("//.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("@[a-zA-Z0-9_:-]+", in: source, textStorage: textStorage, color: .systemOrange, searchRange: expandedRange)
+            highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed, searchRange: expandedRange)
+            highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("#[a-zA-Z_][a-zA-Z0-9_]*", in: source, textStorage: textStorage, color: .systemIndigo, searchRange: expandedRange)
+        case .latex:
+            highlightPattern("%.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("\\\\(?:begin|end)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemBlue, searchRange: expandedRange)
+            highlightPattern("\\\\[a-zA-Z@]+", in: source, textStorage: textStorage, color: .systemPurple, searchRange: expandedRange)
+            highlightPattern("\\\\(?:cite|ref|eqref|pageref|label|autoref|cref|Cref|citep|citet|citealp|textcite|parencite|autocite)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemOrange, searchRange: expandedRange)
+            highlightPattern("\\$\\$[^\\$]+\\$\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed, searchRange: expandedRange)
+        }
+
+        textStorage.endEditing()
+    }
+
+    private func highlightPattern(_ pattern: String, in source: String, textStorage: NSTextStorage, color: NSColor, options: NSRegularExpression.Options = [], searchRange: NSRange? = nil) {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
 
-        let range = NSRange(source.startIndex..., in: source)
+        let range = searchRange ?? NSRange(source.startIndex..., in: source)
         regex.enumerateMatches(in: source, options: [], range: range) { match, _, _ in
             if let matchRange = match?.range {
                 textStorage.addAttribute(.foregroundColor, value: color, range: matchRange)
@@ -269,9 +359,52 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         weak var textView: NSTextView?
         var helixAdaptor: NSTextViewHelixAdaptor?
         private var completionDebounceTask: Task<Void, Never>?
+        private var latexCompletionTask: Task<Void, Never>?
+        private var cachedLaTeXCompletions: [String] = []
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
+        }
+
+        // MARK: - LaTeX Completion Support
+
+        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+            guard parent.syntaxMode == .latex else { return [] }
+
+            let source = textView.string
+            let cursorOffset = textView.selectedRange().location
+
+            // Extract the prefix leading up to cursor for context
+            let startIndex = source.startIndex
+            let prefixEnd = source.index(startIndex, offsetBy: min(cursorOffset, source.count))
+            // Look back up to 50 chars for context
+            let lookback = min(cursorOffset, 50)
+            let prefixStart = source.index(prefixEnd, offsetBy: -lookback)
+            let prefix = String(source[prefixStart..<prefixEnd])
+
+            // Return cached results immediately
+            let currentResults = cachedLaTeXCompletions
+
+            // Fetch fresh completions asynchronously for next invocation
+            let capturedPrefix = prefix
+            let capturedSource = source
+            let capturedOffset = cursorOffset
+            let capturedTextView = textView
+            latexCompletionTask?.cancel()
+            latexCompletionTask = Task { @MainActor [weak self] in
+                let completions = await LaTeXCompletionProvider.shared.completions(
+                    for: capturedPrefix,
+                    in: capturedSource,
+                    at: capturedOffset
+                )
+                self?.cachedLaTeXCompletions = completions.map(\.text)
+                // Re-trigger completion if results changed
+                if self?.cachedLaTeXCompletions != currentResults {
+                    capturedTextView.complete(nil)
+                }
+            }
+
+            return currentResults
         }
 
         func textDidChange(_ notification: Notification) {
@@ -282,8 +415,13 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             let selectedRange = textView.selectedRange()
             parent.cursorPosition = selectedRange.location
 
-            // Re-apply syntax highlighting
-            parent.applySyntaxHighlighting(to: textView)
+            // Highlight only the changed paragraph (not full document)
+            if let textStorage = textView.textStorage, textStorage.editedRange.location != NSNotFound {
+                let paragraphRange = (textStorage.string as NSString).paragraphRange(for: textStorage.editedRange)
+                parent.applySyntaxHighlightingRange(to: textView, range: paragraphRange)
+            } else {
+                parent.applySyntaxHighlighting(to: textView)
+            }
 
             // Request inline completion
             requestInlineCompletion(text: textView.string, position: selectedRange.location)
@@ -359,7 +497,7 @@ class TypstTextView: HelixTextView {
                let accepted = service.acceptCompletion() {
                 // Insert the accepted text at cursor
                 insertText(accepted, replacementRange: selectedRange())
-                logger.info("Accepted inline completion via Tab")
+                Logger.editor.infoCapture("Accepted inline completion via Tab", category: "editor")
                 return
             }
         }

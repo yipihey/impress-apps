@@ -2,9 +2,15 @@
 import AppKit
 import CoreData
 import CoreSpotlight
+import ImpressLogging
+import ImprintCore
 import ImpressKit
 import ImpressSpotlight
 import SwiftUI
+
+extension NSNotification.Name {
+    static let openDocument = NSNotification.Name("com.imprint.openDocument")
+}
 
 // MARK: - Appearance Modifier
 
@@ -35,6 +41,9 @@ extension View {
 /// App delegate to handle app lifecycle events
 final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logInfo("imprint launched", category: "app")
+        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
+        logInfo("HTTP server starting on port \(port)", category: "http-server")
         // Start HTTP automation server for AI/MCP integration
         Task {
             await ImprintHTTPServer.shared.start()
@@ -88,6 +97,7 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct ImprintApp: App {
     @NSApplicationDelegateAdaptor(ImprintAppDelegate.self) var appDelegate
+    @Environment(\.openWindow) private var openWindow
     @State private var appState = AppState()
 
     /// Whether running in UI testing mode
@@ -212,6 +222,11 @@ struct ImprintApp: App {
 
                 Divider()
 
+                Button("Symbol Palette...") {
+                    NotificationCenter.default.post(name: .showSymbolPalette, object: nil)
+                }
+                .keyboardShortcut("Y", modifiers: [.command, .shift])
+
                 Button("AI Assistant...") {
                     NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
                 }
@@ -252,6 +267,13 @@ struct ImprintApp: App {
                     NotificationCenter.default.post(name: .toggleCommentsSidebar, object: nil)
                 }
                 .keyboardShortcut("K", modifiers: [.command, .option])
+
+                Divider()
+
+                Button("Show Console") {
+                    openWindow(id: "console")
+                }
+                .keyboardShortcut("c", modifiers: [.control, .command])
             }
 
             // Format menu
@@ -330,6 +352,13 @@ struct ImprintApp: App {
         Settings {
             SettingsView()
         }
+
+        // Console window
+        Window("Console", id: "console") {
+            ConsoleView(appName: "imprint")
+        }
+        .keyboardShortcut("c", modifiers: [.control, .command])
+        .defaultSize(width: 800, height: 400)
         #endif
     }
 }
@@ -341,6 +370,9 @@ struct ImprintApp: App {
 class AppState {
     /// Current edit mode (cycles with Tab)
     var editMode: EditMode = .splitView
+
+    /// Document format for the currently open document (set when document opens)
+    var documentFormat: DocumentFormat = .typst
 
     /// Whether the citation picker is showing
     var showingCitationPicker = false
@@ -431,6 +463,8 @@ extension Notification.Name {
     static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
+    static let showSymbolPalette = Notification.Name("showSymbolPalette")
+    static let formatDocument = Notification.Name("formatDocument")
 }
 
 // MARK: - UI Testing Support
