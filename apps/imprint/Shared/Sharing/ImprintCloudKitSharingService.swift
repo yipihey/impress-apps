@@ -15,8 +15,6 @@ import ImpressLogging
 import CloudKit
 #endif
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "sharing")
-
 public actor ImprintCloudKitSharingService {
 
     public static let shared = ImprintCloudKitSharingService()
@@ -43,7 +41,7 @@ public actor ImprintCloudKitSharingService {
         // Step 2: Create CKShare
         let share = try await createShare(for: sharedWorkspace, title: folder.name)
 
-        logger.infoCapture("Created share for folder '\(folder.name)'", category: "sharing")
+        Logger.sharing.infoCapture("Created share for folder '\(folder.name)'", category: "sharing")
         return (sharedWorkspace, share)
     }
 
@@ -61,7 +59,7 @@ public actor ImprintCloudKitSharingService {
         context.delete(sharedWorkspace)
         try context.save()
 
-        logger.infoCapture("Unshared workspace '\(sharedWorkspace.name)'", category: "sharing")
+        Logger.sharing.infoCapture("Unshared workspace '\(sharedWorkspace.name)'", category: "sharing")
     }
 
     // MARK: - Leave Share
@@ -80,7 +78,7 @@ public actor ImprintCloudKitSharingService {
         context.delete(sharedWorkspace)
         try context.save()
 
-        logger.infoCapture("Left shared workspace '\(sharedWorkspace.name)' (keepCopy: \(keepCopy))", category: "sharing")
+        Logger.sharing.infoCapture("Left shared workspace '\(sharedWorkspace.name)' (keepCopy: \(keepCopy))", category: "sharing")
     }
 
     // MARK: - Permissions
@@ -98,7 +96,7 @@ public actor ImprintCloudKitSharingService {
 
         try await database.save(share)
 
-        logger.infoCapture("Set permission \(permission.rawValue) for participant", category: "sharing")
+        Logger.sharing.infoCapture("Set permission \(permission.rawValue) for participant", category: "sharing")
     }
 
     // MARK: - Private

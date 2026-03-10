@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressLogging
 import os.log
 
 // MARK: - Shared iCloud Service
@@ -31,8 +32,6 @@ public actor SharedICloudService {
 
     // MARK: - Properties
 
-    private let logger = Logger(subsystem: "com.imbib.imprint", category: "SharedICloud")
-
     /// The shared iCloud container identifier
     private let containerIdentifier = "iCloud.com.imbib.shared"
 
@@ -55,7 +54,7 @@ public actor SharedICloudService {
         guard let url = FileManager.default.url(
             forUbiquityContainerIdentifier: containerIdentifier
         ) else {
-            logger.warning("Shared iCloud container not available")
+            Logger.sharing.warningCapture("Shared iCloud container not available", category: "icloud")
             return nil
         }
 
@@ -80,7 +79,7 @@ public actor SharedICloudService {
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            logger.info("Created compiled manuscripts folder: \(folderURL.path)")
+            Logger.sharing.infoCapture("Created compiled manuscripts folder: \(folderURL.path)", category: "icloud")
         }
 
         return folderURL
@@ -106,7 +105,7 @@ public actor SharedICloudService {
         let pdfURL = folderURL.appendingPathComponent("\(documentUUID.uuidString).pdf")
 
         try pdfData.write(to: pdfURL, options: .atomic)
-        logger.info("Wrote compiled PDF: \(pdfURL.lastPathComponent)")
+        Logger.sharing.infoCapture("Wrote compiled PDF: \(pdfURL.lastPathComponent)", category: "icloud")
 
         // Set metadata for iCloud syncing
         try setICloudMetadata(forPDFAt: pdfURL, documentUUID: documentUUID)
@@ -141,7 +140,7 @@ public actor SharedICloudService {
         }
 
         try FileManager.default.removeItem(at: url)
-        logger.info("Deleted compiled PDF: \(url.lastPathComponent)")
+        Logger.sharing.infoCapture("Deleted compiled PDF: \(url.lastPathComponent)", category: "icloud")
     }
 
     /// Lists all compiled PDF UUIDs in the shared container.
@@ -183,7 +182,7 @@ public actor SharedICloudService {
                 0
             )
             if result != 0 {
-                logger.warning("Failed to set xattr on \(url.lastPathComponent): \(errno)")
+                Logger.sharing.warningCapture("Failed to set xattr on \(url.lastPathComponent): \(errno)", category: "icloud")
             }
         }
     }

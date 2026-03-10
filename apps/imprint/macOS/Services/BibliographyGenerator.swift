@@ -7,9 +7,8 @@
 //
 
 import Foundation
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "bibliographyGenerator")
 
 // MARK: - Bibliography Generator
 
@@ -82,7 +81,7 @@ public final class BibliographyGenerator {
         let sortedKeys = citeKeys.sorted()
         extractedCiteKeys = sortedKeys
 
-        logger.info("Extracted \(sortedKeys.count) cite keys from manuscript")
+        Logger.compilation.infoCapture("Extracted \(sortedKeys.count) cite keys from manuscript", category: "bibliography")
 
         return sortedKeys
     }
@@ -156,11 +155,11 @@ public final class BibliographyGenerator {
         let citeKeys = extractCiteKeys(from: source)
 
         guard !citeKeys.isEmpty else {
-            logger.info("No citations found in manuscript")
+            Logger.compilation.infoCapture("No citations found in manuscript", category: "bibliography")
             return ""
         }
 
-        logger.info("Generating bibliography for \(citeKeys.count) citations")
+        Logger.compilation.infoCapture("Generating bibliography for \(citeKeys.count) citations", category: "bibliography")
 
         // Fetch BibTeX from imbib
         let bibtex: String
@@ -184,9 +183,9 @@ public final class BibliographyGenerator {
         if let outputPath = outputPath {
             do {
                 try fullBibtex.write(to: outputPath, atomically: true, encoding: .utf8)
-                logger.info("Bibliography saved to: \(outputPath.path)")
+                Logger.compilation.infoCapture("Bibliography saved to: \(outputPath.path)", category: "bibliography")
             } catch {
-                logger.error("Failed to save bibliography: \(error.localizedDescription)")
+                Logger.compilation.errorCapture("Failed to save bibliography: \(error.localizedDescription)", category: "bibliography")
                 throw BibliographyGeneratorError.saveError(error.localizedDescription)
             }
         }
@@ -232,7 +231,7 @@ public final class BibliographyGenerator {
                     ))
                 }
             } catch {
-                logger.warning("Failed to fetch metadata for \(citeKey): \(error.localizedDescription)")
+                Logger.compilation.warningCapture("Failed to fetch metadata for \(citeKey): \(error.localizedDescription)", category: "bibliography")
                 // Create placeholder for failed fetch
                 papers.append(CitationResult(
                     id: UUID(),

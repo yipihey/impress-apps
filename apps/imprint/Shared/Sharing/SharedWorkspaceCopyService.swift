@@ -11,8 +11,6 @@ import CoreData
 import OSLog
 import ImpressLogging
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "sharing")
-
 public actor SharedWorkspaceCopyService {
 
     public static let shared = SharedWorkspaceCopyService()
@@ -49,7 +47,7 @@ public actor SharedWorkspaceCopyService {
         )
 
         try context.save()
-        logger.infoCapture("Copied folder '\(folder.name)' to shared store", category: "sharing")
+        Logger.sharing.infoCapture("Copied folder '\(folder.name)' to shared store", category: "sharing")
         return targetWorkspace
     }
 
@@ -83,7 +81,7 @@ public actor SharedWorkspaceCopyService {
         }
 
         try context.save()
-        logger.infoCapture("Copied workspace '\(workspace.name)' to private store", category: "sharing")
+        Logger.sharing.infoCapture("Copied workspace '\(workspace.name)' to private store", category: "sharing")
     }
 
     // MARK: - Deep Copy

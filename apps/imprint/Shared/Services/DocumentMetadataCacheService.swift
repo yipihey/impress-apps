@@ -9,8 +9,7 @@
 import Foundation
 import CoreData
 import OSLog
-
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "metadata-cache")
+import ImpressLogging
 
 public actor DocumentMetadataCacheService {
 
@@ -63,16 +62,16 @@ public actor DocumentMetadataCacheService {
                         updatedCount += 1
                     }
                 } catch {
-                    logger.warning("Failed to read metadata for ref \(ref.id): \(error.localizedDescription)")
+                    Logger.metadataCache.warningCapture("Failed to read metadata for ref \(ref.id): \(error.localizedDescription)", category: "metadata-cache")
                 }
             }
 
             if context.hasChanges {
                 try context.save()
-                logger.info("Refreshed metadata cache: \(updatedCount) documents updated")
+                Logger.metadataCache.infoCapture("Refreshed metadata cache: \(updatedCount) documents updated", category: "metadata-cache")
             }
         } catch {
-            logger.error("Failed to refresh metadata cache: \(error.localizedDescription)")
+            Logger.metadataCache.errorCapture("Failed to refresh metadata cache: \(error.localizedDescription)", category: "metadata-cache")
         }
     }
 }

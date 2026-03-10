@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import ImpressLogging
 
 #if canImport(AppKit)
 import AppKit
@@ -21,7 +22,7 @@ public final class HandoffService {
     private var currentActivity: NSUserActivity?
 
     private init() {
-        Logger.handoff.info("imprint Handoff service initialized")
+        Logger.handoff.infoCapture("imprint Handoff service initialized", category: "handoff")
     }
 
     /// Start an editing activity for Handoff.
@@ -44,7 +45,7 @@ public final class HandoffService {
         activity.becomeCurrent()
         currentActivity = activity
 
-        Logger.handoff.debug("Started editing activity: \(title) at line \(cursorLine)")
+        Logger.handoff.debugCapture("Started editing activity: \(title) at line \(cursorLine)", category: "handoff")
     }
 
     /// Update the cursor position.
@@ -74,14 +75,14 @@ public final class HandoffService {
         activity.becomeCurrent()
         currentActivity = activity
 
-        Logger.handoff.debug("Started viewing activity: \(title)")
+        Logger.handoff.debugCapture("Started viewing activity: \(title)", category: "handoff")
     }
 
     /// Stop the current editing activity.
     public func stopEditing() {
         currentActivity?.invalidate()
         currentActivity = nil
-        Logger.handoff.debug("Stopped editing activity")
+        Logger.handoff.debugCapture("Stopped editing activity", category: "handoff")
     }
 
     /// Stop any current activity.
@@ -133,6 +134,3 @@ public extension Notification.Name {
     static let restoreHandoffViewing = Notification.Name("restoreHandoffViewing")
 }
 
-extension Logger {
-    static let handoff = Logger(subsystem: "com.imbib.imprint", category: "handoff")
-}

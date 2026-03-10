@@ -14,8 +14,6 @@ import ImpressLogging
 import CloudKit
 #endif
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "persistence")
-
 // MARK: - Persistence Controller
 
 public final class ImprintPersistenceController: @unchecked Sendable {
@@ -25,7 +23,7 @@ public final class ImprintPersistenceController: @unchecked Sendable {
     public static let shared: ImprintPersistenceController = {
         // CloudKit sharing will be enabled in a future release once the container schema is finalized.
         // For now, use local-only storage to avoid CloudKit initialization crashes.
-        logger.info("Using local-only storage for project hierarchy")
+        Logger.persistence.infoCapture("Using local-only storage for project hierarchy", category: "persistence")
         return ImprintPersistenceController(enableCloudKit: false)
     }()
 
@@ -51,10 +49,10 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
         if enableCloudKit {
             container = NSPersistentCloudKitContainer(name: "ImprintProjects", managedObjectModel: model)
-            logger.info("Using NSPersistentCloudKitContainer")
+            Logger.persistence.infoCapture("Using NSPersistentCloudKitContainer", category: "persistence")
         } else {
             container = NSPersistentContainer(name: "ImprintProjects", managedObjectModel: model)
-            logger.info("Using standard NSPersistentContainer")
+            Logger.persistence.infoCapture("Using standard NSPersistentContainer", category: "persistence")
         }
 
         if let privateDesc = container.persistentStoreDescriptions.first {
@@ -102,11 +100,11 @@ public final class ImprintPersistenceController: @unchecked Sendable {
             guard let self = self else { return }
 
             if let error = error as NSError? {
-                logger.error("Failed to load persistent store: \(error), \(error.userInfo)")
+                Logger.persistence.errorCapture("Failed to load persistent store: \(error), \(error.userInfo)", category: "persistence")
                 return
             }
 
-            logger.info("Loaded persistent store: \(description.url?.absoluteString ?? "unknown")")
+            Logger.persistence.infoCapture("Loaded persistent store: \(description.url?.absoluteString ?? "unknown")", category: "persistence")
 
             if let loadedStore = self.container.persistentStoreCoordinator.persistentStore(for: description.url!) {
                 if description.cloudKitContainerOptions?.databaseScope == .shared {
@@ -119,7 +117,7 @@ public final class ImprintPersistenceController: @unchecked Sendable {
             loadedStoreCount += 1
             guard loadedStoreCount == expectedStoreCount else { return }
 
-            logger.info("All stores loaded successfully")
+            Logger.persistence.infoCapture("All stores loaded successfully", category: "persistence")
         }
 
         container.viewContext.automaticallyMergesChangesFromParent = true
@@ -159,10 +157,10 @@ public final class ImprintPersistenceController: @unchecked Sendable {
                 workspace.isDefault = true
                 workspace.dateCreated = Date()
                 try context.save()
-                logger.infoCapture("Created default workspace 'My Projects'", category: "folders")
+                Logger.persistence.infoCapture("Created default workspace 'My Projects'", category: "persistence")
             }
         } catch {
-            logger.error("Failed to ensure default workspace: \(error.localizedDescription)")
+            Logger.persistence.errorCapture("Failed to ensure default workspace: \(error.localizedDescription)", category: "persistence")
         }
     }
 

@@ -10,9 +10,8 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressLogging
 import OSLog
-
-private let httpLogger = Logger(subsystem: "com.imbib.imprint", category: "httpServer")
 
 // MARK: - HTTP Automation Server
 
@@ -74,24 +73,24 @@ public actor ImprintHTTPServer {
     public func start() async {
         let alreadyRunning = await server.running
         guard !alreadyRunning else {
-            httpLogger.info("HTTP server already running")
+            Logger.httpServer.infoCapture("HTTP server already running", category: "http-server")
             return
         }
 
         guard Self.isEnabled else {
-            httpLogger.info("HTTP server is disabled in settings")
+            Logger.httpServer.infoCapture("HTTP server is disabled in settings", category: "http-server")
             return
         }
 
         let configuration = HTTPServerConfiguration(
             port: Self.configuredPort,
-            loggerSubsystem: "com.imbib.imprint",
+            loggerSubsystem: "com.imprint.app",
             loggerCategory: "httpServer",
             logRequests: true
         )
 
         await server.start(configuration: configuration)
-        httpLogger.info("HTTP server started on port \(Self.configuredPort)")
+        Logger.httpServer.infoCapture("HTTP server started on port \(Self.configuredPort)", category: "http-server")
     }
 
     /// Stop the HTTP server.
@@ -103,7 +102,7 @@ public actor ImprintHTTPServer {
     public func restart() async {
         let configuration = HTTPServerConfiguration(
             port: Self.configuredPort,
-            loggerSubsystem: "com.imbib.imprint",
+            loggerSubsystem: "com.imprint.app",
             loggerCategory: "httpServer",
             logRequests: true
         )

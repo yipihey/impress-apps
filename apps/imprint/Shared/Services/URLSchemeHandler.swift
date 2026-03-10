@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import ImpressLogging
 import os.log
 
 // MARK: - URL Scheme Handler
@@ -24,8 +25,6 @@ public actor URLSchemeHandler {
     public static let shared = URLSchemeHandler()
 
     // MARK: - Properties
-
-    private let logger = Logger(subsystem: "com.imbib.imprint", category: "URLScheme")
 
     /// Callback when a document should be opened
     @MainActor public var onOpenDocument: ((UUID, String?) -> Void)?
@@ -45,12 +44,12 @@ public actor URLSchemeHandler {
     @discardableResult
     public func handleURL(_ url: URL) async -> Bool {
         guard url.scheme == "imprint" else {
-            logger.warning("Unknown scheme: \(url.scheme ?? "nil")")
+            Logger.urlScheme.warningCapture("Unknown scheme: \(url.scheme ?? "nil")", category: "url-scheme")
             return false
         }
 
         guard let host = url.host else {
-            logger.warning("No host in URL: \(url)")
+            Logger.urlScheme.warningCapture("No host in URL: \(url)", category: "url-scheme")
             return false
         }
 
@@ -62,7 +61,7 @@ public actor URLSchemeHandler {
         case "annotations":
             return await handleAnnotationsURL(url)
         default:
-            logger.warning("Unknown command: \(host)")
+            Logger.urlScheme.warningCapture("Unknown command: \(host)", category: "url-scheme")
             return false
         }
     }
@@ -73,18 +72,18 @@ public actor URLSchemeHandler {
     private func handleOpenURL(_ url: URL) async -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
-            logger.error("Invalid open URL: \(url)")
+            Logger.urlScheme.errorCapture("Invalid open URL: \(url)", category: "url-scheme")
             return false
         }
 
         let imbibManuscript = queryItems.first { $0.name == "imbibManuscript" }?.value
         guard let uuidString = queryItems.first(where: { $0.name == "documentUUID" })?.value,
               let documentUUID = UUID(uuidString: uuidString) else {
-            logger.error("Missing or invalid documentUUID in open URL")
+            Logger.urlScheme.errorCapture("Missing or invalid documentUUID in open URL", category: "url-scheme")
             return false
         }
 
-        logger.info("Opening document UUID=\(documentUUID) for imbib manuscript=\(imbibManuscript ?? "unknown")")
+        Logger.urlScheme.infoCapture("Opening document UUID=\(documentUUID) for imbib manuscript=\(imbibManuscript ?? "unknown")", category: "url-scheme")
 
         await MainActor.run {
             onOpenDocument?(documentUUID, imbibManuscript)
@@ -111,14 +110,14 @@ public actor URLSchemeHandler {
     private func handleCreateURL(_ url: URL) async -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
-            logger.error("Invalid create URL: \(url)")
+            Logger.urlScheme.errorCapture("Invalid create URL: \(url)", category: "url-scheme")
             return false
         }
 
         let title = queryItems.first { $0.name == "title" }?.value ?? "Untitled"
         let template = queryItems.first { $0.name == "template" }?.value
 
-        logger.info("Creating new document: title=\(title), template=\(template ?? "default")")
+        Logger.urlScheme.infoCapture("Creating new document: title=\(title), template=\(template ?? "default")", category: "url-scheme")
 
         await MainActor.run {
             onCreateDocument?(title, template)
@@ -149,14 +148,14 @@ public actor URLSchemeHandler {
               let queryItems = components.queryItems,
               let uuidString = queryItems.first(where: { $0.name == "documentUUID" })?.value,
               let documentUUID = UUID(uuidString: uuidString) else {
-            logger.error("Invalid annotations URL: \(url)")
+            Logger.urlScheme.errorCapture("Invalid annotations URL: \(url)", category: "url-scheme")
             return false
         }
 
         // Read annotation count from pasteboard (set by imbib)
         let count = readAnnotationCountFromPasteboard()
 
-        logger.info("Received annotation count=\(count) for document=\(documentUUID)")
+        Logger.urlScheme.infoCapture("Received annotation count=\(count) for document=\(documentUUID)", category: "url-scheme")
 
         await MainActor.run {
             onShowAnnotations?(documentUUID, count)
