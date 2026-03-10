@@ -1,4 +1,6 @@
 import Foundation
+import ImpressLogging
+import OSLog
 
 /// Provides auto-completion suggestions for LaTeX editing.
 ///
@@ -14,6 +16,14 @@ final class LaTeXCompletionProvider {
 
     /// Get completions for the given prefix at the cursor position.
     func completions(for prefix: String, in source: String, at cursorOffset: Int) async -> [LaTeXCompletion] {
+        let results = await completionsInternal(for: prefix, in: source, at: cursorOffset)
+        if !results.isEmpty {
+            Logger.latexCompletion.infoCapture("Completions: \(results.count) results for prefix '\(prefix.suffix(20))'", category: "latex-completion")
+        }
+        return results
+    }
+
+    private func completionsInternal(for prefix: String, in source: String, at cursorOffset: Int) async -> [LaTeXCompletion] {
         // Determine what kind of completion to provide
         if prefix.hasSuffix("\\cite{") || prefix.hasSuffix("\\citep{") || prefix.hasSuffix("\\citet{") ||
            prefix.hasSuffix("\\textcite{") || prefix.hasSuffix("\\parencite{") {
@@ -198,13 +208,13 @@ final class LaTeXCompletionProvider {
 }
 
 /// A single auto-completion suggestion.
-struct LaTeXCompletion: Identifiable {
+struct LaTeXCompletion: Identifiable, Sendable {
     let id = UUID()
     var text: String          // Text to insert
     var displayText: String   // Text to show in completion list
     var kind: Kind
 
-    enum Kind {
+    enum Kind: Sendable {
         case command, environment, citation, label, package
     }
 }

@@ -22,7 +22,7 @@ struct LaTeXSettingsView: View {
         .formStyle(.grouped)
         .padding()
         .task {
-            texManager.discoverDistribution()
+            await texManager.discoverDistribution()
         }
     }
 
@@ -71,9 +71,13 @@ struct LaTeXSettingsView: View {
 
                 Button("Verify Installation") {
                     isVerifying = true
+                    let manager = texManager
                     Task {
-                        verificationResult = await texManager.verifyInstallation()
-                        isVerifying = false
+                        let result = await manager.verifyInstallation()
+                        await MainActor.run {
+                            verificationResult = result
+                            isVerifying = false
+                        }
                     }
                 }
                 .disabled(isVerifying || !texManager.isAvailable)

@@ -18,7 +18,6 @@ import OSLog
 import AppKit
 #endif
 
-private let routerLogger = Logger(subsystem: "com.imbib.imprint", category: "httpRouter")
 
 // MARK: - HTTP Automation Router
 
@@ -978,9 +977,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// Returns TeX distribution info and available engines.
     private func handleLaTeXStatus() async -> HTTPResponse {
         #if os(macOS)
-        let distPath = await MainActor.run { TeXDistributionManager.shared.distributionPath?.path }
-        let isAvailable = await MainActor.run { TeXDistributionManager.shared.isAvailable }
-        let engines = await MainActor.run { TeXDistributionManager.shared.installedEngines.map(\.rawValue) }
+        let (distPath, isAvailable, engines) = await MainActor.run {
+            (
+                TeXDistributionManager.shared.distributionPath?.path,
+                TeXDistributionManager.shared.isAvailable,
+                TeXDistributionManager.shared.installedEngines.map(\.rawValue)
+            )
+        }
 
         let response: [String: Any] = [
             "status": "ok",

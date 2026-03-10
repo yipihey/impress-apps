@@ -3,9 +3,8 @@ import AppKit
 import ImpressHelixCore
 import ImpressKit
 import UniformTypeIdentifiers
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "sourceEditor")
 
 /// Source code editor with format-aware syntax highlighting and inline AI completions.
 /// Supports both Typst and LaTeX syntax.
@@ -84,7 +83,7 @@ struct SourceEditorView: View {
                         let cite = mode.citationInsert
                         let citation = "\(cite.prefix)\(ref.citeKey)\(cite.suffix)"
                         insertAtCursor(citation)
-                        logger.info("Inserted citation \(citation) from imbib drop")
+                        Logger.editor.infoCapture("Inserted citation \(citation) from imbib drop", category: "editor")
                     }
                 }
                 handled = true
@@ -102,7 +101,7 @@ struct SourceEditorView: View {
                             snippet = "\\begin{figure}\n  \\includegraphics{figures/\(ref.id.uuidString).\(ref.format ?? "png")}\n  \\caption{\(title)}\n\\end{figure}"
                         }
                         insertAtCursor(snippet)
-                        logger.info("Inserted figure reference from implore drop")
+                        Logger.editor.infoCapture("Inserted figure reference from implore drop", category: "editor")
                     }
                 }
                 handled = true
@@ -300,10 +299,54 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textStorage.endEditing()
     }
 
-    private func highlightPattern(_ pattern: String, in source: String, textStorage: NSTextStorage, color: NSColor, options: NSRegularExpression.Options = []) {
+    /// Apply syntax highlighting only within the given range (plus context for multi-line patterns).
+    private func applySyntaxHighlightingRange(to textView: NSTextView, range: NSRange) {
+        guard let textStorage = textView.textStorage else { return }
+
+        // Expand range slightly to handle multi-line patterns (e.g. $$...$$)
+        let expandedStart = max(0, range.location - 100)
+        let expandedEnd = min(textStorage.length, NSMaxRange(range) + 100)
+        let expandedRange = NSRange(location: expandedStart, length: expandedEnd - expandedStart)
+
+        let defaultAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.textColor
+        ]
+
+        textStorage.beginEditing()
+        textStorage.setAttributes(defaultAttributes, range: expandedRange)
+
+        let source = textStorage.string
+
+        switch syntaxMode {
+        case .typst:
+            let keywords = ["let", "set", "show", "import", "include", "if", "else", "for", "while", "return", "break", "continue"]
+            for keyword in keywords {
+                highlightPattern("\\b\(keyword)\\b", in: source, textStorage: textStorage, color: .systemPurple, searchRange: expandedRange)
+            }
+            highlightPattern("^=+\\s.*$", in: source, textStorage: textStorage, color: .systemBlue, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("//.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("@[a-zA-Z0-9_:-]+", in: source, textStorage: textStorage, color: .systemOrange, searchRange: expandedRange)
+            highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed, searchRange: expandedRange)
+            highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("#[a-zA-Z_][a-zA-Z0-9_]*", in: source, textStorage: textStorage, color: .systemIndigo, searchRange: expandedRange)
+        case .latex:
+            highlightPattern("%.*$", in: source, textStorage: textStorage, color: .systemGreen, options: .anchorsMatchLines, searchRange: expandedRange)
+            highlightPattern("\\\\(?:begin|end)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemBlue, searchRange: expandedRange)
+            highlightPattern("\\\\[a-zA-Z@]+", in: source, textStorage: textStorage, color: .systemPurple, searchRange: expandedRange)
+            highlightPattern("\\\\(?:cite|ref|eqref|pageref|label|autoref|cref|Cref|citep|citet|citealp|textcite|parencite|autocite)\\{[^}]+\\}", in: source, textStorage: textStorage, color: .systemOrange, searchRange: expandedRange)
+            highlightPattern("\\$\\$[^\\$]+\\$\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("\\$[^\\$]+\\$", in: source, textStorage: textStorage, color: .systemTeal, searchRange: expandedRange)
+            highlightPattern("\"[^\"]*\"", in: source, textStorage: textStorage, color: .systemRed, searchRange: expandedRange)
+        }
+
+        textStorage.endEditing()
+    }
+
+    private func highlightPattern(_ pattern: String, in source: String, textStorage: NSTextStorage, color: NSColor, options: NSRegularExpression.Options = [], searchRange: NSRange? = nil) {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
 
-        let range = NSRange(source.startIndex..., in: source)
+        let range = searchRange ?? NSRange(source.startIndex..., in: source)
         regex.enumerateMatches(in: source, options: [], range: range) { match, _, _ in
             if let matchRange = match?.range {
                 textStorage.addAttribute(.foregroundColor, value: color, range: matchRange)
@@ -317,6 +360,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         var helixAdaptor: NSTextViewHelixAdaptor?
         private var completionDebounceTask: Task<Void, Never>?
         private var latexCompletionTask: Task<Void, Never>?
+        private var cachedLaTeXCompletions: [String] = []
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
@@ -338,26 +382,29 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             let prefixStart = source.index(prefixEnd, offsetBy: -lookback)
             let prefix = String(source[prefixStart..<prefixEnd])
 
-            // Synchronously get cached completions — async fetching happens in background
-            var results: [String] = []
-            let semaphore = DispatchSemaphore(value: 0)
+            // Return cached results immediately
+            let currentResults = cachedLaTeXCompletions
+
+            // Fetch fresh completions asynchronously for next invocation
             let capturedPrefix = prefix
             let capturedSource = source
             let capturedOffset = cursorOffset
-
-            Task { @MainActor in
+            let capturedTextView = textView
+            latexCompletionTask?.cancel()
+            latexCompletionTask = Task { @MainActor [weak self] in
                 let completions = await LaTeXCompletionProvider.shared.completions(
                     for: capturedPrefix,
                     in: capturedSource,
                     at: capturedOffset
                 )
-                results = completions.map(\.text)
-                semaphore.signal()
+                self?.cachedLaTeXCompletions = completions.map(\.text)
+                // Re-trigger completion if results changed
+                if self?.cachedLaTeXCompletions != currentResults {
+                    capturedTextView.complete(nil)
+                }
             }
 
-            // Wait briefly for results (non-blocking UI for async completions)
-            _ = semaphore.wait(timeout: .now() + 0.1)
-            return results
+            return currentResults
         }
 
         func textDidChange(_ notification: Notification) {
@@ -368,8 +415,13 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             let selectedRange = textView.selectedRange()
             parent.cursorPosition = selectedRange.location
 
-            // Re-apply syntax highlighting
-            parent.applySyntaxHighlighting(to: textView)
+            // Highlight only the changed paragraph (not full document)
+            if let textStorage = textView.textStorage, textStorage.editedRange.location != NSNotFound {
+                let paragraphRange = (textStorage.string as NSString).paragraphRange(for: textStorage.editedRange)
+                parent.applySyntaxHighlightingRange(to: textView, range: paragraphRange)
+            } else {
+                parent.applySyntaxHighlighting(to: textView)
+            }
 
             // Request inline completion
             requestInlineCompletion(text: textView.string, position: selectedRange.location)
@@ -445,7 +497,7 @@ class TypstTextView: HelixTextView {
                let accepted = service.acceptCompletion() {
                 // Insert the accepted text at cursor
                 insertText(accepted, replacementRange: selectedRange())
-                logger.info("Accepted inline completion via Tab")
+                Logger.editor.infoCapture("Accepted inline completion via Tab", category: "editor")
                 return
             }
         }

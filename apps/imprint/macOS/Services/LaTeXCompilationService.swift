@@ -1,7 +1,6 @@
 import Foundation
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "latexCompilation")
 
 /// Engine choices for LaTeX compilation.
 enum LaTeXEngine: String, CaseIterable, Codable, Sendable {
@@ -136,7 +135,7 @@ actor LaTeXCompilationService {
 
         defer { runningProcess = nil }
 
-        logger.info("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue)")
+        Logger.compilation.infoCapture("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue)", category: "latex")
 
         do {
             try process.run()
@@ -144,9 +143,26 @@ actor LaTeXCompilationService {
             throw LaTeXCompilationError.launchFailed(error)
         }
 
-        // Read output asynchronously
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        // Read both pipes concurrently to avoid deadlock when >64KB on one pipe
+        let stdoutData: Data
+        let stderrData: Data
+        let group = DispatchGroup()
+        var _stdoutData = Data()
+        var _stderrData = Data()
+
+        group.enter()
+        DispatchQueue.global().async {
+            _stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            _stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.wait()
+        stdoutData = _stdoutData
+        stderrData = _stderrData
 
         process.waitUntilExit()
 
@@ -162,10 +178,10 @@ actor LaTeXCompilationService {
         let logFileName = sourceURL.deletingPathExtension().lastPathComponent + ".log"
         let logFileURL = buildDir.appendingPathComponent(logFileName)
         let logFileContent = (try? String(contentsOf: logFileURL, encoding: .utf8)) ?? ""
-        let fullLog = logFileContent.isEmpty ? logOutput : logFileContent
+        let diagnosticSource = logFileContent.isEmpty ? logOutput : logFileContent
 
         // Parse diagnostics
-        let diagnostics = LaTeXLogParser.parse(logFileContent.isEmpty ? logOutput : logFileContent)
+        let diagnostics = LaTeXLogParser.parse(diagnosticSource)
 
         // Read PDF if compilation succeeded
         let pdfFileName = sourceURL.deletingPathExtension().lastPathComponent + ".pdf"
@@ -177,13 +193,13 @@ actor LaTeXCompilationService {
         let synctexURL = buildDir.appendingPathComponent(synctexFileName)
         let synctexExists = FileManager.default.fileExists(atPath: synctexURL.path)
 
-        logger.info("Compilation finished: exit=\(exitCode), time=\(elapsedMs)ms, pdf=\(pdfData?.count ?? 0)b, errors=\(diagnostics.errors.count), warnings=\(diagnostics.warnings.count)")
+        Logger.compilation.infoCapture("Compilation finished: exit=\(exitCode), time=\(elapsedMs)ms, pdf=\(pdfData?.count ?? 0)b, errors=\(diagnostics.errors.count), warnings=\(diagnostics.warnings.count)", category: "latex")
 
         return LaTeXCompilationResult(
             pdfData: pdfData,
             pdfURL: pdfData != nil ? pdfURL : nil,
             synctexURL: synctexExists ? synctexURL : nil,
-            logOutput: fullLog,
+            logOutput: diagnosticSource,
             errors: diagnostics.errors,
             warnings: diagnostics.warnings,
             exitCode: exitCode,
@@ -203,7 +219,7 @@ actor LaTeXCompilationService {
         let dir = buildDirectory(for: sourceURL)
         if FileManager.default.fileExists(atPath: dir.path) {
             try FileManager.default.removeItem(at: dir)
-            logger.info("Cleaned build directory: \(dir.path)")
+            Logger.compilation.infoCapture("Cleaned build directory: \(dir.path)", category: "latex")
         }
     }
 
@@ -213,7 +229,7 @@ actor LaTeXCompilationService {
     func cancel() {
         if let process = runningProcess, process.isRunning {
             process.terminate()
-            logger.info("Cancelled running compilation")
+            Logger.compilation.infoCapture("Cancelled running compilation", category: "latex")
         }
         runningProcess = nil
     }
