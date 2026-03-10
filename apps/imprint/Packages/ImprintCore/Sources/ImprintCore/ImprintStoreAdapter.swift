@@ -41,13 +41,14 @@
 
 import Foundation
 import ImpressKit
+import ImpressLogging
 import OSLog
 import CommonCrypto
 #if canImport(ImpressRustCore)
 import ImpressRustCore
 #endif
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "shared-store")
+private let logger = Logger(subsystem: "com.imprint.app", category: "shared-store")
 
 /// Large-body threshold: sections whose body exceeds this size are stored
 /// content-addressed rather than inline.
@@ -112,10 +113,10 @@ public final class ImprintStoreAdapter {
             store = try SharedStore.open(path: databasePath)
             #endif
             isReady = true
-            logger.info("ImprintStoreAdapter ready at \(self.databasePath, privacy: .public)")
+            logger.infoCapture("ImprintStoreAdapter ready at \(self.databasePath)", category: "shared-store")
         } catch {
             isReady = false
-            logger.warning("ImprintStoreAdapter: could not open shared workspace — \(error.localizedDescription, privacy: .public)")
+            logger.warningCapture("ImprintStoreAdapter: could not open shared workspace — \(error.localizedDescription)", category: "shared-store")
         }
     }
 
@@ -149,7 +150,7 @@ public final class ImprintStoreAdapter {
         documentID: String?
     ) {
         guard isReady else {
-            logger.debug("ImprintStoreAdapter.storeSection skipped — adapter not ready")
+            logger.debugCapture("ImprintStoreAdapter.storeSection skipped — adapter not ready", category: "shared-store")
             return
         }
 
@@ -180,27 +181,27 @@ public final class ImprintStoreAdapter {
 
         guard let payloadJSON = try? JSONSerialization.data(withJSONObject: payload),
               let payloadString = String(data: payloadJSON, encoding: .utf8) else {
-            logger.warning("ImprintStoreAdapter.storeSection: failed to encode payload for \(sectionID, privacy: .public)")
+            logger.warningCapture("ImprintStoreAdapter.storeSection: failed to encode payload for \(sectionID)", category: "shared-store")
             return
         }
 
         #if canImport(ImpressRustCore)
         do {
             try store?.upsertItem(id: sectionID, schemaRef: "manuscript-section", payloadJson: payloadString)
-            logger.info(
-                "ImprintStoreAdapter.storeSection: synced \(sectionID, privacy: .public) '\(title, privacy: .private)' wordCount=\(wordCount)"
+            logger.infoCapture(
+                "ImprintStoreAdapter.storeSection: synced \(sectionID) '\(title)' wordCount=\(wordCount)", category: "shared-store"
             )
         } catch {
-            logger.error(
-                "ImprintStoreAdapter.storeSection: upsert failed for \(sectionID, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            logger.errorCapture(
+                "ImprintStoreAdapter.storeSection: upsert failed for \(sectionID) — \(error.localizedDescription)", category: "shared-store"
             )
         }
         #else
-        logger.info(
-            "ImprintStoreAdapter.storeSection: sectionID=\(sectionID, privacy: .public) " +
-            "title='\(title, privacy: .private)' wordCount=\(wordCount) " +
-            "docID=\(documentID ?? "nil", privacy: .public) " +
-            "contentAddressed=\(contentHash != nil) (ImpressRustCore not linked)"
+        logger.infoCapture(
+            "ImprintStoreAdapter.storeSection: sectionID=\(sectionID) " +
+            "title='\(title)' wordCount=\(wordCount) " +
+            "docID=\(documentID ?? "nil") " +
+            "contentAddressed=\(contentHash != nil) (ImpressRustCore not linked)", category: "shared-store"
         )
         #endif
 
@@ -225,9 +226,9 @@ public final class ImprintStoreAdapter {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             guard let data = body.data(using: .utf8) else { return }
             try data.write(to: fileURL, options: .atomicWrite)
-            logger.info("ImprintStoreAdapter: stored content-addressed body at \(hash, privacy: .public)")
+            logger.infoCapture("ImprintStoreAdapter: stored content-addressed body at \(hash)", category: "shared-store")
         } catch {
-            logger.warning("ImprintStoreAdapter: failed to write content-addressed body \(hash, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.warningCapture("ImprintStoreAdapter: failed to write content-addressed body \(hash): \(error.localizedDescription)", category: "shared-store")
         }
     }
 

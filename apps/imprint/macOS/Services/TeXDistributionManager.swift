@@ -1,7 +1,6 @@
 import AppKit
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "texDistribution")
 
 /// Discovers and manages access to the local TeX distribution (MacTeX, TeX Live, Homebrew).
 ///
@@ -28,7 +27,7 @@ final class TeXDistributionManager {
     // MARK: - Discovery
 
     /// Search known macOS paths for a TeX distribution.
-    func discoverDistribution() {
+    func discoverDistribution() async {
         // 1. Try saved bookmark first
         if resolveBookmark() { return }
 
@@ -48,36 +47,40 @@ final class TeXDistributionManager {
             if FileManager.default.isExecutableFile(atPath: pdflatex.path) {
                 distributionPath = url
                 scanEngines()
-                logger.info("Discovered TeX distribution at \(path)")
+                Logger.texDistribution.infoCapture("Discovered TeX distribution at \(path)", category: "tex-distribution")
                 return
             }
         }
 
         // 3. Try `which pdflatex` as fallback
-        discoverViaWhich()
+        await discoverViaWhich()
     }
 
-    private func discoverViaWhich() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["pdflatex"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+    private func discoverViaWhich() async {
+        let result: URL? = await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+            process.arguments = ["pdflatex"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !output.isEmpty {
-                let pdflatexURL = URL(fileURLWithPath: output)
-                distributionPath = pdflatexURL.deletingLastPathComponent()
-                scanEngines()
-                logger.info("Discovered TeX via which: \(output)")
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !output.isEmpty else { return nil }
+                return URL(fileURLWithPath: output).deletingLastPathComponent()
+            } catch {
+                return nil
             }
-        } catch {
-            logger.warning("which pdflatex failed: \(error.localizedDescription)")
+        }.value
+
+        if let url = result {
+            distributionPath = url
+            scanEngines()
+            Logger.texDistribution.infoCapture("Discovered TeX via which: \(url.path)", category: "tex-distribution")
         }
     }
 
@@ -88,7 +91,7 @@ final class TeXDistributionManager {
             let url = dir.appendingPathComponent(engine.rawValue)
             return FileManager.default.isExecutableFile(atPath: url.path)
         }
-        logger.info("Available engines: \(self.installedEngines.map(\.rawValue).joined(separator: ", "))")
+        Logger.texDistribution.infoCapture("Available engines: \(self.installedEngines.map(\.rawValue).joined(separator: ", "))", category: "tex-distribution")
     }
 
     /// Get the full executable URL for a given engine.
@@ -119,10 +122,11 @@ final class TeXDistributionManager {
     }
 
     private func setDistribution(_ url: URL) {
+        stopAccess()
         distributionPath = url
         scanEngines()
         saveBookmark(for: url)
-        logger.info("User selected TeX distribution at \(url.path)")
+        Logger.texDistribution.infoCapture("User selected TeX distribution at \(url.path)", category: "tex-distribution")
     }
 
     // MARK: - Security-Scoped Bookmarks
@@ -138,7 +142,7 @@ final class TeXDistributionManager {
             )
             UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
         } catch {
-            logger.warning("Failed to save bookmark: \(error.localizedDescription)")
+            Logger.texDistribution.warningCapture("Failed to save bookmark: \(error.localizedDescription)", category: "tex-distribution")
         }
     }
 
@@ -155,16 +159,17 @@ final class TeXDistributionManager {
             }
 
             guard url.startAccessingSecurityScopedResource() else {
-                logger.warning("Failed to access security-scoped bookmark")
+                Logger.texDistribution.warningCapture("Failed to access security-scoped bookmark", category: "tex-distribution")
                 return false
             }
 
+            accessedSecurityScopedURL = url
             distributionPath = url
             scanEngines()
-            logger.info("Restored TeX distribution from bookmark: \(url.path)")
+            Logger.texDistribution.infoCapture("Restored TeX distribution from bookmark: \(url.path)", category: "tex-distribution")
             return true
         } catch {
-            logger.warning("Failed to resolve bookmark: \(error.localizedDescription)")
+            Logger.texDistribution.warningCapture("Failed to resolve bookmark: \(error.localizedDescription)", category: "tex-distribution")
             return false
         }
     }
@@ -177,22 +182,34 @@ final class TeXDistributionManager {
             return "pdflatex not found"
         }
 
-        let process = Process()
-        process.executableURL = url
-        process.arguments = ["--version"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let capturedURL = url
+        return await Task.detached {
+            let process = Process()
+            process.executableURL = capturedURL
+            process.arguments = ["--version"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? "No output"
-            // Return first line only
-            return output.components(separatedBy: "\n").first ?? output
-        } catch {
-            return "Error: \(error.localizedDescription)"
-        }
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? "No output"
+                return output.components(separatedBy: "\n").first ?? output
+            } catch {
+                return "Error: \(error.localizedDescription)"
+            }
+        }.value
+    }
+
+    // MARK: - Security-Scoped Resource Management
+
+    private var accessedSecurityScopedURL: URL?
+
+    /// Stop accessing the current security-scoped resource.
+    func stopAccess() {
+        accessedSecurityScopedURL?.stopAccessingSecurityScopedResource()
+        accessedSecurityScopedURL = nil
     }
 }

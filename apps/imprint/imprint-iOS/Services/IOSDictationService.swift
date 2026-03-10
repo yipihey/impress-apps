@@ -9,6 +9,7 @@ import Foundation
 import Speech
 import AVFoundation
 import Combine
+import ImpressLogging
 import os.log
 
 // MARK: - iOS Dictation Service
@@ -42,7 +43,7 @@ public final class IOSDictationService: NSObject, ObservableObject {
 
     // MARK: - Properties
 
-    private let logger = Logger(subsystem: "com.imbib.imprint", category: "Dictation")
+    // Uses Logger.dictation from Logger+Imprint.swift
 
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -177,14 +178,14 @@ public final class IOSDictationService: NSObject, ObservableObject {
             }
 
             if let error = error {
-                self.logger.error("Recognition error: \(error.localizedDescription)")
+                Logger.dictation.errorCapture("Recognition error: \(error.localizedDescription)", category: "dictation")
                 self.stopRecording()
             }
         }
 
         isRecording = true
         errorMessage = nil
-        logger.info("Dictation started")
+        Logger.dictation.infoCapture("Dictation started", category: "dictation")
     }
 
     /// Stops dictation.
@@ -207,7 +208,7 @@ public final class IOSDictationService: NSObject, ObservableObject {
         // Deactivate audio session
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 
-        logger.info("Dictation stopped")
+        Logger.dictation.infoCapture("Dictation stopped", category: "dictation")
     }
 
     /// Toggles dictation on/off.
@@ -255,7 +256,7 @@ public final class IOSDictationService: NSObject, ObservableObject {
     }
 
     private func handleVoiceCommand(_ command: VoiceCommand) {
-        logger.info("Voice command detected: \(command.rawValue)")
+        Logger.dictation.infoCapture("Voice command detected: \(command.rawValue)", category: "dictation")
 
         // Remove the command text from transcription
         let commandLength = command.rawValue.count

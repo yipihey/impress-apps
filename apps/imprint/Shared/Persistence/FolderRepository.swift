@@ -11,8 +11,6 @@ import CoreData
 import OSLog
 import ImpressLogging
 
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "folders")
-
 public actor FolderRepository {
 
     public static let shared = FolderRepository()
@@ -62,7 +60,7 @@ public actor FolderRepository {
         context.processPendingChanges()
         try context.save()
 
-        logger.infoCapture("Created folder '\(name)' (parent: \(parent?.name ?? "root"), sortOrder: \(nextSortOrder))", category: "folders")
+        Logger.folders.infoCapture("Created folder '\(name)' (parent: \(parent?.name ?? "root"), sortOrder: \(nextSortOrder))", category: "folders")
         return folder
     }
 
@@ -75,7 +73,7 @@ public actor FolderRepository {
         context.undoManager?.setActionName("Rename Folder")
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Renamed folder '\(oldName)' → '\(newName)'", category: "folders")
+        Logger.folders.infoCapture("Renamed folder '\(oldName)' → '\(newName)'", category: "folders")
     }
 
     /// Move a folder to a new parent (or to root if parent is nil)
@@ -117,7 +115,7 @@ public actor FolderRepository {
         context.undoManager?.setActionName("Move Folder")
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Moved folder '\(folder.name)' to \(newParent?.name ?? "root")", category: "folders")
+        Logger.folders.infoCapture("Moved folder '\(folder.name)' to \(newParent?.name ?? "root")", category: "folders")
     }
 
     /// Delete a folder and all its contents (children cascade via Core Data)
@@ -129,7 +127,7 @@ public actor FolderRepository {
         context.delete(folder)
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Deleted folder '\(name)'", category: "folders")
+        Logger.folders.infoCapture("Deleted folder '\(name)'", category: "folders")
     }
 
     /// Reorder folders within the same parent
@@ -142,7 +140,7 @@ public actor FolderRepository {
         context.undoManager?.setActionName("Reorder Folders")
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Reordered \(folders.count) folders", category: "folders")
+        Logger.folders.infoCapture("Reordered \(folders.count) folders", category: "folders")
     }
 
     // MARK: - Document Reference CRUD
@@ -186,7 +184,7 @@ public actor FolderRepository {
         context.undoManager?.setActionName("Add Document")
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Added document ref '\(title ?? "Untitled")' to folder '\(folder.name)'", category: "folders")
+        Logger.folders.infoCapture("Added document ref '\(title ?? "Untitled")' to folder '\(folder.name)'", category: "folders")
         return ref
     }
 
@@ -200,7 +198,7 @@ public actor FolderRepository {
         context.delete(ref)
         context.processPendingChanges()
         try context.save()
-        logger.infoCapture("Removed document ref '\(title)' from folder '\(folderName)'", category: "folders")
+        Logger.folders.infoCapture("Removed document ref '\(title)' from folder '\(folderName)'", category: "folders")
     }
 
     // MARK: - Fetch

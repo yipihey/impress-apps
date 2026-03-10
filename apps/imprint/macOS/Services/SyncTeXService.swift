@@ -1,8 +1,7 @@
 import Foundation
 import Compression
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "synctex")
 
 /// A position in the PDF identified by SyncTeX forward sync.
 struct SyncTeXPosition: Sendable {
@@ -47,7 +46,7 @@ actor SyncTeXService {
         }
 
         document = try SyncTeXParser.parse(text)
-        logger.info("Loaded SyncTeX: \(self.document?.inputs.count ?? 0) inputs, \(self.document?.sheets.count ?? 0) sheets")
+        Logger.synctex.infoCapture("Loaded SyncTeX: \(self.document?.inputs.count ?? 0) inputs, \(self.document?.sheets.count ?? 0) sheets", category: "synctex")
     }
 
     /// Forward sync: source position → PDF position(s).
@@ -132,16 +131,44 @@ actor SyncTeXService {
     // MARK: - Gzip Decompression
 
     private func decompressGzip(_ data: Data) throws -> Data {
-        // Skip gzip header (10 bytes minimum)
-        guard data.count > 10 else {
-            throw SyncTeXError.invalidFormat("Data too short for gzip")
+        guard data.count > 18,
+              data[data.startIndex] == 0x1f,
+              data[data.startIndex + 1] == 0x8b else {
+            throw SyncTeXError.invalidFormat("Not a gzip file (missing magic number)")
         }
 
-        // Use NSData's decompression
-        let nsData = data as NSData
-        // Try using the built-in decompression
-        let decompressed = try (data as NSData).decompressed(using: .zlib)
-        return decompressed as Data
+        // Parse gzip header to find start of deflate stream
+        var offset = 10  // minimum gzip header size
+        let flags = data[data.startIndex + 3]
+
+        if flags & 0x04 != 0 {  // FEXTRA
+            guard offset + 2 < data.count else {
+                throw SyncTeXError.invalidFormat("Truncated gzip FEXTRA")
+            }
+            let xlen = Int(data[data.startIndex + offset]) | (Int(data[data.startIndex + offset + 1]) << 8)
+            offset += 2 + xlen
+        }
+        if flags & 0x08 != 0 {  // FNAME — null-terminated string
+            if let nullIdx = data[(data.startIndex + offset)...].firstIndex(of: 0) {
+                offset = nullIdx - data.startIndex + 1
+            }
+        }
+        if flags & 0x10 != 0 {  // FCOMMENT — null-terminated string
+            if let nullIdx = data[(data.startIndex + offset)...].firstIndex(of: 0) {
+                offset = nullIdx - data.startIndex + 1
+            }
+        }
+        if flags & 0x02 != 0 {  // FHCRC
+            offset += 2
+        }
+
+        guard offset < data.count - 8 else {
+            throw SyncTeXError.invalidFormat("Gzip header exceeds data size")
+        }
+
+        // Extract raw deflate payload (strip gzip header and 8-byte trailer)
+        let compressed = data[(data.startIndex + offset)..<(data.endIndex - 8)]
+        return try (compressed as NSData).decompressed(using: .zlib) as Data
     }
 }
 

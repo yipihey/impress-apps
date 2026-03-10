@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressLogging
 import os.log
 
 // MARK: - Annotation Deep Link View
@@ -31,8 +32,6 @@ public struct AnnotationDeepLinkView: View {
 
     /// Error message if imbib unavailable
     @State private var errorMessage: String?
-
-    private let logger = Logger(subsystem: "com.imbib.imprint", category: "Annotations")
 
     // MARK: - Body
 
@@ -132,7 +131,7 @@ public struct AnnotationDeepLinkView: View {
             return
         }
 
-        logger.info("Opening imbib annotations for \(citeKey)")
+        Logger.documents.infoCapture("Opening imbib annotations for \(citeKey)", category: "annotations")
 
         #if os(macOS)
         NSWorkspace.shared.open(url)
@@ -169,7 +168,7 @@ public struct AnnotationDeepLinkView: View {
         }
 
         annotationCount = count
-        logger.info("Received annotation count: \(count)")
+        Logger.documents.infoCapture("Received annotation count: \(count)", category: "annotations")
     }
 }
 

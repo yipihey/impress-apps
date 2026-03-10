@@ -1,7 +1,6 @@
 import Foundation
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "latexFormatter")
 
 /// Provides LaTeX source code formatting via `latexindent` if available.
 actor LaTeXFormatterService {
@@ -18,26 +17,21 @@ actor LaTeXFormatterService {
     /// Returns the formatted source, or nil if formatting failed.
     func format(_ source: String) async -> String? {
         guard let execURL = await executableURL() else {
-            logger.warning("latexindent not found")
+            Logger.latexFormatter.warningCapture("latexindent not found", category: "latex-formatter")
             return nil
         }
 
         // Write source to temp file
         let tempDir = FileManager.default.temporaryDirectory
         let inputURL = tempDir.appendingPathComponent("imprint-format-\(UUID().uuidString).tex")
-        defer { try? FileManager.default.removeItem(at: inputURL) }
 
         guard let data = source.data(using: .utf8) else { return nil }
         do {
             try data.write(to: inputURL)
         } catch {
-            logger.error("Failed to write temp file: \(error.localizedDescription)")
+            Logger.latexFormatter.errorCapture("Failed to write temp file: \(error.localizedDescription)", category: "latex-formatter")
             return nil
         }
-
-        let process = Process()
-        process.executableURL = execURL
-        process.arguments = [inputURL.path]
 
         // Set PATH to include TeX distribution
         var env = ProcessInfo.processInfo.environment
@@ -45,26 +39,39 @@ actor LaTeXFormatterService {
             let existingPath = env["PATH"] ?? "/usr/bin:/bin"
             env["PATH"] = "\(distPath):\(existingPath)"
         }
-        process.environment = env
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        let capturedEnv = env
+        let capturedInputURL = inputURL
+        let capturedExecURL = execURL
+        let result: String? = await Task.detached {
+            defer { try? FileManager.default.removeItem(at: capturedInputURL) }
 
-        do {
-            try process.run()
-            process.waitUntilExit()
+            let process = Process()
+            process.executableURL = capturedExecURL
+            process.arguments = [capturedInputURL.path]
+            process.environment = capturedEnv
 
-            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let formatted = String(data: outputData, encoding: .utf8),
-                  !formatted.isEmpty else { return nil }
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
 
-            logger.info("Formatted \(source.count) → \(formatted.count) chars")
-            return formatted
-        } catch {
-            logger.error("latexindent failed: \(error.localizedDescription)")
-            return nil
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+                guard let formatted = String(data: outputData, encoding: .utf8),
+                      !formatted.isEmpty else { return nil }
+                return formatted
+            } catch {
+                return nil
+            }
+        }.value
+
+        if let result {
+            Logger.latexFormatter.infoCapture("Formatted \(source.count) → \(result.count) chars", category: "latex-formatter")
         }
+        return result
     }
 
     /// Format only a selected range of LaTeX source.

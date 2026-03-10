@@ -5,35 +5,38 @@ import SwiftUI
 struct EditorGutterView: View {
     let lineCount: Int
     let diagnosticsByLine: [Int: GutterDiagnostic]
+    var lineHeight: CGFloat = 17
     let onTapLine: ((Int) -> Void)?
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            ForEach(1...max(lineCount, 1), id: \.self) { lineNumber in
-                HStack(spacing: 2) {
-                    // Diagnostic indicator
-                    if let diagnostic = diagnosticsByLine[lineNumber] {
-                        Button {
-                            onTapLine?(lineNumber)
-                        } label: {
-                            Circle()
-                                .fill(diagnostic.severity == .error ? .red : .orange)
-                                .frame(width: 6, height: 6)
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .trailing, spacing: 0) {
+                ForEach(1...max(lineCount, 1), id: \.self) { lineNumber in
+                    HStack(spacing: 2) {
+                        // Diagnostic indicator
+                        if let diagnostic = diagnosticsByLine[lineNumber] {
+                            Button {
+                                onTapLine?(lineNumber)
+                            } label: {
+                                Circle()
+                                    .fill(diagnostic.severity == .error ? .red : .orange)
+                                    .frame(width: 6, height: 6)
+                            }
+                            .buttonStyle(.plain)
+                            .help(diagnostic.message)
+                        } else {
+                            Spacer()
+                                .frame(width: 6)
                         }
-                        .buttonStyle(.plain)
-                        .help(diagnostic.message)
-                    } else {
-                        Spacer()
-                            .frame(width: 6)
-                    }
 
-                    // Line number
-                    Text("\(lineNumber)")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 24, alignment: .trailing)
+                        // Line number
+                        Text("\(lineNumber)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 24, alignment: .trailing)
+                    }
+                    .frame(height: lineHeight)
                 }
-                .frame(height: 17) // Match editor line height
             }
         }
         .padding(.horizontal, 4)

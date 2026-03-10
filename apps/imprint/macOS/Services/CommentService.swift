@@ -9,9 +9,8 @@
 import Foundation
 import SwiftUI
 import Combine
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "comments")
 
 // MARK: - Comment Service
 
@@ -123,7 +122,7 @@ public final class CommentService {
         )
 
         comments.append(comment)
-        logger.info("Added comment \(comment.id) at \(range.start)-\(range.end)")
+        Logger.comments.infoCapture("Added comment \(comment.id) at \(range.start)-\(range.end)", category: "comments")
 
         return comment
     }
@@ -131,13 +130,13 @@ public final class CommentService {
     /// Update an existing comment's content.
     public func updateComment(_ id: UUID, content: String) {
         guard let index = comments.firstIndex(where: { $0.id == id }) else {
-            logger.warning("Comment \(id) not found for update")
+            Logger.comments.warningCapture("Comment \(id) not found for update", category: "comments")
             return
         }
 
         comments[index].content = content
         comments[index].modifiedAt = Date()
-        logger.info("Updated comment \(id)")
+        Logger.comments.infoCapture("Updated comment \(id)", category: "comments")
     }
 
     /// Delete a comment and its replies.
@@ -150,7 +149,7 @@ public final class CommentService {
 
         // Delete the comment
         comments.removeAll { $0.id == id }
-        logger.info("Deleted comment \(id)")
+        Logger.comments.infoCapture("Deleted comment \(id)", category: "comments")
 
         if selectedCommentId == id {
             selectedCommentId = nil
@@ -165,7 +164,7 @@ public final class CommentService {
 
         comments[index].isResolved.toggle()
         comments[index].modifiedAt = Date()
-        logger.info("Toggled resolved state for \(id): \(self.comments[index].isResolved)")
+        Logger.comments.infoCapture("Toggled resolved state for \(id): \(self.comments[index].isResolved)", category: "comments")
     }
 
     /// Resolve a comment and optionally all its replies.
@@ -187,7 +186,7 @@ public final class CommentService {
             }
         }
 
-        logger.info("Resolved comment \(id)")
+        Logger.comments.infoCapture("Resolved comment \(id)", category: "comments")
     }
 
     /// Unresolve a comment (reopen it).
@@ -198,14 +197,14 @@ public final class CommentService {
 
         comments[index].isResolved = false
         comments[index].modifiedAt = Date()
-        logger.info("Unresolved comment \(id)")
+        Logger.comments.infoCapture("Unresolved comment \(id)", category: "comments")
     }
 
     /// Add a reply to an existing comment.
     @discardableResult
     public func addReply(to parentId: UUID, content: String) -> Comment? {
         guard let parent = comments.first(where: { $0.id == parentId }) else {
-            logger.warning("Parent comment \(parentId) not found")
+            Logger.comments.warningCapture("Parent comment \(parentId) not found", category: "comments")
             return nil
         }
 
@@ -218,7 +217,7 @@ public final class CommentService {
         )
 
         comments.append(reply)
-        logger.info("Added reply \(reply.id) to \(parentId)")
+        Logger.comments.infoCapture("Added reply \(reply.id) to \(parentId)", category: "comments")
 
         return reply
     }
@@ -260,7 +259,7 @@ public final class CommentService {
     /// Load comments from serialized data.
     public func load(from data: Data) throws {
         comments = try JSONDecoder().decode([Comment].self, from: data)
-        logger.info("Loaded \(self.comments.count) comments")
+        Logger.comments.infoCapture("Loaded \(self.comments.count) comments", category: "comments")
     }
 
     /// Serialize comments for storage.
@@ -272,7 +271,7 @@ public final class CommentService {
     public func clear() {
         comments.removeAll()
         selectedCommentId = nil
-        logger.info("Cleared all comments")
+        Logger.comments.infoCapture("Cleared all comments", category: "comments")
     }
 
     // MARK: - Import/Export

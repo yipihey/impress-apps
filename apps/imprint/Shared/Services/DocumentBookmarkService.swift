@@ -8,8 +8,7 @@
 
 import Foundation
 import OSLog
-
-private let logger = Logger(subsystem: "com.imbib.imprint", category: "bookmarks")
+import ImpressLogging
 
 public enum DocumentBookmarkService {
 
@@ -44,7 +43,7 @@ public enum DocumentBookmarkService {
             guard isStale else { return }
 
             guard url.startAccessingSecurityScopedResource() else {
-                logger.warning("Could not access security-scoped resource for stale bookmark refresh")
+                Logger.bookmarks.warningCapture("Could not access security-scoped resource for stale bookmark refresh", category: "bookmarks")
                 return
             }
             defer { url.stopAccessingSecurityScopedResource() }
@@ -53,9 +52,9 @@ public enum DocumentBookmarkService {
             ref.fileBookmark = newBookmark
             try ref.managedObjectContext?.save()
 
-            logger.info("Refreshed stale bookmark for '\(ref.displayTitle)'")
+            Logger.bookmarks.infoCapture("Refreshed stale bookmark for '\(ref.displayTitle)'", category: "bookmarks")
         } catch {
-            logger.warning("Failed to refresh stale bookmark: \(error.localizedDescription)")
+            Logger.bookmarks.warningCapture("Failed to refresh stale bookmark: \(error.localizedDescription)", category: "bookmarks")
         }
     }
 }

@@ -1,7 +1,6 @@
 import Foundation
+import ImpressLogging
 import OSLog
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "latexProject")
 
 /// Manages multi-file LaTeX projects: dependency scanning, file watching,
 /// and resolving \input{}/\include{}/\bibliography{} references.
@@ -30,7 +29,7 @@ actor LaTeXProjectService {
     private(set) var citationKeys: [String] = []
 
     /// Callback when a watched file changes — triggers recompilation.
-    var onFileChanged: ((URL) -> Void)?
+    var onFileChanged: (@Sendable (URL) -> Void)?
 
     private var watchSources: [DispatchSourceFileSystemObject] = []
 
@@ -46,17 +45,25 @@ actor LaTeXProjectService {
         dependencyGraph = [:]
         labels = []
         citationKeys = []
+        scanVisited = []
 
         scanFile(mainTeX, visited: &scanVisited)
 
-        logger.info("Scanned project: \(self.includedFiles.count) included files, \(self.bibliographyFiles.count) bib files, \(self.labels.count) labels, \(self.citationKeys.count) cite keys")
+        // Parse bib files ONCE after scanning is complete (not inside recursive scanFile)
+        for bibURL in bibliographyFiles {
+            if let bibContent = try? String(contentsOf: bibURL, encoding: .utf8) {
+                parseBibKeys(bibContent)
+            }
+        }
+
+        Logger.latexProject.infoCapture("Scanned project: \(self.includedFiles.count) included files, \(self.bibliographyFiles.count) bib files, \(self.labels.count) labels, \(self.citationKeys.count) cite keys", category: "latex-project")
     }
 
-    private var scanVisited: [URL] = []
+    private var scanVisited: Set<URL> = []
 
-    private func scanFile(_ url: URL, visited: inout [URL]) {
+    private func scanFile(_ url: URL, visited: inout Set<URL>) {
         guard !visited.contains(url) else { return }
-        visited.append(url)
+        visited.insert(url)
 
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
         let dir = url.deletingLastPathComponent()
@@ -119,13 +126,6 @@ actor LaTeXProjectService {
         for dep in deps {
             scanFile(dep, visited: &visited)
         }
-
-        // Parse .bib files for citation keys
-        for bibURL in bibliographyFiles {
-            if let bibContent = try? String(contentsOf: bibURL, encoding: .utf8) {
-                parseBibKeys(bibContent)
-            }
-        }
     }
 
     private func parseBibKeys(_ content: String) {
@@ -179,7 +179,7 @@ actor LaTeXProjectService {
             watchSources.append(source)
         }
 
-        logger.info("Watching \(filesToWatch.count) project files")
+        Logger.latexProject.infoCapture("Watching \(filesToWatch.count) project files", category: "latex-project")
     }
 
     /// Stop watching all project files.

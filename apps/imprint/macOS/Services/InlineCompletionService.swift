@@ -9,8 +9,7 @@
 import Foundation
 import OSLog
 import ImpressAI
-
-private let logger = Logger(subsystem: "com.imprint.app", category: "inlineCompletion")
+import ImpressLogging
 
 // MARK: - Inline Completion Service
 
@@ -136,7 +135,7 @@ public final class InlineCompletionService {
         guard !ghostText.isEmpty else { return nil }
         let accepted = ghostText
         ghostText = ""
-        logger.info("Accepted completion: \(accepted.prefix(50))...")
+        Logger.inlineCompletion.infoCapture("Accepted completion: \(accepted.prefix(50))...", category: "inline-completion")
         return accepted
     }
 
@@ -178,7 +177,7 @@ public final class InlineCompletionService {
 
     private func generateCompletion(text: String, cursorPosition: Int) async {
         guard await aiService.isConfigured else {
-            logger.debug("AI not configured, skipping completion")
+            Logger.inlineCompletion.debugCapture("AI not configured, skipping completion", category: "inline-completion")
             return
         }
 
@@ -225,10 +224,10 @@ public final class InlineCompletionService {
             let trimmed = completion.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.count >= 5 && trimmed.count <= 200 {
                 ghostText = trimmed
-                logger.info("Generated completion: \(trimmed.prefix(50))...")
+                Logger.inlineCompletion.infoCapture("Generated completion: \(trimmed.prefix(50))...", category: "inline-completion")
             }
         } catch {
-            logger.error("Completion failed: \(error.localizedDescription)")
+            Logger.inlineCompletion.errorCapture("Completion failed: \(error.localizedDescription)", category: "inline-completion")
         }
     }
 
@@ -238,7 +237,7 @@ public final class InlineCompletionService {
 
         if let best = suggestions.first {
             ghostText = "@\(best.citeKey)"
-            logger.info("Suggested citation: @\(best.citeKey)")
+            Logger.inlineCompletion.infoCapture("Suggested citation: @\(best.citeKey)", category: "inline-completion")
         }
     }
 
@@ -340,7 +339,7 @@ public final class InlineCompletionService {
                 )
             }
         } catch {
-            logger.debug("imbib search failed: \(error.localizedDescription)")
+            Logger.inlineCompletion.debugCapture("imbib search failed: \(error.localizedDescription)", category: "inline-completion")
             return []
         }
     }

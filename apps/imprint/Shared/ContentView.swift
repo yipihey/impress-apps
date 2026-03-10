@@ -2,6 +2,8 @@
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
+import ImpressLogging
+import OSLog
 import ImprintCore
 import ImpressKeyboard
 import ImpressKit
@@ -43,6 +45,7 @@ struct ContentView: View {
     @State private var showingSymbolPalette = false
     @State private var latexProjectFiles: [URL] = []
     @State private var latexMainFileURL: URL?
+    @State private var postCompileTask: Task<Void, Never>?
 
     // AI Context Menu state
     @State private var showingAIContextMenu = false
@@ -96,7 +99,7 @@ struct ContentView: View {
                         projectFiles: latexProjectFiles,
                         mainFileURL: latexMainFileURL,
                         onSelectFile: { _ in
-                            // TODO: Switch editor to selected file in multi-file projects
+                            // TODO: Multi-file editing — switch editor tab to selected file (requires tab/buffer model)
                         }
                     )
                 }
@@ -404,7 +407,7 @@ struct ContentView: View {
                     // Gutter with line numbers and diagnostics
                     if !latexDiagnostics.isEmpty || appState.documentFormat == .latex {
                         EditorGutterView(
-                            lineCount: document.source.components(separatedBy: "\n").count,
+                            lineCount: document.source.reduce(1) { count, char in char == "\n" ? count + 1 : count },
                             diagnosticsByLine: EditorGutterView.diagnosticsMap(from: latexDiagnostics),
                             onTapLine: { line in navigateToLine(line) }
                         )
@@ -621,11 +624,13 @@ struct ContentView: View {
     // MARK: - Compilation
 
     private func log(_ message: String) {
-        // Use NSLog to ensure it appears in Console.app and system logs
-        NSLog("[ContentView] %@", message)
+        Logger.compilation.infoCapture(message, category: "compile")
     }
 
     private func compile() async {
+        let sourceLen = document.source.count
+        let format = appState.documentFormat
+        Logger.compilation.infoCapture("Compile started: format=\(format), source=\(sourceLen)ch", category: "compile")
         log("compile() started")
         debugHistory = ""
         debugStatus = "1:started"
@@ -646,6 +651,7 @@ struct ContentView: View {
         isCompiling = false
         debugStatus = "F:pdf=\(pdfData?.count ?? 0)"
         debugHistory += "F:\(pdfData?.count ?? 0)"
+        Logger.compilation.infoCapture("Compile finished: pdf=\(pdfData?.count ?? 0)b, errors=\(compilationError != nil ? 1 : 0)", category: "compile")
         log("compile() finished")
     }
 
@@ -768,20 +774,24 @@ struct ContentView: View {
                 sourceMapEntries = []
                 DocumentRegistry.shared.cachePDF(data, for: document.id)
 
-                // Load SyncTeX data for bidirectional sync
-                if let synctexURL = result.synctexURL {
-                    Task {
+                // Cancel previous post-compile tasks before starting new ones
+                postCompileTask?.cancel()
+                let capturedSynctexURL = result.synctexURL
+                let capturedSourceURL = sourceURL
+                postCompileTask = Task {
+                    // Load SyncTeX data for bidirectional sync
+                    if let synctexURL = capturedSynctexURL {
                         do {
                             try await SyncTeXService.shared.load(from: synctexURL)
                         } catch {
                             log("SyncTeX load failed: \(error)")
                         }
                     }
-                }
 
-                // Scan project dependencies for sidebar
-                Task {
-                    await LaTeXProjectService.shared.scanDependencies(from: sourceURL)
+                    guard !Task.isCancelled else { return }
+
+                    // Scan project dependencies for sidebar
+                    await LaTeXProjectService.shared.scanDependencies(from: capturedSourceURL)
                     let files = await LaTeXProjectService.shared.allProjectFiles
                     let mainFile = await LaTeXProjectService.shared.mainFile
                     await MainActor.run {

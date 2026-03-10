@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PencilKit
+import ImpressLogging
 import os.log
 
 // MARK: - iOS Sketch View
@@ -194,7 +195,7 @@ struct SketchCanvasView: UIViewRepresentable {
 /// Service for managing sketches in imprint documents.
 public actor SketchInsertionService {
 
-    private let logger = Logger(subsystem: "com.imbib.imprint", category: "Sketch")
+    // Uses Logger.sketch from Logger+Imprint.swift
 
     /// Saves a sketch to the document's assets folder.
     ///
@@ -216,7 +217,7 @@ public actor SketchInsertionService {
         // Save the PNG
         try pngData.write(to: fileURL)
 
-        logger.info("Saved sketch: \(filename)")
+        Logger.sketch.infoCapture("Saved sketch: \(filename)", category: "sketch")
 
         // Return relative path for Typst
         return "assets/\(filename)"

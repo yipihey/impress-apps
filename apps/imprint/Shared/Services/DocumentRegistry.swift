@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressLogging
 import ImpressOperationQueue
 import ImprintCore
 
@@ -25,7 +26,7 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
     var documentsByURL: [String: ImprintDocument] = [:]
 
     private init() {
-        super.init(subsystem: "com.imbib.imprint", category: "registry")
+        super.init(subsystem: "com.imprint.app", category: "registry")
     }
 
     /// Register a document with optional file URL.
