@@ -562,7 +562,7 @@ struct UnifiedPublicationListWrapper: View {
                     }
                 }
             }
-            .modifier(InboxTriageModifier(
+            .modifier(TriageModifier(
                 isInboxView: isInboxView,
                 hasSelection: !selectedPublicationIDs.isEmpty,
                 isInputOverlayActive: isFlagInputActive || isTagInputActive || isTagDeleteActive || isFilterActive,
@@ -1201,7 +1201,7 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Handle 'S' key - save selected to default library
     private func handleSaveKey() -> KeyPress.Result {
-        guard !TextFieldFocusDetection.isTextFieldFocused(), !isFlagInputActive, !isTagInputActive, !isTagDeleteActive, !isFilterActive, isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !TextFieldFocusDetection.isTextFieldFocused(), !isFlagInputActive, !isTagInputActive, !isTagDeleteActive, !isFilterActive, !selectedPublicationIDs.isEmpty else { return .ignored }
         saveSelectedToDefaultLibrary()
         return .handled
     }
@@ -1370,24 +1370,19 @@ struct UnifiedPublicationListWrapper: View {
         return .ignored
     }
 
-    /// Save selected publications to the Save library (created on first use if needed)
-    private func saveSelectedToDefaultLibrary() {
-        // Use the Save library (created automatically on first use)
-        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
-
-        // Filter out papers already being triaged
-        let ids = selectedPublicationIDs.subtracting(triageInFlight)
+    /// Flash animation + advance selection + deferred action. Used by all triage shortcuts.
+    private func performTriageAnimation(
+        ids: Set<UUID>,
+        flashColor: Color,
+        action: @escaping (Set<UUID>) -> Void
+    ) {
         guard let firstID = ids.first else { return }
-
-        // Mark as in-flight to prevent double-processing on rapid presses
         triageInFlight.formUnion(ids)
 
-        // Show green flash for save action
         withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .green)
+            keyboardTriageFlash = (firstID, flashColor)
         }
 
-        // Advance selection synchronously so the next key press sees updated state
         let visualOrder = computeVisualOrder()
         let nextID = computeNextSelection(removing: ids, from: visualOrder)
         if let nextID {
@@ -1399,78 +1394,72 @@ struct UnifiedPublicationListWrapper: View {
         }
 
         Task {
-            // Brief delay to show flash
             try? await Task.sleep(for: .milliseconds(200))
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.1)) {
                     keyboardTriageFlash = nil
                 }
-
-                // Track dismissal for inbox papers to prevent reappearance in feeds
-                if isInboxView {
-                    for id in ids {
-                        InboxManager.shared.trackDismissal(id)
-                    }
-                }
-
-                // Move publications to the target library (triggers .storeDidMutate → refresh)
-                RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
-
+                action(ids)
                 triageInFlight.subtract(ids)
             }
         }
     }
 
-    /// Save and star selected publications to the Save library
-    private func saveAndStarSelected() {
-        // Use the Save library (created automatically on first use)
-        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
-
-        // Filter out papers already being triaged
-        let ids = selectedPublicationIDs.subtracting(triageInFlight)
+    /// Brief flash confirmation without advancing selection (paper stays visible).
+    private func showTriageFlash(ids: Set<UUID>, color: Color) {
         guard let firstID = ids.first else { return }
-
-        // Mark as in-flight to prevent double-processing on rapid presses
-        triageInFlight.formUnion(ids)
-
-        // Show gold flash for save+star action
         withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .yellow)
+            keyboardTriageFlash = (firstID, color)
         }
-
-        // Advance selection synchronously so the next key press sees updated state
-        let visualOrder = computeVisualOrder()
-        let nextID = computeNextSelection(removing: ids, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
         Task {
-            // Brief delay to show flash
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(300))
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
+                withAnimation(.easeOut(duration: 0.2)) {
                     keyboardTriageFlash = nil
                 }
+            }
+        }
+    }
 
-                // Star the selected publications
-                RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: true)
+    /// Save selected publications to the Save library (created on first use if needed).
+    /// Inbox: moves papers (removes from inbox). Other sources: copies papers (keeps in source).
+    private func saveSelectedToDefaultLibrary() {
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+        let ids = selectedPublicationIDs.subtracting(triageInFlight)
+        guard !ids.isEmpty else { return }
 
-                // Track dismissal for inbox papers to prevent reappearance in feeds
-                if isInboxView {
-                    for id in ids {
-                        InboxManager.shared.trackDismissal(id)
-                    }
-                }
-
-                // Move publications to the target library (triggers .storeDidMutate → refresh)
+        if isInboxView {
+            performTriageAnimation(ids: ids, flashColor: .green) { ids in
+                for id in ids { InboxManager.shared.trackDismissal(id) }
                 RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+            }
+        } else {
+            showTriageFlash(ids: ids, color: .green)
+            Task {
+                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+            }
+        }
+    }
 
-                triageInFlight.subtract(ids)
+    /// Save and star selected publications to the Save library.
+    /// Inbox: moves papers (removes from inbox). Other sources: copies papers (keeps in source).
+    private func saveAndStarSelected() {
+        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
+        let ids = selectedPublicationIDs.subtracting(triageInFlight)
+        guard !ids.isEmpty else { return }
+
+        // Star unconditionally regardless of source
+        RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: true)
+
+        if isInboxView {
+            performTriageAnimation(ids: ids, flashColor: .yellow) { ids in
+                for id in ids { InboxManager.shared.trackDismissal(id) }
+                RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+            }
+        } else {
+            showTriageFlash(ids: ids, color: .yellow)
+            Task {
+                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
             }
         }
     }
@@ -1784,48 +1773,15 @@ struct UnifiedPublicationListWrapper: View {
     /// Dismiss selected publications from inbox (moves to Dismissed library, not delete)
     /// Advances selection to next paper for rapid triage.
     private func dismissSelectedFromInbox() {
-        // Filter out papers already being triaged
-        let currentIDs = selectedPublicationIDs.subtracting(triageInFlight)
-        guard let firstID = currentIDs.first else { return }
+        let ids = selectedPublicationIDs.subtracting(triageInFlight)
+        guard !ids.isEmpty else { return }
+        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
 
-        // Mark as in-flight to prevent double-processing on rapid presses
-        triageInFlight.formUnion(currentIDs)
-
-        // Show orange flash for dismiss action
-        withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .orange)
-        }
-
-        // Advance selection synchronously so the next key press sees updated state
-        let visualOrder = computeVisualOrder()
-        let nextID = computeNextSelection(removing: currentIDs, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
-        Task {
-            // Brief delay to show flash
-            try? await Task.sleep(for: .milliseconds(200))
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    keyboardTriageFlash = nil
-                }
-
-                // Track dismissal to prevent reappearance in feeds
-                for id in currentIDs {
-                    InboxManager.shared.trackDismissal(id)
-                }
-
-                // Move publications to dismissed library (triggers .storeDidMutate → refresh)
-                let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
-                RustStoreAdapter.shared.movePublications(ids: Array(currentIDs), toLibraryId: dismissedLibrary.id)
-
-                triageInFlight.subtract(currentIDs)
+        performTriageAnimation(ids: ids, flashColor: .orange) { ids in
+            if self.isInboxView {
+                for id in ids { InboxManager.shared.trackDismissal(id) }
             }
+            RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
         }
     }
 
@@ -1836,45 +1792,13 @@ struct UnifiedPublicationListWrapper: View {
     private func saveSelectedAndRemoveFromExploration() {
         guard case .collection(let collectionID) = source else { return }
         let saveLibrary = libraryManager.getOrCreateSaveLibrary()
-
-        // Filter out papers already being triaged
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
-        guard let firstID = ids.first else { return }
+        guard !ids.isEmpty else { return }
 
-        // Mark as in-flight to prevent double-processing on rapid presses
-        triageInFlight.formUnion(ids)
-
-        // Show green flash for save action
-        withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .green)
-        }
-
-        // Advance selection synchronously so the next key press sees updated state
-        let visualOrder = computeVisualOrder()
-        let nextID = computeNextSelection(removing: ids, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
-        Task {
-            // Brief delay to show flash
-            try? await Task.sleep(for: .milliseconds(200))
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    keyboardTriageFlash = nil
-                }
-
-                // Add to Save library and remove from exploration collection (triggers .storeDidMutate → refresh)
-                let store = RustStoreAdapter.shared
-                _ = store.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
-                store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
-
-                triageInFlight.subtract(ids)
-            }
+        performTriageAnimation(ids: ids, flashColor: .green) { ids in
+            let store = RustStoreAdapter.shared
+            _ = store.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+            store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
         }
     }
 
@@ -1882,43 +1806,11 @@ struct UnifiedPublicationListWrapper: View {
     /// Used for D key in exploration collections.
     private func removeSelectedFromExploration() {
         guard case .collection(let collectionID) = source else { return }
-
-        // Filter out papers already being triaged
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
-        guard let firstID = ids.first else { return }
+        guard !ids.isEmpty else { return }
 
-        // Mark as in-flight to prevent double-processing on rapid presses
-        triageInFlight.formUnion(ids)
-
-        // Show orange flash for dismiss action
-        withAnimation(.easeIn(duration: 0.1)) {
-            keyboardTriageFlash = (firstID, .orange)
-        }
-
-        // Advance selection synchronously so the next key press sees updated state
-        let visualOrder = computeVisualOrder()
-        let nextID = computeNextSelection(removing: ids, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
-        Task {
-            // Brief delay to show flash
-            try? await Task.sleep(for: .milliseconds(200))
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    keyboardTriageFlash = nil
-                }
-
-                // Remove from exploration collection (triggers .storeDidMutate → refresh)
-                RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
-
-                triageInFlight.subtract(ids)
-            }
+        performTriageAnimation(ids: ids, flashColor: .orange) { ids in
+            RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
         }
     }
 
@@ -2116,7 +2008,7 @@ private struct SmartSearchRefreshModifier: ViewModifier {
 
 /// Keyboard shortcuts for inbox triage workflow (save/star/dismiss).
 /// Only active when viewing the inbox.
-private struct InboxTriageModifier: ViewModifier {
+private struct TriageModifier: ViewModifier {
     let isInboxView: Bool
     let hasSelection: Bool
     let isInputOverlayActive: Bool
@@ -2128,12 +2020,12 @@ private struct InboxTriageModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onKeyPress(.return) {
-                guard isInboxView && hasSelection && !isInputOverlayActive else { return .ignored }
+                guard hasSelection && !isInputOverlayActive else { return .ignored }
                 onSave()
                 return .handled
             }
             .onKeyPress(.init("s")) {
-                guard isInboxView && hasSelection && !isInputOverlayActive else { return .ignored }
+                guard hasSelection && !isInputOverlayActive else { return .ignored }
                 onSaveAndStar()
                 return .handled
             }

@@ -98,7 +98,7 @@ public actor EmbeddingService {
     }
 
     /// Register the Apple contextual embedding provider if none is active.
-    private func setupEmbeddingProvider() async {
+    public func registerProviderIfNeeded() async {
         guard await EmbeddingProviderRegistry.shared.activeProvider == nil else { return }
         if #available(macOS 14, iOS 17, *) {
             await EmbeddingProviderRegistry.shared.register(AppleContextualEmbeddingProvider())
@@ -115,7 +115,7 @@ public actor EmbeddingService {
         needsLazyBuild = false
 
         // Register embedding provider before building the index
-        await setupEmbeddingProvider()
+        await registerProviderIfNeeded()
 
         Logger.embeddingService.infoCapture("Lazy-building embedding index on first use...", category: "embedding")
 
@@ -192,6 +192,29 @@ public actor EmbeddingService {
         // Batch add to index
         if !items.isEmpty {
             await index.addBatch(items)
+
+            // Persist metadata embeddings to SQLite so they show in status/stats
+            let embeddingStore = RustEmbeddingStoreSession()
+            let opened = await embeddingStore.openDefault()
+            if opened {
+                let providerName = await EmbeddingProviderRegistry.shared.activeProvider?.id ?? "apple-nl"
+                let now = ISO8601DateFormatter().string(from: Date())
+                let storedVectors = items.map { (pubID, vector) in
+                    StoredVector(
+                        id: "pub-\(pubID)",
+                        sourceId: pubID,
+                        sourceType: "publication",
+                        vector: vector,
+                        model: providerName,
+                        createdAt: now
+                    )
+                }
+                let saved = await embeddingStore.saveVectors(storedVectors)
+                Logger.embeddingService.infoCapture("Persisted \(saved) metadata vectors to embedding store (attempted \(storedVectors.count))", category: "embedding")
+                await embeddingStore.close()
+            } else {
+                Logger.embeddingService.infoCapture("Failed to open embedding store for vector persistence", category: "embedding")
+            }
         }
 
         self.annIndex = index
@@ -821,33 +844,48 @@ extension EmbeddingService {
     public func indexChunksForUnprocessedPublications() async {
         Logger.embeddingService.infoCapture("Starting chunk indexing for unprocessed publications", category: "embeddings")
 
-        let publications: [PublicationRowData] = await MainActor.run {
+        let pubsWithLibrary: [(pub: PublicationRowData, libraryId: UUID)] = await MainActor.run {
             let store = RustStoreAdapter.shared
             let libraries = store.listLibraries()
-            var all: [PublicationRowData] = []
+            Logger.embeddingService.infoCapture("Found \(libraries.count) libraries for chunk indexing", category: "embeddings")
+            var all: [(pub: PublicationRowData, libraryId: UUID)] = []
+            var seenIds = Set<UUID>()
             for lib in libraries {
-                all.append(contentsOf: store.queryPublications(parentId: lib.id))
+                let pubs = store.queryPublications(parentId: lib.id)
+                Logger.embeddingService.infoCapture("Library '\(lib.name)': \(pubs.count) publications", category: "embeddings")
+                for pub in pubs {
+                    if seenIds.insert(pub.id).inserted {
+                        all.append((pub: pub, libraryId: lib.id))
+                    }
+                }
             }
             return all
         }
 
+        Logger.embeddingService.infoCapture("Total publications to check: \(pubsWithLibrary.count)", category: "embeddings")
+
         var processed = 0
         var skipped = 0
+        var noPdf = 0
 
-        for pub in publications {
+        for entry in pubsWithLibrary {
             guard !Task.isCancelled else { break }
 
-            if await isChunkIndexed(pub.id) {
+            if await isChunkIndexed(entry.pub.id) {
                 skipped += 1
                 continue
             }
 
-            let count = await indexChunksForPublication(pub.id)
-            if count > 0 { processed += 1 }
+            let count = await indexChunksForPublication(entry.pub.id, libraryId: entry.libraryId)
+            if count > 0 {
+                processed += 1
+            } else {
+                noPdf += 1
+            }
         }
 
         Logger.embeddingService.infoCapture(
-            "Chunk indexing complete: \(processed) processed, \(skipped) already indexed",
+            "Chunk indexing complete: \(processed) processed, \(skipped) already indexed, \(noPdf) no PDF",
             category: "embeddings"
         )
     }

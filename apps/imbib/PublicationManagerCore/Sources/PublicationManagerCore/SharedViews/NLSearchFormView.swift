@@ -115,9 +115,9 @@ public struct NLSearchFormView: View {
                     .font(.caption)
                     .foregroundStyle(.blue)
             } else {
-                Label("Basic keyword extraction (Apple Intelligence not available)", systemImage: "text.magnifyingglass")
+                Label("Smart keyword search", systemImage: "text.magnifyingglass")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -589,6 +589,10 @@ public struct NLSearchFormView: View {
                         Label("Powered by on-device Apple Intelligence", systemImage: "apple.intelligence")
                             .font(.caption)
                             .foregroundStyle(.blue)
+                    } else {
+                        Label("Smart keyword search", systemImage: "text.magnifyingglass")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

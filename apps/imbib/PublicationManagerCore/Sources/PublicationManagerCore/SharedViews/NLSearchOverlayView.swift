@@ -148,9 +148,9 @@ public struct NLSearchOverlayView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Label("Keyword Fallback", systemImage: "text.magnifyingglass")
+                Label("Smart Search", systemImage: "text.magnifyingglass")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
             }
 
             Button {
@@ -184,7 +184,9 @@ public struct NLSearchOverlayView: View {
                 .foregroundStyle(.tertiary)
 
             TextField(
-                "Describe what you're looking for...",
+                NLSearchService.isAvailable
+                    ? "Describe what you're looking for..."
+                    : "by Abel 2020  ·  dark matter refereed  ·  doi:…",
                 text: $inputText
             )
             .textFieldStyle(.plain)
