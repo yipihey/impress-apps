@@ -94,7 +94,32 @@ targets:
           - implore
           - impel
           - impart
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Imprint Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.imbib.imprint.document
+          - CFBundleTypeName: LaTeX Source
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.tex
+            CFBundleTypeExtensions:
+              - tex
+          - CFBundleTypeName: Plain Text
+            CFBundleTypeRole: Editor
+            LSHandlerRank: None
+            LSItemContentTypes:
+              - public.plain-text
         UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - com.apple.package
+            UTTypeDescription: Imprint Document
+            UTTypeIdentifier: com.imbib.imprint.document
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - imprint
           - UTTypeConformsTo:
               - public.data
             UTTypeDescription: Impress Document Reference
@@ -200,7 +225,32 @@ targets:
           - implore
           - impel
           - impart
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Imprint Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.imbib.imprint.document
+          - CFBundleTypeName: LaTeX Source
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.tex
+            CFBundleTypeExtensions:
+              - tex
+          - CFBundleTypeName: Plain Text
+            CFBundleTypeRole: Editor
+            LSHandlerRank: None
+            LSItemContentTypes:
+              - public.plain-text
         UTExportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - com.apple.package
+            UTTypeDescription: Imprint Document
+            UTTypeIdentifier: com.imbib.imprint.document
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - imprint
           - UTTypeConformsTo:
               - public.data
             UTTypeDescription: Impress Document Reference
