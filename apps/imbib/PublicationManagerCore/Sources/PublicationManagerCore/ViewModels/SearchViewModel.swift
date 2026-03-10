@@ -396,9 +396,8 @@ public enum OpenAlexWorkTypeFilter: String, CaseIterable, Sendable {
 
 /// View model for searching across publication sources.
 ///
-/// ADR-016: Search results are auto-imported to the active library's "Last Search"
-/// collection. This provides immediate persistence and full editing capabilities
-/// for all search results.
+/// ADR-016: Search results are auto-imported to the active library and displayed
+/// via Exploration smart searches in the sidebar.
 @MainActor
 @Observable
 public final class SearchViewModel {
@@ -482,15 +481,8 @@ public final class SearchViewModel {
         self.libraryManager = manager
     }
 
-    // MARK: - Last Search Collection
-
-    /// Publications from the Last Search collection
-    public var publications: [PublicationRowData] {
-        guard let collectionId = libraryManager?.getOrCreateLastSearchCollection()?.id else {
-            return []
-        }
-        return RustStoreAdapter.shared.listCollectionMembers(collectionId: collectionId)
-    }
+    /// Number of results from the last search execution.
+    public private(set) var lastSearchResultCount: Int = 0
 
     // MARK: - Available Sources
 
@@ -522,14 +514,13 @@ public final class SearchViewModel {
 
     // MARK: - Search (ADR-016: Auto-Import)
 
-    /// Execute search and auto-import results to Last Search collection.
+    /// Execute search and auto-import results to the active library.
     ///
     /// This method:
-    /// 1. Clears the previous Last Search results
-    /// 2. Executes the search query
-    /// 3. Deduplicates against existing library publications
-    /// 4. Imports new results as publications via the Rust store
-    /// 5. Adds all results to the Last Search collection
+    /// 1. Executes the search query
+    /// 2. Deduplicates against existing library publications
+    /// 3. Imports new results as publications via the Rust store
+    /// 4. Creates an Exploration smart search for sidebar display
     public func search() async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
             return
@@ -542,18 +533,8 @@ public final class SearchViewModel {
             return
         }
 
-        guard let collectionModel = manager.getOrCreateLastSearchCollection() else {
-            Logger.viewModels.errorCapture("Could not create Last Search collection", category: "search")
-            return
-        }
-
-        let collectionId = collectionModel.id
-
         isSearching = true
         error = nil
-
-        // Clear previous Last Search results
-        manager.clearLastSearchCollection()
 
         do {
             let sourceIDs = Array(selectedSourceIDs)
@@ -571,7 +552,7 @@ public final class SearchViewModel {
 
             Logger.viewModels.infoCapture("Search returned \(deduped.count) deduplicated results", category: "search")
 
-            // Auto-import results to Last Search collection via Rust store
+            // Auto-import results to the active library via Rust store
             let store = RustStoreAdapter.shared
             var importedCount = 0
             var existingCount = 0
@@ -600,12 +581,9 @@ public final class SearchViewModel {
                 }
             }
 
-            // Batch-add all results to the Last Search collection
-            if !collectionMemberIds.isEmpty {
-                store.addToCollection(publicationIds: collectionMemberIds, collectionId: collectionId)
-            }
+            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
 
-            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing to collection", category: "search")
+            lastSearchResultCount = collectionMemberIds.count
 
             // Create exploration smart search for sidebar display
             await createExplorationSearch(
@@ -614,11 +592,6 @@ public final class SearchViewModel {
                 publicationIds: collectionMemberIds,
                 maxResults: maxResults
             )
-
-            // Notify that Last Search collection has been updated
-            await MainActor.run {
-                NotificationCenter.default.post(name: .lastSearchUpdated, object: nil)
-            }
 
         } catch {
             self.error = error
@@ -735,7 +708,7 @@ public final class SearchViewModel {
     }
 
     public func selectAll() {
-        selectedPublicationIDs = Set(publications.map { $0.id })
+        // No-op: search results are now displayed via Exploration smart searches
     }
 
     public func clearSelection() {

@@ -366,39 +366,6 @@ public final class LibraryManager {
         loadLibraries()
     }
 
-    // MARK: - Last Search Collection
-
-    /// Get or create the "Last Search" collection for the active library.
-    public func getOrCreateLastSearchCollection() -> CollectionModel? {
-        guard let libID = activeLibraryID else {
-            Logger.library.warningCapture("No active library for Last Search collection", category: "library")
-            return nil
-        }
-
-        let collections = store.listCollections(libraryId: libID)
-        if let existing = collections.first(where: { $0.name == "Last Search" }) {
-            return existing
-        }
-
-        Logger.library.infoCapture("Creating Last Search collection", category: "library")
-        return store.createCollection(name: "Last Search", libraryId: libID, isSmart: false)
-    }
-
-    /// Clear the Last Search collection
-    public func clearLastSearchCollection() {
-        guard let libID = activeLibraryID else { return }
-
-        let collections = store.listCollections(libraryId: libID)
-        guard let collection = collections.first(where: { $0.name == "Last Search" }) else { return }
-
-        Logger.library.debugCapture("Clearing Last Search collection", category: "library")
-
-        let members = store.listCollectionMembers(collectionId: collection.id, sort: "created", ascending: false, limit: nil, offset: nil)
-        if !members.isEmpty {
-            store.removeFromCollection(publicationIds: members.map(\.id), collectionId: collection.id)
-        }
-    }
-
     // MARK: - Exploration Library
 
     /// Get or create the Exploration system library.

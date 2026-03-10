@@ -154,43 +154,23 @@ public struct ADSPaperSearchView: View {
         if viewModel.isSearching {
             ProgressView("Searching...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewModel.publications.isEmpty && viewModel.query.isEmpty {
+        } else if viewModel.lastSearchResultCount == 0 && viewModel.query.isEmpty {
             ContentUnavailableView {
                 Label("ADS Paper Lookup", systemImage: "doc.text.magnifyingglass")
             } description: {
                 Text("Enter a bibcode, DOI, or arXiv ID to find a specific paper.")
             }
-        } else if viewModel.publications.isEmpty {
+        } else if viewModel.lastSearchResultCount == 0 {
             ContentUnavailableView {
                 Label("Paper Not Found", systemImage: "questionmark.circle")
             } description: {
                 Text("No paper found with the given identifier. Check for typos.")
             }
         } else {
-            PublicationListView(
-                publications: viewModel.publications,
-                selection: $viewModel.selectedPublicationIDs,
-                selectedPublicationID: $selectedPublicationID,
-                libraryID: libraryManager.activeLibrary?.id,
-                allLibraries: libraryManager.libraries.map { (id: $0.id, name: $0.name) },
-                showImportButton: false,
-                showSortMenu: false,  // Usually just one result
-                emptyStateMessage: "No Paper Found",
-                emptyStateDescription: "Enter a bibcode, DOI, or arXiv ID.",
-                listID: libraryManager.getOrCreateLastSearchCollection().map { .lastSearch($0.id) },
-                filterScope: .constant(.current),
-                actions: {
-                    let a = PublicationListActions()
-                    a.onDelete = { ids in await libraryViewModel.delete(ids: ids) }
-                    a.onToggleRead = { id in await libraryViewModel.toggleReadStatus(id: id) }
-                    a.onCopy = { ids in await libraryViewModel.copyToClipboard(ids) }
-                    a.onCut = { ids in await libraryViewModel.cutToClipboard(ids) }
-                    a.onPaste = { try? await libraryViewModel.pasteFromClipboard() }
-                    a.onAddToLibrary = { ids, libraryId in await libraryViewModel.addToLibrary(ids, libraryId: libraryId) }
-                    a.onAddToCollection = { ids, collectionId in await libraryViewModel.addToCollection(ids, collectionId: collectionId) }
-                    a.onOpenPDF = { _ in }
-                    return a
-                }()
+            ContentUnavailableView(
+                "Search Results",
+                systemImage: "magnifyingglass",
+                description: Text("Results appear in the Exploration section of the sidebar.")
             )
         }
     }

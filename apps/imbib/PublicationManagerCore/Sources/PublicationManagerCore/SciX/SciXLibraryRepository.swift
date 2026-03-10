@@ -131,7 +131,8 @@ public final class SciXLibraryRepository {
             store.updateField(id: existing.id, field: "permission_level", value: metadata.permission)
             store.updateField(id: existing.id, field: "owner_email", value: metadata.owner)
             store.updateIntField(id: existing.id, field: "document_count", value: Int64(metadata.num_documents))
-            store.updateIntField(id: existing.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
+            // Do NOT set last_sync_date here — it should only be set by
+            // pullLibraryPapers() when papers are actually synced.
             loadLibraries()
             return findLibrary(remoteID: metadata.id)
         } else {

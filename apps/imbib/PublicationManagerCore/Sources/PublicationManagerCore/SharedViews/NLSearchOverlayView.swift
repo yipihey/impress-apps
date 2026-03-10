@@ -667,23 +667,9 @@ public struct NLSearchOverlayView: View {
 
         // Capture before Task
         let vm = searchViewModel
-        let manager = libraryManager
         Task {
             await vm.search()
-
-            // Count results from the Last Search collection
-            var count = 0
-            if let collection = manager.getOrCreateLastSearchCollection() {
-                count = RustStoreAdapter.shared.countPublications(
-                    for: .collection(collection.id)
-                )
-            }
-            await nlService.markComplete(resultCount: count)
-
-            // Navigate to the search results in the sidebar
-            await MainActor.run {
-                NotificationCenter.default.post(name: .lastSearchUpdated, object: nil)
-            }
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
         }
     }
 
