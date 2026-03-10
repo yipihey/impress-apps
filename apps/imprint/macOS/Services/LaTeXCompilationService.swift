@@ -70,9 +70,9 @@ struct LaTeXDiagnostic: Identifiable, Sendable {
 actor LaTeXCompilationService {
     static let shared = LaTeXCompilationService()
 
-    private var runningProcess: Process?
+    private var runningTask: Task<(Data, Data, Int32), Error>?
 
-    var isCompiling: Bool { runningProcess != nil }
+    private(set) var isCompiling = false
 
     // MARK: - Compilation
 
@@ -113,65 +113,72 @@ actor LaTeXCompilationService {
         arguments.append(contentsOf: options.extraArguments)
         arguments.append(sourceURL.lastPathComponent)
 
-        let process = Process()
-        process.executableURL = execURL
-        process.arguments = arguments
-        process.currentDirectoryURL = sourceDir
-
         // Set up environment with TeX distribution in PATH
         var env = ProcessInfo.processInfo.environment
         if let distPath = await texDistribution.distributionPath?.path {
             let existingPath = env["PATH"] ?? "/usr/bin:/bin"
             env["PATH"] = "\(distPath):\(existingPath)"
         }
-        process.environment = env
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        runningProcess = process
-
-        defer { runningProcess = nil }
 
         Logger.compilation.infoCapture("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue)", category: "latex")
 
-        do {
-            try process.run()
-        } catch {
-            throw LaTeXCompilationError.launchFailed(error)
-        }
+        isCompiling = true
+        defer { isCompiling = false; runningTask = nil }
 
-        // Read both pipes concurrently to avoid deadlock when >64KB on one pipe
-        let stdoutData: Data
-        let stderrData: Data
-        let group = DispatchGroup()
-        var _stdoutData = Data()
-        var _stderrData = Data()
+        // Run the process off-actor so cancel() remains reachable
+        let capturedExecURL = execURL
+        let capturedArguments = arguments
+        let capturedSourceDir = sourceDir
+        let capturedEnv = env
 
-        group.enter()
-        DispatchQueue.global().async {
-            _stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-        group.enter()
-        DispatchQueue.global().async {
-            _stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-        group.wait()
-        stdoutData = _stdoutData
-        stderrData = _stderrData
+        let task = Task.detached {
+            let process = Process()
+            process.executableURL = capturedExecURL
+            process.arguments = capturedArguments
+            process.currentDirectoryURL = capturedSourceDir
+            process.environment = capturedEnv
 
-        process.waitUntilExit()
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            do {
+                try process.run()
+            } catch {
+                throw LaTeXCompilationError.launchFailed(error)
+            }
+
+            // Read both pipes concurrently to avoid deadlock when >64KB on one pipe,
+            // and read BEFORE waitUntilExit to prevent buffer-full blocking
+            let group = DispatchGroup()
+            var outData = Data()
+            var errData = Data()
+
+            group.enter()
+            DispatchQueue.global().async {
+                outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+            group.enter()
+            DispatchQueue.global().async {
+                errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+            group.wait()
+
+            process.waitUntilExit()
+            return (outData, errData, process.terminationStatus)
+        }
+        runningTask = task
+        let processResult = try await task.value
 
         let logOutput = [
-            String(data: stdoutData, encoding: .utf8) ?? "",
-            String(data: stderrData, encoding: .utf8) ?? "",
+            String(data: processResult.stdoutData, encoding: .utf8) ?? "",
+            String(data: processResult.stderrData, encoding: .utf8) ?? "",
         ].joined(separator: "\n")
 
-        let exitCode = process.terminationStatus
+        let exitCode = processResult.exitCode
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
 
         // Also try to read the .log file for better diagnostics
@@ -225,13 +232,14 @@ actor LaTeXCompilationService {
 
     // MARK: - Cancellation
 
-    /// Kill the running compilation process.
+    /// Cancel the running compilation task.
     func cancel() {
-        if let process = runningProcess, process.isRunning {
-            process.terminate()
+        if let task = runningTask {
+            task.cancel()
             Logger.compilation.infoCapture("Cancelled running compilation", category: "latex")
         }
-        runningProcess = nil
+        runningTask = nil
+        isCompiling = false
     }
 }
 

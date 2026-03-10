@@ -193,8 +193,9 @@ final class TeXDistributionManager {
 
             do {
                 try process.run()
-                process.waitUntilExit()
+                // Read pipe before waitUntilExit to prevent potential deadlock
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 let output = String(data: data, encoding: .utf8) ?? "No output"
                 return output.components(separatedBy: "\n").first ?? output
             } catch {

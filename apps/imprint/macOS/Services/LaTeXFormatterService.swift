@@ -57,9 +57,11 @@ actor LaTeXFormatterService {
 
             do {
                 try process.run()
+
+                // Read pipe BEFORE waitUntilExit to prevent deadlock if output exceeds 64KB buffer
+                let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
 
-                let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
                 guard let formatted = String(data: outputData, encoding: .utf8),
                       !formatted.isEmpty else { return nil }
                 return formatted

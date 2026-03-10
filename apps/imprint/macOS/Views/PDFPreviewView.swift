@@ -143,10 +143,12 @@ struct SyncablePDFKitView: NSViewRepresentable {
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
         context.coordinator.onClickPosition = onClickPosition
+        // Only replace the document when data actually changes (avoid re-parsing on every SwiftUI state change)
+        guard context.coordinator.lastDataCount != data.count || context.coordinator.lastDataPrefix != data.prefix(64) else { return }
+        context.coordinator.lastDataCount = data.count
+        context.coordinator.lastDataPrefix = data.prefix(64)
         if let document = PDFDocument(data: data) {
-            if pdfView.document?.dataRepresentation() != data {
-                pdfView.document = document
-            }
+            pdfView.document = document
         }
     }
 
@@ -156,6 +158,8 @@ struct SyncablePDFKitView: NSViewRepresentable {
 
     class Coordinator: NSObject {
         var onClickPosition: ((Int, Double, Double) -> Void)?
+        var lastDataCount: Int = -1
+        var lastDataPrefix: Data = Data()
 
         init(onClickPosition: ((Int, Double, Double) -> Void)?) {
             self.onClickPosition = onClickPosition
@@ -198,9 +202,19 @@ struct PDFKitView: NSViewRepresentable {
     }
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
+        guard context.coordinator.lastDataCount != data.count || context.coordinator.lastDataPrefix != data.prefix(64) else { return }
+        context.coordinator.lastDataCount = data.count
+        context.coordinator.lastDataPrefix = data.prefix(64)
         if let document = PDFDocument(data: data) {
             pdfView.document = document
         }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    class Coordinator {
+        var lastDataCount: Int = -1
+        var lastDataPrefix: Data = Data()
     }
 }
 

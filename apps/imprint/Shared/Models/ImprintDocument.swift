@@ -262,18 +262,28 @@ struct ImprintDocument: FileDocument, Equatable {
     """
 
     private static func parseBibliography(_ content: String) -> [String: String] {
-        // Simple BibTeX parser - extract entries by key
+        // BibTeX parser - extract individual entries by key
         var result: [String: String] = [:]
         let pattern = #"@\w+\{([^,]+),"#
-        let regex = try? NSRegularExpression(pattern: pattern, options: [])
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return result }
 
-        let matches = regex?.matches(in: content, range: NSRange(content.startIndex..., in: content)) ?? []
+        let matches = regex.matches(in: content, range: NSRange(content.startIndex..., in: content))
 
-        for match in matches {
-            if let keyRange = Range(match.range(at: 1), in: content) {
-                let key = String(content[keyRange])
-                // Find the full entry (simplified - just store entire content for now)
-                result[key] = content
+        for (i, match) in matches.enumerated() {
+            guard let keyRange = Range(match.range(at: 1), in: content) else { continue }
+            let key = String(content[keyRange])
+
+            // Extract the entry from this match start to the next match start (or end of string)
+            let entryStart = match.range.location
+            let entryEnd: Int
+            if i + 1 < matches.count {
+                entryEnd = matches[i + 1].range.location
+            } else {
+                entryEnd = content.utf16.count
+            }
+            let entryNSRange = NSRange(location: entryStart, length: entryEnd - entryStart)
+            if let entryRange = Range(entryNSRange, in: content) {
+                result[key] = String(content[entryRange]).trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
 

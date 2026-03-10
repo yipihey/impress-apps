@@ -9,11 +9,13 @@ struct DocumentOutlineView: View {
     @State private var outlineItems: [OutlineItem] = []
 
     var body: some View {
-        List(outlineItems) { item in
-            OutlineRow(item: item)
-                .accessibilityIdentifier("outline.item.\(item.lineNumber)")
+        // Use Section/ForEach instead of List to avoid nested List when placed inside a parent List
+        Section("Outline") {
+            ForEach(outlineItems) { item in
+                OutlineRow(item: item)
+                    .accessibilityIdentifier("outline.item.\(item.lineNumber)")
+            }
         }
-        .listStyle(.sidebar)
         .accessibilityIdentifier("outline.container")
         .onAppear {
             parseOutline()
@@ -45,7 +47,6 @@ struct DocumentOutlineView: View {
 
                 if !title.isEmpty {
                     items.append(OutlineItem(
-                        id: UUID(),
                         title: title,
                         level: level,
                         lineNumber: index
@@ -84,7 +85,6 @@ struct DocumentOutlineView: View {
 
                 let title = String(lineStr[titleRange])
                 items.append(OutlineItem(
-                    id: UUID(),
                     title: title,
                     level: level,
                     lineNumber: index
@@ -94,11 +94,11 @@ struct DocumentOutlineView: View {
 
             // Special entries
             if trimmed.hasPrefix("\\appendix") {
-                items.append(OutlineItem(id: UUID(), title: "Appendix", level: 1, lineNumber: index))
+                items.append(OutlineItem(title: "Appendix", level: 1, lineNumber: index))
             } else if trimmed.contains("\\begin{abstract}") {
-                items.append(OutlineItem(id: UUID(), title: "Abstract", level: 1, lineNumber: index))
+                items.append(OutlineItem(title: "Abstract", level: 1, lineNumber: index))
             } else if trimmed.contains("\\begin{thebibliography}") || trimmed.contains("\\printbibliography") {
-                items.append(OutlineItem(id: UUID(), title: "Bibliography", level: 1, lineNumber: index))
+                items.append(OutlineItem(title: "Bibliography", level: 1, lineNumber: index))
             }
         }
 
@@ -106,9 +106,10 @@ struct DocumentOutlineView: View {
     }
 }
 
-/// A single item in the document outline
+/// A single item in the document outline.
+/// ID is derived from stable data (line number + title) so SwiftUI can diff efficiently.
 struct OutlineItem: Identifiable {
-    let id: UUID
+    var id: String { "\(lineNumber):\(title)" }
     let title: String
     let level: Int
     let lineNumber: Int
