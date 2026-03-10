@@ -24,11 +24,25 @@ struct ContentView: View {
     // SVG preview state
     @State private var svgPages: [String] = []
 
-    // Auto-compile
+    // Auto-compile (Typst)
     @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
     @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
     @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
     @State private var autoCompileTask: Task<Void, Never>?
+    @State private var forwardSyncTask: Task<Void, Never>?
+
+    // LaTeX-specific state
+    @AppStorage("imprint.latex.defaultEngine") private var latexDefaultEngine = "pdflatex"
+    @AppStorage("imprint.latex.autoCompile") private var latexAutoCompileEnabled = true
+    @AppStorage("imprint.latex.compileDebounceMs") private var latexCompileDebounceMs = 1500
+    @AppStorage("imprint.latex.shellEscape") private var latexShellEscape = false
+    @AppStorage("imprint.latex.showBoxWarnings") private var latexShowBoxWarnings = false
+    @State private var latexDiagnostics: [LaTeXDiagnostic] = []
+    @State private var latexCompilationTimeMs: Int = 0
+    @State private var syncTeXHighlight: SyncTeXPosition?
+    @State private var showingSymbolPalette = false
+    @State private var latexProjectFiles: [URL] = []
+    @State private var latexMainFileURL: URL?
 
     // AI Context Menu state
     @State private var showingAIContextMenu = false
@@ -54,7 +68,8 @@ struct ContentView: View {
                 FocusModeView(
                     source: $document.source,
                     cursorPosition: $cursorPosition,
-                    isActive: $appState.isFocusMode
+                    isActive: $appState.isFocusMode,
+                    syntaxMode: appState.documentFormat
                 )
                 .transition(.opacity)
                 .zIndex(1)
@@ -72,8 +87,19 @@ struct ContentView: View {
             // Sidebar: Document outline and cited papers
             List {
                 // Document outline section
-                DocumentOutlineView(source: document.source)
+                DocumentOutlineView(source: document.source, format: appState.documentFormat)
                     .accessibilityIdentifier("sidebar.outline")
+
+                // LaTeX project files (shown when multi-file project detected)
+                if appState.documentFormat == .latex && !latexProjectFiles.isEmpty {
+                    LaTeXProjectSidebarView(
+                        projectFiles: latexProjectFiles,
+                        mainFileURL: latexMainFileURL,
+                        onSelectFile: { _ in
+                            // TODO: Switch editor to selected file in multi-file projects
+                        }
+                    )
+                }
 
                 // Cited papers section (from imbib, hidden when not available)
                 #if os(macOS)
@@ -100,6 +126,25 @@ struct ContentView: View {
 
                 Spacer()
 
+                // Format indicator (LaTeX mode)
+                if appState.documentFormat == .latex {
+                    Text("LaTeX")
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.blue)
+
+                    // Engine picker
+                    Picker("Engine", selection: $latexDefaultEngine) {
+                        ForEach(LaTeXEngine.allCases, id: \.rawValue) { engine in
+                            Text(engine.displayName).tag(engine.rawValue)
+                        }
+                    }
+                    .frame(width: 110)
+                    .accessibilityIdentifier("toolbar.enginePicker")
+                }
+
                 // Compile button
                 Button {
                     Task { await compile() }
@@ -111,7 +156,7 @@ struct ContentView: View {
                         Image(systemName: "hammer")
                     }
                 }
-                .help("Refresh Preview (⌘B)")
+                .help("Refresh Preview (\u{2318}B)")
                 .keyboardShortcut("B", modifiers: [.command])
                 .accessibilityIdentifier("toolbar.compileButton")
 
@@ -179,9 +224,17 @@ struct ContentView: View {
             appState: appState,
             onCompile: { Task { await compile() } },
             onExportPDF: { exportPDF() },
-            onPrintPDF: { printPDF() }
+            onPrintPDF: { printPDF() },
+            onShowSymbolPalette: { showingSymbolPalette = true }
         ))
+        .sheet(isPresented: $showingSymbolPalette) {
+            LaTeXSymbolPalette(isPresented: $showingSymbolPalette) { symbol in
+                insertTextAtCursor(symbol)
+            }
+        }
         .task {
+            // Detect document format and propagate to AppState
+            appState.documentFormat = document.format
             await compile()
         }
         .onChange(of: document.source) { _, newSource in
@@ -201,6 +254,25 @@ struct ContentView: View {
                     orderIndex: 0,
                     documentID: capturedDocID
                 )
+            }
+        }
+        .onChange(of: cursorPosition) { _, newPosition in
+            // Forward SyncTeX: cursor → PDF highlight (LaTeX mode only, debounced)
+            guard appState.documentFormat == .latex else { return }
+            forwardSyncTask?.cancel()
+            let source = document.source
+            forwardSyncTask = Task {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                // Convert cursor offset to line number
+                let prefix = source.prefix(min(newPosition, source.count))
+                let line = prefix.filter { $0 == "\n" }.count + 1
+                let positions = await SyncTeXService.shared.forwardSync(file: "main.tex", line: line, column: 0)
+                if let first = positions.first {
+                    await MainActor.run {
+                        syncTeXHighlight = first
+                    }
+                }
             }
         }
         // HTTP API automation handlers (applied before platform-specific handlers)
@@ -328,18 +400,30 @@ struct ContentView: View {
 
         case .splitView:
             HSplitView {
-                SourceEditorView(
-                    source: $document.source,
-                    cursorPosition: $cursorPosition,
-                    onSelectionChange: { selectedText, selectedRange in
-                        appState.selectedText = selectedText
-                        appState.selectedRange = selectedRange
+                HStack(spacing: 0) {
+                    // Gutter with line numbers and diagnostics
+                    if !latexDiagnostics.isEmpty || appState.documentFormat == .latex {
+                        EditorGutterView(
+                            lineCount: document.source.components(separatedBy: "\n").count,
+                            diagnosticsByLine: EditorGutterView.diagnosticsMap(from: latexDiagnostics),
+                            onTapLine: { line in navigateToLine(line) }
+                        )
                     }
-                )
+
+                    SourceEditorView(
+                        source: $document.source,
+                        cursorPosition: $cursorPosition,
+                        syntaxMode: appState.documentFormat,
+                        onSelectionChange: { selectedText, selectedRange in
+                            appState.selectedText = selectedText
+                            appState.selectedRange = selectedRange
+                        }
+                    )
+                }
                 .frame(minWidth: 300, maxHeight: .infinity)
 
                 VStack(spacing: 0) {
-                    if previewFormat == "svg" && !svgPages.isEmpty {
+                    if previewFormat == "svg" && !svgPages.isEmpty && appState.documentFormat == .typst {
                         SVGPreviewView(
                             svgPages: svgPages,
                             isCompiling: isCompiling,
@@ -352,7 +436,11 @@ struct ContentView: View {
                             pdfData: pdfData,
                             isCompiling: isCompiling,
                             sourceMapEntries: sourceMapEntries,
-                            cursorPosition: cursorPosition
+                            cursorPosition: cursorPosition,
+                            onInverseSync: appState.documentFormat == .latex ? { _, line, _ in
+                                navigateToLine(line)
+                            } : nil,
+                            syncTeXHighlight: syncTeXHighlight
                         )
                         .frame(maxHeight: .infinity)
                     }
@@ -372,6 +460,7 @@ struct ContentView: View {
             SourceEditorView(
                 source: $document.source,
                 cursorPosition: $cursorPosition,
+                syntaxMode: appState.documentFormat,
                 onSelectionChange: { selectedText, selectedRange in
                     appState.selectedText = selectedText
                     appState.selectedRange = selectedRange
@@ -432,10 +521,22 @@ struct ContentView: View {
     // MARK: - Auto-Compile
 
     /// Schedule a debounced auto-compile after a typing pause.
+    /// Uses format-specific debounce — LaTeX is heavier so defaults to 1500ms.
     private func scheduleAutoCompile() {
-        guard autoCompileEnabled else { return }
+        let isAutoEnabled: Bool
+        let delayMs: Int
+
+        switch appState.documentFormat {
+        case .typst:
+            isAutoEnabled = autoCompileEnabled
+            delayMs = compileDebounceMs
+        case .latex:
+            isAutoEnabled = latexAutoCompileEnabled
+            delayMs = latexCompileDebounceMs
+        }
+
+        guard isAutoEnabled else { return }
         autoCompileTask?.cancel()
-        let delayMs = compileDebounceMs
         autoCompileTask = Task {
             try? await Task.sleep(for: .milliseconds(delayMs))
             guard !Task.isCancelled else { return }
@@ -532,8 +633,25 @@ struct ContentView: View {
         isCompiling = true
         compilationError = nil
         compilationWarnings = []
+        latexDiagnostics = []
 
-        // Capture @State/AppStorage before any async work
+        // Branch on document format
+        switch appState.documentFormat {
+        case .typst:
+            await compileTypst()
+        case .latex:
+            await compileLaTeX()
+        }
+
+        isCompiling = false
+        debugStatus = "F:pdf=\(pdfData?.count ?? 0)"
+        debugHistory += "F:\(pdfData?.count ?? 0)"
+        log("compile() finished")
+    }
+
+    // MARK: - Typst Compilation
+
+    private func compileTypst() async {
         let sourceText = document.source
         let format = previewFormat
         debugStatus = "2:src=\(sourceText.count)ch"
@@ -550,22 +668,18 @@ struct ContentView: View {
             )
 
             if format == "svg" {
-                // SVG rendering — per-page SVG strings for split view
                 debugStatus = "4:rendering(svg)"
                 debugHistory += "4svg "
                 log("Calling renderer.renderSVG()")
                 let output = try await renderer.renderSVG(sourceText, options: options)
                 debugStatus = "5:done,ok=\(output.isSuccess),pages=\(output.svgPages.count)"
                 debugHistory += "5:\(output.svgPages.count)p "
-                log("renderer.renderSVG() completed, success: \(output.isSuccess), pages: \(output.svgPages.count)")
 
                 if output.isSuccess {
                     svgPages = output.svgPages
                     sourceMapEntries = output.sourceMapEntries
                     compilationWarnings = output.warnings
 
-                    // Also render PDF for Direct PDF mode, export, and print.
-                    // This is fast because the persistent engine already compiled the document.
                     let pdfOutput = try await renderer.render(sourceText, options: options)
                     if pdfOutput.isSuccess {
                         pdfData = pdfOutput.pdfData
@@ -574,50 +688,132 @@ struct ContentView: View {
 
                     debugStatus = "6:set,\(output.svgPages.count)p,map=\(output.sourceMapEntries.count)"
                     debugHistory += "6:ok "
-                    log("SVG pages set: \(output.svgPages.count), source map entries: \(output.sourceMapEntries.count)")
                 } else {
                     compilationError = output.errors.joined(separator: "\n")
-                    debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
                     debugHistory += "E "
-                    log("SVG compilation errors: \(output.errors)")
                 }
             } else {
-                // PDF rendering — traditional path
                 debugStatus = "4:rendering(pdf)"
                 debugHistory += "4pdf "
-                log("Calling renderer.render()")
                 let output = try await renderer.render(sourceText, options: options)
                 debugStatus = "5:done,ok=\(output.isSuccess),sz=\(output.pdfData.count)"
                 debugHistory += "5:\(output.pdfData.count) "
-                log("renderer.render() completed, success: \(output.isSuccess), size: \(output.pdfData.count)")
 
                 if output.isSuccess {
                     pdfData = output.pdfData
                     sourceMapEntries = output.sourceMapEntries
                     compilationWarnings = output.warnings
-                    // Cache PDF for HTTP API access
                     DocumentRegistry.shared.cachePDF(output.pdfData, for: document.id)
                     debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
                     debugHistory += "6:ok "
-                    log("PDF data set, size: \(output.pdfData.count), source map entries: \(output.sourceMapEntries.count)")
                 } else {
                     compilationError = output.errors.joined(separator: "\n")
-                    debugStatus = "6:\(output.errors.first?.prefix(30) ?? "?")"
                     debugHistory += "E "
-                    log("Compilation errors: \(output.errors)")
                 }
             }
         } catch {
             compilationError = error.localizedDescription
-            debugStatus = "X:\(error)"
             debugHistory += "X:\(error) "
-            log("Exception: \(error)")
+        }
+    }
+
+    // MARK: - LaTeX Compilation
+
+    private func compileLaTeX() async {
+        // LaTeX requires a file URL — the document must be saved to disk first.
+        // For unsaved documents, write to a temp directory.
+        let sourceText = document.source
+        debugStatus = "2:latex,src=\(sourceText.count)ch"
+        debugHistory += "2:\(sourceText.count) "
+
+        // Resolve the engine
+        let engineRaw = latexDefaultEngine
+        let engine = LaTeXEngine(rawValue: engineRaw) ?? .pdflatex
+
+        // Get or create a temp file URL for compilation
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imprint-latex-\(document.id.uuidString)")
+        let sourceURL = tempDir.appendingPathComponent("main.tex")
+
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try sourceText.data(using: .utf8)?.write(to: sourceURL)
+        } catch {
+            compilationError = "Failed to write temp file: \(error.localizedDescription)"
+            debugHistory += "X:write "
+            return
         }
 
-        isCompiling = false
-        debugStatus = "F:pdf=\(pdfData?.count ?? 0)"
-        debugHistory += "F:\(pdfData?.count ?? 0)"
-        log("compile() finished")
+        debugStatus = "3:engine=\(engine.rawValue)"
+        debugHistory += "3:\(engine.rawValue) "
+
+        let options = LaTeXCompileOptions(
+            engine: engine,
+            shellEscape: latexShellEscape
+        )
+
+        do {
+            let result = try await LaTeXCompilationService.shared.compile(
+                sourceURL: sourceURL,
+                engine: engine,
+                options: options
+            )
+
+            latexCompilationTimeMs = result.compilationTimeMs
+            latexDiagnostics = result.errors + result.warnings
+            DocumentRegistry.shared.cachedDiagnostics[document.id] = latexDiagnostics
+
+            if result.isSuccess, let data = result.pdfData {
+                pdfData = data
+                sourceMapEntries = []
+                DocumentRegistry.shared.cachePDF(data, for: document.id)
+
+                // Load SyncTeX data for bidirectional sync
+                if let synctexURL = result.synctexURL {
+                    Task {
+                        do {
+                            try await SyncTeXService.shared.load(from: synctexURL)
+                        } catch {
+                            log("SyncTeX load failed: \(error)")
+                        }
+                    }
+                }
+
+                // Scan project dependencies for sidebar
+                Task {
+                    await LaTeXProjectService.shared.scanDependencies(from: sourceURL)
+                    let files = await LaTeXProjectService.shared.allProjectFiles
+                    let mainFile = await LaTeXProjectService.shared.mainFile
+                    await MainActor.run {
+                        latexProjectFiles = files
+                        latexMainFileURL = mainFile
+                    }
+                }
+                debugStatus = "5:ok,\(data.count)b,\(result.compilationTimeMs)ms"
+                debugHistory += "5:ok "
+            } else {
+                compilationError = result.errors.map(\.message).joined(separator: "\n")
+                if compilationError?.isEmpty ?? true {
+                    compilationError = "Compilation failed (exit code \(result.exitCode))"
+                }
+                debugHistory += "E "
+            }
+
+            // Surface warnings (filter box warnings if disabled)
+            let showBoxWarnings = latexShowBoxWarnings
+            compilationWarnings = result.warnings
+                .filter { diag in
+                    if !showBoxWarnings && (diag.message.hasPrefix("Overfull") || diag.message.hasPrefix("Underfull")) {
+                        return false
+                    }
+                    return true
+                }
+                .map { "\($0.file):\($0.line): \($0.message)" }
+
+        } catch {
+            compilationError = error.localizedDescription
+            debugHistory += "X:\(error) "
+        }
     }
 }
 
@@ -688,6 +884,7 @@ private struct NotificationHandlersModifier: ViewModifier {
     let onCompile: () -> Void
     let onExportPDF: () -> Void
     let onPrintPDF: () -> Void
+    let onShowSymbolPalette: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -700,6 +897,7 @@ private struct NotificationHandlersModifier: ViewModifier {
                 (.toggleCommentsSidebar, { _ in withAnimation { appState.showingComments.toggle() } }),
                 (.exportPDF, { _ in onExportPDF() }),
                 (.printPDF, { _ in onPrintPDF() }),
+                (.showSymbolPalette, { _ in onShowSymbolPalette() }),
             ])
     }
 }

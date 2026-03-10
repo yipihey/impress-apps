@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Document outline sidebar showing headings and structure
+/// Document outline sidebar showing headings and structure.
+/// Supports both Typst and LaTeX heading syntax.
 struct DocumentOutlineView: View {
     let source: String
+    var format: DocumentFormat = .typst
 
     @State private var outlineItems: [OutlineItem] = []
 
@@ -22,13 +24,21 @@ struct DocumentOutlineView: View {
     }
 
     private func parseOutline() {
+        switch format {
+        case .typst:
+            parseTypstOutline()
+        case .latex:
+            parseLaTeXOutline()
+        }
+    }
+
+    private func parseTypstOutline() {
         var items: [OutlineItem] = []
         let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
 
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            // Match Typst headings (= Heading, == Subheading, etc.)
             if trimmed.hasPrefix("=") {
                 let level = trimmed.prefix(while: { $0 == "=" }).count
                 let title = String(trimmed.dropFirst(level).trimmingCharacters(in: .whitespaces))
@@ -41,6 +51,54 @@ struct DocumentOutlineView: View {
                         lineNumber: index
                     ))
                 }
+            }
+        }
+
+        outlineItems = items
+    }
+
+    private func parseLaTeXOutline() {
+        var items: [OutlineItem] = []
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+
+        // LaTeX sectioning commands → level mapping
+        let sectionCommands: [(pattern: String, level: Int)] = [
+            ("\\\\part\\{([^}]+)\\}", 0),
+            ("\\\\chapter\\{([^}]+)\\}", 1),
+            ("\\\\section\\{([^}]+)\\}", 1),
+            ("\\\\subsection\\{([^}]+)\\}", 2),
+            ("\\\\subsubsection\\{([^}]+)\\}", 3),
+        ]
+
+        for (index, line) in lines.enumerated() {
+            let lineStr = String(line)
+
+            // Skip commented lines
+            let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("%") { continue }
+
+            for (pattern, level) in sectionCommands {
+                guard let regex = try? NSRegularExpression(pattern: pattern),
+                      let match = regex.firstMatch(in: lineStr, range: NSRange(lineStr.startIndex..., in: lineStr)),
+                      let titleRange = Range(match.range(at: 1), in: lineStr) else { continue }
+
+                let title = String(lineStr[titleRange])
+                items.append(OutlineItem(
+                    id: UUID(),
+                    title: title,
+                    level: level,
+                    lineNumber: index
+                ))
+                break
+            }
+
+            // Special entries
+            if trimmed.hasPrefix("\\appendix") {
+                items.append(OutlineItem(id: UUID(), title: "Appendix", level: 1, lineNumber: index))
+            } else if trimmed.contains("\\begin{abstract}") {
+                items.append(OutlineItem(id: UUID(), title: "Abstract", level: 1, lineNumber: index))
+            } else if trimmed.contains("\\begin{thebibliography}") || trimmed.contains("\\printbibliography") {
+                items.append(OutlineItem(id: UUID(), title: "Bibliography", level: 1, lineNumber: index))
             }
         }
 

@@ -2,9 +2,14 @@
 import AppKit
 import CoreData
 import CoreSpotlight
+import ImprintCore
 import ImpressKit
 import ImpressSpotlight
 import SwiftUI
+
+extension NSNotification.Name {
+    static let openDocument = NSNotification.Name("com.imprint.openDocument")
+}
 
 // MARK: - Appearance Modifier
 
@@ -212,6 +217,11 @@ struct ImprintApp: App {
 
                 Divider()
 
+                Button("Symbol Palette...") {
+                    NotificationCenter.default.post(name: .showSymbolPalette, object: nil)
+                }
+                .keyboardShortcut("Y", modifiers: [.command, .shift])
+
                 Button("AI Assistant...") {
                     NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
                 }
@@ -342,6 +352,9 @@ class AppState {
     /// Current edit mode (cycles with Tab)
     var editMode: EditMode = .splitView
 
+    /// Document format for the currently open document (set when document opens)
+    var documentFormat: DocumentFormat = .typst
+
     /// Whether the citation picker is showing
     var showingCitationPicker = false
 
@@ -431,6 +444,8 @@ extension Notification.Name {
     static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
+    static let showSymbolPalette = Notification.Name("showSymbolPalette")
+    static let formatDocument = Notification.Name("formatDocument")
 }
 
 // MARK: - UI Testing Support

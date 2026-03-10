@@ -5,6 +5,7 @@ struct FocusModeView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
     @Binding var isActive: Bool
+    var syntaxMode: DocumentFormat = .typst
 
     @State private var showExitButton = true
     @State private var idleTimer: Timer?
@@ -24,7 +25,8 @@ struct FocusModeView: View {
             // Centered editor with constrained width
             SourceEditorView(
                 source: $source,
-                cursorPosition: $cursorPosition
+                cursorPosition: $cursorPosition,
+                syntaxMode: syntaxMode
             )
             .frame(maxWidth: maxEditorWidth)
             .padding(.horizontal, 40)

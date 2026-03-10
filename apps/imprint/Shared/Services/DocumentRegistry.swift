@@ -18,6 +18,9 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
     /// Cached PDF data per document (populated after compilation)
     var cachedPDF: [UUID: Data] = [:]
 
+    /// Cached LaTeX diagnostics per document (populated after LaTeX compilation)
+    var cachedDiagnostics: [UUID: [LaTeXDiagnostic]] = [:]
+
     /// Map of file URL -> document for URL-based lookup
     var documentsByURL: [String: ImprintDocument] = [:]
 

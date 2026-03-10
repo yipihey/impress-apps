@@ -4,13 +4,18 @@ import UniformTypeIdentifiers
 /// The document type for imprint files
 ///
 /// ImprintDocument wraps the Rust CRDT document and handles:
-/// - File I/O (reading/writing .imprint packages)
+/// - File I/O (reading/writing .imprint packages and .tex files)
 /// - Undo/redo tracking
 /// - Document metadata
 extension UTType {
     /// The imprint document type
     static var imprintDocument: UTType {
         UTType(exportedAs: "com.imbib.imprint.document", conformingTo: .package)
+    }
+
+    /// LaTeX source files
+    static var latexSource: UTType {
+        UTType(filenameExtension: "tex") ?? UTType("public.tex") ?? .plainText
     }
 }
 
@@ -29,8 +34,11 @@ struct ImprintDocument: FileDocument, Equatable {
     /// Stable document identifier (persists across renames/moves)
     var id: UUID
 
-    /// The Typst source content
+    /// The source content (Typst or LaTeX)
     var source: String
+
+    /// Document format — Typst (.imprint/.typ) or LaTeX (.tex)
+    var format: DocumentFormat = .typst
 
     /// Document title (from metadata or first heading)
     var title: String
@@ -55,8 +63,8 @@ struct ImprintDocument: FileDocument, Equatable {
 
     // MARK: - FileDocument
 
-    static var readableContentTypes: [UTType] { [.imprintDocument, .plainText] }
-    static var writableContentTypes: [UTType] { [.imprintDocument] }
+    static var readableContentTypes: [UTType] { [.imprintDocument, .latexSource, .plainText] }
+    static var writableContentTypes: [UTType] { [.imprintDocument, .latexSource, .plainText] }
 
     init(configuration: ReadConfiguration) throws {
         if configuration.contentType == .imprintDocument {
@@ -126,7 +134,7 @@ struct ImprintDocument: FileDocument, Equatable {
             }
 
         } else {
-            // Plain text import
+            // Plain text or LaTeX import
             guard let data = configuration.file.regularFileContents,
                   let text = String(data: data, encoding: .utf8) else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -139,6 +147,13 @@ struct ImprintDocument: FileDocument, Equatable {
             modifiedAt = Date()
             bibliography = [:]
             linkedImbibManuscriptID = nil
+
+            // Detect LaTeX format from content type or content heuristics
+            if configuration.contentType == .latexSource {
+                format = .latex
+            } else {
+                format = DocumentFormat.detect(from: text)
+            }
         }
     }
 
@@ -154,7 +169,15 @@ struct ImprintDocument: FileDocument, Equatable {
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // Create package wrapper
+        // LaTeX files: write as plain .tex file, not a package
+        if format == .latex {
+            guard let data = source.data(using: .utf8) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return FileWrapper(regularFileWithContents: data)
+        }
+
+        // Typst: Create package wrapper
         var wrappers: [String: FileWrapper] = [:]
 
         // Main source file
@@ -219,9 +242,10 @@ struct ImprintDocument: FileDocument, Equatable {
         modifiedAt = Date()
     }
 
-    /// Insert a citation reference at position
+    /// Insert a citation reference at position (format-aware)
     mutating func insertCitation(key: String, at position: Int) {
-        insertText("@\(key)", at: position)
+        let cite = format.citationInsert
+        insertText("\(cite.prefix)\(key)\(cite.suffix)", at: position)
     }
 
     // MARK: - Private

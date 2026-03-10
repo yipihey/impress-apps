@@ -99,12 +99,16 @@ struct CompilationErrorView: View {
         let message: String
     }
 
-    /// Extract line number from Typst error messages like "error: file.typ:12:5: unexpected token"
+    /// Extract line number from Typst or LaTeX error messages.
+    /// Typst: "error: file.typ:12:5: unexpected token"
+    /// LaTeX: "l.42 ...", "on input line 42", "main.tex:12: ..."
     private func parseLineNumber(from line: String) -> ParsedLine {
-        // Pattern: something:LINE:COL: message  or  line LINE: message
         let patterns = [
-            #":(\d+):\d+:"#,       // file.typ:12:5: ...
-            #"line (\d+)"#,        // line 12: ...
+            #":(\d+):\d+:"#,          // file.typ:12:5: ... (Typst)
+            #"^l\.(\d+)"#,            // l.42 ... (LaTeX)
+            #"on input line (\d+)"#,   // LaTeX warning
+            #"line (\d+)"#,           // line 12: ...
+            #"\.tex:(\d+):"#,         // file.tex:12: ... (LaTeX)
         ]
 
         for pattern in patterns {

@@ -36,6 +36,12 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.imbib")
 
+            LaTeXSettingsView()
+                .tabItem {
+                    Label("LaTeX", systemImage: "function")
+                }
+                .accessibilityIdentifier("settings.tabs.latex")
+
             DocumentHealthSettingsView()
                 .tabItem {
                     Label("Documents", systemImage: "doc.badge.gearshape")
