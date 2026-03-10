@@ -171,14 +171,12 @@ actor LaTeXCompilationService {
             return (outData, errData, process.terminationStatus)
         }
         runningTask = task
-        let processResult = try await task.value
+        let (stdoutData, stderrData, exitCode) = try await task.value
 
         let logOutput = [
-            String(data: processResult.stdoutData, encoding: .utf8) ?? "",
-            String(data: processResult.stderrData, encoding: .utf8) ?? "",
+            String(data: stdoutData, encoding: .utf8) ?? "",
+            String(data: stderrData, encoding: .utf8) ?? "",
         ].joined(separator: "\n")
-
-        let exitCode = processResult.exitCode
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
 
         // Also try to read the .log file for better diagnostics
