@@ -510,6 +510,9 @@ public struct NLSearchOverlayView: View {
         .onAppear {
             editableQuery = query
         }
+        .onChange(of: query) { _, newQuery in
+            editableQuery = newQuery
+        }
     }
 
     // MARK: - Searching View
@@ -660,6 +663,7 @@ public struct NLSearchOverlayView: View {
     private func executeSearch(query: String) {
         nlService.markSearching()
 
+        searchViewModel.setLibraryManager(libraryManager)
         searchViewModel.query = query
         searchViewModel.selectedSourceIDs = nlService.selectedSourceIDs
         searchViewModel.nlSearchMaxResults = nlService.maxResults
@@ -667,9 +671,10 @@ public struct NLSearchOverlayView: View {
 
         // Capture before Task
         let vm = searchViewModel
+        let executedQuery = query
         Task {
             await vm.search()
-            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount, executedQuery: executedQuery)
         }
     }
 

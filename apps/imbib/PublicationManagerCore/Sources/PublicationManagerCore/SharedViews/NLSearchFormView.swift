@@ -443,7 +443,7 @@ public struct NLSearchFormView: View {
 
         Task {
             await vm.search()
-            await nlService.markComplete(resultCount: vm.lastSearchResultCount)
+            await nlService.markComplete(resultCount: vm.lastSearchResultCount, executedQuery: query)
         }
     }
 

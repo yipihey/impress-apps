@@ -607,6 +607,17 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func addToScixLibrary(publicationIds: [String], scixLibraryId: String) throws 
     
+    /**
+     * Batch import search results: find existing, optionally filter dismissed, import new.
+     *
+     * Performs the entire "search result import" pipeline in a single FFI call:
+     * 1. Batch-find existing publications by DOI/arXiv/bibcode (single SQL query)
+     * 2. Optionally filter out dismissed papers (single SQL query)
+     * 3. Parse BibTeX for new results and dedup against library
+     * 4. Batch-insert all new publications in one transaction
+     */
+    func batchImportSearchResults(results: [SearchResultInput], libraryId: String, filterDismissed: Bool) throws  -> BatchImportResult
+    
     func clearActivityRecords(libraryId: String) throws 
     
     func countAnnotations(linkedFileId: String) throws  -> UInt32
@@ -1087,6 +1098,25 @@ open func addToScixLibrary(publicationIds: [String], scixLibraryId: String)throw
         FfiConverterString.lower(scixLibraryId),$0
     )
 }
+}
+    
+    /**
+     * Batch import search results: find existing, optionally filter dismissed, import new.
+     *
+     * Performs the entire "search result import" pipeline in a single FFI call:
+     * 1. Batch-find existing publications by DOI/arXiv/bibcode (single SQL query)
+     * 2. Optionally filter out dismissed papers (single SQL query)
+     * 3. Parse BibTeX for new results and dedup against library
+     * 4. Batch-insert all new publications in one transaction
+     */
+open func batchImportSearchResults(results: [SearchResultInput], libraryId: String, filterDismissed: Bool)throws  -> BatchImportResult {
+    return try  FfiConverterTypeBatchImportResult.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_batch_import_search_results(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeSearchResultInput.lower(results),
+        FfiConverterString.lower(libraryId),
+        FfiConverterBool.lower(filterDismissed),$0
+    )
+})
 }
     
 open func clearActivityRecords(libraryId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -3764,6 +3794,115 @@ public func FfiConverterTypeAuthorStats_lift(_ buf: RustBuffer) throws -> Author
 #endif
 public func FfiConverterTypeAuthorStats_lower(_ value: AuthorStats) -> RustBuffer {
     return FfiConverterTypeAuthorStats.lower(value)
+}
+
+
+/**
+ * Result of a batch import operation.
+ */
+public struct BatchImportResult {
+    /**
+     * IDs of publications that already existed in the store.
+     */
+    public var existingIds: [String]
+    /**
+     * IDs of publications that were newly imported.
+     */
+    public var importedIds: [String]
+    /**
+     * Number of results skipped because they were dismissed.
+     */
+    public var dismissedCount: UInt32
+    /**
+     * Number of results that failed to parse/import.
+     */
+    public var failedCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * IDs of publications that already existed in the store.
+         */existingIds: [String], 
+        /**
+         * IDs of publications that were newly imported.
+         */importedIds: [String], 
+        /**
+         * Number of results skipped because they were dismissed.
+         */dismissedCount: UInt32, 
+        /**
+         * Number of results that failed to parse/import.
+         */failedCount: UInt32) {
+        self.existingIds = existingIds
+        self.importedIds = importedIds
+        self.dismissedCount = dismissedCount
+        self.failedCount = failedCount
+    }
+}
+
+
+
+extension BatchImportResult: Equatable, Hashable {
+    public static func ==(lhs: BatchImportResult, rhs: BatchImportResult) -> Bool {
+        if lhs.existingIds != rhs.existingIds {
+            return false
+        }
+        if lhs.importedIds != rhs.importedIds {
+            return false
+        }
+        if lhs.dismissedCount != rhs.dismissedCount {
+            return false
+        }
+        if lhs.failedCount != rhs.failedCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(existingIds)
+        hasher.combine(importedIds)
+        hasher.combine(dismissedCount)
+        hasher.combine(failedCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBatchImportResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BatchImportResult {
+        return
+            try BatchImportResult(
+                existingIds: FfiConverterSequenceString.read(from: &buf), 
+                importedIds: FfiConverterSequenceString.read(from: &buf), 
+                dismissedCount: FfiConverterUInt32.read(from: &buf), 
+                failedCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BatchImportResult, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.existingIds, into: &buf)
+        FfiConverterSequenceString.write(value.importedIds, into: &buf)
+        FfiConverterUInt32.write(value.dismissedCount, into: &buf)
+        FfiConverterUInt32.write(value.failedCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBatchImportResult_lift(_ buf: RustBuffer) throws -> BatchImportResult {
+    return try FfiConverterTypeBatchImportResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBatchImportResult_lower(_ value: BatchImportResult) -> RustBuffer {
+    return FfiConverterTypeBatchImportResult.lower(value)
 }
 
 
@@ -11958,6 +12097,115 @@ public func FfiConverterTypeSearchResult_lower(_ value: SearchResult) -> RustBuf
 
 
 /**
+ * Input for a single search result in a batch import operation.
+ */
+public struct SearchResultInput {
+    /**
+     * The BibTeX string for this result (used for import if new).
+     */
+    public var bibtex: String
+    /**
+     * DOI, if known (used for dedup lookup).
+     */
+    public var doi: String?
+    /**
+     * arXiv ID, if known (used for dedup lookup).
+     */
+    public var arxivId: String?
+    /**
+     * Bibcode, if known (used for dedup lookup).
+     */
+    public var bibcode: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The BibTeX string for this result (used for import if new).
+         */bibtex: String, 
+        /**
+         * DOI, if known (used for dedup lookup).
+         */doi: String?, 
+        /**
+         * arXiv ID, if known (used for dedup lookup).
+         */arxivId: String?, 
+        /**
+         * Bibcode, if known (used for dedup lookup).
+         */bibcode: String?) {
+        self.bibtex = bibtex
+        self.doi = doi
+        self.arxivId = arxivId
+        self.bibcode = bibcode
+    }
+}
+
+
+
+extension SearchResultInput: Equatable, Hashable {
+    public static func ==(lhs: SearchResultInput, rhs: SearchResultInput) -> Bool {
+        if lhs.bibtex != rhs.bibtex {
+            return false
+        }
+        if lhs.doi != rhs.doi {
+            return false
+        }
+        if lhs.arxivId != rhs.arxivId {
+            return false
+        }
+        if lhs.bibcode != rhs.bibcode {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(bibtex)
+        hasher.combine(doi)
+        hasher.combine(arxivId)
+        hasher.combine(bibcode)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSearchResultInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SearchResultInput {
+        return
+            try SearchResultInput(
+                bibtex: FfiConverterString.read(from: &buf), 
+                doi: FfiConverterOptionString.read(from: &buf), 
+                arxivId: FfiConverterOptionString.read(from: &buf), 
+                bibcode: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SearchResultInput, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.bibtex, into: &buf)
+        FfiConverterOptionString.write(value.doi, into: &buf)
+        FfiConverterOptionString.write(value.arxivId, into: &buf)
+        FfiConverterOptionString.write(value.bibcode, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSearchResultInput_lift(_ buf: RustBuffer) throws -> SearchResultInput {
+    return try FfiConverterTypeSearchResultInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSearchResultInput_lower(_ value: SearchResultInput) -> RustBuffer {
+    return FfiConverterTypeSearchResultInput.lower(value)
+}
+
+
+/**
  * Smart search / saved query summary for sidebar.
  */
 public struct SmartSearchRow {
@@ -18413,6 +18661,31 @@ fileprivate struct FfiConverterSequenceTypeSearchResult: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSearchResultInput: FfiConverterRustBuffer {
+    typealias SwiftType = [SearchResultInput]
+
+    public static func write(_ value: [SearchResultInput], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSearchResultInput.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SearchResultInput] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SearchResultInput]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSearchResultInput.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSmartSearchRow: FfiConverterRustBuffer {
     typealias SwiftType = [SmartSearchRow]
 
@@ -21129,6 +21402,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_add_to_scix_library() != 36664) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_batch_import_search_results() != 29693) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_clear_activity_records() != 24508) {

@@ -238,19 +238,22 @@ public final class ShareExtensionHandler {
                 return
             }
 
-            // Import all results to Inbox via BibTeX
-            var successCount = 0
-
-            for (index, result) in results.enumerated() {
-                Logger.shareExtension.debugCapture("Importing \(index + 1)/\(results.count): \(result.title)", category: "shareext")
-                let bibtex = result.toBibTeX()
-                let ids = store.importBibTeX(bibtex, libraryId: inboxLib.id)
-                if !ids.isEmpty {
-                    successCount += 1
-                }
+            // Import all results to Inbox via single batch FFI call
+            let entries = results.map { result in
+                (bibtex: result.toBibTeX(),
+                 doi: result.doi,
+                 arxivId: result.arxivID,
+                 bibcode: result.bibcode)
             }
+            let (existingIDs, importedIDs) = store.batchImportSearchResults(
+                bibtexEntries: entries,
+                libraryId: inboxLib.id
+            )
 
-            Logger.shareExtension.infoCapture("Successfully imported \(successCount) papers to Inbox", category: "shareext")
+            Logger.shareExtension.infoCapture(
+                "Imported \(importedIDs.count) new, linked \(existingIDs.count) existing to Inbox",
+                category: "shareext"
+            )
         } catch {
             Logger.shareExtension.errorCapture("Search failed: \(error.localizedDescription)", category: "shareext")
             throw error

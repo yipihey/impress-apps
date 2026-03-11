@@ -2,6 +2,38 @@ use std::collections::BTreeMap;
 
 use impress_core::item::{Item, Value};
 
+// --- Batch Import Types ---
+
+/// Input for a single search result in a batch import operation.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct SearchResultInput {
+    /// The BibTeX string for this result (used for import if new).
+    pub bibtex: String,
+    /// DOI, if known (used for dedup lookup).
+    pub doi: Option<String>,
+    /// arXiv ID, if known (used for dedup lookup).
+    pub arxiv_id: Option<String>,
+    /// Bibcode, if known (used for dedup lookup).
+    pub bibcode: Option<String>,
+}
+
+/// Result of a batch import operation.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct BatchImportResult {
+    /// IDs of publications that already existed in the store.
+    pub existing_ids: Vec<String>,
+    /// IDs of publications that were newly imported.
+    pub imported_ids: Vec<String>,
+    /// Number of results skipped because they were dismissed.
+    pub dismissed_count: u32,
+    /// Number of results that failed to parse/import.
+    pub failed_count: u32,
+}
+
+// --- Bibliography Display Types ---
+
 /// Pre-shaped bibliography row for list display — matches what PublicationRowData needs.
 /// All fields are display-ready strings/primitives to avoid computation on the Swift side.
 #[derive(Debug, Clone)]

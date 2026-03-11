@@ -89,6 +89,9 @@ public final class NLSearchService {
     /// Whether to restrict to refereed/peer-reviewed papers
     public var refereedOnly: Bool = false
 
+    /// When true, skip the background count preview (avoids Keychain access in tests)
+    public var skipCountPreview: Bool = false
+
     // MARK: - Session Cache
 
     #if canImport(FoundationModels)
@@ -129,6 +132,10 @@ public final class NLSearchService {
     /// Uses the on-device Foundation Models LLM with tool calling. The model
     /// autonomously selects the right sciX operation based on user intent.
     ///
+    /// If the input already looks like an ADS query (contains field qualifiers like
+    /// `author:`, `title:`, `year:`, etc.), translation is skipped and the query
+    /// is passed through directly (with normalization).
+    ///
     /// The session is cached, so follow-up calls refine the previous query
     /// using conversation context (e.g., "narrow to refereed only").
     ///
@@ -147,6 +154,11 @@ public final class NLSearchService {
             category: "nlsearch"
         )
 
+        // If the input already looks like an ADS query, skip translation and pass through directly
+        if Self.isADSQuery(naturalLanguage) {
+            return passthrough(naturalLanguage)
+        }
+
         #if canImport(FoundationModels)
         if #available(macOS 26, iOS 26, *), SystemLanguageModel.default.isAvailable {
             return await translateWithFoundationModels(naturalLanguage)
@@ -154,12 +166,111 @@ public final class NLSearchService {
         #endif
 
         // Fallback: simple keyword extraction for older OS or when Apple Intelligence is not enabled
-        let query = fallbackTranslation(naturalLanguage)
+        var query = fallbackTranslation(naturalLanguage)
+        // Apply refereed filter if toggled and not already present
+        if refereedOnly && !query.contains("property:refereed") {
+            query = "\(query) property:refereed"
+        }
         lastGeneratedQuery = query
         lastInterpretation = "Smart keyword search"
         lastResultType = .querySearch(query: query)
         state = .translated(query: query, interpretation: lastInterpretation, estimatedCount: nil)
         return query
+    }
+
+    // MARK: - ADS Query Detection & Passthrough
+
+    /// Known ADS field qualifiers that indicate the input is already a structured query.
+    private static let adsFieldQualifiers: Set<String> = [
+        "author", "first_author", "title", "abs", "abstract",
+        "year", "bibcode", "doi", "arxiv", "orcid",
+        "aff", "affiliation", "full", "object", "body",
+        "keyword", "property", "doctype", "collection", "bibstem",
+        "arxiv_class", "identifier", "citations", "references",
+        "similar", "trending", "reviews", "useful",
+        "author_count", "citation_count", "read_count", "database",
+        // Shorthand aliases (expanded by ADSQueryNormalizer)
+        "a", "t", "b"
+    ]
+
+    /// Detect whether the input is already an ADS query (has field qualifiers).
+    private static func isADSQuery(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Match word:something patterns (not URLs like http:)
+        for field in adsFieldQualifiers {
+            let pattern = "\\b\(NSRegularExpression.escapedPattern(for: field)):"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+               regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+                return true
+            }
+        }
+        // Also detect functional operators: citations(...), references(...)
+        let funcPattern = "\\b(citations|references|similar|trending|reviews|useful)\\("
+        if let regex = try? NSRegularExpression(pattern: funcPattern, options: .caseInsensitive),
+           regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            return true
+        }
+        return false
+    }
+
+    /// Pass an ADS query through directly, applying normalization but skipping the LLM.
+    private func passthrough(_ adsQuery: String) -> String {
+        var query = adsQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Apply refereed filter if toggled
+        if refereedOnly && !query.contains("property:refereed") {
+            query = "\(query) property:refereed"
+        }
+
+        // Apply normalizer (fixes unquoted authors, lowercase operators, etc.)
+        let normalized = ADSQueryNormalizer.normalize(query)
+        let finalQuery = normalized.correctedQuery
+
+        let interpretationParts = ["Direct ADS query"] + normalized.corrections
+        let interpretation = interpretationParts.joined(separator: " · ")
+
+        lastGeneratedQuery = finalQuery
+        lastInterpretation = interpretation
+        lastResultType = .querySearch(query: finalQuery)
+        conversationTurnCount += 1
+
+        Logger.viewModels.infoCapture(
+            "NLSearch: passthrough ADS query '\(finalQuery)'" +
+            (normalized.wasModified ? " (normalized: \(normalized.corrections.joined(separator: ", ")))" : ""),
+            category: "nlsearch"
+        )
+
+        // Set state, then fetch count preview
+        estimatedCount = nil
+        state = .translated(query: finalQuery, interpretation: lastInterpretation, estimatedCount: nil)
+
+        if !skipCountPreview {
+            let capturedQuery = finalQuery
+            let capturedInterpretation = interpretation
+            Task.detached { [weak self] in
+                guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
+                do {
+                    let count = try scixCount(token: apiKey, query: capturedQuery)
+                    await MainActor.run {
+                        self?.estimatedCount = count
+                        if case .translated(let q, _, _) = self?.state, q == capturedQuery {
+                            self?.state = .translated(
+                                query: capturedQuery,
+                                interpretation: capturedInterpretation,
+                                estimatedCount: count
+                            )
+                        }
+                    }
+                } catch {
+                    Logger.viewModels.warningCapture(
+                        "NLSearch: count preview failed: \(error.localizedDescription)",
+                        category: "nlsearch"
+                    )
+                }
+            }
+        }
+
+        return finalQuery
     }
 
     // MARK: - Foundation Models Translation
@@ -237,28 +348,30 @@ public final class NLSearchService {
             state = .translated(query: finalQuery, interpretation: lastInterpretation, estimatedCount: nil)
 
             // Fetch count preview in background
-            let capturedQuery = finalQuery
-            let capturedInterpretation = lastInterpretation
-            Task.detached { [weak self] in
-                guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
-                do {
-                    let count = try scixCount(token: apiKey, query: capturedQuery)
-                    await MainActor.run {
-                        self?.estimatedCount = count
-                        // Only update state if still showing this query's translation
-                        if case .translated(let q, _, _) = self?.state, q == capturedQuery {
-                            self?.state = .translated(
-                                query: capturedQuery,
-                                interpretation: capturedInterpretation,
-                                estimatedCount: count
-                            )
+            if !skipCountPreview {
+                let capturedQuery = finalQuery
+                let capturedInterpretation = lastInterpretation
+                Task.detached { [weak self] in
+                    guard let apiKey = await CredentialManager.shared.apiKey(for: "ads") else { return }
+                    do {
+                        let count = try scixCount(token: apiKey, query: capturedQuery)
+                        await MainActor.run {
+                            self?.estimatedCount = count
+                            // Only update state if still showing this query's translation
+                            if case .translated(let q, _, _) = self?.state, q == capturedQuery {
+                                self?.state = .translated(
+                                    query: capturedQuery,
+                                    interpretation: capturedInterpretation,
+                                    estimatedCount: count
+                                )
+                            }
                         }
+                    } catch {
+                        Logger.viewModels.warningCapture(
+                            "NLSearch: count preview failed: \(error.localizedDescription)",
+                            category: "nlsearch"
+                        )
                     }
-                } catch {
-                    Logger.viewModels.warningCapture(
-                        "NLSearch: count preview failed: \(error.localizedDescription)",
-                        category: "nlsearch"
-                    )
                 }
             }
 
@@ -274,7 +387,11 @@ public final class NLSearchService {
             conversationTurnCount = 0
 
             // Fall back to keyword extraction — same path as when the framework isn't available
-            let query = fallbackTranslation(naturalLanguage)
+            var query = fallbackTranslation(naturalLanguage)
+            // Apply refereed filter if toggled and not already present
+            if refereedOnly && !query.contains("property:refereed") {
+                query = "\(query) property:refereed"
+            }
             lastGeneratedQuery = query
             lastInterpretation = "Smart keyword search"
             lastResultType = .querySearch(query: query)
@@ -636,11 +753,17 @@ public final class NLSearchService {
         state = .searching
     }
 
-    /// Update state to indicate search completed with results
-    public func markComplete(resultCount: Int) {
-        state = .complete(query: lastGeneratedQuery, resultCount: resultCount)
+    /// Update state to indicate search completed with results.
+    ///
+    /// - Parameters:
+    ///   - resultCount: Number of results found
+    ///   - executedQuery: The query that was actually sent to the API (may differ from
+    ///     `lastGeneratedQuery` if the user edited the query field before searching)
+    public func markComplete(resultCount: Int, executedQuery: String? = nil) {
+        let displayQuery = executedQuery ?? lastGeneratedQuery
+        state = .complete(query: displayQuery, resultCount: resultCount)
         Logger.viewModels.infoCapture(
-            "NLSearch: complete, \(resultCount) results for '\(lastGeneratedQuery)'",
+            "NLSearch: complete, \(resultCount) results for '\(displayQuery)'",
             category: "nlsearch"
         )
     }

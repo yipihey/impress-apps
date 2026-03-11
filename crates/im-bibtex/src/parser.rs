@@ -255,9 +255,10 @@ fn parse_entry_body<'a>(
     let (rest, _) = char('{')(rest)?;
     let (rest, _) = multispace0(rest)?;
 
-    // Parse cite key
+    // Parse cite key — any non-whitespace character except comma and braces
+    // (ADS uses & in keys like "2024A&A...686A.276A")
     let (rest, cite_key) =
-        take_while1(|c: char| c.is_ascii_alphanumeric() || "_-:./".contains(c))(rest)?;
+        take_while1(|c: char| !c.is_ascii_whitespace() && !",{}".contains(c))(rest)?;
     let (rest, _) = multispace0(rest)?;
     let (rest, _) = char(',')(rest)?;
 
@@ -537,5 +538,25 @@ mod tests {
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].cite_key, "First2024");
         assert_eq!(result.entries[1].cite_key, "Second2024");
+    }
+
+    #[test]
+    fn parse_ads_cite_key_with_ampersand() {
+        // ADS exports cite keys like "2024A&A...686A.276A" — the & must be accepted
+        let input = r#"@ARTICLE{2024A&A...686A.276A,
+       author = {{Ay{\c{c}}oberry}, Emma},
+        title = "{A theoretical view}",
+      journal = {\aap},
+         year = 2024,
+          doi = {10.1051/0004-6361/202348170},
+       eprint = {2310.03548}
+}"#;
+        let result = parse(input.to_string()).unwrap();
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].cite_key, "2024A&A...686A.276A");
+        assert_eq!(
+            result.entries[0].fields.iter().find(|f| f.key == "doi").map(|f| f.value.as_str()),
+            Some("10.1051/0004-6361/202348170")
+        );
     }
 }

@@ -340,6 +340,7 @@ public final class LocalFilterService {
         let prefixes: [(String, SearchField)] = [
             ("title:", .title), ("author:", .author), ("abstract:", .abstract_), ("venue:", .venue),
             ("ti:", .title), ("au:", .author), ("ab:", .abstract_), ("ve:", .venue),
+            ("a:", .author), ("t:", .title), ("b:", .venue),
         ]
         for (prefix, field) in prefixes {
             if token.hasPrefix(prefix) {

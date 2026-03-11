@@ -552,36 +552,35 @@ public final class SearchViewModel {
 
             Logger.viewModels.infoCapture("Search returned \(deduped.count) deduplicated results", category: "search")
 
-            // Auto-import results to the active library via Rust store
+            // Auto-import results via single Rust FFI call (batch find + classify + insert)
             let store = RustStoreAdapter.shared
-            var importedCount = 0
-            var existingCount = 0
-            let libraryId = libraryManager?.activeLibrary?.id
-            var collectionMemberIds: [UUID] = []
-
-            for result in deduped {
-                // Check for existing publication by identifiers
-                let existingPubs = store.findByIdentifiers(
-                    doi: result.primary.doi,
-                    arxivId: result.primary.arxivID,
-                    bibcode: result.primary.bibcode
-                )
-                if let existingPub = existingPubs.first {
-                    collectionMemberIds.append(existingPub.id)
-                    existingCount += 1
-                } else {
-                    // Import new publication via BibTeX
-                    guard let libraryId else { continue }
-                    let bibtex = result.primary.toBibTeX(abstractOverride: result.bestAbstract)
-                    let ids = store.importBibTeX(bibtex, libraryId: libraryId)
-                    if let newId = ids.first {
-                        collectionMemberIds.append(newId)
-                    }
-                    importedCount += 1
-                }
+            let activeLib = libraryManager?.activeLibrary
+            let libraryId: UUID? = if let activeLib, !activeLib.isInbox {
+                activeLib.id
+            } else {
+                libraryManager?.libraries.first(where: { $0.isDefault && !$0.isInbox })?.id
+                ?? libraryManager?.libraries.first(where: { !$0.isInbox })?.id
             }
 
-            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
+            let entries = deduped.map { result in
+                (bibtex: result.primary.toBibTeX(abstractOverride: result.bestAbstract),
+                 doi: result.primary.doi,
+                 arxivId: result.primary.arxivID,
+                 bibcode: result.primary.bibcode)
+            }
+
+            var collectionMemberIds: [UUID] = []
+            if let libraryId {
+                let (existingIDs, importedIDs) = store.batchImportSearchResults(
+                    bibtexEntries: entries,
+                    libraryId: libraryId
+                )
+                collectionMemberIds = existingIDs + importedIDs
+                Logger.viewModels.infoCapture(
+                    "Search: imported \(importedIDs.count) new, linked \(existingIDs.count) existing",
+                    category: "search"
+                )
+            }
 
             lastSearchResultCount = collectionMemberIds.count
 

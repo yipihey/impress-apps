@@ -935,6 +935,34 @@ public final class AttachmentManager {
         return formatter.string(fromByteCount: bytes)
     }
 
+    // MARK: - Move Linked File Between Libraries
+
+    /// Move a linked file from one library's container to another.
+    ///
+    /// The relative path stays the same (e.g., `Papers/Einstein_1905.pdf`) —
+    /// only the library container root changes.
+    public func moveLinkedFile(_ linkedFile: LinkedFileModel, from sourceLibraryID: UUID, to destLibraryID: UUID) throws {
+        guard let relativePath = linkedFile.relativePath else { return }
+        let normalized = relativePath.precomposedStringWithCanonicalMapping
+
+        let sourceURL = containerURL(for: sourceLibraryID).appendingPathComponent(normalized)
+        let destURL = containerURL(for: destLibraryID).appendingPathComponent(normalized)
+
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            Logger.files.warning("moveLinkedFile: source not found at \(sourceURL.path)")
+            return
+        }
+
+        // Create destination directory
+        let destDir = destURL.deletingLastPathComponent()
+        if !fileManager.fileExists(atPath: destDir.path) {
+            try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
+        }
+
+        try fileManager.moveItem(at: sourceURL, to: destURL)
+        Logger.files.infoCapture("Moved file: \(sourceURL.lastPathComponent) from library \(sourceLibraryID) to \(destLibraryID)", category: "files")
+    }
+
     // MARK: - MIME Type Detection
 
     /// Detect MIME type for a file URL using UTType.

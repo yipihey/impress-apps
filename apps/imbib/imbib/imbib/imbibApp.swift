@@ -456,6 +456,13 @@ struct imbibApp: App {
             // Cleanup old exploration collections based on retention setting
             await cleanupExplorationCollectionsOnStartup()
 
+            // PDF health check — deferred 90s per startup grace period
+            Task.detached {
+                try? await Task.sleep(for: .seconds(90))
+                guard !Task.isCancelled else { return }
+                await PDFHealthCheckService.shared.runCheck()
+            }
+
             // Spotlight indexing — deferred 90s per startup grace period
             Task.detached {
                 try? await Task.sleep(for: .seconds(90))

@@ -1108,43 +1108,50 @@ public struct PDFViewerWithControls: View {
     }
 
     public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil, publicationID: UUID? = nil, isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
-        // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
+        let attachmentManager = AttachmentManager.shared
 
-        if let libraryID = libraryID {
-            // Primary: container-based path (iCloud-only storage)
-            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
-            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-            if fileManager.fileExists(atPath: containerURL.path) {
-                self.source = .url(containerURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                // Log only for legacy path usage (useful for migration tracking)
-                Logger.files.debugCapture("PDFViewerWithControls using legacy path: \(legacyURL.lastPathComponent)", category: "pdf")
-                self.source = .url(legacyURL)
+        // Use AttachmentManager.resolveURL which has sandbox + legacy fallbacks
+        if let resolved = attachmentManager.resolveURL(for: linkedFile, in: libraryID) {
+            if FileManager.default.fileExists(atPath: resolved.path) {
+                self.source = .url(resolved)
             } else {
-                Logger.files.warningCapture("PDFViewerWithControls file not found: \(containerURL.lastPathComponent)", category: "pdf")
-                self.source = .url(containerURL)
+                // resolveURL returned a best-guess path that doesn't exist — try other libraries
+                if let found = Self.scanLibraries(for: linkedFile, skipping: libraryID) {
+                    Logger.files.infoCapture("PDF found in different library: \(found.lastPathComponent)", category: "pdf")
+                    self.source = .url(found)
+                } else {
+                    Logger.files.warningCapture("PDFViewerWithControls file not found: \(resolved.lastPathComponent)", category: "pdf")
+                    self.source = .url(resolved)
+                }
             }
+        } else if let found = Self.scanLibraries(for: linkedFile, skipping: libraryID) {
+            Logger.files.infoCapture("PDF found via library scan: \(found.lastPathComponent)", category: "pdf")
+            self.source = .url(found)
         } else {
-            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: defaultURL.path) {
-                self.source = .url(defaultURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                self.source = .url(legacyURL)
-            } else {
-                self.source = .url(defaultURL)
-            }
+            // Last resort: construct a default path for error display
+            let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
+            let fallback = attachmentManager.containerURL(for: libraryID ?? UUID()).appendingPathComponent(normalizedPath)
+            Logger.files.warningCapture("PDFViewerWithControls file not found: \(fallback.lastPathComponent)", category: "pdf")
+            self.source = .url(fallback)
         }
         self.publicationID = publicationID
         self.linkedFileID = linkedFile.id
         self.isDetachedWindow = isDetachedWindow
         self.onCorruptPDF = onCorruptPDF
+    }
+
+    /// Scan all library directories for a linked file when the expected library doesn't have it.
+    private static func scanLibraries(for linkedFile: LinkedFileModel, skipping libraryID: UUID?) -> URL? {
+        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
+        let attachmentManager = AttachmentManager.shared
+        let allLibraries = RustStoreAdapter.shared.listLibraries()
+        for lib in allLibraries where lib.id != libraryID {
+            let candidate = attachmentManager.containerURL(for: lib.id).appendingPathComponent(normalizedPath)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
     #endif
 

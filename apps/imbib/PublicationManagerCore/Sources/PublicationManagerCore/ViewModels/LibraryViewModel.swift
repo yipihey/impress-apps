@@ -171,12 +171,14 @@ public final class LibraryViewModel {
         let entries = try parser.parse(content)
 
         var importedCount = 0
+        store.beginBatchMutation()
         for risEntry in entries {
             let bibEntry = risEntry.toBibTeX()
             let bibtex = bibEntry.rawBibTeX ?? bibEntry.synthesizeBibTeX()
             let ids = store.importBibTeX(bibtex, libraryId: libraryID)
             importedCount += ids.count
         }
+        store.endBatchMutation()
 
         await loadPublications()
 
@@ -398,11 +400,13 @@ public final class LibraryViewModel {
         }
 
         var totalImported = 0
+        store.beginBatchMutation()
         for entry in entries {
             let bibtexStr = entry.rawBibTeX ?? entry.synthesizeBibTeX()
             let ids = store.importBibTeX(bibtexStr, libraryId: libraryID)
             totalImported += ids.count
         }
+        store.endBatchMutation()
 
         await loadPublications()
         Logger.viewModels.infoCapture("Pasted \(totalImported) publications from clipboard", category: "clipboard")
