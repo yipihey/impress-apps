@@ -1,43 +1,8 @@
-//! BibDesk file reference encoding/decoding
-//!
-//! BibDesk stores file references in `Bdsk-File-*` fields as base64-encoded
-//! binary plists. This module provides functions to encode and decode these
-//! references for round-trip BibTeX compatibility.
+//! BibDesk file reference encoding/decoding — delegates to the canonical
+//! `impress_bibtex` (→ `im-bibtex`) crate.
 
-use plist::{Dictionary, Value};
-use std::io::Cursor;
-
-/// Decode a Bdsk-File-* field value to extract the relative path
-///
-/// # Arguments
-/// * `value` - The base64-encoded binary plist string
-///
-/// # Returns
-/// The decoded relative path, or None if decoding fails
-///
-/// # Example
-/// ```
-/// use imbib_core::bibtex::bdsk_file_decode;
-///
-/// // Decode a Bdsk-File value (the actual value would be longer)
-/// let result = bdsk_file_decode("YnBsaXN0MDDRAQJfEBByZWxhdGl2ZVBhdGhYdGVzdC5wZGYICw4fAAAAAAAA".to_string());
-/// ```
 pub(crate) fn bdsk_file_decode_internal(value: String) -> Option<String> {
-    // Decode base64
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    let data = STANDARD.decode(&value).ok()?;
-
-    // Parse as plist
-    let plist: Value = plist::from_reader(Cursor::new(data)).ok()?;
-
-    // Extract relativePath from dictionary
-    if let Value::Dictionary(dict) = plist {
-        if let Some(Value::String(path)) = dict.get("relativePath") {
-            return Some(path.clone());
-        }
-    }
-
-    None
+    impress_bibtex::bdsk_file_decode(value)
 }
 
 #[cfg(feature = "native")]
@@ -47,17 +12,7 @@ pub fn bdsk_file_decode(value: String) -> Option<String> {
 }
 
 pub(crate) fn bdsk_file_encode_internal(relative_path: String) -> Option<String> {
-    // Create plist dictionary
-    let mut dict = Dictionary::new();
-    dict.insert("relativePath".to_string(), Value::String(relative_path));
-
-    // Serialize to binary plist
-    let mut buffer = Vec::new();
-    plist::to_writer_binary(&mut buffer, &Value::Dictionary(dict)).ok()?;
-
-    // Encode as base64
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    Some(STANDARD.encode(&buffer))
+    impress_bibtex::bdsk_file_encode(relative_path)
 }
 
 #[cfg(feature = "native")]
@@ -69,18 +24,7 @@ pub fn bdsk_file_encode(relative_path: String) -> Option<String> {
 pub(crate) fn bdsk_file_extract_all_internal(
     fields: std::collections::HashMap<String, String>,
 ) -> Vec<String> {
-    let mut paths = Vec::new();
-
-    for (key, value) in fields {
-        if key.to_lowercase().starts_with("bdsk-file-") {
-            if let Some(path) = bdsk_file_decode_internal(value) {
-                paths.push(path);
-            }
-        }
-    }
-
-    paths.sort();
-    paths
+    impress_bibtex::bdsk_file_extract_all(fields)
 }
 
 #[cfg(feature = "native")]
@@ -92,15 +36,7 @@ pub fn bdsk_file_extract_all(fields: std::collections::HashMap<String, String>) 
 pub(crate) fn bdsk_file_create_fields_internal(
     paths: Vec<String>,
 ) -> std::collections::HashMap<String, String> {
-    let mut fields = std::collections::HashMap::new();
-
-    for (index, path) in paths.into_iter().enumerate() {
-        if let Some(encoded) = bdsk_file_encode_internal(path) {
-            fields.insert(format!("Bdsk-File-{}", index + 1), encoded);
-        }
-    }
-
-    fields
+    impress_bibtex::bdsk_file_create_fields(paths)
 }
 
 #[cfg(feature = "native")]
