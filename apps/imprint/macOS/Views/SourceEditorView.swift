@@ -208,6 +208,13 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Update ghost text
         textView.updateGhostText()
 
+        // Re-highlight if syntax mode changed (e.g. format detected after initial render)
+        let modeChanged = context.coordinator.lastSyntaxMode != syntaxMode
+        if modeChanged {
+            context.coordinator.lastSyntaxMode = syntaxMode
+            applySyntaxHighlighting(to: textView)
+        }
+
         // Update text if changed externally
         if textView.string != source {
             let selectedRange = textView.selectedRange()
@@ -358,12 +365,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         var parent: TypstEditorRepresentable
         weak var textView: NSTextView?
         var helixAdaptor: NSTextViewHelixAdaptor?
+        /// Tracks the last syntax mode to detect format changes (e.g. .typst → .latex after file load)
+        var lastSyntaxMode: DocumentFormat = .typst
         private var completionDebounceTask: Task<Void, Never>?
         private var latexCompletionTask: Task<Void, Never>?
         private var cachedLaTeXCompletions: [String] = []
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
+            self.lastSyntaxMode = parent.syntaxMode
         }
 
         // MARK: - LaTeX Completion Support

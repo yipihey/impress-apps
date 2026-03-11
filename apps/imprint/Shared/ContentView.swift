@@ -159,8 +159,8 @@ struct ContentView: View {
                         Image(systemName: "hammer")
                     }
                 }
-                .help("Refresh Preview (\u{2318}B)")
-                .keyboardShortcut("B", modifiers: [.command])
+                .help("Refresh Preview (\u{2318}\u{21A9})")
+                .keyboardShortcut(.return, modifiers: [.command])
                 .accessibilityIdentifier("toolbar.compileButton")
 
                 // Citation button
@@ -806,6 +806,9 @@ struct ContentView: View {
                 if compilationError?.isEmpty ?? true {
                     compilationError = "Compilation failed (exit code \(result.exitCode))"
                 }
+                // Log first 500 chars of compilation output for debugging
+                let logSnippet = String(result.logOutput.prefix(500))
+                Logger.compilation.errorCapture("LaTeX failed (exit \(result.exitCode)): errors=\(result.errors.map(\.message)), log=\(logSnippet)", category: "latex")
                 debugHistory += "E "
             }
 
@@ -822,6 +825,7 @@ struct ContentView: View {
 
         } catch {
             compilationError = error.localizedDescription
+            Logger.compilation.errorCapture("LaTeX compile threw: \(error)", category: "latex")
             debugHistory += "X:\(error) "
         }
     }
