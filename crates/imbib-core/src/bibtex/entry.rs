@@ -156,6 +156,60 @@ impl BibTeXEntry {
     }
 }
 
+// ── Conversions from/to impress_bibtex types ────────────────────────────────
+
+impl From<impress_bibtex::BibTeXEntryType> for BibTeXEntryType {
+    fn from(e: impress_bibtex::BibTeXEntryType) -> Self {
+        Self::from_str(e.as_str())
+    }
+}
+
+impl From<BibTeXEntryType> for impress_bibtex::BibTeXEntryType {
+    fn from(e: BibTeXEntryType) -> Self {
+        Self::from_str(e.as_str())
+    }
+}
+
+impl From<impress_bibtex::BibTeXField> for BibTeXField {
+    fn from(f: impress_bibtex::BibTeXField) -> Self {
+        Self {
+            key: f.key,
+            value: f.value,
+        }
+    }
+}
+
+impl From<BibTeXField> for impress_bibtex::BibTeXField {
+    fn from(f: BibTeXField) -> Self {
+        Self {
+            key: f.key,
+            value: f.value,
+        }
+    }
+}
+
+impl From<impress_bibtex::BibTeXEntry> for BibTeXEntry {
+    fn from(e: impress_bibtex::BibTeXEntry) -> Self {
+        Self {
+            cite_key: e.cite_key,
+            entry_type: e.entry_type.into(),
+            fields: e.fields.into_iter().map(Into::into).collect(),
+            raw_bibtex: e.raw_bibtex,
+        }
+    }
+}
+
+impl From<BibTeXEntry> for impress_bibtex::BibTeXEntry {
+    fn from(e: BibTeXEntry) -> Self {
+        let mut inner = Self::new(e.cite_key, e.entry_type.into());
+        for f in e.fields {
+            inner.add_field(f.key, f.value);
+        }
+        inner.raw_bibtex = e.raw_bibtex;
+        inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +253,37 @@ mod tests {
         assert_eq!(entry.author(), Some("John Smith"));
         assert_eq!(entry.year(), Some("2024"));
         assert_eq!(entry.doi(), None);
+    }
+
+    #[test]
+    fn test_entry_type_roundtrip_impress_bibtex() {
+        for variant in [
+            BibTeXEntryType::Article,
+            BibTeXEntryType::Book,
+            BibTeXEntryType::InProceedings,
+            BibTeXEntryType::Misc,
+        ] {
+            let ib: impress_bibtex::BibTeXEntryType = variant.clone().into();
+            let back: BibTeXEntryType = ib.into();
+            assert_eq!(variant, back);
+        }
+        // Unknown → "misc" → Misc (lossy by design)
+        let ib: impress_bibtex::BibTeXEntryType = BibTeXEntryType::Unknown.into();
+        let back: BibTeXEntryType = ib.into();
+        assert_eq!(back, BibTeXEntryType::Misc);
+    }
+
+    #[test]
+    fn test_entry_roundtrip_impress_bibtex() {
+        let mut entry = BibTeXEntry::new("Test2024".to_string(), BibTeXEntryType::Article);
+        entry.add_field("title", "Test");
+        entry.add_field("year", "2024");
+
+        let ib: impress_bibtex::BibTeXEntry = entry.clone().into();
+        let back: BibTeXEntry = ib.into();
+
+        assert_eq!(entry.cite_key, back.cite_key);
+        assert_eq!(entry.entry_type, back.entry_type);
+        assert_eq!(entry.fields.len(), back.fields.len());
     }
 }
