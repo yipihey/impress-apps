@@ -334,6 +334,9 @@ extension EnrichmentCoordinator {
     ///
     /// Only fires when Apple Intelligence is available (macOS 26+). Skips papers
     /// that already have tags, and only applies classification with confidence ≥ 0.7.
+    ///
+    /// All LLM classification runs off MainActor, then all tag mutations are applied
+    /// in a single batched MainActor hop to avoid per-paper UI rebuilds.
     @available(macOS 26, iOS 26, *)
     func classifyAndTagAfterEnrichment(
         results: [(UUID, EnrichmentResult)]
@@ -350,44 +353,68 @@ extension EnrichmentCoordinator {
             category: "enrichment"
         )
 
-        for (pubID, result) in candidates {
-            // Fetch row data to check existing tags and get title
-            guard let row = await withStore({ $0.getPublication(id: pubID) }),
-                  !row.title.isEmpty else { continue }
-            let title = row.title
+        // Phase 1: Gather candidate info from MainActor in one batch
+        struct TagCandidate: Sendable {
+            let pubID: UUID
+            let title: String
+            let abstract: String?
+        }
 
-            // Don't overwrite existing curation
-            guard row.tagDisplays.isEmpty else { continue }
+        let tagCandidates: [TagCandidate] = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            return candidates.compactMap { pubID, result in
+                guard let row = store.getPublication(id: pubID),
+                      !row.title.isEmpty,
+                      row.tagDisplays.isEmpty else { return nil }
+                return TagCandidate(pubID: pubID, title: row.title, abstract: result.data.abstract)
+            }
+        }
 
-            let abstract = result.data.abstract
+        guard !tagCandidates.isEmpty else { return }
+
+        // Phase 2: Classify all papers off MainActor (LLM calls)
+        var tagPlan: [(pubID: UUID, title: String, tags: [String])] = []
+
+        for candidate in tagCandidates {
+            guard !Task.isCancelled else { break }
+
             guard let classification = await service.classifyPaper(
-                title: title,
-                abstract: abstract
+                title: candidate.title,
+                abstract: candidate.abstract
             ) else { continue }
 
             guard classification.confidence >= 0.7 else {
                 Logger.enrichment.debug(
-                    "Auto-tag skipped '\(title.prefix(40))': low confidence \(classification.confidence, format: .fixed(precision: 2))"
+                    "Auto-tag skipped '\(candidate.title.prefix(40))': low confidence \(classification.confidence, format: .fixed(precision: 2))"
                 )
                 continue
             }
 
-            // Apply tags via RustStoreAdapter
-            let tagsToApply = ([classification.field, classification.paperType] + classification.tags)
+            let tags = ([classification.field, classification.paperType] + classification.tags)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 .filter { !$0.isEmpty }
 
-            await MainActor.run {
-                let store = RustStoreAdapter.shared
-                for tag in tagsToApply {
-                    // Ensure tag definition exists, then assign
+            tagPlan.append((pubID: candidate.pubID, title: candidate.title, tags: tags))
+        }
+
+        guard !tagPlan.isEmpty else { return }
+
+        // Phase 3: Apply ALL tags in a single batched MainActor hop
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+            store.beginBatchMutation()
+            for entry in tagPlan {
+                for tag in entry.tags {
                     store.createTag(path: "ai/\(tag)")
-                    store.addTag(ids: [pubID], tagPath: "ai/\(tag)")
+                    store.addTag(ids: [entry.pubID], tagPath: "ai/\(tag)")
                 }
             }
+            store.endBatchMutation()
+        }
 
+        for entry in tagPlan {
             Logger.enrichment.infoCapture(
-                "Auto-tagged '\(title.prefix(40))': \(tagsToApply.joined(separator: ", "))",
+                "Auto-tagged '\(entry.title.prefix(40))': \(entry.tags.joined(separator: ", "))",
                 category: "enrichment"
             )
         }

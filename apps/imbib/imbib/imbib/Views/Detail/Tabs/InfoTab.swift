@@ -378,6 +378,12 @@ struct InfoTab: View {
                     .font(.caption)
             }
         }
+        .contextMenu {
+            Button("Copy \(label)") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            }
+        }
     }
 
     // MARK: - Flag & Tags Section
@@ -931,6 +937,7 @@ struct InfoTab: View {
                     Text("Entry Type")
                         .foregroundStyle(.secondary)
                     Text(pub.entryType.capitalized)
+                        .textSelection(.enabled)
                 }
 
                 GridRow {

@@ -585,6 +585,7 @@ schemes:
       targets:
         - imbibTests
         - imbibUITests
+        - package: PublicationManagerCore/PublicationManagerCoreTests
     profile:
       config: Release
     analyze:

@@ -504,20 +504,73 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                     }
                 )
             }
+            Logger.library.infoCapture("importBibTeX: imported \(imported.count) entries", category: "import")
             return imported
         } catch {
-            Logger.library.error("importBibTeX failed: \(error)")
+            Logger.library.errorCapture("importBibTeX failed: \(error)", category: "import")
             return []
+        }
+    }
+
+    /// Batch import search results: find existing, optionally filter dismissed, import new.
+    /// Single FFI call replaces the batch-find + classify + import-loop pattern.
+    /// Returns (existingIDs, importedIDs).
+    public func batchImportSearchResults(
+        bibtexEntries: [(bibtex: String, doi: String?, arxivId: String?, bibcode: String?)],
+        libraryId: UUID,
+        filterDismissed: Bool = false
+    ) -> (existingIDs: [UUID], importedIDs: [UUID]) {
+        let inputs = bibtexEntries.map {
+            SearchResultInput(bibtex: $0.bibtex, doi: $0.doi, arxivId: $0.arxivId, bibcode: $0.bibcode)
+        }
+        do {
+            let result = try store.batchImportSearchResults(
+                results: inputs,
+                libraryId: libraryId.uuidString,
+                filterDismissed: filterDismissed
+            )
+            let existingUUIDs = result.existingIds.compactMap { UUID(uuidString: $0) }
+            let importedUUIDs = result.importedIds.compactMap { UUID(uuidString: $0) }
+            if !importedUUIDs.isEmpty {
+                didMutate()
+                UserDefaults.standard.set(true, forKey: "needsStartupDedup")
+                let count = importedUUIDs.count
+                let desc = count == 1 ? "Import Paper" : "Import \(count) Papers"
+                let capturedStore = store
+                let capturedIds = result.importedIds
+                UndoCoordinator.shared.registerUndoClosure(
+                    actionName: desc,
+                    undo: { [weak self] in
+                        do {
+                            try capturedStore.deletePublications(ids: capturedIds)
+                            self?.didMutate()
+                        } catch {
+                            Logger.library.error("Undo batchImport failed: \(error)")
+                        }
+                    }
+                )
+            }
+            if result.failedCount > 0 {
+                Logger.library.warningCapture(
+                    "Batch import: \(result.failedCount) entries failed to parse",
+                    category: "import"
+                )
+            }
+            return (existingUUIDs, importedUUIDs)
+        } catch {
+            Logger.library.errorCapture("batchImportSearchResults failed: \(error)", category: "import")
+            return ([], [])
         }
     }
 
     /// Import from a BibTeX file on disk (undoable via importBibTeX).
     public func importFromBibTeXFile(path: String, libraryId: UUID) -> UInt32 {
         guard let bibtex = try? String(contentsOfFile: path, encoding: .utf8) else {
-            Logger.library.error("importFromBibTeXFile: cannot read file \(path)")
+            Logger.library.errorCapture("importFromBibTeXFile: cannot read file \(path)", category: "import")
             return 0
         }
         let imported = importBibTeX(bibtex, libraryId: libraryId)
+        Logger.library.infoCapture("importFromBibTeXFile: imported \(imported.count) entries from \(path)", category: "import")
         return UInt32(imported.count)
     }
 
@@ -673,7 +726,28 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Move publications between libraries.
+    ///
+    /// Moves physical files (PDFs, attachments) **before** the database mutation
+    /// so that the viewer can always find the file at the path implied by `parent_id`.
     public func movePublications(ids: [UUID], toLibraryId: UUID) {
+        // Move physical files BEFORE database mutation
+        let attachmentManager = AttachmentManager.shared
+        for pubID in ids {
+            if let detail = getPublicationDetail(id: pubID),
+               let sourceLibraryID = detail.libraryIDs.first,
+               sourceLibraryID != toLibraryId {
+                let linkedFiles = listLinkedFiles(publicationId: pubID)
+                for file in linkedFiles {
+                    do {
+                        try attachmentManager.moveLinkedFile(file, from: sourceLibraryID, to: toLibraryId)
+                    } catch {
+                        Logger.library.error("Failed to move file \(file.filename) for pub \(pubID): \(error)")
+                        // Continue — DB move will proceed, health check can repair later
+                    }
+                }
+            }
+        }
+
         do {
             let info = try store.movePublications(ids: ids.map(\.uuidString), toLibraryId: toLibraryId.uuidString)
             didMutate()
@@ -2290,6 +2364,30 @@ extension RustStoreAdapter {
     }
 
     // MARK: - Background Mutation Methods (for SmartSearchProvider)
+
+    /// Batch import search results off the main thread. Skips undo and notification posting.
+    /// Caller is responsible for posting mutation notifications via `notifyMutationFromBackground()`.
+    nonisolated public func batchImportSearchResultsBackground(
+        bibtexEntries: [(bibtex: String, doi: String?, arxivId: String?, bibcode: String?)],
+        libraryId: UUID,
+        filterDismissed: Bool = false
+    ) -> (existingIDs: [UUID], importedIDs: [UUID]) {
+        let inputs = bibtexEntries.map {
+            SearchResultInput(bibtex: $0.bibtex, doi: $0.doi, arxivId: $0.arxivId, bibcode: $0.bibcode)
+        }
+        do {
+            let result = try imbibStore.batchImportSearchResults(
+                results: inputs,
+                libraryId: libraryId.uuidString,
+                filterDismissed: filterDismissed
+            )
+            let existingUUIDs = result.existingIds.compactMap { UUID(uuidString: $0) }
+            let importedUUIDs = result.importedIds.compactMap { UUID(uuidString: $0) }
+            return (existingUUIDs, importedUUIDs)
+        } catch {
+            return ([], [])
+        }
+    }
 
     /// Import BibTeX string off the main thread. Skips undo and notification posting.
     nonisolated public func importBibTeXBackground(_ bibtex: String, libraryId: UUID) -> [UUID] {

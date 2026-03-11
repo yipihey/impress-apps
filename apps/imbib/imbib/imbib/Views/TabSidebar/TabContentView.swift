@@ -96,8 +96,14 @@ struct TabContentView: View {
             }
         }
         .onNotifications([
-            (.storeDidMutate, { _ in
-                viewModel.refreshFromStore()
+            (.storeDidMutate, { notification in
+                let structural = (notification.userInfo?["structural"] as? Bool) ?? true
+                if structural {
+                    viewModel.refreshFromStore()
+                } else {
+                    viewModel.refreshFlagCounts()
+                    viewModel.bumpDataVersion()
+                }
             }),
             (.navigateToCollection, { notification in
                 if let collectionID = notification.userInfo?["collectionID"] as? UUID {

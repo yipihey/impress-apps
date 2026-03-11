@@ -134,119 +134,62 @@ public actor SmartSearchProvider {
                 category: "smartsearch"
             )
 
-            // Find existing publications via batch lookup — runs off main thread.
-            // Single SQL query replaces N individual findByIdentifiers calls.
+            // Resolve library ID on MainActor (fast reads), then batch import off MainActor.
             let findStart = CFAbsoluteTimeGetCurrent()
             let adapter = await MainActor.run { RustStoreAdapter.shared }
 
-            // Collect all identifiers from search results
-            let allDois = limitedResults.compactMap(\.doi)
-            let allArxivIds = limitedResults.compactMap(\.arxivID)
-            let allBibcodes = limitedResults.compactMap(\.bibcode)
-
-            // Single batch query (runs on SmartSearchProvider actor, NOT main actor)
-            let batchResults = adapter.findByIdentifiersBatchBackground(
-                dois: allDois,
-                arxivIds: allArxivIds,
-                bibcodes: allBibcodes
-            )
-
-            // Build reverse indices for O(1) lookup: identifier → PublicationRowData
-            var doiIndex: [String: PublicationRowData] = [:]
-            var arxivIndex: [String: PublicationRowData] = [:]
-            var bibcodeIndex: [String: PublicationRowData] = [:]
-            for pub_ in batchResults {
-                if let doi = pub_.doi, !doi.isEmpty { doiIndex[doi] = pub_ }
-                if let arxiv = pub_.arxivID, !arxiv.isEmpty { arxivIndex[arxiv] = pub_ }
-                if let bib = pub_.bibcode, !bib.isEmpty { bibcodeIndex[bib] = pub_ }
-            }
-
-            // Map each search result to its existing publication
-            var existingMap: [String: PublicationRowData] = [:]
-            var unmatchedResults: [SearchResult] = []
-            for result in limitedResults {
-                if let doi = result.doi, let pub_ = doiIndex[doi] {
-                    existingMap[result.id] = pub_
-                } else if let arxiv = result.arxivID, let pub_ = arxivIndex[arxiv] {
-                    existingMap[result.id] = pub_
-                } else if let bib = result.bibcode, let pub_ = bibcodeIndex[bib] {
-                    existingMap[result.id] = pub_
-                } else {
-                    unmatchedResults.append(result)
-                }
-            }
-
-            // Cite key fallback only for unmatched results (off main thread)
-            for result in unmatchedResults {
-                let citeKey = Self.generateCiteKey(from: result)
-                if !citeKey.isEmpty, let found = adapter.findByCiteKeyBackground(citeKey: citeKey) {
-                    existingMap[result.id] = found
-                }
-            }
-
-            let findTime = (CFAbsoluteTimeGetCurrent() - findStart) * 1000
-
-            let existingPubs = limitedResults.compactMap { existingMap[$0.id] }
-            let newResultsRaw = limitedResults.filter { existingMap[$0.id] == nil }
-
-            // Filter dismissed papers from new results (off main thread)
-            let newResults: [SearchResult] = newResultsRaw.filter { result in
-                !adapter.isPaperDismissedBackground(doi: result.doi, arxivId: result.arxivID, bibcode: result.bibcode)
-            }
-
-            // Create new publications via BibTeX import
-            let createStart = CFAbsoluteTimeGetCurrent()
-            var newPublicationIDs: [UUID] = []
+            // Resolve library ID — fall back to inbox for feeds-to-inbox searches
+            // whose parent was orphaned (parent set to NULL by cascade delete).
             var importTargetIsInbox = false
-            if !newResults.isEmpty {
-                newPublicationIDs = await MainActor.run {
-                    let store = RustStoreAdapter.shared
-                    guard let smartSearch = store.getSmartSearch(id: id) else { return [UUID]() }
-
-                    // Resolve library ID — fall back to inbox for feeds-to-inbox searches
-                    // whose parent was orphaned (parent set to NULL by cascade delete).
-                    let libraryID: UUID
-                    if let ssLibID = smartSearch.libraryID {
-                        libraryID = ssLibID
-                    } else if feedsToInbox, let inbox = store.getInboxLibrary() {
-                        libraryID = inbox.id
-                        // Re-parent the orphaned smart search to current inbox
-                        store.reparentItem(id: id, newParentId: inbox.id)
-                        Logger.smartSearch.infoCapture(
-                            "Re-parented orphaned smart search '\(name)' to inbox library",
-                            category: "smartsearch"
-                        )
-                    } else {
-                        Logger.smartSearch.errorCapture(
-                            "Smart search '\(name)' has no library ID and no inbox available",
-                            category: "smartsearch"
-                        )
-                        return [UUID]()
-                    }
-
-                    // Track if we're importing directly into inbox
-                    if let inbox = store.getInboxLibrary(), libraryID == inbox.id {
+            let resolvedLibraryID: UUID? = await MainActor.run {
+                let store = RustStoreAdapter.shared
+                guard let smartSearch = store.getSmartSearch(id: id) else { return nil }
+                if let ssLibID = smartSearch.libraryID {
+                    if let inbox = store.getInboxLibrary(), ssLibID == inbox.id {
                         importTargetIsInbox = true
                     }
-
-                    var createdIDs: [UUID] = []
-                    store.beginBatchMutation()
-                    for result in newResults {
-                        let bibtex = result.toBibTeX()
-                        if !bibtex.isEmpty {
-                            let ids = store.importBibTeX(bibtex, libraryId: libraryID)
-                            createdIDs.append(contentsOf: ids)
-                        }
-                    }
-                    store.endBatchMutation()
-                    return createdIDs
+                    return ssLibID
+                } else if feedsToInbox, let inbox = store.getInboxLibrary() {
+                    store.reparentItem(id: id, newParentId: inbox.id)
+                    importTargetIsInbox = true
+                    Logger.smartSearch.infoCapture(
+                        "Re-parented orphaned smart search '\(name)' to inbox library",
+                        category: "smartsearch"
+                    )
+                    return inbox.id
+                } else {
+                    Logger.smartSearch.errorCapture(
+                        "Smart search '\(name)' has no library ID and no inbox available",
+                        category: "smartsearch"
+                    )
+                    return nil
                 }
             }
-            let createTime = (CFAbsoluteTimeGetCurrent() - createStart) * 1000
+
+            guard let libraryID = resolvedLibraryID else {
+                return
+            }
+
+            // Prepare entries for batch import (pure computation, no FFI)
+            let entries = limitedResults.map { result in
+                (bibtex: result.toBibTeX(),
+                 doi: result.doi,
+                 arxivId: result.arxivID,
+                 bibcode: result.bibcode)
+            }
+
+            // Single FFI call: find existing + filter dismissed + import new (off main thread)
+            let (existingIDs, newPublicationIDs) = adapter.batchImportSearchResultsBackground(
+                bibtexEntries: entries,
+                libraryId: libraryID,
+                filterDismissed: true
+            )
+
+            let findTime = (CFAbsoluteTimeGetCurrent() - findStart) * 1000
+            let createTime = 0.0  // included in findTime now (single FFI call)
 
             // Link all found publications (new + existing) to this smart search via Contains references.
-            // This allows the feed view to query "papers from this feed" via ReferencedBy.
-            let allFoundIDs = newPublicationIDs + existingPubs.map(\.id)
+            let allFoundIDs = newPublicationIDs + existingIDs
             if !allFoundIDs.isEmpty {
                 await MainActor.run {
                     let store = RustStoreAdapter.shared
@@ -256,28 +199,28 @@ public actor SmartSearchProvider {
                 }
             }
 
+            // Notify UI of background mutations
+            if !newPublicationIDs.isEmpty {
+                await MainActor.run {
+                    RustStoreAdapter.shared.notifyMutationFromBackground()
+                }
+            }
+
             // If this feed goes to inbox, add publications to the inbox library
             if feedsToInbox {
                 let inboxStart = CFAbsoluteTimeGetCurrent()
 
-                // Filter existing pubs: exclude dismissed and already in inbox
+                // Filter existing pubs: exclude those already in inbox
+                // (dismissed papers were already filtered by the batch import)
                 let existingPubIDsForInbox: [UUID] = await MainActor.run {
                     let store = RustStoreAdapter.shared
-                    // Query inbox member IDs ONCE — O(1) lookups instead of O(N) per paper
                     let inboxMemberIDs: Set<UUID>
                     if let inboxLib = store.getInboxLibrary() {
                         inboxMemberIDs = store.queryPublicationIDs(parentId: inboxLib.id)
                     } else {
                         inboxMemberIDs = []
                     }
-                    return existingPubs.compactMap { pub -> UUID? in
-                        let citeKey: String? = pub.citeKey.isEmpty ? nil : pub.citeKey
-                        if store.isPaperDismissed(doi: pub.doi, arxivId: pub.arxivID, bibcode: pub.bibcode, citeKey: citeKey) {
-                            return nil
-                        }
-                        if inboxMemberIDs.contains(pub.id) { return nil }
-                        return pub.id
-                    }
+                    return existingIDs.filter { !inboxMemberIDs.contains($0) }
                 }
 
                 // When papers were imported directly into inbox (because the smart search
@@ -294,7 +237,6 @@ public actor SmartSearchProvider {
                     InboxManager.shared.addToInboxBatch(pubIDsToAdd)
                 }
 
-                // Total added = batch additions + newly-imported papers (if they went to inbox directly)
                 let totalAdded = importTargetIsInbox ? (addedFromBatch + newPublicationIDs.count) : addedFromBatch
 
                 let inboxTime = (CFAbsoluteTimeGetCurrent() - inboxStart) * 1000
@@ -309,10 +251,9 @@ public actor SmartSearchProvider {
             let totalTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
 
             Logger.smartSearch.infoCapture(
-                "Smart search '\(name)' complete: \(newResults.count) new, \(existingPubs.count) existing " +
+                "Smart search '\(name)' complete: \(newPublicationIDs.count) new, \(existingIDs.count) existing " +
                 "in \(String(format: "%.0f", totalTime))ms " +
-                "(search=\(String(format: "%.0f", searchTime))ms, find=\(String(format: "%.0f", findTime))ms, " +
-                "create=\(String(format: "%.0f", createTime))ms)",
+                "(search=\(String(format: "%.0f", searchTime))ms, find+import=\(String(format: "%.0f", findTime))ms)",
                 category: "performance"
             )
 
