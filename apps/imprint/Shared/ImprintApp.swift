@@ -62,6 +62,12 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             _ = ImprintStoreAdapter.shared.isReady
         }
 
+        // Discover TeX distribution early so LaTeX compilation works without
+        // opening Settings first.
+        Task { @MainActor in
+            await TeXDistributionManager.shared.discoverDistribution()
+        }
+
         // Spotlight indexing — deferred 90s per startup grace period
         Task.detached {
             try? await Task.sleep(for: .seconds(90))
@@ -218,7 +224,7 @@ struct ImprintApp: App {
                 Button("Add Comment...") {
                     NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)
                 }
-                .keyboardShortcut("C", modifiers: [.command, .shift])
+                .keyboardShortcut("M", modifiers: [.command, .shift])
 
                 Divider()
 
@@ -237,7 +243,7 @@ struct ImprintApp: App {
                 Button("Compile to PDF") {
                     NotificationCenter.default.post(name: .compileDocument, object: nil)
                 }
-                .keyboardShortcut("B", modifiers: [.command])
+                .keyboardShortcut(.return, modifiers: [.command])
             }
 
             // View menu additions
@@ -273,7 +279,7 @@ struct ImprintApp: App {
                 Button("Show Console") {
                     openWindow(id: "console")
                 }
-                .keyboardShortcut("c", modifiers: [.control, .command])
+                .keyboardShortcut("C", modifiers: [.command, .shift])
             }
 
             // Format menu
@@ -351,13 +357,13 @@ struct ImprintApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
+                .background(WindowShadowInvalidator())
         }
 
         // Console window
         Window("Console", id: "console") {
             ConsoleView(appName: "imprint")
         }
-        .keyboardShortcut("c", modifiers: [.control, .command])
         .defaultSize(width: 800, height: 400)
         #endif
     }
@@ -465,6 +471,29 @@ extension Notification.Name {
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
     static let showSymbolPalette = Notification.Name("showSymbolPalette")
     static let formatDocument = Notification.Name("formatDocument")
+}
+
+// MARK: - Window Shadow Fix (macOS 26 compositor workaround)
+
+/// NSViewRepresentable that disables the window shadow on its hosting window.
+///
+/// Works around a macOS 26 Liquid Glass compositor bug where opening a Settings
+/// window causes the shadow on sibling windows to accumulate (grow) instead of
+/// being properly composited. Disabling the shadow on the Settings window itself
+/// prevents the compositor from entering the broken shadow-caching path.
+private struct WindowShadowInvalidator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Find and disable shadow on the Settings window
+            if let window = view.window {
+                window.hasShadow = false
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 // MARK: - UI Testing Support

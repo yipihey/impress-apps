@@ -50,7 +50,7 @@ public struct FilterInput: View {
             HStack(spacing: 6) {
                 ModeIndicator("FILTER", color: .purple)
 
-                TextField("type to filter... (? for help)", text: $text)
+                TextField("type to filter... (click ? for help)", text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .focused($isFocused)
