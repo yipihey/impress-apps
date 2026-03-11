@@ -1,5 +1,6 @@
 import Foundation
 import ImpressLogging
+import ImpressToolbox
 import OSLog
 
 /// Provides LaTeX source code formatting via `latexindent` if available.
@@ -16,12 +17,63 @@ actor LaTeXFormatterService {
     /// Format a LaTeX source string.
     /// Returns the formatted source, or nil if formatting failed.
     func format(_ source: String) async -> String? {
+        if await ToolboxClient.shared.isAvailable() {
+            return await formatViaToolbox(source)
+        } else {
+            Logger.latexFormatter.warningCapture("Toolbox unavailable, falling back to local Process", category: "latex-formatter")
+            return await formatLocal(source)
+        }
+    }
+
+    private func formatViaToolbox(_ source: String) async -> String? {
         guard let execURL = await executableURL() else {
             Logger.latexFormatter.warningCapture("latexindent not found", category: "latex-formatter")
             return nil
         }
 
-        // Write source to temp file
+        // Write source to temp file (toolbox can read it since it's unsandboxed)
+        let tempDir = FileManager.default.temporaryDirectory
+        let inputURL = tempDir.appendingPathComponent("imprint-format-\(UUID().uuidString).tex")
+
+        guard let data = source.data(using: .utf8) else { return nil }
+        do {
+            try data.write(to: inputURL)
+        } catch {
+            Logger.latexFormatter.errorCapture("Failed to write temp file: \(error.localizedDescription)", category: "latex-formatter")
+            return nil
+        }
+        defer { try? FileManager.default.removeItem(at: inputURL) }
+
+        var env: [String: String] = [:]
+        if let distPath = await TeXDistributionManager.shared.distributionPath?.path {
+            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+            env["PATH"] = "\(distPath):\(existingPath)"
+        }
+
+        let request = ProcessRequest(
+            executable: execURL.path,
+            arguments: [inputURL.path],
+            environment: env,
+            timeoutMs: 30_000
+        )
+
+        do {
+            let result = try await ToolboxClient.shared.execute(request)
+            guard result.isSuccess, !result.stdout.isEmpty else { return nil }
+            Logger.latexFormatter.infoCapture("Formatted \(source.count) → \(result.stdout.count) chars (toolbox)", category: "latex-formatter")
+            return result.stdout
+        } catch {
+            Logger.latexFormatter.errorCapture("Toolbox format failed: \(error.localizedDescription)", category: "latex-formatter")
+            return nil
+        }
+    }
+
+    private func formatLocal(_ source: String) async -> String? {
+        guard let execURL = await executableURL() else {
+            Logger.latexFormatter.warningCapture("latexindent not found", category: "latex-formatter")
+            return nil
+        }
+
         let tempDir = FileManager.default.temporaryDirectory
         let inputURL = tempDir.appendingPathComponent("imprint-format-\(UUID().uuidString).tex")
 
@@ -33,7 +85,6 @@ actor LaTeXFormatterService {
             return nil
         }
 
-        // Set PATH to include TeX distribution
         var env = ProcessInfo.processInfo.environment
         if let distPath = await TeXDistributionManager.shared.distributionPath?.path {
             let existingPath = env["PATH"] ?? "/usr/bin:/bin"
@@ -42,13 +93,12 @@ actor LaTeXFormatterService {
 
         let capturedEnv = env
         let capturedInputURL = inputURL
-        let capturedExecURL = execURL
         let result: String? = await Task.detached {
             defer { try? FileManager.default.removeItem(at: capturedInputURL) }
 
             let process = Process()
-            process.executableURL = capturedExecURL
-            process.arguments = [capturedInputURL.path]
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["latexindent", capturedInputURL.path]
             process.environment = capturedEnv
 
             let pipe = Pipe()
@@ -57,8 +107,6 @@ actor LaTeXFormatterService {
 
             do {
                 try process.run()
-
-                // Read pipe BEFORE waitUntilExit to prevent deadlock if output exceeds 64KB buffer
                 let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
 
@@ -71,7 +119,7 @@ actor LaTeXFormatterService {
         }.value
 
         if let result {
-            Logger.latexFormatter.infoCapture("Formatted \(source.count) → \(result.count) chars", category: "latex-formatter")
+            Logger.latexFormatter.infoCapture("Formatted \(source.count) → \(result.count) chars (local)", category: "latex-formatter")
         }
         return result
     }

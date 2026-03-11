@@ -1,3 +1,4 @@
+import ImpressToolbox
 import SwiftUI
 
 /// Settings pane for LaTeX compilation configuration.
@@ -11,9 +12,11 @@ struct LaTeXSettingsView: View {
     private let texManager = TeXDistributionManager.shared
     @State private var verificationResult: String?
     @State private var isVerifying = false
+    @State private var toolboxAvailable = false
 
     var body: some View {
         Form {
+            toolboxSection
             texDistributionSection
             engineSection
             compilationSection
@@ -22,11 +25,47 @@ struct LaTeXSettingsView: View {
         .formStyle(.grouped)
         .padding()
         .task {
+            toolboxAvailable = await ToolboxClient.shared.isAvailable()
             await texManager.discoverDistribution()
         }
     }
 
     // MARK: - Sections
+
+    @ViewBuilder
+    private var toolboxSection: some View {
+        Section("Toolbox Server") {
+            HStack {
+                Text("Status")
+                Spacer()
+                if toolboxAvailable {
+                    HStack(spacing: 4) {
+                        Circle().fill(.green).frame(width: 8, height: 8)
+                        Text("Running on port \(ToolboxClient.defaultPort)")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Circle().fill(.orange).frame(width: 8, height: 8)
+                        Text("Not running")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if !toolboxAvailable {
+                Text("The toolbox server enables LaTeX compilation from the sandbox. Start it with:\n`impress-toolbox` or `cargo run --bin impress-toolbox`")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Check Connection") {
+                Task {
+                    toolboxAvailable = await ToolboxClient.shared.isAvailable()
+                }
+            }
+        }
+    }
 
     @ViewBuilder
     private var texDistributionSection: some View {

@@ -49,6 +49,8 @@ packages:
     path: ../../packages/ImpressRustCore
   ImpressSpotlight:
     path: ../../packages/ImpressSpotlight
+  ImpressToolbox:
+    path: ../../packages/ImpressToolbox
 
 targets:
   imprint:
@@ -79,6 +81,7 @@ targets:
       - package: ImpressLogging
       - package: ImpressKit
       - package: ImpressSpotlight
+      - package: ImpressToolbox
     info:
       path: macOS/Info.plist
       properties:
@@ -208,6 +211,7 @@ targets:
       - package: ImpressLogging
       - package: ImpressKit
       - package: ImpressSpotlight
+      - package: ImpressToolbox
       - target: imprint-ShareExtension
         embed: true
     info:
