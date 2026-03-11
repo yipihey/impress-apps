@@ -25,6 +25,8 @@ members = [
     "crates/impel-server",
     # impart - research conversation platform
     "crates/impart-core",
+    # impress-toolbox - unsandboxed local tool execution server
+    "crates/impress-toolbox",
     # impress-core - unified item protocol
     "crates/impress-core",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store

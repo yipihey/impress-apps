@@ -1,5 +1,6 @@
 import Foundation
 import ImpressLogging
+import ImpressToolbox
 import OSLog
 
 /// Engine choices for LaTeX compilation.
@@ -84,6 +85,17 @@ actor LaTeXCompilationService {
     ///   - options: Compilation options.
     /// - Returns: A `LaTeXCompilationResult` with PDF data, diagnostics, etc.
     func compile(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+        if await ToolboxClient.shared.isAvailable() {
+            return try await compileViaToolbox(sourceURL: sourceURL, engine: engine, options: options)
+        } else {
+            Logger.compilation.warningCapture("Toolbox unavailable, falling back to local Process", category: "latex")
+            return try await compileLocal(sourceURL: sourceURL, engine: engine, options: options)
+        }
+    }
+
+    // MARK: - Toolbox Compilation
+
+    private func compileViaToolbox(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
         let start = CFAbsoluteTimeGetCurrent()
 
         let texDistribution = await TeXDistributionManager.shared
@@ -93,47 +105,114 @@ actor LaTeXCompilationService {
 
         let sourceDir = sourceURL.deletingLastPathComponent()
         let buildDir = buildDirectory(for: sourceURL)
-
-        // Ensure build directory exists
         try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
 
         let buildDirName = buildDir.lastPathComponent
         var arguments = engine.defaultArguments(outputDir: buildDirName)
-
-        if options.draft {
-            arguments.append("-draftmode")
-        }
-        if options.shellEscape {
-            arguments.append("-shell-escape")
-        }
-        if !options.synctex {
-            // Remove -synctex=1 if disabled
-            arguments.removeAll { $0.hasPrefix("-synctex") }
-        }
+        if options.draft { arguments.append("-draftmode") }
+        if options.shellEscape { arguments.append("-shell-escape") }
+        if !options.synctex { arguments.removeAll { $0.hasPrefix("-synctex") } }
         arguments.append(contentsOf: options.extraArguments)
         arguments.append(sourceURL.lastPathComponent)
 
-        // Set up environment with TeX distribution in PATH
+        var env: [String: String] = [:]
+        if let distPath = await texDistribution.distributionPath?.path {
+            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+            env["PATH"] = "\(distPath):\(existingPath)"
+        }
+
+        let pdfFileName = sourceURL.deletingPathExtension().lastPathComponent + ".pdf"
+        let pdfURL = buildDir.appendingPathComponent(pdfFileName)
+
+        Logger.compilation.infoCapture("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue) via toolbox", category: "latex")
+
+        isCompiling = true
+        defer { isCompiling = false }
+
+        let request = ProcessRequest(
+            executable: execURL.path,
+            arguments: arguments,
+            workingDirectory: sourceDir.path,
+            environment: env,
+            timeoutMs: 60_000
+        )
+
+        let (processResult, pdfData) = try await ToolboxClient.shared.executeAndRetrieveFile(
+            request, outputFile: pdfURL.path
+        )
+
+        let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+
+        // Read the .log file for diagnostics
+        let logFileName = sourceURL.deletingPathExtension().lastPathComponent + ".log"
+        let logFileURL = buildDir.appendingPathComponent(logFileName)
+        let logFileContent = (try? String(contentsOf: logFileURL, encoding: .utf8)) ?? ""
+
+        let logOutput = [processResult.stdout, processResult.stderr].joined(separator: "\n")
+        let diagnosticSource = logFileContent.isEmpty ? logOutput : logFileContent
+        let diagnostics = LaTeXLogParser.parse(diagnosticSource)
+
+        // Find synctex file
+        let synctexFileName = sourceURL.deletingPathExtension().lastPathComponent + ".synctex.gz"
+        let synctexURL = buildDir.appendingPathComponent(synctexFileName)
+        let synctexExists = FileManager.default.fileExists(atPath: synctexURL.path)
+
+        Logger.compilation.infoCapture("Compilation finished (toolbox): exit=\(processResult.exitCode), time=\(elapsedMs)ms, pdf=\(pdfData?.count ?? 0)b, errors=\(diagnostics.errors.count), warnings=\(diagnostics.warnings.count)", category: "latex")
+
+        return LaTeXCompilationResult(
+            pdfData: pdfData,
+            pdfURL: pdfData != nil ? pdfURL : nil,
+            synctexURL: synctexExists ? synctexURL : nil,
+            logOutput: diagnosticSource,
+            errors: diagnostics.errors,
+            warnings: diagnostics.warnings,
+            exitCode: processResult.exitCode,
+            compilationTimeMs: elapsedMs
+        )
+    }
+
+    // MARK: - Local Fallback (for unsandboxed debug builds)
+
+    private func compileLocal(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+        let start = CFAbsoluteTimeGetCurrent()
+
+        let texDistribution = await TeXDistributionManager.shared
+        guard await texDistribution.executableURL(for: engine) != nil else {
+            throw LaTeXCompilationError.engineNotFound(engine)
+        }
+
+        let sourceDir = sourceURL.deletingLastPathComponent()
+        let buildDir = buildDirectory(for: sourceURL)
+        try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
+
+        let buildDirName = buildDir.lastPathComponent
+        var arguments = engine.defaultArguments(outputDir: buildDirName)
+        if options.draft { arguments.append("-draftmode") }
+        if options.shellEscape { arguments.append("-shell-escape") }
+        if !options.synctex { arguments.removeAll { $0.hasPrefix("-synctex") } }
+        arguments.append(contentsOf: options.extraArguments)
+        arguments.append(sourceURL.lastPathComponent)
+
         var env = ProcessInfo.processInfo.environment
         if let distPath = await texDistribution.distributionPath?.path {
             let existingPath = env["PATH"] ?? "/usr/bin:/bin"
             env["PATH"] = "\(distPath):\(existingPath)"
         }
 
-        Logger.compilation.infoCapture("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue)", category: "latex")
+        let envArguments = [engine.rawValue] + arguments
+
+        Logger.compilation.infoCapture("Compiling \(sourceURL.lastPathComponent) with \(engine.rawValue) via /usr/bin/env (local fallback)", category: "latex")
 
         isCompiling = true
         defer { isCompiling = false; runningTask = nil }
 
-        // Run the process off-actor so cancel() remains reachable
-        let capturedExecURL = execURL
-        let capturedArguments = arguments
+        let capturedArguments = envArguments
         let capturedSourceDir = sourceDir
         let capturedEnv = env
 
         let task = Task.detached {
             let process = Process()
-            process.executableURL = capturedExecURL
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             process.arguments = capturedArguments
             process.currentDirectoryURL = capturedSourceDir
             process.environment = capturedEnv
@@ -149,8 +228,6 @@ actor LaTeXCompilationService {
                 throw LaTeXCompilationError.launchFailed(error)
             }
 
-            // Read both pipes concurrently to avoid deadlock when >64KB on one pipe,
-            // and read BEFORE waitUntilExit to prevent buffer-full blocking
             let group = DispatchGroup()
             var outData = Data()
             var errData = Data()
@@ -179,26 +256,21 @@ actor LaTeXCompilationService {
         ].joined(separator: "\n")
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
 
-        // Also try to read the .log file for better diagnostics
         let logFileName = sourceURL.deletingPathExtension().lastPathComponent + ".log"
         let logFileURL = buildDir.appendingPathComponent(logFileName)
         let logFileContent = (try? String(contentsOf: logFileURL, encoding: .utf8)) ?? ""
         let diagnosticSource = logFileContent.isEmpty ? logOutput : logFileContent
-
-        // Parse diagnostics
         let diagnostics = LaTeXLogParser.parse(diagnosticSource)
 
-        // Read PDF if compilation succeeded
         let pdfFileName = sourceURL.deletingPathExtension().lastPathComponent + ".pdf"
         let pdfURL = buildDir.appendingPathComponent(pdfFileName)
         let pdfData = try? Data(contentsOf: pdfURL)
 
-        // Find synctex file
         let synctexFileName = sourceURL.deletingPathExtension().lastPathComponent + ".synctex.gz"
         let synctexURL = buildDir.appendingPathComponent(synctexFileName)
         let synctexExists = FileManager.default.fileExists(atPath: synctexURL.path)
 
-        Logger.compilation.infoCapture("Compilation finished: exit=\(exitCode), time=\(elapsedMs)ms, pdf=\(pdfData?.count ?? 0)b, errors=\(diagnostics.errors.count), warnings=\(diagnostics.warnings.count)", category: "latex")
+        Logger.compilation.infoCapture("Compilation finished (local): exit=\(exitCode), time=\(elapsedMs)ms, pdf=\(pdfData?.count ?? 0)b, errors=\(diagnostics.errors.count), warnings=\(diagnostics.warnings.count)", category: "latex")
 
         return LaTeXCompilationResult(
             pdfData: pdfData,
