@@ -42,26 +42,26 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test renaming a library
     func testRenameLibrary() throws {
         // Given: A library exists
-        sidebar.assertLibraryExists("Physics")
+        sidebar.assertLibraryExists("Cosmology")
 
         // When: I rename it
-        sidebar.renameLibrary(named: "Physics", to: "Physics Papers")
+        sidebar.renameLibrary(named: "Cosmology", to: "Cosmology Papers")
 
         // Then: The new name should appear
-        sidebar.assertLibraryExists("Physics Papers")
-        sidebar.assertLibraryNotExists("Physics")
+        sidebar.assertLibraryExists("Cosmology Papers")
+        sidebar.assertLibraryNotExists("Cosmology")
     }
 
     /// Test deleting a library
     func testDeleteLibrary() throws {
         // Given: A library exists
-        sidebar.assertLibraryExists("Mathematics")
+        sidebar.assertLibraryExists("Exoplanets")
 
         // When: I delete it
-        sidebar.deleteLibrary(named: "Mathematics")
+        sidebar.deleteLibrary(named: "Exoplanets")
 
         // Then: The library should be removed
-        sidebar.assertLibraryNotExists("Mathematics")
+        sidebar.assertLibraryNotExists("Exoplanets")
     }
 
     // MARK: - Collection Management Tests
@@ -69,20 +69,20 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test creating a new collection
     func testCreateNewCollection() throws {
         // Given: A library is selected
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
 
         // When: I create a new collection
         let sheet = sidebar.createNewCollection()
         sheet.create(name: "Quantum Mechanics")
 
         // Then: The collection should appear
-        sidebar.assertCollectionExists("Quantum Mechanics", inLibrary: "Physics")
+        sidebar.assertCollectionExists("Quantum Mechanics", inLibrary: "Cosmology")
     }
 
     /// Test moving publications to a collection
     func testMovePublicationToCollection() throws {
         // Given: Publications exist and a collection exists
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -100,7 +100,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test removing publication from collection
     func testRemovePublicationFromCollection() throws {
         // Given: A publication is in a collection
-        sidebar.selectCollection(named: "Important Physics")
+        sidebar.selectCollection(named: "Dark Energy")
         _ = list.waitForPublications()
 
         let initialCount = list.rows.count
@@ -120,7 +120,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test creating a smart collection
     func testCreateSmartCollection() throws {
         // Given: I'm in a library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
 
         // When: I create a smart collection via menu
         // (This would need menu navigation)
@@ -142,7 +142,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test dragging publication between libraries
     func testDragPublicationBetweenLibraries() throws {
         // Given: Publications exist in one library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
 
         // When: I drag a publication to another library
@@ -165,7 +165,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test copying publications between libraries
     func testCopyPublicationsBetweenLibraries() throws {
         // Given: Publications exist in Physics library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
         list.selectFirst()
 
@@ -173,7 +173,7 @@ final class OrganizationWorkflowTests: XCTestCase {
         list.copySelected()
 
         // Switch to Computer Science library
-        sidebar.selectLibrary(named: "Computer Science")
+        sidebar.selectLibrary(named: "Gravitational Waves")
         let initialCount = list.rows.count
 
         // When: I paste
@@ -188,7 +188,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test moving multiple publications at once
     func testBulkMovePublications() throws {
         // Given: Multiple publications are selected
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
         list.selectAll()
 
@@ -206,7 +206,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test deleting a publication
     func testDeletePublication() throws {
         // Given: A publication is selected
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
 
         let initialCount = list.rows.count
@@ -228,7 +228,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test bulk delete publications
     func testBulkDeletePublications() throws {
         // Given: Multiple publications are selected
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
 
         let initialCount = list.rows.count
@@ -255,7 +255,7 @@ final class OrganizationWorkflowTests: XCTestCase {
     /// Test sorting publications by different criteria
     func testSortPublications() throws {
         // Given: Publications are displayed
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
         _ = list.waitForPublications()
 
         // When: I change the sort order via toolbar menu

@@ -21,7 +21,7 @@ final class ExportWorkflowTests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
 
-        app = TestApp.launch(with: .basic)
+        app = TestApp.launch(with: .multiLibrary)
         sidebar = SidebarPage(app: app)
         list = PublicationListPage(app: app)
         detail = DetailViewPage(app: app)
@@ -185,7 +185,7 @@ final class ExportWorkflowTests: XCTestCase {
     /// Test exporting a collection
     func testExportCollection() throws {
         // Given: A collection exists with publications
-        sidebar.selectCollection(named: "Important Physics")
+        sidebar.selectCollection(named: "Dark Energy")
 
         // When: I export the collection
 

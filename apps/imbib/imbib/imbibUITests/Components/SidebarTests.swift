@@ -33,9 +33,9 @@ final class SidebarTests: XCTestCase {
         XCTAssertTrue(sidebar.inboxRow.exists, "Inbox should exist")
 
         // Should have libraries
-        sidebar.assertLibraryExists("Physics")
-        sidebar.assertLibraryExists("Computer Science")
-        sidebar.assertLibraryExists("Mathematics")
+        sidebar.assertLibraryExists("Cosmology")
+        sidebar.assertLibraryExists("Gravitational Waves")
+        sidebar.assertLibraryExists("Exoplanets")
     }
 
     /// Test sidebar shows library counts
@@ -49,7 +49,7 @@ final class SidebarTests: XCTestCase {
     /// Test selecting a library updates selection
     func testSelectingLibraryUpdatesSelection() throws {
         // Select a library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
 
         // The library should be visually selected
         // (verification depends on selection state visibility)
@@ -64,7 +64,7 @@ final class SidebarTests: XCTestCase {
         sidebar.selectSearchSources()
 
         // Select a library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
 
         // All selections should work without error
     }
@@ -72,7 +72,7 @@ final class SidebarTests: XCTestCase {
     /// Test selection persists across navigation
     func testSelectionPersistsAcrossNavigation() throws {
         // Select a library
-        sidebar.selectLibrary(named: "Physics")
+        sidebar.selectLibrary(named: "Cosmology")
 
         // Do something else (like opening settings)
         app.typeKey(",", modifierFlags: .command)
@@ -99,8 +99,8 @@ final class SidebarTests: XCTestCase {
     /// Test right-click shows context menu
     func testRightClickShowsContextMenu() throws {
         // Right-click on a library
-        let physicsCell = sidebar.sidebar.staticTexts["Physics"]
-        physicsCell.rightClick()
+        let cosmologyCell = sidebar.sidebar.staticTexts["Cosmology"]
+        cosmologyCell.rightClick()
 
         // Context menu should appear with options
         let contextMenu = app.menus.firstMatch
@@ -122,9 +122,9 @@ final class SidebarTests: XCTestCase {
     /// Regression: Verify "Move Section Up/Down" does not appear in any sidebar context menu
     func testNoMoveSectionInContextMenu() throws {
         // Right-click on a library
-        let physicsCell = sidebar.sidebar.staticTexts["Physics"]
-        guard physicsCell.exists else { throw XCTSkip("Physics library not found in test data") }
-        physicsCell.rightClick()
+        let cosmologyCell = sidebar.sidebar.staticTexts["Cosmology"]
+        guard cosmologyCell.exists else { throw XCTSkip("Cosmology library not found in test data") }
+        cosmologyCell.rightClick()
 
         let contextMenu = app.menus.firstMatch
         XCTAssertTrue(contextMenu.waitForExistence(timeout: 2), "Context menu should appear")
@@ -137,9 +137,9 @@ final class SidebarTests: XCTestCase {
 
     /// Regression: Verify library context menu has expected items
     func testLibraryContextMenuItems() throws {
-        let physicsCell = sidebar.sidebar.staticTexts["Physics"]
-        guard physicsCell.exists else { throw XCTSkip("Physics library not found in test data") }
-        physicsCell.rightClick()
+        let cosmologyCell = sidebar.sidebar.staticTexts["Cosmology"]
+        guard cosmologyCell.exists else { throw XCTSkip("Cosmology library not found in test data") }
+        cosmologyCell.rightClick()
 
         let contextMenu = app.menus.firstMatch
         XCTAssertTrue(contextMenu.waitForExistence(timeout: 2))

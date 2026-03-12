@@ -118,12 +118,12 @@ final class PublicationListTests: XCTestCase {
     func testFilterMatchesAuthor() throws {
         list.search("Hawking")
 
-        list.assertPublicationExists(titled: "Black hole explosions?")
+        list.assertPublicationExists(titled: "A Brief History of Time")
     }
 
     /// Test filter matches year
     func testFilterMatchesYear() throws {
-        list.search("1974")
+        list.search("1988")
 
         list.assertPublicationCount(greaterThan: 0)
     }

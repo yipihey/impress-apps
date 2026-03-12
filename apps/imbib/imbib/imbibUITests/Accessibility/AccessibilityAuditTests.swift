@@ -258,10 +258,10 @@ extension XCUIApplication {
 
     /// Perform accessibility audit with custom filtering.
     ///
-    /// - Parameter filter: Closure to filter which issues to report (return true to include issue)
-    func performAccessibilityAudit(filter: @escaping (XCUIAccessibilityAuditIssue) -> Bool) throws {
+    /// - Parameter issueFilter: Closure to filter which issues to report (return true to include issue)
+    func performFilteredAccessibilityAudit(issueFilter: @escaping (XCUIAccessibilityAuditIssue) -> Bool) throws {
         try performAccessibilityAudit { issue in
-            return filter(issue)
+            return issueFilter(issue)
         }
     }
 }

@@ -92,6 +92,7 @@ enum TestApp {
         let app = XCUIApplication()
 
         app.launchArguments.append(uiTestingArg)
+        app.launchArguments.append(resetStateArg)
         app.launchArguments.append(mockServicesArg)
         app.launchArguments.append("--test-data-set=\(dataSet.rawValue)")
 

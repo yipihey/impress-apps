@@ -140,7 +140,7 @@ final class GlobalSearchTests: XCTestCase {
         searchPalette.search("xyznonexistent12345")
 
         // Wait for search to complete
-        Thread.sleep(forTimeInterval: 1)
+        _ = app.waitForIdle(timeout: 2)
 
         searchPalette.assertResultCount(0)
 

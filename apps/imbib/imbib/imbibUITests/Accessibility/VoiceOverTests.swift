@@ -20,7 +20,7 @@ final class VoiceOverTests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
 
-        app = TestApp.launchForAccessibility()
+        app = TestApp.launch(with: .basic)
         sidebar = SidebarPage(app: app)
         list = PublicationListPage(app: app)
 
@@ -55,7 +55,7 @@ final class VoiceOverTests: XCTestCase {
     }
 
     /// Test library rows are properly labeled
-    func testLibraryRowsAreProperyLabeled() throws {
+    func testLibraryRowsAreProperlyLabeled() throws {
         // Each library should have its name as the label
         sidebar.assertLibraryExists("Test Library")
 

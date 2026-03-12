@@ -212,9 +212,9 @@ final class DetailPanelTests: XCTestCase {
         detail.assertPublicationDisplayed(titled: "On the Electrodynamics of Moving Bodies")
 
         // Select a different publication
-        list.selectPublication(titled: "Black hole explosions?")
+        list.selectPublication(titled: "A Brief History of Time")
         _ = detail.waitForPublication()
-        detail.assertPublicationDisplayed(titled: "Black hole explosions?")
+        detail.assertPublicationDisplayed(titled: "A Brief History of Time")
     }
 
     // MARK: - Multi-Selection Tests

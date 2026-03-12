@@ -34,7 +34,7 @@ final class ToolbarTests: XCTestCase {
 
     /// Test global search button exists
     func testGlobalSearchButtonExists() throws {
-        let searchButton = app.toolbars.buttons[AccessibilityID.Toolbar.globalSearch]
+        let searchButton = app.toolbars.buttons[AccessibilityID.Toolbar.searchButton]
         // Button might be identified differently
         let anySearchButton = app.toolbars.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] 'search'")

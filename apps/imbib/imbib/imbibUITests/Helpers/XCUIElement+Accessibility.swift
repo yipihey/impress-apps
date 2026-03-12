@@ -114,15 +114,6 @@ enum AccessibilityID {
             static let annotations = "detail.tabs.annotations"
         }
 
-        // Alternative naming for Tab (used by some tests)
-        enum Tab {
-            static let pdf = "detail.tab.pdf"
-            static let bibtex = "detail.tab.bibtex"
-            static let notes = "detail.tab.notes"
-            static let info = "detail.tab.info"
-            static let related = "detail.tab.related"
-        }
-
         enum Info {
             static let titleField = "detail.info.titleField"
             static let authorsField = "detail.info.authorsField"
@@ -142,27 +133,6 @@ enum AccessibilityID {
             static let keywordsField = "detail.info.keywordsField"
         }
 
-        // Alternative naming for Field (used by some tests)
-        enum Field {
-            static let title = "detail.field.title"
-            static let authors = "detail.field.authors"
-            static let year = "detail.field.year"
-            static let journal = "detail.field.journal"
-            static let abstract = "detail.field.abstract"
-            static let doi = "detail.field.doi"
-            static let citeKey = "detail.field.citeKey"
-        }
-
-        // Action buttons
-        enum Action {
-            static let openPDF = "detail.action.openPDF"
-            static let downloadPDF = "detail.action.downloadPDF"
-            static let copyDOI = "detail.action.copyDOI"
-            static let openURL = "detail.action.openURL"
-            static let edit = "detail.action.edit"
-            static let delete = "detail.action.delete"
-        }
-
         enum PDF {
             static let viewer = "detail.pdf.viewer"
             static let zoomInButton = "detail.pdf.zoomInButton"
@@ -176,6 +146,10 @@ enum AccessibilityID {
             static let downloadButton = "detail.pdf.downloadButton"
             static let noPDFView = "detail.pdf.noPDFView"
             static let findPDFButton = "detail.pdf.findPDFButton"
+            static let highlightButton = "detail.pdf.highlightButton"
+            static let underlineButton = "detail.pdf.underlineButton"
+            static let strikethroughButton = "detail.pdf.strikethroughButton"
+            static let noteButton = "detail.pdf.noteButton"
         }
 
         enum Notes {
@@ -221,14 +195,6 @@ enum AccessibilityID {
             static let recommendations = "settings.tabs.recommendations"
             static let shortcuts = "settings.tabs.shortcuts"
             static let advanced = "settings.tabs.advanced"
-        }
-
-        // Alternative naming for Tab (used by some tests)
-        enum Tab {
-            static let general = "settings.tab.general"
-            static let sources = "settings.tab.sources"
-            static let appearance = "settings.tab.appearance"
-            static let shortcuts = "settings.tab.shortcuts"
         }
 
         enum General {
@@ -350,7 +316,7 @@ enum AccessibilityID {
     // MARK: - Publication List
 
     enum PublicationList {
-        static let container = "publicationList.container"
+        static let container = "list.container"
         static let searchField = "publicationList.searchField"
         static let emptyState = "publicationList.emptyState"
 
@@ -378,24 +344,6 @@ enum AccessibilityID {
 
         static func result(_ index: Int) -> String {
             "globalSearch.result.\(index)"
-        }
-    }
-
-    // MARK: - PDF Viewer
-
-    enum PDFViewer {
-        static let container = "pdfViewer.container"
-        static let document = "pdfViewer.document"
-        static let pageIndicator = "pdfViewer.pageIndicator"
-        static let zoomSlider = "pdfViewer.zoomSlider"
-        static let searchField = "pdfViewer.searchField"
-
-        enum Annotation {
-            static let highlight = "pdfViewer.annotation.highlight"
-            static let underline = "pdfViewer.annotation.underline"
-            static let strikethrough = "pdfViewer.annotation.strikethrough"
-            static let note = "pdfViewer.annotation.note"
-            static let colorPicker = "pdfViewer.annotation.colorPicker"
         }
     }
 
