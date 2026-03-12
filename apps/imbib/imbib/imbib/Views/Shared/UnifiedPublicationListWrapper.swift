@@ -740,10 +740,9 @@ struct UnifiedPublicationListWrapper: View {
                 if isFilterActive {
                     FilterInput(
                         isPresented: $isFilterActive,
-                        currentText: filterText,
+                        text: $filterText,
                         matchCount: filteredCount,
                         onTextChanged: { text in
-                            filterText = text
                             applyFilterText(text)
                         },
                         onCancel: {
@@ -1426,6 +1425,12 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
+    /// The smart search ID when viewing a smart search inbox feed (for removing papers after triage).
+    private var smartSearchLibraryID: UUID? {
+        if case .smartSearch(let id) = source { return id }
+        return nil
+    }
+
     /// Save selected publications to the Save library (created on first use if needed).
     /// Inbox: moves papers (removes from inbox). Other sources: copies papers (keeps in source).
     private func saveSelectedToDefaultLibrary() {
@@ -1434,9 +1439,14 @@ struct UnifiedPublicationListWrapper: View {
         guard !ids.isEmpty else { return }
 
         if isInboxView {
+            let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .green) { ids in
                 for id in ids { InboxManager.shared.trackDismissal(id) }
                 RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                // Also remove from smart search results so paper disappears from the list
+                if let ssID {
+                    RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                }
             }
         } else {
             showTriageFlash(ids: ids, color: .green)
@@ -1457,9 +1467,13 @@ struct UnifiedPublicationListWrapper: View {
         RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: true)
 
         if isInboxView {
+            let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .yellow) { ids in
                 for id in ids { InboxManager.shared.trackDismissal(id) }
                 RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                if let ssID {
+                    RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                }
             }
         } else {
             showTriageFlash(ids: ids, color: .yellow)
@@ -1542,24 +1556,27 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Handle clicking a tag chip in the detail view: activate filter with tag query.
     ///
-    /// If no filter is active, starts a new filter with `tags:{path}`.
-    /// If a filter is already active, appends ` tags:{path}` for progressive narrowing.
+    /// Each clicked tag appends a separate `tags:{path}` token so the user sees
+    /// exactly which tags are active:
+    /// - First click: `tags:ai/field/cosmology`
+    /// - Second click: `tags:ai/field/cosmology tags:ai/topic/dark-energy`
     private func handleActivateFilterWithTag(_ tagPath: String) {
         let tagQuery = "tags:\(tagPath)"
+        let currentText = filterText.trimmingCharacters(in: .whitespaces)
 
-        if let existingFilter = activeFilter, !existingFilter.isEmpty {
-            // Append to existing filter text (progressive narrowing)
-            let newText = filterText.isEmpty ? tagQuery : "\(filterText) \(tagQuery)"
-            filterText = newText
-            applyFilterText(newText)
-        } else {
-            // Start new filter
+        if currentText.isEmpty {
             filterText = tagQuery
-            applyFilterText(tagQuery)
+        } else if !currentText.contains(tagQuery) {
+            filterText = "\(currentText) \(tagQuery)"
         }
 
-        withAnimation(.easeInOut(duration: 0.15)) {
-            isFilterActive = true
+        applyFilterText(filterText)
+
+        // Activate filter bar if not already showing
+        if !isFilterActive {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isFilterActive = true
+            }
         }
     }
 
@@ -1804,12 +1821,17 @@ struct UnifiedPublicationListWrapper: View {
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
         guard !ids.isEmpty else { return }
         let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
+        let ssID = smartSearchLibraryID
 
         performTriageAnimation(ids: ids, flashColor: .orange) { ids in
             if self.isInboxView {
                 for id in ids { InboxManager.shared.trackDismissal(id) }
             }
             RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
+            // Also remove from smart search results so paper disappears from the list
+            if let ssID {
+                RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+            }
         }
     }
 

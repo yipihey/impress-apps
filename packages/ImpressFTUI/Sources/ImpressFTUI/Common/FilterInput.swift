@@ -7,38 +7,39 @@ import SwiftUI
 
 /// Inline text field for entering filter expressions with keyboard.
 ///
-/// Filters interactively as you type via `onTextChanged`.
+/// The caller owns the text via a `Binding<String>`. Every keystroke is
+/// reflected immediately in both directions — external updates (e.g. tag
+/// clicks appending tokens) appear in the field without recreating the view.
+///
 /// - Enter: dismiss the input (filter stays active)
 /// - ESC: clear filter and dismiss
 /// - ?: toggle syntax help
 public struct FilterInput: View {
 
     @Binding public var isPresented: Bool
-    public var currentText: String
+    @Binding public var text: String
     public var matchCount: Int?
     public var onTextChanged: ((String) -> Void)?
     public var onDismiss: (() -> Void)?
     public var onCancel: (() -> Void)?
 
-    @State private var text: String
     @State private var showHelp = false
     @FocusState private var isFocused: Bool
 
     public init(
         isPresented: Binding<Bool>,
-        currentText: String = "",
+        text: Binding<String>,
         matchCount: Int? = nil,
         onTextChanged: ((String) -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         self._isPresented = isPresented
-        self.currentText = currentText
+        self._text = text
         self.matchCount = matchCount
         self.onTextChanged = onTextChanged
         self.onDismiss = onDismiss
         self.onCancel = onCancel
-        self._text = State(initialValue: currentText)
     }
 
     public var body: some View {
