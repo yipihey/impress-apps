@@ -150,11 +150,9 @@ final class TriageWorkflowTests: XCTestCase {
         let initialCount = list.rows.count
         XCTAssertGreaterThan(initialCount, 2, "Need at least 2 papers")
 
-        // Select first two papers
+        // Select first paper, then extend selection with Shift+Down
         list.selectPublication(at: 0)
-        // Shift-click to extend selection
-        let secondRow = list.rows.element(boundBy: 1)
-        secondRow.click(forDuration: 0.1, thenDragTo: secondRow)
+        app.typeKey(.downArrow, modifierFlags: .shift)
 
         // When: I keep them
         list.keepSelected()
@@ -190,17 +188,17 @@ final class TriageWorkflowTests: XCTestCase {
         XCTAssertEqual(finalCount, initialCount - 5, "Rapid dismiss should remove papers sequentially")
     }
 
-    /// Regression: Rapid 's' key presses should save papers sequentially
-    func testRapidSaveDoesNotStall() throws {
+    /// Regression: Rapid 's' (star toggle) key presses should not stall the UI
+    func testRapidStarDoesNotStall() throws {
         sidebar.selectInbox()
         _ = list.waitForPublications()
 
         let initialCount = list.rows.count
-        guard initialCount >= 3 else { throw XCTSkip("Need at least 3 papers for rapid save test") }
+        guard initialCount >= 3 else { throw XCTSkip("Need at least 3 papers for rapid star test") }
 
         list.selectFirst()
 
-        // Rapidly press 's' three times
+        // Rapidly press 's' three times to toggle star — star does not remove from inbox
         for _ in 0..<3 {
             app.typeKey("s", modifierFlags: [])
             usleep(100_000) // 100ms
@@ -208,9 +206,9 @@ final class TriageWorkflowTests: XCTestCase {
 
         _ = app.waitForIdle(timeout: 3)
 
-        // Should have 3 fewer papers in inbox
+        // Star toggle should not change the inbox count
         let finalCount = list.rows.count
-        XCTAssertEqual(finalCount, initialCount - 3, "Rapid save should move papers sequentially")
+        XCTAssertEqual(finalCount, initialCount, "Star toggle should not remove papers from inbox")
     }
 
     /// Regression: 'S' (shift+s) should save and star the paper

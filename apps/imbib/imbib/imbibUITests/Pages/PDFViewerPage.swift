@@ -20,7 +20,7 @@ struct PDFViewerPage {
 
     /// The PDF viewer container
     var container: XCUIElement {
-        app.groups[AccessibilityID.PDFViewer.container].firstMatch
+        app.groups[AccessibilityID.Detail.PDF.viewer].firstMatch
     }
 
     /// The PDF document view
@@ -29,46 +29,46 @@ struct PDFViewerPage {
         app.scrollViews.firstMatch
     }
 
-    /// The page indicator (e.g., "Page 1 of 10")
+    /// The page indicator field
     var pageIndicator: XCUIElement {
-        app.staticTexts[AccessibilityID.PDFViewer.pageIndicator]
+        app.textFields[AccessibilityID.Detail.PDF.pageField]
     }
 
-    /// The zoom slider
-    var zoomSlider: XCUIElement {
-        app.sliders[AccessibilityID.PDFViewer.zoomSlider]
+    /// The zoom in button
+    var zoomInButton: XCUIElement {
+        app.buttons[AccessibilityID.Detail.PDF.zoomInButton]
+    }
+
+    /// The zoom out button
+    var zoomOutButton: XCUIElement {
+        app.buttons[AccessibilityID.Detail.PDF.zoomOutButton]
     }
 
     /// The search field in the PDF viewer
     var searchField: XCUIElement {
-        app.searchFields[AccessibilityID.PDFViewer.searchField]
+        app.searchFields[AccessibilityID.Detail.PDF.searchField]
     }
 
     // MARK: - Annotation Toolbar
 
     /// Highlight tool button
     var highlightButton: XCUIElement {
-        app.buttons[AccessibilityID.PDFViewer.Annotation.highlight]
+        app.buttons[AccessibilityID.Detail.PDF.highlightButton]
     }
 
     /// Underline tool button
     var underlineButton: XCUIElement {
-        app.buttons[AccessibilityID.PDFViewer.Annotation.underline]
+        app.buttons[AccessibilityID.Detail.PDF.underlineButton]
     }
 
     /// Strikethrough tool button
     var strikethroughButton: XCUIElement {
-        app.buttons[AccessibilityID.PDFViewer.Annotation.strikethrough]
+        app.buttons[AccessibilityID.Detail.PDF.strikethroughButton]
     }
 
     /// Note tool button
     var noteButton: XCUIElement {
-        app.buttons[AccessibilityID.PDFViewer.Annotation.note]
-    }
-
-    /// Color picker for annotations
-    var colorPicker: XCUIElement {
-        app.colorWells[AccessibilityID.PDFViewer.Annotation.colorPicker]
+        app.buttons[AccessibilityID.Detail.PDF.noteButton]
     }
 
     // MARK: - Visibility
@@ -301,24 +301,15 @@ struct PDFViewerPage {
 
 extension PDFViewerPage {
 
-    /// Highlight text with a specific color.
+    /// Highlight text in the PDF.
     ///
-    /// - Parameters:
-    ///   - text: Text to search and highlight
-    ///   - color: Color name (yellow, green, blue, pink, purple)
+    /// Cross-process highlighting requires UI interaction -- NotificationCenter
+    /// posts do not work between the test runner process and the app process.
+    /// Use `searchPDF(_:)` to locate text, then `selectAll()` + `highlightSelection()`
+    /// or interact via keyboard shortcuts.
     func highlightText(_ text: String, color: String = "yellow") {
-        // Search for the text first to ensure it's visible
         searchPDF(text)
-
-        // Select the text (simplified - in practice would need actual coordinates)
         selectAll()
-
-        // Apply highlight with color
-        let colorInfo = ["color": color]
-        NotificationCenter.default.post(
-            name: Notification.Name("highlightSelection"),
-            object: nil,
-            userInfo: colorInfo
-        )
+        highlightSelection()
     }
 }

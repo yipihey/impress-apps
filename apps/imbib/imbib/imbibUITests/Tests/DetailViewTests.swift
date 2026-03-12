@@ -16,8 +16,7 @@ final class DetailViewTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
+        app = TestApp.launch(with: .basic)
         sidebar = SidebarPage(app: app)
         detail = DetailPage(app: app)
     }
@@ -33,7 +32,7 @@ final class DetailViewTests: XCTestCase {
     func testAppHasMultiplePanes() throws {
         // NavigationSplitView should create multiple panes
         sidebar.selectInbox()
-        sleep(1)
+        _ = app.waitForIdle(timeout: 2)
 
         // The app should have split view structure
         XCTAssertTrue(app.windows.count > 0, "App should have windows")

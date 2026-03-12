@@ -241,15 +241,15 @@ struct LibraryCreationSheet {
     }
 
     var nameTextField: XCUIElement {
-        sheet.textFields["Library Name"]
+        sheet.textFields[AccessibilityID.Dialog.Library.nameField]
     }
 
     var createButton: XCUIElement {
-        sheet.buttons["Create"]
+        sheet.buttons[AccessibilityID.Dialog.Library.createButton]
     }
 
     var cancelButton: XCUIElement {
-        sheet.buttons["Cancel"]
+        sheet.buttons[AccessibilityID.Dialog.Library.cancelButton]
     }
 
     /// Enter library details and create

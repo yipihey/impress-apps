@@ -121,20 +121,22 @@ final class SearchWorkflowTests: XCTestCase {
 
     // MARK: - Local Filter Search Tests
 
-    /// Test filtering the publication list with Cmd+F
+    /// Test filtering the publication list via global search palette
     func testLocalFilterSearch() throws {
         // Given: Publications are displayed
         sidebar.selectInbox()
         _ = list.waitForPublications()
 
-        let initialCount = list.rows.count
+        // When: I open the global search palette and search for "1905"
+        searchPalette.open()
+        _ = searchPalette.waitForPalette()
+        searchPalette.search("1905")
 
-        // When: I filter with Cmd+F and type
-        list.search("1905")
+        // Then: Results should appear matching the year
+        XCTAssertTrue(searchPalette.waitForResults(timeout: 5), "Should find results for 1905")
+        searchPalette.assertHasResults()
 
-        // Then: The list should be filtered
-        let filteredCount = list.rows.count
-        XCTAssertLessThan(filteredCount, initialCount, "List should be filtered")
+        searchPalette.close()
     }
 
     /// Test clearing the filter
@@ -231,8 +233,8 @@ final class SearchWorkflowTests: XCTestCase {
         searchPalette.search("xyznonexistent12345")
 
         // Then: No results message should be shown
-        // Wait a bit for search to complete
-        Thread.sleep(forTimeInterval: 1)
+        // Wait for search to complete
+        _ = app.waitForIdle(timeout: 2)
 
         searchPalette.assertResultCount(0)
     }

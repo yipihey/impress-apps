@@ -295,8 +295,16 @@ final class KeyboardNavigationTests: XCTestCase {
 
     /// Test dialogs are keyboard navigable
     func testDialogsKeyboardNavigable() throws {
-        // Open a dialog (e.g., New Library)
-        app.menuItems["New Library..."].click()
+        // Open a dialog via the menu bar (must open menu first, then click item)
+        let menuBar = app.menuBars.firstMatch
+        let fileMenu = menuBar.menuBarItems["File"]
+        if fileMenu.waitForExistence(timeout: 2) {
+            fileMenu.click()
+            let newLibrary = app.menuItems["New Library..."]
+            if newLibrary.waitForExistence(timeout: 2) {
+                newLibrary.click()
+            }
+        }
 
         let dialog = app.sheets.firstMatch
         if dialog.waitForExistence(timeout: 2) {

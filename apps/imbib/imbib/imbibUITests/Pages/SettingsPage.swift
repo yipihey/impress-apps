@@ -111,7 +111,7 @@ struct SettingsPage {
 
     /// The default library picker
     var defaultLibraryPicker: XCUIElement {
-        window.popUpButtons["Default Library"]
+        window.popUpButtons[AccessibilityID.Settings.General.defaultLibraryPicker]
     }
 
     /// Select a default library
@@ -125,7 +125,7 @@ struct SettingsPage {
 
     /// The ADS API key text field
     var adsAPIKeyField: XCUIElement {
-        window.secureTextFields["ADS API Key"]
+        window.secureTextFields[AccessibilityID.Settings.Sources.apiKeyField("ads")]
     }
 
     /// Enter ADS API key
@@ -155,7 +155,7 @@ struct SettingsPage {
 
     /// The theme picker (Light/Dark/System)
     var themePicker: XCUIElement {
-        window.popUpButtons["Theme"]
+        window.popUpButtons[AccessibilityID.Settings.Appearance.themePicker]
     }
 
     /// Select a theme
@@ -165,15 +165,19 @@ struct SettingsPage {
         app.menuItems[theme].click()
     }
 
-    /// The font size slider
-    var fontSizeSlider: XCUIElement {
-        window.sliders["Font Size"]
+    /// The font size stepper
+    var fontSizeStepper: XCUIElement {
+        window.steppers[AccessibilityID.Settings.Appearance.fontSizeStepper]
     }
 
-    /// Adjust font size
-    func setFontSize(_ value: Double) {
+    /// Adjust font size by incrementing or decrementing the stepper
+    func setFontSize(increment: Bool) {
         selectAppearanceTab()
-        fontSizeSlider.adjust(toNormalizedSliderPosition: CGFloat(value))
+        if increment {
+            fontSizeStepper.buttons["Increment"].click()
+        } else {
+            fontSizeStepper.buttons["Decrement"].click()
+        }
     }
 
     // MARK: - Assertions

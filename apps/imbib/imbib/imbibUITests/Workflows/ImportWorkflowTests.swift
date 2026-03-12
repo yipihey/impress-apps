@@ -20,7 +20,7 @@ final class ImportWorkflowTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = TestApp.launch(resetState: true, mockServices: true)
+        app = TestApp.launch(with: .basic)
         sidebar = SidebarPage(app: app)
         list = PublicationListPage(app: app)
         detail = DetailViewPage(app: app)

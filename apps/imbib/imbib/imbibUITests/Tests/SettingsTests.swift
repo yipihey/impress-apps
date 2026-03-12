@@ -14,8 +14,7 @@ final class SettingsTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
+        app = TestApp.launch()
         settings = SettingsPage(app: app)
     }
 
@@ -31,7 +30,7 @@ final class SettingsTests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
 
         // Wait for settings to appear
-        sleep(1)
+        _ = settings.waitForWindow(timeout: 2)
 
         // Check if a new window appeared
         return app.windows.count > 1
@@ -57,7 +56,7 @@ final class SettingsTests: XCTestCase {
         }
 
         // Wait for settings to load
-        sleep(1)
+        _ = settings.waitForWindow(timeout: 2)
 
         // Look for tab views or toolbar items in settings
         if settings.tabView.waitForExistence(timeout: 3) {

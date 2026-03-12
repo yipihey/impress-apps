@@ -32,96 +32,91 @@ struct DetailViewPage {
 
     /// PDF tab button
     var pdfTab: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Tab.pdf]
+        app.buttons[AccessibilityID.Detail.Tabs.pdf]
     }
 
     /// BibTeX tab button
     var bibtexTab: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Tab.bibtex]
+        app.buttons[AccessibilityID.Detail.Tabs.bibtex]
     }
 
     /// Notes tab button
     var notesTab: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Tab.notes]
+        app.buttons[AccessibilityID.Detail.Tabs.notes]
     }
 
     /// Info tab button
     var infoTab: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Tab.info]
+        app.buttons[AccessibilityID.Detail.Tabs.info]
     }
 
-    /// Related tab button
+    /// References tab button
     var relatedTab: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Tab.related]
+        app.buttons[AccessibilityID.Detail.Tabs.references]
     }
 
     // MARK: - Metadata Fields
 
     /// Title field
     var titleField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.title]
+        app.staticTexts[AccessibilityID.Detail.Info.titleField]
     }
 
     /// Authors field
     var authorsField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.authors]
+        app.staticTexts[AccessibilityID.Detail.Info.authorsField]
     }
 
     /// Year field
     var yearField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.year]
+        app.staticTexts[AccessibilityID.Detail.Info.yearField]
     }
 
     /// Journal field
     var journalField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.journal]
+        app.staticTexts[AccessibilityID.Detail.Info.journalField]
     }
 
     /// Abstract field
     var abstractField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.abstract]
+        app.staticTexts[AccessibilityID.Detail.Info.abstractField]
     }
 
     /// DOI field
     var doiField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.doi]
-    }
-
-    /// Cite key field
-    var citeKeyField: XCUIElement {
-        app.staticTexts[AccessibilityID.Detail.Field.citeKey]
+        app.staticTexts[AccessibilityID.Detail.Info.doiField]
     }
 
     // MARK: - Action Buttons
 
     /// Open PDF button
     var openPDFButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.openPDF]
+        app.buttons[AccessibilityID.Detail.Info.openPDFButton]
     }
 
     /// Download PDF button
     var downloadPDFButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.downloadPDF]
+        app.buttons[AccessibilityID.Detail.Info.downloadPDFButton]
     }
 
     /// Copy DOI button
     var copyDOIButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.copyDOI]
+        app.buttons[AccessibilityID.Detail.Info.doiCopyButton]
     }
 
     /// Open URL button
     var openURLButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.openURL]
+        app.buttons[AccessibilityID.Detail.Info.doiOpenButton]
     }
 
     /// Edit button
     var editButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.edit]
+        app.buttons["Edit"]
     }
 
     /// Delete button
     var deleteButton: XCUIElement {
-        app.buttons[AccessibilityID.Detail.Action.delete]
+        app.buttons["Delete"]
     }
 
     // MARK: - Wait Methods
@@ -129,9 +124,7 @@ struct DetailViewPage {
     /// Wait for the detail view to be visible
     @discardableResult
     func waitForDetailView(timeout: TimeInterval = 5) -> Bool {
-        // Either we see the empty state or a publication
-        let hasContent = !emptyState.exists || titleField.exists
-        return hasContent
+        return emptyState.waitForExistence(timeout: timeout) || titleField.waitForExistence(timeout: timeout)
     }
 
     /// Wait for a publication to be displayed
