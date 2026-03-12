@@ -211,6 +211,7 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - Prefer `async/await` over Combine
 - Domain errors conform to `LocalizedError`
 - **Naming**: Protocols `*ing`/`*able`, implementations no suffix, view models `*ViewModel`
+- **Regression prevention**: When optimizing or adding new code paths, check the "Critical Invariants" section in the relevant app's CLAUDE.md for constraints the old code enforced implicitly. When fixing bugs, document the violated invariant there.
 
 ## Swift Concurrency & SwiftUI Pitfalls
 

@@ -201,6 +201,10 @@ UnifiedPublicationListWrapper(source: source, ...).id(source.id)
 
 Without `.id()`, NavigationSplitView caches the `detail:` closure and `let` properties of child views go stale — switching between sidebar items with the same view type (e.g., Red → Grey flags) won't update the content.
 
+### Critical Invariants
+
+**Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
+
 ### macOS SwiftUI Form Gotchas
 
 - `TextField` inside `HStack` inside `Form` `.formStyle(.grouped)` can have broken hit-testing. Use `LabeledContent` rows instead.

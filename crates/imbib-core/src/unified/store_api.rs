@@ -552,6 +552,10 @@ impl ImbibStore {
                 });
 
             if let Some(id) = existing_id {
+                if filter_dismissed && is_input_dismissed(result, &dismissed_ids) {
+                    dismissed_count += 1;
+                    continue;
+                }
                 existing_ids.push(id.clone());
                 continue;
             }
@@ -4650,6 +4654,75 @@ mod tests {
         assert_eq!(result.existing_ids.len(), 0);
         assert_eq!(result.imported_ids.len(), 1);
         assert_eq!(result.dismissed_count, 1);
+    }
+
+    #[test]
+    fn batch_import_filters_dismissed_existing_paper() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+
+        // First import a paper normally
+        let results = vec![SearchResultInput {
+            bibtex: r#"@article{X, title={Will Be Dismissed}, doi={10.1234/dismissed}}"#.into(),
+            doi: Some("10.1234/dismissed".into()),
+            arxiv_id: None,
+            bibcode: None,
+        }];
+        let first = store
+            .batch_import_search_results(results, lib.id.clone(), false)
+            .unwrap();
+        assert_eq!(first.imported_ids.len(), 1);
+
+        // Now dismiss it
+        store
+            .dismiss_paper(Some("10.1234/dismissed".into()), None, None, None)
+            .unwrap();
+
+        // Re-import with filter_dismissed: true — should be filtered, not returned as existing
+        let results2 = vec![SearchResultInput {
+            bibtex: r#"@article{X, title={Will Be Dismissed}, doi={10.1234/dismissed}}"#.into(),
+            doi: Some("10.1234/dismissed".into()),
+            arxiv_id: None,
+            bibcode: None,
+        }];
+        let second = store
+            .batch_import_search_results(results2, lib.id.clone(), true)
+            .unwrap();
+        assert_eq!(second.existing_ids.len(), 0, "dismissed paper must not appear in existing_ids");
+        assert_eq!(second.dismissed_count, 1);
+        assert_eq!(second.imported_ids.len(), 0);
+    }
+
+    #[test]
+    fn batch_import_existing_not_dismissed_still_returned() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+
+        // Import a paper
+        let results = vec![SearchResultInput {
+            bibtex: r#"@article{Y, title={Keep This}, doi={10.1234/keep}}"#.into(),
+            doi: Some("10.1234/keep".into()),
+            arxiv_id: None,
+            bibcode: None,
+        }];
+        let first = store
+            .batch_import_search_results(results, lib.id.clone(), false)
+            .unwrap();
+        assert_eq!(first.imported_ids.len(), 1);
+
+        // Re-import with filter_dismissed: true — should still appear as existing
+        let results2 = vec![SearchResultInput {
+            bibtex: r#"@article{Y, title={Keep This}, doi={10.1234/keep}}"#.into(),
+            doi: Some("10.1234/keep".into()),
+            arxiv_id: None,
+            bibcode: None,
+        }];
+        let second = store
+            .batch_import_search_results(results2, lib.id.clone(), true)
+            .unwrap();
+        assert_eq!(second.existing_ids.len(), 1, "non-dismissed existing paper must be returned");
+        assert_eq!(second.dismissed_count, 0);
+        assert_eq!(second.imported_ids.len(), 0);
     }
 
     #[test]
