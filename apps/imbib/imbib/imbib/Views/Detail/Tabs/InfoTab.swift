@@ -389,6 +389,7 @@ struct InfoTab: View {
     // MARK: - Flag & Tags Section
 
     /// Displays flag stripe and tags using ImpressFTUI components.
+    /// Tag chips are clickable — tapping one activates the filter bar with `tags:{path}`.
     @ViewBuilder
     private func flagAndTagsSection(_ pub: PublicationModel) -> some View {
         let sortedTags = pub.tags.sorted { $0.path < $1.path }
@@ -409,7 +410,16 @@ struct InfoTab: View {
                 if hasTags {
                     FlowLayout(spacing: 4) {
                         ForEach(sortedTags, id: \.id) { tag in
-                            TagChip(tag: tag)
+                            TagChip(tag: tag, pathStyle: .full)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    NotificationCenter.default.post(
+                                        name: .activateFilterWithTag,
+                                        object: nil,
+                                        userInfo: ["tagPath": tag.path]
+                                    )
+                                }
+                                .help("Click to filter by tags:\(tag.path)")
                         }
                     }
                 }

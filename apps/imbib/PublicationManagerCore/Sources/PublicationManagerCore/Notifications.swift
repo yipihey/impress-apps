@@ -443,6 +443,14 @@ public extension Notification.Name {
     /// Activate the filter input (⇧⌘F or /)
     static let activateFilter = Notification.Name("activateFilter")
 
+    /// Activate filter with a specific tag path pre-filled (from clickable tag chips)
+    ///
+    /// userInfo:
+    /// - `tagPath`: String — the full tag path (e.g., "ai/field/cosmology")
+    ///
+    /// If a filter is already active, the tag query is appended (progressive narrowing).
+    static let activateFilterWithTag = Notification.Name("activateFilterWithTag")
+
     // MARK: - Help
 
     /// Show the help browser window (⌘?)

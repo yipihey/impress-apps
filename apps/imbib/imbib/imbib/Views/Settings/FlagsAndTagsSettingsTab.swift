@@ -16,6 +16,10 @@ struct FlagsAndTagsSettingsTab: View {
     @State private var isLoading = true
     @State private var tagTree: String = ""
 
+    // Auto-tag settings
+    @State private var autoTagSettings = AutoTagSettings()
+    @State private var isAutoTagLoading = true
+
     // Tag alias state
     @State private var newAliasName = ""
     @State private var newAliasPath = ""
@@ -89,6 +93,44 @@ struct FlagsAndTagsSettingsTab: View {
                 }
             }
 
+            Section("AI Auto-Tagging") {
+                Toggle("Enable auto-tagging after enrichment", isOn: $autoTagSettings.enabled)
+                    .help("Automatically classify and tag papers using Apple Intelligence after ADS enrichment")
+
+                if autoTagSettings.enabled {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Confidence threshold")
+                            Slider(
+                                value: $autoTagSettings.confidenceThreshold,
+                                in: 0.5...1.0,
+                                step: 0.05
+                            )
+                            .frame(maxWidth: 180)
+                            Text("\(Int(autoTagSettings.confidenceThreshold * 100))%")
+                                .font(.system(.body, design: .monospaced))
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        Text("Only apply tags when the model's confidence exceeds this threshold.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Toggle("Field classification (ai/field/…)", isOn: $autoTagSettings.includeFieldTag)
+                        .help("Tag the paper's research sub-field (e.g., ai/field/cosmology)")
+
+                    Toggle("Paper type (ai/type/…)", isOn: $autoTagSettings.includeTypeTag)
+                        .help("Tag the paper's contribution type (e.g., ai/type/review)")
+
+                    Toggle("Topic keywords (ai/topic/…)", isOn: $autoTagSettings.includeTopicTags)
+                        .help("Tag specific topics and methods (e.g., ai/topic/dark-energy)")
+                }
+
+                Text("Requires Apple Intelligence (macOS 26+). Tags are organized under `ai/field/`, `ai/type/`, and `ai/topic/` in the tag hierarchy.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Tag Hierarchy") {
                 if tagTree.isEmpty {
                     Text("No tags defined yet.")
@@ -111,6 +153,8 @@ struct FlagsAndTagsSettingsTab: View {
                     filterSyntaxRow("flag:*", "Any flagged paper")
                     filterSyntaxRow("-flag:*", "Unflagged papers")
                     filterSyntaxRow("tags:methods", "Papers tagged methods (or children)")
+                    filterSyntaxRow("tags:ai/field/cosmology", "AI-classified cosmology papers")
+                    filterSyntaxRow("tags:ai/topic/dark-energy", "AI topic tag match")
                     filterSyntaxRow("tags:a+b", "Papers with both tags")
                     filterSyntaxRow("unread", "Unread papers")
                     filterSyntaxRow("\"dark matter\"", "Exact phrase search")
@@ -132,13 +176,21 @@ struct FlagsAndTagsSettingsTab: View {
         .padding(.horizontal)
         .task {
             settings = await ListViewSettingsStore.shared.settings
+            autoTagSettings = await AutoTagSettingsStore.shared.settings
             tagTree = await TagManagementService.shared.tagTree()
             isLoading = false
+            isAutoTagLoading = false
         }
         .onChange(of: settings) { _, newSettings in
             guard !isLoading else { return }
             Task {
                 await ListViewSettingsStore.shared.update(newSettings)
+            }
+        }
+        .onChange(of: autoTagSettings) { _, newSettings in
+            guard !isAutoTagLoading else { return }
+            Task {
+                await AutoTagSettingsStore.shared.update(newSettings)
             }
         }
     }

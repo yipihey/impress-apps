@@ -333,7 +333,13 @@ extension EnrichmentCoordinator {
     /// After enrichment, classify newly-enriched papers and apply suggested tags.
     ///
     /// Only fires when Apple Intelligence is available (macOS 26+). Skips papers
-    /// that already have tags, and only applies classification with confidence ≥ 0.7.
+    /// that already have tags, and only applies classification with confidence above
+    /// the user's configured threshold.
+    ///
+    /// Tags are organized into a three-tier hierarchy under `ai/`:
+    /// - `ai/field/{value}` — research sub-field (e.g., cosmology, stellar)
+    /// - `ai/type/{value}` — paper type (e.g., review, empirical) — off by default
+    /// - `ai/topic/{value}` — specific topic keywords (e.g., dark-energy)
     ///
     /// All LLM classification runs off MainActor, then all tag mutations are applied
     /// in a single batched MainActor hop to avoid per-paper UI rebuilds.
@@ -341,6 +347,13 @@ extension EnrichmentCoordinator {
     func classifyAndTagAfterEnrichment(
         results: [(UUID, EnrichmentResult)]
     ) async {
+        // Load user settings
+        let autoTagSettings = await AutoTagSettingsStore.shared.settings
+        guard autoTagSettings.enabled else {
+            Logger.enrichment.debug("Auto-tagging disabled in settings, skipping")
+            return
+        }
+
         let service = FoundationModelsService.shared
         guard await service.isAvailable else { return }
 
@@ -373,7 +386,14 @@ extension EnrichmentCoordinator {
         guard !tagCandidates.isEmpty else { return }
 
         // Phase 2: Classify all papers off MainActor (LLM calls)
-        var tagPlan: [(pubID: UUID, title: String, tags: [String])] = []
+        struct TagPlanEntry: Sendable {
+            let pubID: UUID
+            let title: String
+            let tags: [String]  // full paths like "ai/field/cosmology"
+        }
+
+        var tagPlan: [TagPlanEntry] = []
+        let threshold = autoTagSettings.confidenceThreshold
 
         for candidate in tagCandidates {
             guard !Task.isCancelled else { break }
@@ -383,18 +403,42 @@ extension EnrichmentCoordinator {
                 abstract: candidate.abstract
             ) else { continue }
 
-            guard classification.confidence >= 0.7 else {
+            guard classification.confidence >= threshold else {
                 Logger.enrichment.debug(
-                    "Auto-tag skipped '\(candidate.title.prefix(40))': low confidence \(classification.confidence, format: .fixed(precision: 2))"
+                    "Auto-tag skipped '\(candidate.title.prefix(40))': confidence \(classification.confidence, format: .fixed(precision: 2)) < threshold \(threshold, format: .fixed(precision: 2))"
                 )
                 continue
             }
 
-            let tags = ([classification.field, classification.paperType] + classification.tags)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
+            // Build three-tier tag paths based on settings
+            var tags: [String] = []
 
-            tagPlan.append((pubID: candidate.pubID, title: candidate.title, tags: tags))
+            if autoTagSettings.includeFieldTag {
+                let field = TagPathNormalizer.normalize(classification.field)
+                if !field.isEmpty {
+                    tags.append("ai/field/\(field)")
+                }
+            }
+
+            if autoTagSettings.includeTypeTag {
+                let paperType = TagPathNormalizer.normalize(classification.paperType)
+                if !paperType.isEmpty {
+                    tags.append("ai/type/\(paperType)")
+                }
+            }
+
+            if autoTagSettings.includeTopicTags {
+                for keyword in classification.tags {
+                    let normalized = TagPathNormalizer.normalize(keyword)
+                    if !normalized.isEmpty {
+                        tags.append("ai/topic/\(normalized)")
+                    }
+                }
+            }
+
+            if !tags.isEmpty {
+                tagPlan.append(TagPlanEntry(pubID: candidate.pubID, title: candidate.title, tags: tags))
+            }
         }
 
         guard !tagPlan.isEmpty else { return }
@@ -404,9 +448,9 @@ extension EnrichmentCoordinator {
             let store = RustStoreAdapter.shared
             store.beginBatchMutation()
             for entry in tagPlan {
-                for tag in entry.tags {
-                    store.createTag(path: "ai/\(tag)")
-                    store.addTag(ids: [entry.pubID], tagPath: "ai/\(tag)")
+                for tagPath in entry.tags {
+                    store.createTag(path: tagPath)
+                    store.addTag(ids: [entry.pubID], tagPath: tagPath)
                 }
             }
             store.endBatchMutation()

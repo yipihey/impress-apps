@@ -33,12 +33,12 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "foundationMod
 @Generable
 public struct PaperClassification {
     @Guide(
-        description: "Primary research discipline of this paper",
+        description: "Primary research sub-field of this paper",
         .anyOf([
-            "machine learning", "artificial intelligence", "computer vision",
-            "natural language processing", "robotics", "systems",
-            "astrophysics", "physics", "chemistry", "biology", "medicine",
-            "mathematics", "statistics", "social science", "economics", "other"
+            "cosmology", "stellar", "galactic", "extragalactic", "planetary",
+            "high-energy", "gravitational-waves", "instrumentation", "solar",
+            "astro-informatics", "theoretical-physics", "particle-physics",
+            "fluid-dynamics", "statistics", "machine-learning", "other"
         ])
     )
     public var field: String
@@ -55,7 +55,7 @@ public struct PaperClassification {
     )
     public var confidence: Double
 
-    @Guide(description: "2 to 4 specific lowercase keyword tags describing the paper's topic and methods")
+    @Guide(description: "2 to 4 specific lowercase hyphenated keyword tags describing the paper's topic and methods (use hyphens not spaces, e.g. dark-energy not dark energy)")
     public var tags: [String]
 }
 
@@ -131,7 +131,9 @@ public actor FoundationModelsService {
 
         let abstractText = abstract.map { "Abstract: \($0)" } ?? "(no abstract available)"
         let prompt = """
-        Classify this research paper.
+        Classify this scientific research paper. The bibliography is primarily astrophysics \
+        and physics papers — choose the most specific sub-field that applies. \
+        Use hyphenated keywords (e.g. dark-energy, not dark energy).
 
         Title: \(title)
         \(abstractText)

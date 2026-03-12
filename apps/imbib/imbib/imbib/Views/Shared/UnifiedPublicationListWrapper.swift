@@ -517,6 +517,10 @@ struct UnifiedPublicationListWrapper: View {
             .onReceive(NotificationCenter.default.publisher(for: .activateFilter)) { _ in
                 _ = handleFilterKey()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .activateFilterWithTag)) { notification in
+                guard let tagPath = notification.userInfo?["tagPath"] as? String else { return }
+                handleActivateFilterWithTag(tagPath)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .pdfImportCompleted)) { notification in
                 // Handle PDF import completion: select imported publications, scroll to them, and show PDF viewer
                 guard let importedIDs = notification.object as? [UUID], !importedIDs.isEmpty else { return }
@@ -1534,6 +1538,29 @@ struct UnifiedPublicationListWrapper: View {
             isFilterActive = true
         }
         return .handled
+    }
+
+    /// Handle clicking a tag chip in the detail view: activate filter with tag query.
+    ///
+    /// If no filter is active, starts a new filter with `tags:{path}`.
+    /// If a filter is already active, appends ` tags:{path}` for progressive narrowing.
+    private func handleActivateFilterWithTag(_ tagPath: String) {
+        let tagQuery = "tags:\(tagPath)"
+
+        if let existingFilter = activeFilter, !existingFilter.isEmpty {
+            // Append to existing filter text (progressive narrowing)
+            let newText = filterText.isEmpty ? tagQuery : "\(filterText) \(tagQuery)"
+            filterText = newText
+            applyFilterText(newText)
+        } else {
+            // Start new filter
+            filterText = tagQuery
+            applyFilterText(tagQuery)
+        }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isFilterActive = true
+        }
     }
 
     /// Apply filter text to the publication list (called live as user types)

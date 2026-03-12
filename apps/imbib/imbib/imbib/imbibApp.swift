@@ -395,6 +395,11 @@ struct imbibApp: App {
                 appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
             }
 
+            // Migrate flat ai/ tags to three-tier hierarchy (one-time, fast)
+            await MainActor.run {
+                AITagMigrator.migrateIfNeeded()
+            }
+
             // Run FTS init and source registration IN PARALLEL.
             // Previously FTS rebuild (3+ min for 4000 pubs) blocked source registration,
             // InboxCoordinator, SmartSearchRefreshService, and HTTP server startup.
