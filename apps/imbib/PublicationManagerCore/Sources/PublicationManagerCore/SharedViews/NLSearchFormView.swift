@@ -110,15 +110,9 @@ public struct NLSearchFormView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if NLSearchService.isAvailable {
-                Label("Powered by on-device Apple Intelligence", systemImage: "apple.intelligence")
-                    .font(.caption)
-                    .foregroundStyle(.blue)
-            } else {
-                Label("Smart keyword search", systemImage: "text.magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Label("Smart keyword search", systemImage: "text.magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -569,15 +563,9 @@ public struct NLSearchFormView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    if NLSearchService.isAvailable {
-                        Label("Powered by on-device Apple Intelligence", systemImage: "apple.intelligence")
-                            .font(.caption)
-                            .foregroundStyle(.blue)
-                    } else {
-                        Label("Smart keyword search", systemImage: "text.magnifyingglass")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Label("Smart keyword search", systemImage: "text.magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
