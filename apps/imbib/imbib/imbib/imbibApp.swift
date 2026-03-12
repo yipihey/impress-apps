@@ -14,9 +14,6 @@ import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
 import ImpressSpotlight
-#if canImport(FoundationModels)
-import FoundationModels
-#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -517,16 +514,6 @@ struct imbibApp: App {
                         }
                     }
 
-                    // Prewarm Foundation Models session after startup grace period
-                    #if canImport(FoundationModels)
-                    if #available(macOS 26, iOS 26, *) {
-                        Task.detached { [nlSearchService] in
-                            try? await Task.sleep(for: .seconds(90))
-                            guard !Task.isCancelled else { return }
-                            nlSearchService.prewarm()
-                        }
-                    }
-                    #endif
                 }
                 .onAppear {
                     ensureMainWindowVisible()

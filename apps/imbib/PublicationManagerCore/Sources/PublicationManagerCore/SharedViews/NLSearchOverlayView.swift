@@ -2,7 +2,7 @@
 //  NLSearchOverlayView.swift
 //  PublicationManagerCore
 //
-//  Spotlight-like overlay for natural language search powered by Apple Foundation Models.
+//  Spotlight-like overlay for natural language search.
 //  Translates plain English into ADS/SciX queries for review and execution.
 //
 
@@ -14,7 +14,7 @@ import OSLog
 // MARK: - NL Search Overlay View
 
 /// A Spotlight-style overlay that accepts natural language search descriptions
-/// and translates them into ADS query syntax using the on-device Foundation Model.
+/// and translates them into ADS query syntax using deterministic pattern matching.
 /// The user reviews the translated query and presses Enter/Search to execute.
 ///
 /// Triggered by Cmd+S. Results appear in the Exploration section of the sidebar,
@@ -143,15 +143,9 @@ public struct NLSearchOverlayView: View {
 
             Spacer()
 
-            if NLSearchService.isAvailable {
-                Label("On-Device AI", systemImage: "apple.intelligence")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Label("Smart Search", systemImage: "text.magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Label("Smart Search", systemImage: "text.magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Button {
                 showHelp.toggle()
@@ -184,9 +178,7 @@ public struct NLSearchOverlayView: View {
                 .foregroundStyle(.tertiary)
 
             TextField(
-                NLSearchService.isAvailable
-                    ? "Describe what you're looking for..."
-                    : "by Abel 2020  ·  dark matter refereed  ·  doi:…",
+                "dark energy by Riess since 2020  ·  CMB refereed  ·  doi:…",
                 text: $inputText
             )
             .textFieldStyle(.plain)
@@ -260,6 +252,15 @@ public struct NLSearchOverlayView: View {
             .toggleStyle(.checkbox)
             .controlSize(.mini)
 
+            // Synonym expansion toggle
+            Toggle(isOn: $service.expandSynonyms) {
+                Text("Expand synonyms")
+                    .font(.caption2)
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.mini)
+            .help("Expand topic words with astronomy synonyms (e.g., CMB → cosmic microwave background)")
+
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -327,22 +328,10 @@ public struct NLSearchOverlayView: View {
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
                 nlHelpRow("papers on dark energy by Riess since 2020", "topic + author + year")
-                nlHelpRow("galaxy rotation curves in the 1970s", "topic + decade")
-                nlHelpRow("what cites the original LIGO paper", "citation lookup")
-                nlHelpRow("recent JWST observations, refereed", "recency + filter")
-            }
-
-            Divider()
-                .padding(.vertical, 2)
-
-            Text("Refinement (after translation)")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(.primary.opacity(0.7))
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
-                nlHelpRow("narrow to refereed only", "add constraints")
-                nlHelpRow("also include Perlmutter", "expand authors")
-                nlHelpRow("limit to 2020-2024", "adjust year range")
+                nlHelpRow("galaxy rotation curves 1970s", "topic + decade")
+                nlHelpRow("recent JWST observations refereed", "recency + filter")
+                nlHelpRow("2301.12345", "arXiv lookup")
+                nlHelpRow("10.1038/s41550-023-01234-5", "DOI lookup")
             }
 
             Divider()
@@ -433,7 +422,7 @@ public struct NLSearchOverlayView: View {
         VStack(spacing: 8) {
             ProgressView()
                 .controlSize(.regular)
-            Text("Translating to ADS query...")
+            Text("Building query...")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -494,16 +483,9 @@ public struct NLSearchOverlayView: View {
             .background(Color.blue.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            // Conversation hint
-            if nlService.conversationTurnCount > 0 {
-                Text("Type to refine: \"narrow to refereed\" or \"also by Perlmutter\"")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            } else {
-                Text("Press Enter to search, or edit the query above")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            Text("Press Enter to search, or edit the query above")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

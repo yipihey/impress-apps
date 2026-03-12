@@ -180,7 +180,7 @@ public enum VagueMemoryQueryBuilder {
     }
 
     /// Find synonyms for a phrase (case-insensitive).
-    private static func findSynonyms(for phrase: String) -> [String]? {
+    public static func findSynonyms(for phrase: String) -> [String]? {
         let lowercased = phrase.lowercased()
 
         // Direct match
