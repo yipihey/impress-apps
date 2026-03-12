@@ -146,9 +146,11 @@ public enum SmartQueryTranslator {
     }
 
     private static func parseNaturalLanguage(_ text: String, expandSynonyms: Bool) -> ParsedQuery {
-        let words = text.lowercased()
+        // Keep original-case words for topic output; use lowercased for keyword matching
+        let originalWords = text
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
+        let words = originalWords.map { $0.lowercased() }
 
         var queryParts: [String] = []
         var i = 0
@@ -200,9 +202,10 @@ public enum SmartQueryTranslator {
                 continue
             }
 
-            // Decade: "1970s" → year:1968-1982
+            // Decade: "1970s" → year:1968-1982 (only 1900s-2090s)
             if let decadeMatch = word.firstMatch(of: #/^(\d{4})s$/#) {
-                if let decadeStart = Int(String(decadeMatch.output.1)) {
+                if let decadeStart = Int(String(decadeMatch.output.1)),
+                   (1900...2090).contains(decadeStart) {
                     let bufferedStart = decadeStart - 2
                     let bufferedEnd = decadeStart + 12
                     queryParts.append("year:\(bufferedStart)-\(bufferedEnd)")
@@ -263,8 +266,8 @@ public enum SmartQueryTranslator {
                 continue
             }
 
-            // Collect consecutive topic words
-            var topicWords: [String] = [word]
+            // Collect consecutive topic words (use original casing)
+            var topicWords: [String] = [originalWords[i]]
             while i + 1 < words.count {
                 let next = words[i + 1]
                 if skipWords.contains(next) || Int(next) != nil || stopAtWords.contains(next) {
@@ -282,7 +285,7 @@ public enum SmartQueryTranslator {
                     break
                 }
                 i += 1
-                topicWords.append(next)
+                topicWords.append(originalWords[i])
             }
 
             let topicPhrase = topicWords.joined(separator: " ")
@@ -336,20 +339,30 @@ public enum SmartQueryTranslator {
     public static func describeQuery(_ query: String) -> String {
         var parts: [String] = []
 
-        // Extract authors
+        // Extract all authors
         let authorPattern = #"(?:first_)?author:"([^"]+)""#
-        if let regex = try? NSRegularExpression(pattern: authorPattern),
-           let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
-           let range = Range(match.range(at: 1), in: query) {
-            parts.append("by \(query[range])")
+        if let regex = try? NSRegularExpression(pattern: authorPattern) {
+            let matches = regex.matches(in: query, range: NSRange(query.startIndex..., in: query))
+            let authors = matches.compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: query) else { return nil }
+                return String(query[range])
+            }
+            if !authors.isEmpty {
+                parts.append("by \(authors.joined(separator: " & "))")
+            }
         }
 
-        // Extract topic from abs:
+        // Extract all topics from abs:
         let absPattern = #"abs:"([^"]+)""#
-        if let regex = try? NSRegularExpression(pattern: absPattern),
-           let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
-           let range = Range(match.range(at: 1), in: query) {
-            parts.append("about \(query[range])")
+        if let regex = try? NSRegularExpression(pattern: absPattern) {
+            let matches = regex.matches(in: query, range: NSRange(query.startIndex..., in: query))
+            let topics = matches.compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: query) else { return nil }
+                return String(query[range])
+            }
+            if !topics.isEmpty {
+                parts.append("about \(topics.joined(separator: ", "))")
+            }
         }
 
         // Extract topic from title: (for synonym-expanded queries)
@@ -414,9 +427,15 @@ public enum SmartQueryTranslator {
 
     private static func normalizedResult(query: String, interpretation: String) -> Result {
         let normalized = ADSQueryNormalizer.normalize(query)
+        let finalInterpretation: String
+        if normalized.wasModified {
+            finalInterpretation = ([interpretation] + normalized.corrections).joined(separator: " · ")
+        } else {
+            finalInterpretation = interpretation
+        }
         return Result(
             query: normalized.correctedQuery,
-            interpretation: interpretation
+            interpretation: finalInterpretation
         )
     }
 }

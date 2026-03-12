@@ -14,9 +14,6 @@ import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
 import ImpressSpotlight
-#if canImport(FoundationModels)
-import FoundationModels
-#endif
 #if os(macOS)
 import AppKit
 #endif

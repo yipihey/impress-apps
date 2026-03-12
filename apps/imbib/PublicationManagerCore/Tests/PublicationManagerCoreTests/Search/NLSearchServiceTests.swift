@@ -174,7 +174,8 @@ final class NLSearchServiceTests: XCTestCase {
         service.expandSynonyms = false
         let query = await service.translate("CMB")
         XCTAssertNotNil(query)
-        XCTAssertTrue(query!.contains("abs:\"cmb\"") || query!.contains("abs:\"CMB\""))
+        // Original casing preserved
+        XCTAssertTrue(query!.contains("abs:\"CMB\""))
     }
 
     // MARK: - Refereed Filter
@@ -217,26 +218,11 @@ final class NLSearchServiceTests: XCTestCase {
         XCTAssertEqual(service.lastInterpretation, "")
         XCTAssertNil(service.lastResultType)
         XCTAssertNil(service.estimatedCount)
-        XCTAssertEqual(service.conversationTurnCount, 0)
     }
 
     func testTranslate_updatesLastInput() async {
         _ = await service.translate("author:\"Einstein\"")
         XCTAssertEqual(service.lastNaturalLanguageInput, "author:\"Einstein\"")
-    }
-
-    func testTranslate_incrementsTurnCount() async {
-        XCTAssertEqual(service.conversationTurnCount, 0)
-        _ = await service.translate("author:\"Einstein\"")
-        XCTAssertEqual(service.conversationTurnCount, 1)
-    }
-
-    func testStartNewConversation_resetsTurnCount() async {
-        _ = await service.translate("author:\"Einstein\"")
-        XCTAssertEqual(service.conversationTurnCount, 1)
-
-        service.startNewConversation()
-        XCTAssertEqual(service.conversationTurnCount, 0)
     }
 
     func testMarkSearching_updatesState() {

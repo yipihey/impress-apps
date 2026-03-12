@@ -35,8 +35,6 @@ public enum NLSearchState: Sendable, Equatable {
 public enum NLSearchResultType: Sendable, Equatable {
     /// A standard ADS query search
     case querySearch(query: String)
-    /// A bibcode-based operation (citations, references, similar, coreads)
-    case bibcodeOperation(bibcodes: [String], operation: String, sourceBibcode: String)
 }
 
 // MARK: - NL Search Service
@@ -55,9 +53,6 @@ public final class NLSearchService {
     public private(set) var lastInterpretation: String = ""
     public private(set) var lastResultType: NLSearchResultType?
     public private(set) var estimatedCount: UInt32?
-
-    /// Number of turns in the current conversation (for state tracking)
-    public private(set) var conversationTurnCount: Int = 0
 
     /// User-configurable max results (passed through to search pipeline)
     public var maxResults: Int = 0
@@ -121,7 +116,6 @@ public final class NLSearchService {
         lastGeneratedQuery = finalQuery
         lastInterpretation = interpretation
         lastResultType = .querySearch(query: finalQuery)
-        conversationTurnCount += 1
 
         Logger.viewModels.infoCapture(
             "NLSearch: translated to '\(finalQuery)' — \(interpretation)",
@@ -172,12 +166,11 @@ public final class NLSearchService {
         lastInterpretation = ""
         lastResultType = nil
         estimatedCount = nil
-        conversationTurnCount = 0
     }
 
-    /// Start a new conversation while preserving the last results.
+    /// Called when the overlay closes — preserves last results.
     public func startNewConversation() {
-        conversationTurnCount = 0
+        // No-op: kept for NLSearchOverlayView.onDisappear compatibility
     }
 
     /// Update state to indicate search is executing

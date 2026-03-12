@@ -177,7 +177,8 @@ final class SmartQueryTranslatorTests: XCTestCase {
     func testTranslate_noSynonymsByDefault() {
         let result = SmartQueryTranslator.translate("CMB")
         XCTAssertNotNil(result)
-        // Should just be abs:"cmb", no synonym expansion
+        // Original casing preserved, no synonym expansion
+        XCTAssertTrue(result!.query.contains("abs:\"CMB\""))
         XCTAssertFalse(result!.query.contains("cosmic microwave background"))
     }
 
@@ -225,5 +226,68 @@ final class SmartQueryTranslatorTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertTrue(result!.query.contains("author:Einstein"))
         XCTAssertFalse(result!.query.contains("a:Einstein"))
+    }
+
+    // MARK: - Edge Cases: Author Detection
+
+    func testTranslate_authorWithoutByKeyword_treatedAsTopic() {
+        // Without "by", a bare name is treated as a topic word, not an author
+        let result = SmartQueryTranslator.translate("Riess dark energy")
+        XCTAssertNotNil(result)
+        // Should NOT produce author: — "by" keyword is required for author detection
+        XCTAssertFalse(result!.query.contains("author:"))
+        XCTAssertTrue(result!.query.contains("abs:"))
+    }
+
+    // MARK: - Edge Cases: Decade Bounds
+
+    func testTranslate_decade_outOfRange_treatedAsTopic() {
+        // "9999s" should not be treated as a valid decade
+        let result = SmartQueryTranslator.translate("9999s")
+        XCTAssertNotNil(result)
+        XCTAssertFalse(result!.query.contains("year:"))
+    }
+
+    func testTranslate_decade_2020s() {
+        let result = SmartQueryTranslator.translate("exoplanets 2020s")
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result!.query.contains("year:2018-2032"))
+    }
+
+    // MARK: - Original Casing Preserved
+
+    func testTranslate_topicPreservesCasing() {
+        let result = SmartQueryTranslator.translate("JWST deep field")
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result!.query.contains("abs:\"JWST deep field\""))
+    }
+
+    // MARK: - Multi-Author Description
+
+    func testDescribeQuery_multipleAuthors() {
+        let desc = SmartQueryTranslator.describeQuery(
+            "author:\"Riess\" author:\"Perlmutter\" abs:\"dark energy\""
+        )
+        XCTAssertTrue(desc.contains("Riess"))
+        XCTAssertTrue(desc.contains("Perlmutter"))
+        XCTAssertTrue(desc.contains("&"))
+    }
+
+    func testDescribeQuery_multipleTopics() {
+        let desc = SmartQueryTranslator.describeQuery(
+            "abs:\"dark energy\" abs:\"supernovae\""
+        )
+        XCTAssertTrue(desc.contains("dark energy"))
+        XCTAssertTrue(desc.contains("supernovae"))
+    }
+
+    // MARK: - Normalizer Corrections in Interpretation
+
+    func testTranslate_normalizerCorrectionsInInterpretation() {
+        // a: shorthand triggers normalizer correction
+        let result = SmartQueryTranslator.translate("a:Einstein")
+        XCTAssertNotNil(result)
+        // Interpretation should mention the shorthand expansion
+        XCTAssertTrue(result!.interpretation.contains("Expanded"))
     }
 }
