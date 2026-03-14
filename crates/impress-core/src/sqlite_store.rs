@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
@@ -87,6 +87,10 @@ impl SqliteItemStore {
         Self::migrate_schema(&conn)?;
         Self::init_tombstones(&conn)?;
 
+        // Increase prepared statement cache from default 16 to 64.
+        // With dynamic SQL from compile_query(), 16 slots evict useful statements.
+        conn.set_prepared_statement_cache_capacity(64);
+
         // Initialize or read store metadata
         let origin_id = Self::init_store_metadata(&conn, &config)?;
 
@@ -100,6 +104,31 @@ impl SqliteItemStore {
             origin_id,
             tag_namespace: config.tag_namespace,
         })
+    }
+
+    /// Execute a raw read-only SQL query and collect results via a mapping function.
+    /// Used by higher layers for specialized aggregation queries that don't fit the ItemQuery model.
+    pub fn query_raw<T, F>(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::types::ToSql],
+        f: F,
+    ) -> Result<Vec<T>, StoreError>
+    where
+        F: FnMut(&rusqlite::Row<'_>) -> Result<T, rusqlite::Error>,
+    {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map(params, f)
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        rows.collect::<Result<Vec<T>, _>>()
+            .map_err(|e| StoreError::Storage(e.to_string()))
     }
 
     fn init_schema(conn: &Connection) -> Result<(), StoreError> {
@@ -1736,7 +1765,7 @@ impl SqliteItemStore {
 
     fn load_tags(conn: &Connection, item_id: &str) -> Result<Vec<String>, StoreError> {
         let mut stmt = conn
-            .prepare("SELECT tag_path FROM item_tags WHERE item_id = ?1 ORDER BY tag_path")
+            .prepare_cached("SELECT tag_path FROM item_tags WHERE item_id = ?1 ORDER BY tag_path")
             .map_err(|e| StoreError::Storage(format!("prepare tags: {}", e)))?;
         let tags = stmt
             .query_map(params![item_id], |row| row.get(0))
@@ -1751,7 +1780,7 @@ impl SqliteItemStore {
         item_id: &str,
     ) -> Result<Vec<TypedReference>, StoreError> {
         let mut stmt = conn
-            .prepare("SELECT target_id, edge_type, metadata FROM item_references WHERE source_id = ?1")
+            .prepare_cached("SELECT target_id, edge_type, metadata FROM item_references WHERE source_id = ?1")
             .map_err(|e| StoreError::Storage(format!("prepare refs: {}", e)))?;
         let refs = stmt
             .query_map(params![item_id], |row| {
@@ -1779,6 +1808,238 @@ impl SqliteItemStore {
                 edge_type,
                 metadata,
             });
+        }
+        Ok(result)
+    }
+
+    /// Like `row_to_item` but without loading tags/references (sets them to empty vecs).
+    /// Used in `query()` for batch loading — avoids the N+1 sub-query pattern.
+    fn row_to_item_partial(row: &rusqlite::Row<'_>) -> Result<Item, StoreError> {
+        let id_str: String = row
+            .get(0)
+            .map_err(|e| StoreError::Storage(format!("row id: {}", e)))?;
+        let id: ItemId =
+            uuid::Uuid::parse_str(&id_str).map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let schema_ref: String = row
+            .get(1)
+            .map_err(|e| StoreError::Storage(format!("row schema: {}", e)))?;
+        let payload_json: String = row
+            .get(2)
+            .map_err(|e| StoreError::Storage(format!("row payload: {}", e)))?;
+        let payload: BTreeMap<String, Value> = serde_json::from_str(&payload_json)
+            .map_err(|e| StoreError::Storage(format!("parse payload: {}", e)))?;
+
+        let created_ms: i64 = row
+            .get(3)
+            .map_err(|e| StoreError::Storage(format!("row created: {}", e)))?;
+        let modified_ms: i64 = row
+            .get(4)
+            .map_err(|e| StoreError::Storage(format!("row modified: {}", e)))?;
+        let author: String = row
+            .get(5)
+            .map_err(|e| StoreError::Storage(format!("row author: {}", e)))?;
+        let author_kind_str: String = row
+            .get(6)
+            .map_err(|e| StoreError::Storage(format!("row author_kind: {}", e)))?;
+        let is_read: bool = row
+            .get(7)
+            .map_err(|e| StoreError::Storage(format!("row is_read: {}", e)))?;
+        let is_starred: bool = row
+            .get(8)
+            .map_err(|e| StoreError::Storage(format!("row is_starred: {}", e)))?;
+        let flag_color: Option<String> = row
+            .get(9)
+            .map_err(|e| StoreError::Storage(format!("row flag_color: {}", e)))?;
+        let flag_style: Option<String> = row
+            .get(10)
+            .map_err(|e| StoreError::Storage(format!("row flag_style: {}", e)))?;
+        let flag_length: Option<String> = row
+            .get(11)
+            .map_err(|e| StoreError::Storage(format!("row flag_length: {}", e)))?;
+        let parent_id_str: Option<String> = row
+            .get(12)
+            .map_err(|e| StoreError::Storage(format!("row parent_id: {}", e)))?;
+        let logical_clock: i64 = row
+            .get(13)
+            .map_err(|e| StoreError::Storage(format!("row logical_clock: {}", e)))?;
+        let origin: Option<String> = row
+            .get(14)
+            .map_err(|e| StoreError::Storage(format!("row origin: {}", e)))?;
+        let canonical_id: Option<String> = row
+            .get(15)
+            .map_err(|e| StoreError::Storage(format!("row canonical_id: {}", e)))?;
+        let priority_str: String = row
+            .get(16)
+            .map_err(|e| StoreError::Storage(format!("row priority: {}", e)))?;
+        let visibility_str: String = row
+            .get(17)
+            .map_err(|e| StoreError::Storage(format!("row visibility: {}", e)))?;
+        let message_type: Option<String> = row
+            .get(18)
+            .map_err(|e| StoreError::Storage(format!("row message_type: {}", e)))?;
+        let produced_by_str: Option<String> = row
+            .get(19)
+            .map_err(|e| StoreError::Storage(format!("row produced_by: {}", e)))?;
+        let version: Option<String> = row
+            .get(20)
+            .map_err(|e| StoreError::Storage(format!("row version: {}", e)))?;
+        let batch_id: Option<String> = row
+            .get(21)
+            .map_err(|e| StoreError::Storage(format!("row batch_id: {}", e)))?;
+
+        let created = Utc
+            .timestamp_millis_opt(created_ms)
+            .single()
+            .unwrap_or_else(Utc::now);
+        let modified = Utc
+            .timestamp_millis_opt(modified_ms)
+            .single()
+            .unwrap_or(created);
+        let author_kind = parse_actor_kind(&author_kind_str);
+        let flag = flag_color.map(|color| FlagState {
+            color,
+            style: flag_style,
+            length: flag_length,
+        });
+        let parent = parent_id_str.and_then(|s| uuid::Uuid::parse_str(&s).ok());
+        let priority = priority_str.parse::<Priority>().unwrap_or_default();
+        let visibility = visibility_str.parse::<Visibility>().unwrap_or_default();
+        let produced_by = produced_by_str.and_then(|s| uuid::Uuid::parse_str(&s).ok());
+
+        Ok(Item {
+            id,
+            schema: schema_ref,
+            payload,
+            created,
+            modified,
+            author,
+            author_kind,
+            logical_clock: logical_clock as u64,
+            origin,
+            canonical_id,
+            tags: vec![],
+            flag,
+            is_read,
+            is_starred,
+            priority,
+            visibility,
+            message_type,
+            produced_by,
+            version,
+            batch_id,
+            references: vec![],
+            parent,
+        })
+    }
+
+    /// Batch-load tags for multiple items in one query (chunked at 900 to stay under SQLite's
+    /// 999-variable limit). Returns a map from item_id string to sorted tag paths.
+    fn batch_load_tags(
+        conn: &Connection,
+        item_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>, StoreError> {
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(result);
+        }
+
+        for chunk in item_ids.chunks(900) {
+            let placeholders: String = (1..=chunk.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT item_id, tag_path FROM item_tags WHERE item_id IN ({}) ORDER BY item_id, tag_path",
+                placeholders
+            );
+            let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            for id in chunk {
+                params_vec.push(Box::new(id.clone()));
+            }
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| StoreError::Storage(format!("prepare batch tags: {}", e)))?;
+            let rows = stmt
+                .query_map(params_ref.as_slice(), |row| {
+                    let item_id: String = row.get(0)?;
+                    let tag_path: String = row.get(1)?;
+                    Ok((item_id, tag_path))
+                })
+                .map_err(|e| StoreError::Storage(format!("query batch tags: {}", e)))?;
+
+            for row_result in rows {
+                let (item_id, tag_path) = row_result
+                    .map_err(|e| StoreError::Storage(format!("collect batch tags: {}", e)))?;
+                result.entry(item_id).or_default().push(tag_path);
+            }
+        }
+        Ok(result)
+    }
+
+    /// Batch-load references for multiple items in one query (chunked at 900).
+    /// Returns a map from source_id string to typed references.
+    fn batch_load_references(
+        conn: &Connection,
+        item_ids: &[String],
+    ) -> Result<HashMap<String, Vec<TypedReference>>, StoreError> {
+        let mut result: HashMap<String, Vec<TypedReference>> = HashMap::new();
+        if item_ids.is_empty() {
+            return Ok(result);
+        }
+
+        for chunk in item_ids.chunks(900) {
+            let placeholders: String = (1..=chunk.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT source_id, target_id, edge_type, metadata FROM item_references WHERE source_id IN ({})",
+                placeholders
+            );
+            let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            for id in chunk {
+                params_vec.push(Box::new(id.clone()));
+            }
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| StoreError::Storage(format!("prepare batch refs: {}", e)))?;
+            let rows = stmt
+                .query_map(params_ref.as_slice(), |row| {
+                    let source_id: String = row.get(0)?;
+                    let target_str: String = row.get(1)?;
+                    let edge_str: String = row.get(2)?;
+                    let meta_str: Option<String> = row.get(3)?;
+                    Ok((source_id, target_str, edge_str, meta_str))
+                })
+                .map_err(|e| StoreError::Storage(format!("query batch refs: {}", e)))?;
+
+            for row_result in rows {
+                let (source_id, target_str, edge_str, meta_str) = row_result
+                    .map_err(|e| StoreError::Storage(format!("collect batch refs: {}", e)))?;
+                let target = uuid::Uuid::parse_str(&target_str)
+                    .map_err(|e| StoreError::Storage(format!("parse ref target: {}", e)))?;
+                let edge_type: EdgeType = serde_json::from_str(&edge_str)
+                    .map_err(|e| StoreError::Storage(format!("parse edge_type: {}", e)))?;
+                let metadata: Option<BTreeMap<String, Value>> = meta_str
+                    .map(|s| serde_json::from_str(&s))
+                    .transpose()
+                    .map_err(|e| StoreError::Storage(format!("parse ref metadata: {}", e)))?;
+                result
+                    .entry(source_id)
+                    .or_default()
+                    .push(TypedReference {
+                        target,
+                        edge_type,
+                        metadata,
+                    });
+            }
         }
         Ok(result)
     }
@@ -2121,7 +2382,7 @@ impl ItemStore for SqliteItemStore {
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
         let mut stmt = conn
-            .prepare(&format!(
+            .prepare_cached(&format!(
                 "SELECT {} FROM items WHERE id = ?1",
                 ITEM_COLUMNS
             ))
@@ -2218,9 +2479,10 @@ impl ItemStore for SqliteItemStore {
             .prepare(&sql)
             .map_err(|e| StoreError::Storage(format!("prepare query: {} (sql: {})", e, sql)))?;
 
+        // Phase 1: Collect items with empty tags/references (no per-row sub-queries)
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
-                Ok(Self::row_to_item(&conn, row))
+                Ok(Self::row_to_item_partial(row))
             })
             .map_err(|e| StoreError::Storage(format!("query: {}", e)))?;
 
@@ -2230,6 +2492,32 @@ impl ItemStore for SqliteItemStore {
                 row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))?;
             items.push(item_result?);
         }
+
+        if items.is_empty() {
+            return Ok(items);
+        }
+
+        // Phase 2: Batch-load tags and references (gated by query flags)
+        let id_strings: Vec<String> = items.iter().map(|item| item.id.to_string()).collect();
+
+        if q.include_tags {
+            let mut tags_map = Self::batch_load_tags(&conn, &id_strings)?;
+            for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
+                if let Some(tags) = tags_map.remove(id_str) {
+                    item.tags = tags;
+                }
+            }
+        }
+
+        if q.include_references {
+            let mut refs_map = Self::batch_load_references(&conn, &id_strings)?;
+            for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
+                if let Some(refs) = refs_map.remove(id_str) {
+                    item.references = refs;
+                }
+            }
+        }
+
         Ok(items)
     }
 
@@ -3401,5 +3689,121 @@ mod tests {
             .unwrap();
         assert_eq!(info.operation_ids.len(), 2);
         assert!(info.batch_id.is_some());
+    }
+
+    #[test]
+    fn query_returns_tags_via_batch_load() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item1 = make_item("test", "Paper A");
+        let item2 = make_item("test", "Paper B");
+        let id1 = store.insert(item1).unwrap();
+        let id2 = store.insert(item2).unwrap();
+
+        store
+            .update(id1, vec![FieldMutation::AddTag("methods/sims".into())])
+            .unwrap();
+        store
+            .update(id1, vec![FieldMutation::AddTag("topics/cosmo".into())])
+            .unwrap();
+        store
+            .update(id2, vec![FieldMutation::AddTag("topics/lss".into())])
+            .unwrap();
+
+        // Filter by schema to exclude operation items created by update()
+        let q = ItemQuery {
+            schema: Some("test".into()),
+            ..Default::default()
+        };
+        let results = store.query(&q).unwrap();
+        assert_eq!(results.len(), 2);
+
+        let r1 = results.iter().find(|i| i.id == id1).unwrap();
+        assert_eq!(r1.tags.len(), 2);
+        assert!(r1.tags.contains(&"methods/sims".to_string()));
+        assert!(r1.tags.contains(&"topics/cosmo".to_string()));
+
+        let r2 = results.iter().find(|i| i.id == id2).unwrap();
+        assert_eq!(r2.tags.len(), 1);
+        assert!(r2.tags.contains(&"topics/lss".to_string()));
+    }
+
+    #[test]
+    fn query_returns_references_via_batch_load() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item1 = make_item("test", "Paper A");
+        let item2 = make_item("test", "Paper B");
+        let item3 = make_item("test", "Paper C");
+        let id1 = item1.id;
+        let id2 = item2.id;
+        let id3 = item3.id;
+        store.insert(item1).unwrap();
+        store.insert(item2).unwrap();
+        store.insert(item3).unwrap();
+
+        store
+            .update(
+                id1,
+                vec![FieldMutation::AddReference(TypedReference {
+                    target: id2,
+                    edge_type: EdgeType::Cites,
+                    metadata: None,
+                })],
+            )
+            .unwrap();
+        store
+            .update(
+                id1,
+                vec![FieldMutation::AddReference(TypedReference {
+                    target: id3,
+                    edge_type: EdgeType::Cites,
+                    metadata: None,
+                })],
+            )
+            .unwrap();
+
+        let q = ItemQuery {
+            schema: Some("test".into()),
+            ..Default::default()
+        };
+        let results = store.query(&q).unwrap();
+        let r1 = results.iter().find(|i| i.id == id1).unwrap();
+        assert_eq!(r1.references.len(), 2);
+
+        let targets: Vec<_> = r1.references.iter().map(|r| r.target).collect();
+        assert!(targets.contains(&id2));
+        assert!(targets.contains(&id3));
+
+        // Items without references should have empty vecs
+        let r2 = results.iter().find(|i| i.id == id2).unwrap();
+        assert!(r2.references.is_empty());
+    }
+
+    #[test]
+    fn query_batch_load_large_set() {
+        // Test chunking by inserting >900 items with tags
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let count = 950;
+        let mut ids = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let item = make_item("test", &format!("Paper {}", i));
+            let id = store.insert(item).unwrap();
+            store
+                .update(id, vec![FieldMutation::AddTag(format!("tag/{}", i % 10))])
+                .unwrap();
+            ids.push(id);
+        }
+
+        let q = ItemQuery {
+            schema: Some("test".into()),
+            ..Default::default()
+        };
+        let results = store.query(&q).unwrap();
+        assert_eq!(results.len(), count);
+
+        // Every item should have exactly one tag
+        for item in &results {
+            assert_eq!(item.tags.len(), 1, "Item {} should have 1 tag", item.id);
+        }
     }
 }

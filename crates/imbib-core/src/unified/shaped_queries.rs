@@ -332,11 +332,12 @@ pub struct TagWithCountRow {
 }
 
 /// Convert an Item into a BibliographyRow for list display.
-/// `child_linked_files` are pre-fetched children with schema "linked-file".
+/// `has_downloaded_pdf` and `has_other_attachments` are pre-computed from linked file status.
 pub fn item_to_bibliography_row(
     item: &Item,
     tag_defs: &[TagDisplayRow],
-    child_linked_files: &[Item],
+    has_downloaded_pdf: bool,
+    has_other_attachments: bool,
 ) -> BibliographyRow {
     let payload = &item.payload;
 
@@ -384,12 +385,8 @@ pub fn item_to_bibliography_row(
         flag_color: item.flag.as_ref().map(|f| f.color.clone()),
         flag_style: item.flag.as_ref().and_then(|f| f.style.clone()),
         flag_length: item.flag.as_ref().and_then(|f| f.length.clone()),
-        has_downloaded_pdf: child_linked_files
-            .iter()
-            .any(|lf| get_bool(&lf.payload, "is_pdf") && get_bool(&lf.payload, "is_locally_materialized")),
-        has_other_attachments: child_linked_files
-            .iter()
-            .any(|lf| !get_bool(&lf.payload, "is_pdf")),
+        has_downloaded_pdf,
+        has_other_attachments,
         citation_count: get_i64(payload, "citation_count").unwrap_or(0) as i32,
         reference_count: get_i64(payload, "reference_count").unwrap_or(0) as i32,
         doi: get_str(payload, "doi"),
@@ -897,7 +894,7 @@ mod tests {
     fn bibliography_row_from_item() {
         let pub_data = make_publication();
         let item = publication_to_item(&pub_data, None);
-        let row = item_to_bibliography_row(&item, &[], &[]);
+        let row = item_to_bibliography_row(&item, &[], false, false);
 
         assert_eq!(row.cite_key, "smith2024");
         assert_eq!(row.title, "Dark Matter in Galaxies");
@@ -925,7 +922,7 @@ mod tests {
             color_dark: Some("#cc0000".into()),
         }];
 
-        let row = item_to_bibliography_row(&item, &tag_defs, &[]);
+        let row = item_to_bibliography_row(&item, &tag_defs, false, false);
         assert_eq!(row.tags[0].color_light, Some("#ff0000".into()));
     }
 

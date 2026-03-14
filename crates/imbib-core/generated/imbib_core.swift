@@ -866,6 +866,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func movePublications(ids: [String], toLibraryId: String) throws  -> UndoInfo
     
+    /**
+     * Remove all dismissed papers from a collection.
+     * Returns the number of members removed.
+     */
+    func purgeDismissedFromCollection(collectionId: String) throws  -> UInt32
+    
     func queryByTag(tagPath: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     /**
@@ -1937,6 +1943,18 @@ open func movePublications(ids: [String], toLibraryId: String)throws  -> UndoInf
     uniffi_imbib_core_fn_method_imbibstore_move_publications(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(toLibraryId),$0
+    )
+})
+}
+    
+    /**
+     * Remove all dismissed papers from a collection.
+     * Returns the number of members removed.
+     */
+open func purgeDismissedFromCollection(collectionId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_purge_dismissed_from_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(collectionId),$0
     )
 })
 }
@@ -21651,6 +21669,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 10397) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_purge_dismissed_from_collection() != 7576) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_by_tag() != 57550) {

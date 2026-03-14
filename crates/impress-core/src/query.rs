@@ -10,13 +10,37 @@ use crate::schema::SchemaRef;
 /// - `.library(id)` → `ItemQuery { predicates: [HasParent(id)] }`
 /// - `.flagged(color)` → `ItemQuery { predicates: [HasFlag(Some(color))] }`
 /// - `.smartSearch(q)` → `ItemQuery { predicates: [Contains("title", q)] }`
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemQuery {
     pub schema: Option<SchemaRef>,
     pub predicates: Vec<Predicate>,
     pub sort: Vec<SortDescriptor>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    /// When false, query() skips batch_load_tags. Default: true.
+    #[serde(default = "default_true")]
+    pub include_tags: bool,
+    /// When false, query() skips batch_load_references. Default: true.
+    #[serde(default = "default_true")]
+    pub include_references: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ItemQuery {
+    fn default() -> Self {
+        Self {
+            schema: None,
+            predicates: Vec::new(),
+            sort: Vec::new(),
+            limit: None,
+            offset: None,
+            include_tags: true,
+            include_references: true,
+        }
+    }
 }
 
 /// Filter predicate for item queries.
@@ -90,6 +114,7 @@ mod tests {
             }],
             limit: Some(50),
             offset: Some(0),
+            ..Default::default()
         };
         let json = serde_json::to_string_pretty(&q).unwrap();
         let back: ItemQuery = serde_json::from_str(&json).unwrap();

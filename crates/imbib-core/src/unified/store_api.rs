@@ -103,10 +103,16 @@ pub struct ImbibStore {
     store: SqliteItemStore,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
+    tag_defs_cache: std::sync::Mutex<Option<Vec<TagDisplayRow>>>,
 }
 
 /// Private helpers (not exported via UniFFI).
 impl ImbibStore {
+    /// Invalidate the cached tag definitions, forcing reload on next access.
+    fn invalidate_tag_cache(&self) {
+        *self.tag_defs_cache.lock().unwrap() = None;
+    }
+
     /// Apply a single mutation to multiple item IDs, grouping into a batch for undo.
     fn apply_mutation_to_ids(
         &self,
@@ -186,7 +192,7 @@ impl ImbibStore {
         let store = SqliteItemStore::open(Path::new(&path))?;
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
-        Ok(Arc::new(Self { store, registry }))
+        Ok(Arc::new(Self { store, registry, tag_defs_cache: std::sync::Mutex::new(None) }))
     }
 
     /// Open an in-memory store (for testing).
@@ -195,7 +201,7 @@ impl ImbibStore {
         let store = SqliteItemStore::open_in_memory()?;
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
-        Ok(Arc::new(Self { store, registry }))
+        Ok(Arc::new(Self { store, registry, tag_defs_cache: std::sync::Mutex::new(None) }))
     }
 
     // --- Library operations ---
@@ -328,6 +334,88 @@ impl ImbibStore {
         })
     }
 
+    /// Remove all dismissed papers from a collection.
+    /// Returns the number of members removed.
+    pub fn purge_dismissed_from_collection(
+        &self,
+        collection_id: String,
+    ) -> Result<u32, StoreApiError> {
+        let coll_uuid = parse_uuid(&collection_id)?;
+
+        // 1. Query all bibliography-entry members of this collection
+        let members = self.store.query(&ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
+            ..Default::default()
+        })?;
+
+        if members.is_empty() {
+            return Ok(0);
+        }
+
+        // 2. Collect identifiers from members
+        let mut dois = Vec::new();
+        let mut arxiv_ids = Vec::new();
+        let mut bibcodes = Vec::new();
+        for item in &members {
+            if let Some(Value::String(d)) = item.payload.get("doi") {
+                if !d.is_empty() {
+                    dois.push(d.clone());
+                }
+            }
+            if let Some(Value::String(a)) = item.payload.get("arxiv_id") {
+                if !a.is_empty() {
+                    arxiv_ids.push(a.clone());
+                }
+            }
+            if let Some(Value::String(b)) = item.payload.get("bibcode") {
+                if !b.is_empty() {
+                    bibcodes.push(b.clone());
+                }
+            }
+        }
+
+        // 3. Load dismissed identifiers matching those
+        let dismissed = self.load_dismissed_identifiers(&dois, &arxiv_ids, &bibcodes)?;
+        if dismissed.is_empty() {
+            return Ok(0);
+        }
+
+        // 4. Find members whose identifiers are in the dismissed set
+        let to_remove: Vec<String> = members
+            .iter()
+            .filter(|item| {
+                if let Some(Value::String(d)) = item.payload.get("doi") {
+                    if dismissed.contains(&d.to_lowercase()) {
+                        return true;
+                    }
+                }
+                if let Some(Value::String(a)) = item.payload.get("arxiv_id") {
+                    if dismissed.contains(&a.to_lowercase()) {
+                        return true;
+                    }
+                }
+                if let Some(Value::String(b)) = item.payload.get("bibcode") {
+                    if dismissed.contains(&b.to_lowercase()) {
+                        return true;
+                    }
+                }
+                false
+            })
+            .map(|item| item.id.to_string())
+            .collect();
+
+        if to_remove.is_empty() {
+            return Ok(0);
+        }
+        let count = to_remove.len() as u32;
+
+        // 5. Batch remove from collection
+        self.remove_from_collection(to_remove, collection_id)?;
+
+        Ok(count)
+    }
+
     // --- Publication queries ---
 
     pub fn query_publications(
@@ -345,6 +433,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -393,6 +482,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -426,6 +516,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -687,6 +778,7 @@ impl ImbibStore {
             None,
         );
         self.store.insert(item)?;
+        self.invalidate_tag_cache();
         Ok(())
     }
 
@@ -735,10 +827,12 @@ impl ImbibStore {
             Some(item) => {
                 let tag_defs = self.load_tag_definitions()?;
 
-                // Fetch child linked files
+                // Fetch child linked files (no tags/refs needed for linked file items)
                 let lf_q = ItemQuery {
                     schema: Some("imbib/linked-file".into()),
                     predicates: vec![Predicate::HasParent(uuid)],
+                    include_tags: false,
+                    include_references: false,
                     ..Default::default()
                 };
                 let child_lf = self.store.query(&lf_q)?;
@@ -747,6 +841,8 @@ impl ImbibStore {
                 let coll_q = ItemQuery {
                     schema: Some("imbib/collection".into()),
                     predicates: vec![Predicate::HasReference(EdgeType::Contains, uuid)],
+                    include_tags: false,
+                    include_references: false,
                     ..Default::default()
                 };
                 let collections = self.store.query(&coll_q)?;
@@ -935,6 +1031,7 @@ impl ImbibStore {
             self.store.update(pub_uuid, vec![FieldMutation::AddTag(snapshot.tag_path.clone())])?;
         }
 
+        self.invalidate_tag_cache();
         Ok(())
     }
 
@@ -1075,6 +1172,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1580,6 +1678,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1726,6 +1825,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1751,6 +1851,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -1943,6 +2044,7 @@ impl ImbibStore {
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         let tag_defs = self.load_tag_definitions()?;
@@ -2232,6 +2334,7 @@ impl ImbibStore {
             }],
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
+            ..Default::default()
         };
         let items = self.store.query(&q)?;
         Ok(items.iter().map(item_to_activity_record_row).collect())
@@ -2379,6 +2482,7 @@ impl ImbibStore {
             self.store
                 .update(pub_item.id, vec![FieldMutation::RemoveTag(path.clone())])?;
         }
+        self.invalidate_tag_cache();
         Ok(())
     }
 
@@ -2414,6 +2518,7 @@ impl ImbibStore {
             }
             if !mutations.is_empty() {
                 self.store.update(item.id, mutations)?;
+                self.invalidate_tag_cache();
             }
         }
         Ok(())
@@ -2467,6 +2572,7 @@ impl ImbibStore {
                 ],
             )?;
         }
+        self.invalidate_tag_cache();
         Ok(())
     }
 
@@ -2945,9 +3051,28 @@ impl ImbibStore {
         if pub_ids.is_empty() {
             return Ok(map);
         }
-        // Query all linked-file items — cheaper than per-publication queries for large batches
+
+        // Single-pub: targeted query instead of full table scan
+        if pub_ids.len() == 1 {
+            let q = ItemQuery {
+                schema: Some("imbib/linked-file".into()),
+                predicates: vec![Predicate::HasParent(pub_ids[0])],
+                include_tags: false,
+                include_references: false,
+                ..Default::default()
+            };
+            let lf = self.store.query(&q)?;
+            if !lf.is_empty() {
+                map.insert(pub_ids[0], lf);
+            }
+            return Ok(map);
+        }
+
+        // Batch: query all linked-file items — cheaper than per-publication queries for large batches
         let q = ItemQuery {
             schema: Some("imbib/linked-file".into()),
+            include_tags: false,
+            include_references: false,
             ..Default::default()
         };
         let all_lf = self.store.query(&q)?;
@@ -2968,23 +3093,81 @@ impl ImbibStore {
         tag_defs: &[TagDisplayRow],
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let pub_ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
-        let lf_map = self.load_linked_files_for_pubs(&pub_ids)?;
+        let lf_status = self.load_linked_file_status(&pub_ids)?;
         Ok(items
             .iter()
             .map(|item| {
-                let children = lf_map.get(&item.id).map(|v| v.as_slice()).unwrap_or(&[]);
-                item_to_bibliography_row(item, tag_defs, children)
+                let (has_pdf, has_other) =
+                    lf_status.get(&item.id).copied().unwrap_or((false, false));
+                item_to_bibliography_row(item, tag_defs, has_pdf, has_other)
             })
             .collect())
     }
 
+    /// Returns (has_downloaded_pdf, has_other_attachments) per publication.
+    /// Uses SQL aggregation with json_extract instead of loading full Item objects.
+    fn load_linked_file_status(
+        &self,
+        pub_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, (bool, bool)>, StoreApiError> {
+        use std::collections::HashMap;
+        let mut result: HashMap<Uuid, (bool, bool)> = HashMap::new();
+        if pub_ids.is_empty() {
+            return Ok(result);
+        }
+
+        for chunk in pub_ids.chunks(900) {
+            let placeholders = (1..=chunk.len())
+                .map(|i| format!("?{}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT parent_id, \
+                        MAX(CASE WHEN json_extract(payload, '$.is_pdf') = 1 \
+                                  AND json_extract(payload, '$.is_locally_materialized') = 1 \
+                             THEN 1 ELSE 0 END), \
+                        MAX(CASE WHEN json_extract(payload, '$.is_pdf') != 1 \
+                                  OR json_extract(payload, '$.is_pdf') IS NULL \
+                             THEN 1 ELSE 0 END) \
+                 FROM items \
+                 WHERE schema_ref = 'imbib/linked-file' AND parent_id IN ({}) \
+                 GROUP BY parent_id",
+                placeholders
+            );
+            let params: Vec<String> = chunk.iter().map(|id| id.to_string()).collect();
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+
+            let rows = self.store.query_raw(&sql, &params_ref, |row| {
+                let parent_str: String = row.get(0)?;
+                let has_pdf: i32 = row.get(1).unwrap_or(0);
+                let has_other: i32 = row.get(2).unwrap_or(0);
+                Ok((parent_str, has_pdf != 0, has_other != 0))
+            })?;
+
+            for (parent_str, has_pdf, has_other) in rows {
+                if let Ok(uuid) = Uuid::parse_str(&parent_str) {
+                    result.insert(uuid, (has_pdf, has_other));
+                }
+            }
+        }
+        Ok(result)
+    }
+
     fn load_tag_definitions(&self) -> Result<Vec<TagDisplayRow>, StoreApiError> {
+        // Return cached tag definitions if available
+        if let Some(cached) = self.tag_defs_cache.lock().unwrap().as_ref() {
+            return Ok(cached.clone());
+        }
+
         let q = ItemQuery {
             schema: Some("imbib/tag-definition".into()),
+            include_tags: false,
+            include_references: false,
             ..Default::default()
         };
         let items = self.store.query(&q)?;
-        Ok(items
+        let result: Vec<TagDisplayRow> = items
             .iter()
             .map(|item| {
                 let payload = &item.payload;
@@ -3011,7 +3194,11 @@ impl ImbibStore {
                     color_dark,
                 }
             })
-            .collect())
+            .collect();
+
+        // Populate cache
+        *self.tag_defs_cache.lock().unwrap() = Some(result.clone());
+        Ok(result)
     }
 
     /// Find all existing bibliography entries matching any of the given identifiers.
