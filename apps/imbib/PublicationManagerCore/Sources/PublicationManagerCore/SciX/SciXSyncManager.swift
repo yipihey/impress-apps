@@ -67,7 +67,7 @@ public actor SciXSyncManager {
 
     /// Pull all libraries from SciX and update local cache
     public func pullLibraries() async throws -> [SciXLibrary] {
-        Logger.scix.info("Pulling SciX libraries...")
+        Logger.scix.infoCapture("SciX sync: pulling library list...", category: "scix")
 
         // Fetch from API
         let remoteLibraries = try await service.fetchLibraries()
@@ -119,7 +119,7 @@ public actor SciXSyncManager {
             let allLocal = store.listScixLibraries()
             for local in allLocal {
                 if !remoteIDs.contains(local.remoteID) {
-                    Logger.scix.info("Removing deleted library: \(local.name)")
+                    Logger.scix.infoCapture("SciX sync: removing deleted library: \(local.name)", category: "scix")
                     store.deleteItem(id: local.id)
                 }
             }
@@ -127,7 +127,7 @@ public actor SciXSyncManager {
             store.endBatchMutation()
         }
 
-        Logger.scix.info("Pulled \(updatedLibraries.count) libraries")
+        Logger.scix.infoCapture("SciX sync: pulled \(updatedLibraries.count) libraries", category: "scix")
 
         // Notify repository to reload
         await MainActor.run {
@@ -139,45 +139,67 @@ public actor SciXSyncManager {
 
     /// Pull papers for a specific library
     public func pullLibraryPapers(libraryID: String) async throws {
-        Logger.scix.info("Pulling papers for library \(libraryID)...")
+        Logger.scix.infoCapture("SciX sync: pulling papers for library \(libraryID)", category: "scix")
 
         // Fetch bibcodes from API
         let bibcodes = try await service.fetchLibraryBibcodes(id: libraryID)
-        Logger.scix.info("Got \(bibcodes.count) bibcodes from SciX library")
+        Logger.scix.infoCapture("SciX sync: got \(bibcodes.count) bibcodes from library", category: "scix")
 
         guard !bibcodes.isEmpty else {
-            Logger.scix.debug("Library has no papers")
+            Logger.scix.infoCapture("SciX sync: library has no papers, skipping", category: "scix")
             return
         }
 
         // Log first few bibcodes for debugging
         let sampleBibcodes = bibcodes.prefix(5).joined(separator: ", ")
-        Logger.scix.debug("Sample bibcodes: \(sampleBibcodes)")
+        Logger.scix.infoCapture("SciX sync: sample bibcodes: \(sampleBibcodes)", category: "scix")
 
         // Fetch paper details from ADS
         let papers = try await fetchPapersFromADS(bibcodes: bibcodes)
-        Logger.scix.info("Fetched \(papers.count) papers from ADS for \(bibcodes.count) bibcodes")
+        Logger.scix.infoCapture("SciX sync: fetched \(papers.count) papers from ADS for \(bibcodes.count) bibcodes", category: "scix")
 
         // Cache papers locally and link to library
         await MainActor.run {
             let store = RustStoreAdapter.shared
 
             guard let library = SciXLibraryRepository.shared.findLibrary(remoteID: libraryID) else {
-                Logger.scix.error("Library not found: \(libraryID)")
+                Logger.scix.errorCapture("SciX sync: library not found for remoteID \(libraryID)", category: "scix")
                 return
             }
+
+            Logger.scix.infoCapture("SciX sync: resolved library '\(library.name)' (id: \(library.id))", category: "scix")
 
             // Batch all mutations — single notification at end
             store.beginBatchMutation()
 
+            // Resolve a library for importing new papers:
+            // default library → first non-special library → inbox
+            let importLibraryID: UUID? = {
+                if let lib = store.getDefaultLibrary() { return lib.id }
+                let allLibs = store.listLibraries()
+                let regular = allLibs.first { !$0.isInbox && $0.name != "Dismissed" }
+                if let lib = regular {
+                    Logger.scix.infoCapture("SciX sync: no default library, using '\(lib.name)' for import", category: "scix")
+                    return lib.id
+                }
+                if let inbox = store.getInboxLibrary() { return inbox.id }
+                return nil
+            }()
+
             // Import papers via BibTeX and link to library
             var importedIDs: [UUID] = []
+            var foundByBibcode = 0
+            var foundByDoi = 0
+            var importedNew = 0
+            var importFailed = 0
+
             for paper in papers {
                 // Try to find existing by bibcode first
                 if let bibcode = paper.bibcode {
                     let existing = store.findByBibcode(bibcode: bibcode)
                     if let first = existing.first {
                         importedIDs.append(first.id)
+                        foundByBibcode += 1
                         continue
                     }
                 }
@@ -187,23 +209,38 @@ public actor SciXSyncManager {
                     let existing = store.findByDoi(doi: doi)
                     if let first = existing.first {
                         importedIDs.append(first.id)
+                        foundByDoi += 1
                         continue
                     }
                 }
 
                 // Create new publication via BibTeX import
-                let bibtex = self.searchResultToBibTeX(paper)
-                let defaultLib = store.getDefaultLibrary()
-                if let libID = defaultLib?.id {
+                if let libID = importLibraryID {
+                    let bibtex = self.searchResultToBibTeX(paper)
                     let ids = store.importBibTeX(bibtex, libraryId: libID)
-                    importedIDs.append(contentsOf: ids)
+                    if ids.isEmpty {
+                        importFailed += 1
+                        Logger.scix.warningCapture("SciX sync: BibTeX import returned 0 IDs for '\(paper.title.prefix(60))'", category: "scix")
+                    } else {
+                        importedNew += ids.count
+                        importedIDs.append(contentsOf: ids)
+                    }
+                } else {
+                    importFailed += 1
+                    if importedIDs.isEmpty && importFailed == 1 {
+                        Logger.scix.errorCapture("SciX sync: no library available for import — all new papers will fail", category: "scix")
+                    }
                 }
             }
 
+            Logger.scix.infoCapture("SciX sync: resolved \(importedIDs.count) papers — bibcode: \(foundByBibcode), doi: \(foundByDoi), new: \(importedNew), failed: \(importFailed)", category: "scix")
+
             // Add all publications to the SciX library
-            Logger.scix.info("Linking \(importedIDs.count) publications to SciX library \(library.id) (\(library.name))")
             if !importedIDs.isEmpty {
+                Logger.scix.infoCapture("SciX sync: linking \(importedIDs.count) pubs to library \(library.id) (\(library.name))", category: "scix")
                 store.addToScixLibrary(publicationIds: importedIDs, scixLibraryId: library.id)
+            } else {
+                Logger.scix.warningCapture("SciX sync: importedIDs is empty — no edges will be created", category: "scix")
             }
 
             // Update library metadata
@@ -215,9 +252,13 @@ public actor SciXSyncManager {
 
             // Verify edges were created
             if let updated = store.getScixLibrary(id: library.id) {
-                Logger.scix.info("Cached \(papers.count) papers for library \(libraryID), publicationCount=\(updated.publicationCount)")
+                let edgeCount = updated.publicationCount
+                Logger.scix.infoCapture("SciX sync: VERIFY library '\(updated.name)' — documentCount=\(updated.documentCount), publicationCount(edges)=\(edgeCount)", category: "scix")
+                if edgeCount == 0 && !importedIDs.isEmpty {
+                    Logger.scix.errorCapture("SciX sync: BUG — linked \(importedIDs.count) pubs but publicationCount is 0! Edges not persisted.", category: "scix")
+                }
             } else {
-                Logger.scix.error("Library \(libraryID) not found after sync")
+                Logger.scix.errorCapture("SciX sync: library \(libraryID) not found after sync", category: "scix")
             }
         }
     }

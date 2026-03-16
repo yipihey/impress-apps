@@ -404,16 +404,20 @@ struct UnifiedPublicationListWrapper: View {
                         let edgesMissing = scix.publicationCount == 0 && scix.documentCount > 0
                         let needsRefresh = neverSynced || edgesMissing
                         if needsRefresh, !scix.remoteID.isEmpty {
-                            logger.info("Auto-refreshing SciX library '\(scix.name)' (syncState=\(scix.syncState), pubCount=\(scix.publicationCount), docCount=\(scix.documentCount))")
+                            Logger.library.infoCapture("SciX auto-refresh: '\(scix.name)' syncState=\(scix.syncState), pubCount(edges)=\(scix.publicationCount), docCount(remote)=\(scix.documentCount)", category: "scix")
                             isBackgroundRefreshing = true
                             do {
                                 try await SciXSyncManager.shared.pullLibraryPapers(libraryID: scix.remoteID)
                                 await MainActor.run {
                                     isBackgroundRefreshing = false
                                     refreshPublicationsList(force: true)
+                                    // Re-check after refresh
+                                    if let updated = RustStoreAdapter.shared.getScixLibrary(id: id) {
+                                        Logger.library.infoCapture("SciX auto-refresh done: '\(updated.name)' pubCount(edges)=\(updated.publicationCount)", category: "scix")
+                                    }
                                 }
                             } catch {
-                                logger.error("SciX auto-refresh failed: \(error.localizedDescription)")
+                                Logger.library.errorCapture("SciX auto-refresh failed: \(error.localizedDescription)", category: "scix")
                                 isBackgroundRefreshing = false
                             }
                         }
