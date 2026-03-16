@@ -15,6 +15,7 @@ pub fn create_router() -> Router {
         .route("/execute", post(handle_execute))
         .route("/execute/file", post(handle_execute_file))
         .route("/discover", post(handle_discover))
+        .nest("/git", crate::git::router())
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
 }

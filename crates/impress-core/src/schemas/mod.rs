@@ -2,6 +2,7 @@ pub mod artifact;
 pub mod bibliography;
 pub mod communication;
 pub mod document;
+pub mod git_project;
 pub mod implore;
 pub mod manuscript_section;
 pub mod operation;
@@ -11,6 +12,7 @@ pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
 pub use communication::register_communication_schemas;
 pub use document::register_document_schemas;
+pub use git_project::register_git_project_schemas;
 pub use implore::register_implore_schemas;
 pub use manuscript_section::register_imprint_schemas;
 pub use operation::register_operation_schema;
@@ -26,6 +28,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_communication_schemas(registry);
     register_task_schemas(registry);
     register_document_schemas(registry);
+    register_git_project_schemas(registry);
     register_artifact_schemas(registry);
     register_operation_schema(registry);
     register_implore_schemas(registry);
@@ -48,6 +51,7 @@ mod tests {
         assert!(registry.get("task").is_some(), "task not registered");
         assert!(registry.get("agent-run").is_some(), "agent-run not registered");
         assert!(registry.get("annotation").is_some(), "annotation not registered");
+        assert!(registry.get("git-project").is_some(), "git-project not registered");
         assert!(registry.get("manuscript-section").is_some(), "manuscript-section not registered");
         assert!(registry.get("figure").is_some(), "figure not registered");
         assert!(registry.get("dataset").is_some(), "dataset not registered");
@@ -61,8 +65,8 @@ mod tests {
         let mut registry = SchemaRegistry::default();
         register_core_schemas(&mut registry);
         let count = registry.list().len();
-        // 9 built-in + 8 artifact domain schemas = 17 total
-        assert!(count >= 9, "expected at least 9 schemas, got {}", count);
+        // 10 built-in + 8 artifact domain schemas = 18 total
+        assert!(count >= 10, "expected at least 10 schemas, got {}", count);
     }
 
     #[test]

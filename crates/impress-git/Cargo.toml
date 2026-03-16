@@ -1,0 +1,13 @@
+[package]
+name = "impress-git"
+description = "Git integration logic for the impress suite — models, parsers, command builders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

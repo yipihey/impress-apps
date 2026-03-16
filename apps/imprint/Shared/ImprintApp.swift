@@ -2,6 +2,7 @@
 import AppKit
 import CoreData
 import CoreSpotlight
+import ImpressGit
 import ImpressLogging
 import ImprintCore
 import ImpressKit
@@ -189,14 +190,24 @@ struct ImprintApp: App {
 
                     // Register document with HTTP API registry
                     DocumentRegistry.shared.register(file.document, fileURL: file.fileURL)
+
+                    // Wire git lifecycle — notify integration of document open
+                    ImprintGitIntegration.shared.documentOpened(at: file.fileURL)
                 }
                 .onDisappear {
                     // Unregister document when closed
                     DocumentRegistry.shared.unregister(file.document, fileURL: file.fileURL)
+
+                    // Wire git lifecycle — notify integration of document close
+                    ImprintGitIntegration.shared.documentClosed()
                 }
                 .onChange(of: file.document) { _, newDoc in
                     // Update registry when document changes
                     DocumentRegistry.shared.register(newDoc, fileURL: file.fileURL)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .imprintDocumentDidSave)) { _ in
+                    // Wire git lifecycle — notify integration of document save
+                    ImprintGitIntegration.shared.documentSaved(at: file.fileURL)
                 }
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
                     _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imprint) { uuid, _ in
@@ -320,6 +331,40 @@ struct ImprintApp: App {
                     NotificationCenter.default.post(name: .printPDF, object: nil)
                 }
                 .keyboardShortcut("P", modifiers: [.command])
+            }
+
+            // Git menu
+            CommandMenu("Git") {
+                Button("Commit...") {
+                    NotificationCenter.default.post(name: .gitCommit, object: nil)
+                }
+                .keyboardShortcut("G", modifiers: [.command, .shift])
+
+                Button("Push") {
+                    NotificationCenter.default.post(name: .gitPush, object: nil)
+                }
+                .keyboardShortcut("P", modifiers: [.command, .shift])
+
+                Button("Pull") {
+                    NotificationCenter.default.post(name: .gitPull, object: nil)
+                }
+                .keyboardShortcut("U", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Link Repository...") {
+                    NotificationCenter.default.post(name: .gitLink, object: nil)
+                }
+
+                Button("Create GitHub Repository...") {
+                    NotificationCenter.default.post(name: .gitCreateRepo, object: nil)
+                }
+
+                Divider()
+
+                Button("History...") {
+                    NotificationCenter.default.post(name: .gitHistory, object: nil)
+                }
             }
 
             // Document menu
@@ -471,6 +516,17 @@ extension Notification.Name {
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
     static let showSymbolPalette = Notification.Name("showSymbolPalette")
     static let formatDocument = Notification.Name("formatDocument")
+
+    // Git
+    static let gitCommit = Notification.Name("gitCommit")
+    static let gitPush = Notification.Name("gitPush")
+    static let gitPull = Notification.Name("gitPull")
+    static let gitLink = Notification.Name("gitLink")
+    static let gitCreateRepo = Notification.Name("gitCreateRepo")
+    static let gitHistory = Notification.Name("gitHistory")
+
+    // Document lifecycle
+    static let imprintDocumentDidSave = Notification.Name("imprintDocumentDidSave")
 }
 
 // MARK: - Window Shadow Fix (macOS 26 compositor workaround)

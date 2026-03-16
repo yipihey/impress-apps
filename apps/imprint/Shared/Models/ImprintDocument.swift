@@ -174,6 +174,8 @@ struct ImprintDocument: FileDocument, Equatable {
             guard let data = source.data(using: .utf8) else {
                 throw CocoaError(.fileWriteUnknown)
             }
+            // Notify listeners that a save occurred
+            NotificationCenter.default.post(name: .imprintDocumentDidSave, object: nil, userInfo: ["documentID": id.uuidString])
             return FileWrapper(regularFileWithContents: data)
         }
 
@@ -215,6 +217,9 @@ struct ImprintDocument: FileDocument, Equatable {
         if let crdtData = automergeData {
             wrappers["document.crdt"] = FileWrapper(regularFileWithContents: crdtData)
         }
+
+        // Notify listeners that a save occurred
+        NotificationCenter.default.post(name: .imprintDocumentDidSave, object: nil, userInfo: ["documentID": id.uuidString])
 
         return FileWrapper(directoryWithFileWrappers: wrappers)
     }

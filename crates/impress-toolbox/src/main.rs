@@ -1,5 +1,7 @@
 mod discover;
 mod execute;
+mod git;
+mod git_types;
 mod server;
 mod types;
 

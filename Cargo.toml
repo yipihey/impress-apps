@@ -25,6 +25,8 @@ members = [
     "crates/impel-server",
     # impart - research conversation platform
     "crates/impart-core",
+    # impress-git - git integration logic (models, parsers, command builders)
+    "crates/impress-git",
     # impress-toolbox - unsandboxed local tool execution server
     "crates/impress-toolbox",
     # impress-core - unified item protocol
@@ -71,6 +73,7 @@ impress-tags = { path = "crates/impress-tags" }
 imprint-core = { path = "crates/imprint-core" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
+impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-llm = { path = "crates/impress-llm" }

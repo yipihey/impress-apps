@@ -2,6 +2,7 @@
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
+import ImpressGit
 import ImpressLogging
 import OSLog
 import ImprintCore
@@ -194,6 +195,16 @@ struct ContentView: View {
                 .help("Comments (Cmd+Opt+K)")
                 .accessibilityIdentifier("toolbar.commentsButton")
 
+                // Git status badge
+                #if os(macOS)
+                GitStatusBadge(
+                    status: ImprintGitIntegration.shared.repoStatus,
+                    isSyncing: ImprintGitIntegration.shared.isSyncing
+                ) {
+                    ImprintGitIntegration.shared.handleCommit()
+                }
+                #endif
+
                 // Collaborator avatars
                 #if os(macOS)
                 CollaboratorAvatarsView()
@@ -235,6 +246,10 @@ struct ContentView: View {
                 insertTextAtCursor(symbol)
             }
         }
+        // Git integration (sheets + notification handlers extracted to modifier)
+        #if os(macOS)
+        .modifier(GitIntegrationModifier())
+        #endif
         .task {
             // Detect document format and propagate to AppState
             appState.documentFormat = document.format

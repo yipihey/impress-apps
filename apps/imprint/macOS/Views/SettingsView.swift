@@ -1,3 +1,4 @@
+import ImpressGit
 import ImpressHelixCore
 import ImpressSpotlight
 import SwiftUI
@@ -65,6 +66,12 @@ struct SettingsView: View {
                     Label("Automation", systemImage: "gearshape.2")
                 }
                 .accessibilityIdentifier("settings.tabs.automation")
+
+            GitSettingsSection()
+                .tabItem {
+                    Label("Git", systemImage: "arrow.triangle.branch")
+                }
+                .accessibilityIdentifier("settings.tabs.git")
 
             Form {
                 SpotlightSettingsSection()
