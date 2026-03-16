@@ -2712,6 +2712,132 @@ fn extract_string_field(payload: &BTreeMap<String, Value>, field: &str) -> Optio
     }
 }
 
+impl SqliteItemStore {
+    /// Fetch recent undoable operations, grouped by batch_id.
+    /// Returns one entry per batch (or per unbatched operation).
+    /// Most recent first, limited to `max_entries`.
+    pub fn recent_undo_groups(
+        &self,
+        max_entries: usize,
+    ) -> Result<Vec<crate::operation::UndoGroupSummary>, crate::store::StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| crate::store::StoreError::Storage(e.to_string()))?;
+
+        // Group operations by COALESCE(batch_id, id) to treat unbatched ops as their own group.
+        // Filter out Correction operations (those are undo/redo ops, not user actions).
+        let sql = "
+            SELECT
+                MIN(id) as operation_id,
+                batch_id,
+                COUNT(*) as operation_count,
+                MAX(modified) as latest_timestamp,
+                MAX(logical_clock) as max_clock,
+                author,
+                author_kind,
+                payload
+            FROM items
+            WHERE schema_ref = 'core/operation'
+              AND (json_extract(payload, '$.intent') != 'correction'
+                   OR json_extract(payload, '$.intent') IS NULL)
+            GROUP BY COALESCE(batch_id, id)
+            ORDER BY max_clock DESC
+            LIMIT ?1
+        ";
+
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| crate::store::StoreError::Storage(format!("prepare recent_undo_groups: {}", e)))?;
+
+        let rows = stmt
+            .query_map(params![max_entries as i64], |row| {
+                let op_id_str: String = row.get(0)?;
+                let batch_id: Option<String> = row.get(1)?;
+                let operation_count: i64 = row.get(2)?;
+                let timestamp: i64 = row.get(3)?;
+                let _max_clock: i64 = row.get(4)?;
+                let author: String = row.get(5)?;
+                let author_kind: String = row.get(6)?;
+                let payload_str: String = row.get(7)?;
+                Ok((op_id_str, batch_id, operation_count, timestamp, author, author_kind, payload_str))
+            })
+            .map_err(|e| crate::store::StoreError::Storage(format!("query recent_undo_groups: {}", e)))?;
+
+        let mut summaries = Vec::new();
+        for row_result in rows {
+            let (op_id_str, batch_id, operation_count, timestamp, author, author_kind, payload_str) =
+                row_result.map_err(|e| crate::store::StoreError::Storage(format!("row recent_undo_groups: {}", e)))?;
+
+            let op_id: uuid::Uuid = op_id_str
+                .parse()
+                .map_err(|_| crate::store::StoreError::Storage("invalid operation UUID".into()))?;
+
+            // Parse op_type from first operation's payload to generate description
+            let description = if let Ok(payload) = serde_json::from_str::<BTreeMap<String, Value>>(&payload_str) {
+                if let Ok(op_type) = Self::parse_op_type_from_payload(&payload) {
+                    undo_description(&op_type, operation_count as usize)
+                } else {
+                    "Unknown Operation".into()
+                }
+            } else {
+                "Unknown Operation".into()
+            };
+
+            summaries.push(crate::operation::UndoGroupSummary {
+                operation_id: op_id,
+                batch_id,
+                operation_count: operation_count as usize,
+                description,
+                timestamp,
+                author,
+                author_kind,
+            });
+        }
+
+        Ok(summaries)
+    }
+
+    /// Remove old undo history beyond the specified depth.
+    pub fn compact_undo_history(&self, keep: usize) -> Result<usize, crate::store::StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| crate::store::StoreError::Storage(e.to_string()))?;
+
+        // Find the logical_clock cutoff: keep the N most recent groups
+        let cutoff_sql = "
+            SELECT MIN(max_clock) FROM (
+                SELECT MAX(logical_clock) as max_clock
+                FROM items
+                WHERE schema_ref = 'core/operation'
+                GROUP BY COALESCE(batch_id, id)
+                ORDER BY max_clock DESC
+                LIMIT ?1
+            )
+        ";
+
+        let cutoff: Option<i64> = conn
+            .query_row(cutoff_sql, params![keep as i64], |row| row.get(0))
+            .map_err(|e| crate::store::StoreError::Storage(format!("cutoff query: {}", e)))?;
+
+        if let Some(cutoff_clock) = cutoff {
+            let delete_sql = "
+                DELETE FROM items
+                WHERE schema_ref = 'core/operation'
+                  AND logical_clock < ?1
+                  AND (retention != 'durable' OR retention IS NULL)
+            ";
+            let deleted = conn
+                .execute(delete_sql, params![cutoff_clock])
+                .map_err(|e| crate::store::StoreError::Storage(format!("compact delete: {}", e)))?;
+            Ok(deleted)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

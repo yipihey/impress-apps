@@ -1006,6 +1006,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Remove all dismissed papers from a collection.
+    /// Returns the number of members removed.
+    @discardableResult
+    public func purgeCollectionDismissed(collectionId: UUID) -> Int {
+        do {
+            let count = try store.purgeDismissedFromCollection(collectionId: collectionId.uuidString)
+            if count > 0 { didMutate() }
+            return Int(count)
+        } catch {
+            Logger.library.error("purgeCollectionDismissed failed: \(error)")
+            return 0
+        }
+    }
+
     // MARK: - Tag Operations
 
     /// List all tag definitions (for display).
@@ -1204,6 +1218,16 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         } catch {
             Logger.library.error("undoBatch failed: \(error)")
             return nil
+        }
+    }
+
+    /// Fetch recent undo groups from the Rust operation log for the undo history panel.
+    public func recentUndoGroups(maxEntries: Int = 50) -> [ImbibRustCore.UndoGroupRow] {
+        do {
+            return try store.recentUndoGroups(maxEntries: UInt32(maxEntries))
+        } catch {
+            Logger.library.error("recentUndoGroups failed: \(error)")
+            return []
         }
     }
 
@@ -1550,11 +1574,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Add publications to a SciX library.
     public func addToScixLibrary(publicationIds: [UUID], scixLibraryId: UUID) {
+        Logger.library.infoCapture("addToScixLibrary: \(publicationIds.count) pubs → library \(scixLibraryId)", category: "scix")
         do {
             try store.addToScixLibrary(publicationIds: publicationIds.map(\.uuidString), scixLibraryId: scixLibraryId.uuidString)
+            Logger.library.infoCapture("addToScixLibrary: success — \(publicationIds.count) edges created", category: "scix")
             didMutate()
         } catch {
-            Logger.library.error("addToScixLibrary failed: \(error)")
+            Logger.library.errorCapture("addToScixLibrary failed: \(error)", category: "scix")
+        }
+    }
+
+    /// Remove publications from a SciX library (removes edges, keeps items).
+    public func removeFromScixLibrary(publicationIds: [UUID], scixLibraryId: UUID) {
+        do {
+            let info = try store.removeFromScixLibrary(publicationIds: publicationIds.map(\.uuidString), scixLibraryId: scixLibraryId.uuidString)
+            didMutate()
+            UndoCoordinator.shared.registerUndo(info: info)
+        } catch {
+            Logger.library.errorCapture("removeFromScixLibrary failed: \(error)", category: "scix")
         }
     }
 

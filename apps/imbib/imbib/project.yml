@@ -55,6 +55,10 @@ packages:
     path: ../../../packages/ImpressOperationQueue
   ImpressKit:
     path: ../../../packages/ImpressKit
+  ImpressUndoHistory:
+    path: ../../../packages/ImpressUndoHistory
+  ImpressTheme:
+    path: ../../../packages/ImpressTheme
 
 targets:
   # macOS App

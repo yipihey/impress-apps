@@ -896,7 +896,18 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func queryUnread(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
+    /**
+     * Fetch recent undo groups for the history panel.
+     * Returns one entry per batch (or per unbatched operation), most recent first.
+     */
+    func recentUndoGroups(maxEntries: UInt32) throws  -> [UndoGroupRow]
+    
     func removeFromCollection(publicationIds: [String], collectionId: String) throws  -> UndoInfo
+    
+    /**
+     * Remove publications from a SciX library (removes Contains edges, keeps items).
+     */
+    func removeFromScixLibrary(publicationIds: [String], scixLibraryId: String) throws  -> UndoInfo
     
     func removeTag(ids: [String], tagPath: String) throws  -> UndoInfo
     
@@ -2047,11 +2058,35 @@ open func queryUnread(parentId: String?, sortField: String, ascending: Bool, lim
 })
 }
     
+    /**
+     * Fetch recent undo groups for the history panel.
+     * Returns one entry per batch (or per unbatched operation), most recent first.
+     */
+open func recentUndoGroups(maxEntries: UInt32)throws  -> [UndoGroupRow] {
+    return try  FfiConverterSequenceTypeUndoGroupRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_recent_undo_groups(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(maxEntries),$0
+    )
+})
+}
+    
 open func removeFromCollection(publicationIds: [String], collectionId: String)throws  -> UndoInfo {
     return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_remove_from_collection(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(publicationIds),
         FfiConverterString.lower(collectionId),$0
+    )
+})
+}
+    
+    /**
+     * Remove publications from a SciX library (removes Contains edges, keeps items).
+     */
+open func removeFromScixLibrary(publicationIds: [String], scixLibraryId: String)throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_remove_from_scix_library(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(publicationIds),
+        FfiConverterString.lower(scixLibraryId),$0
     )
 })
 }
@@ -13231,6 +13266,157 @@ public func FfiConverterTypeThumbnailConfig_lower(_ value: ThumbnailConfig) -> R
 
 
 /**
+ * Summary of an undo group for the undo history panel.
+ */
+public struct UndoGroupRow {
+    /**
+     * Representative operation ID (first in the group).
+     */
+    public var operationId: String
+    /**
+     * Batch ID if this is a grouped operation, None if single.
+     */
+    public var batchId: String?
+    /**
+     * Number of operations in this group.
+     */
+    public var operationCount: UInt32
+    /**
+     * Human-readable description ("Star 3 Papers", "Delete Paper").
+     */
+    public var description: String
+    /**
+     * Timestamp of the most recent operation in the group (epoch millis).
+     */
+    public var timestamp: Int64
+    /**
+     * Who performed this action.
+     */
+    public var author: String
+    /**
+     * Author kind: "Human", "Agent", "System".
+     */
+    public var authorKind: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Representative operation ID (first in the group).
+         */operationId: String, 
+        /**
+         * Batch ID if this is a grouped operation, None if single.
+         */batchId: String?, 
+        /**
+         * Number of operations in this group.
+         */operationCount: UInt32, 
+        /**
+         * Human-readable description ("Star 3 Papers", "Delete Paper").
+         */description: String, 
+        /**
+         * Timestamp of the most recent operation in the group (epoch millis).
+         */timestamp: Int64, 
+        /**
+         * Who performed this action.
+         */author: String, 
+        /**
+         * Author kind: "Human", "Agent", "System".
+         */authorKind: String) {
+        self.operationId = operationId
+        self.batchId = batchId
+        self.operationCount = operationCount
+        self.description = description
+        self.timestamp = timestamp
+        self.author = author
+        self.authorKind = authorKind
+    }
+}
+
+
+
+extension UndoGroupRow: Equatable, Hashable {
+    public static func ==(lhs: UndoGroupRow, rhs: UndoGroupRow) -> Bool {
+        if lhs.operationId != rhs.operationId {
+            return false
+        }
+        if lhs.batchId != rhs.batchId {
+            return false
+        }
+        if lhs.operationCount != rhs.operationCount {
+            return false
+        }
+        if lhs.description != rhs.description {
+            return false
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.authorKind != rhs.authorKind {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(operationId)
+        hasher.combine(batchId)
+        hasher.combine(operationCount)
+        hasher.combine(description)
+        hasher.combine(timestamp)
+        hasher.combine(author)
+        hasher.combine(authorKind)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUndoGroupRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UndoGroupRow {
+        return
+            try UndoGroupRow(
+                operationId: FfiConverterString.read(from: &buf), 
+                batchId: FfiConverterOptionString.read(from: &buf), 
+                operationCount: FfiConverterUInt32.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                timestamp: FfiConverterInt64.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                authorKind: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UndoGroupRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.operationId, into: &buf)
+        FfiConverterOptionString.write(value.batchId, into: &buf)
+        FfiConverterUInt32.write(value.operationCount, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterInt64.write(value.timestamp, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterString.write(value.authorKind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUndoGroupRow_lift(_ buf: RustBuffer) throws -> UndoGroupRow {
+    return try FfiConverterTypeUndoGroupRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUndoGroupRow_lower(_ value: UndoGroupRow) -> RustBuffer {
+    return FfiConverterTypeUndoGroupRow.lower(value)
+}
+
+
+/**
  * Information returned after a mutation for undo/redo registration.
  */
 public struct UndoInfo {
@@ -18854,6 +19040,31 @@ fileprivate struct FfiConverterSequenceTypeTextMatch: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeUndoGroupRow: FfiConverterRustBuffer {
+    typealias SwiftType = [UndoGroupRow]
+
+    public static func write(_ value: [UndoGroupRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeUndoGroupRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UndoGroupRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UndoGroupRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeUndoGroupRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeValidationError: FfiConverterRustBuffer {
     typealias SwiftType = [ValidationError]
 
@@ -21695,7 +21906,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_unread() != 17038) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_recent_undo_groups() != 908) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_collection() != 19847) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_scix_library() != 62469) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 29440) {

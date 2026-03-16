@@ -6,6 +6,7 @@
 //
 
 import ImpressSpotlight
+import ImpressUndoHistory
 import PublicationManagerCore
 import SwiftUI
 
@@ -231,6 +232,7 @@ struct GeneralSettingsTab: View {
 
     @AppStorage("libraryLocation") private var libraryLocation: String = ""
     @AppStorage("openPDFInExternalViewer") private var openPDFExternally = false
+    @AppStorage("undoHistoryMaxEntries") private var maxUndoLevels: Int = 50
 
     @State private var automationSettings = AutomationSettings.default
 
@@ -354,6 +356,8 @@ struct GeneralSettingsTab: View {
             }
 
             SpotlightSettingsSection()
+
+            UndoHistorySettingsSection(maxUndoLevels: $maxUndoLevels)
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -361,6 +365,9 @@ struct GeneralSettingsTab: View {
         .task {
             await viewModel.loadSmartSearchSettings()
             automationSettings = await AutomationSettingsStore.shared.settings
+        }
+        .onChange(of: maxUndoLevels) { _, newValue in
+            UndoCoordinator.shared.maxUndoLevels = newValue
         }
     }
 

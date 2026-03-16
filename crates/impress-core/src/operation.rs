@@ -143,6 +143,25 @@ pub struct UndoInfo {
     pub description: String,
 }
 
+/// Summary of a group of operations for undo history display.
+#[derive(Debug, Clone)]
+pub struct UndoGroupSummary {
+    /// Representative operation ID (first in the group).
+    pub operation_id: ItemId,
+    /// Batch ID if this is a grouped operation, None if single.
+    pub batch_id: Option<String>,
+    /// Number of operations in this group.
+    pub operation_count: usize,
+    /// Human-readable description ("Star 3 Papers", "Delete Paper").
+    pub description: String,
+    /// Timestamp of the most recent operation in the group (epoch millis).
+    pub timestamp: i64,
+    /// Who performed this action.
+    pub author: String,
+    /// Author kind: "Human", "Agent", "System".
+    pub author_kind: String,
+}
+
 /// Compute the inverse operation type given the original operation and its
 /// captured previous value. Returns the OperationType that undoes the original.
 pub fn inverse_of(op_type: &OperationType, prev: &Value) -> Option<OperationType> {

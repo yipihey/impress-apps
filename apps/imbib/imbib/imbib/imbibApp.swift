@@ -14,6 +14,7 @@ import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
 import ImpressSpotlight
+import ImpressUndoHistory
 #if os(macOS)
 import AppKit
 #endif
@@ -519,6 +520,15 @@ struct imbibApp: App {
                         }
                     }
 
+                    // Wire undo history panel callbacks
+                    #if os(macOS)
+                    UndoHistoryPanelController.shared.onUndo = {
+                        UndoCoordinator.shared.undoManager?.undo()
+                    }
+                    UndoHistoryPanelController.shared.onRedo = {
+                        UndoCoordinator.shared.undoManager?.redo()
+                    }
+                    #endif
                 }
                 .onAppear {
                     ensureMainWindowVisible()
@@ -824,6 +834,15 @@ struct AppCommands: Commands {
                     NotificationCenter.default.post(name: .focusSearch, object: nil)
                 }
             }
+
+            Divider()
+
+            #if os(macOS)
+            Button("Undo History") {
+                UndoHistoryPanelController.shared.toggle()
+            }
+            .keyboardShortcut("z", modifiers: [.command, .option])
+            #endif
         }
 
         // View menu

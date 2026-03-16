@@ -1,6 +1,7 @@
 import Foundation
 import ImbibRustCore
 import ImpressKit
+import ImpressUndoHistory
 import OSLog
 
 /// Coordinates undo/redo with the system UndoManager and the Rust operation log.
@@ -16,7 +17,17 @@ public final class UndoCoordinator: UndoRegistering {
 
     /// The window's UndoManager, set by the root view via @Environment(\.undoManager).
     public var undoManager: UndoManager? {
-        didSet { undoManager?.levelsOfUndo = 50 }
+        didSet {
+            undoManager?.levelsOfUndo = maxUndoLevels
+        }
+    }
+
+    /// Maximum undo levels, synced from app settings.
+    public var maxUndoLevels: Int = 50 {
+        didSet {
+            undoManager?.levelsOfUndo = maxUndoLevels
+            UndoHistoryStore.shared.maxEntries = maxUndoLevels
+        }
     }
 
     /// Register an undoable action after a mutation completes.
@@ -46,6 +57,8 @@ public final class UndoCoordinator: UndoRegistering {
                     return
                 }
 
+                UndoHistoryStore.shared.didUndo()
+
                 // Register redo (the inverse of the undo)
                 if let redoInfo {
                     self.registerUndo(info: redoInfo)
@@ -54,6 +67,15 @@ public final class UndoCoordinator: UndoRegistering {
         }
 
         um.setActionName(description)
+
+        // Record to undo history panel
+        UndoHistoryStore.shared.recordAction(UndoHistoryEntry(
+            actionName: description,
+            operationCount: operationIds.count,
+            batchId: batchId,
+            author: "user:local",
+            authorKind: .human
+        ))
     }
 
     /// Register a closure-based undo action for insert/delete operations
@@ -71,6 +93,7 @@ public final class UndoCoordinator: UndoRegistering {
         um.registerUndo(withTarget: self) { [weak self] _ in
             Task { @MainActor in
                 undoClosure()
+                UndoHistoryStore.shared.didUndo()
                 // Register redo if provided
                 if let redo = redoClosure, let self {
                     self.registerUndoClosure(actionName: actionName, undo: redo, redo: undoClosure)
@@ -79,6 +102,13 @@ public final class UndoCoordinator: UndoRegistering {
         }
 
         um.setActionName(actionName)
+
+        // Record to undo history panel
+        UndoHistoryStore.shared.recordAction(UndoHistoryEntry(
+            actionName: actionName,
+            author: "user:local",
+            authorKind: .human
+        ))
     }
 
     private init() {}

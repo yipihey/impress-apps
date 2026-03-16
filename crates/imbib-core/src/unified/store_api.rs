@@ -63,6 +63,26 @@ impl From<impress_core::UndoInfo> for UndoInfo {
     }
 }
 
+/// Summary of an undo group for the undo history panel.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct UndoGroupRow {
+    /// Representative operation ID (first in the group).
+    pub operation_id: String,
+    /// Batch ID if this is a grouped operation, None if single.
+    pub batch_id: Option<String>,
+    /// Number of operations in this group.
+    pub operation_count: u32,
+    /// Human-readable description ("Star 3 Papers", "Delete Paper").
+    pub description: String,
+    /// Timestamp of the most recent operation in the group (epoch millis).
+    pub timestamp: i64,
+    /// Who performed this action.
+    pub author: String,
+    /// Author kind: "Human", "Agent", "System".
+    pub author_kind: String,
+}
+
 /// Snapshot of an item and its children, for undo of delete operations.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -890,6 +910,24 @@ impl ImbibStore {
     /// Undo all operations in a batch. Returns UndoInfo for the redo batch.
     pub fn undo_batch(&self, batch_id: String) -> Result<UndoInfo, StoreApiError> {
         Ok(self.store.undo_batch(&batch_id)?.into())
+    }
+
+    /// Fetch recent undo groups for the history panel.
+    /// Returns one entry per batch (or per unbatched operation), most recent first.
+    pub fn recent_undo_groups(&self, max_entries: u32) -> Result<Vec<UndoGroupRow>, StoreApiError> {
+        let summaries = self.store.recent_undo_groups(max_entries as usize)?;
+        Ok(summaries
+            .into_iter()
+            .map(|s| UndoGroupRow {
+                operation_id: s.operation_id.to_string(),
+                batch_id: s.batch_id,
+                operation_count: s.operation_count as u32,
+                description: s.description,
+                timestamp: s.timestamp,
+                author: s.author,
+                author_kind: s.author_kind,
+            })
+            .collect())
     }
 
     // --- Undoable delete operations ---
@@ -2022,6 +2060,38 @@ impl ImbibStore {
             )?;
         }
         Ok(())
+    }
+
+    /// Remove publications from a SciX library (removes Contains edges, keeps items).
+    pub fn remove_from_scix_library(
+        &self,
+        publication_ids: Vec<String>,
+        scix_library_id: String,
+    ) -> Result<UndoInfo, StoreApiError> {
+        let scix_uuid = parse_uuid(&scix_library_id)?;
+        let mut all_op_ids = Vec::new();
+        let mut batch_id = None;
+        for pub_id_str in &publication_ids {
+            let pub_uuid = parse_uuid(pub_id_str)?;
+            let info = self.store.update_with_undo(
+                scix_uuid,
+                vec![FieldMutation::RemoveReference(pub_uuid, EdgeType::Contains)],
+            )?;
+            all_op_ids.extend(info.operation_ids);
+            if batch_id.is_none() {
+                batch_id = info.batch_id;
+            }
+        }
+        let count = publication_ids.len();
+        Ok(UndoInfo {
+            operation_ids: all_op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id: batch_id.map(|id| id.to_string()),
+            description: if count == 1 {
+                "Remove from SciX Library".into()
+            } else {
+                format!("Remove {} from SciX Library", count)
+            },
+        })
     }
 
     /// Query publications linked to a SciX library via item_references (Contains edges).
@@ -3887,6 +3957,74 @@ mod tests {
 
         store.delete_item(scix.id).unwrap();
         assert_eq!(store.list_scix_libraries().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn scix_library_query_vs_count() {
+        let store = make_store();
+
+        // Create a SciX library
+        let scix = store
+            .create_scix_library(
+                "remote-456".into(),
+                "Test SciX Lib".into(),
+                None,
+                false,
+                "owner".into(),
+                None,
+            )
+            .unwrap();
+
+        // Create a library and import some publications
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{A, title={Alpha}, author={Smith, J}, year={2024}}\n\
+                 @article{B, title={Beta}, author={Jones, K}, year={2023}}"
+                    .into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        assert_eq!(ids.len(), 2);
+
+        // Add publications to SciX library
+        store
+            .add_to_scix_library(ids.clone(), scix.id.clone())
+            .unwrap();
+
+        // Count should return 2
+        let count = store
+            .count_scix_library_publications(scix.id.clone())
+            .unwrap();
+        assert_eq!(count, 2, "count_scix_library_publications should return 2");
+
+        // Query should also return 2
+        let rows = store
+            .query_scix_library_publications(
+                scix.id.clone(),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "query_scix_library_publications should return 2 rows but got {}",
+            rows.len()
+        );
+
+        // Verify the publications are the right ones
+        let row_ids: std::collections::HashSet<String> =
+            rows.iter().map(|r| r.id.clone()).collect();
+        for id in &ids {
+            assert!(
+                row_ids.contains(id),
+                "query results should contain publication {}",
+                id
+            );
+        }
     }
 
     #[test]
