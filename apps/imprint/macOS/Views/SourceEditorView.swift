@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 import ImpressLogging
 import OSLog
 
-/// Source code editor with format-aware syntax highlighting and inline AI completions.
-/// Supports both Typst and LaTeX syntax.
+/// Source code editor with format-aware syntax highlighting, inline AI completions,
+/// and structural scope selection with AI verb bar.
 struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
@@ -19,6 +19,17 @@ struct SourceEditorView: View {
 
     @State private var helixState = HelixState()
     private let inlineCompletionService = InlineCompletionService.shared
+
+    // MARK: Scope selection
+    @State private var scopeController = ScopeSelectionController()
+    @State private var selectedText: String = ""
+    @State private var selectedRange: NSRange? = nil
+    @State private var showVerbBar: Bool = false
+    @State private var showFullPalette: Bool = false
+    @State private var verbBarAnchor: CGRect = .zero
+    @State private var showMultiVariant: Bool = false
+    @State private var currentSuggestion: RewriteSuggestion? = nil
+    @State private var editorTextView: NSTextView? = nil  // weak ref set by coordinator
 
     init(source: Binding<String>, cursorPosition: Binding<Int>, syntaxMode: DocumentFormat = .typst, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
         self._source = source
@@ -39,14 +50,50 @@ struct SourceEditorView: View {
                 helixState: helixState,
                 helixEnabled: helixModeEnabled,
                 inlineCompletionService: inlineCompletionService,
-                onSelectionChange: onSelectionChange
+                scopeController: scopeController,
+                onSelectionChange: { text, range in
+                    selectedText = text
+                    selectedRange = range.length > 0 ? range : nil
+                    showVerbBar = range.length > 0
+                    if range.length > 0 {
+                        scopeController.refreshScopes(
+                            source: source,
+                            cursorPosition: range.location,
+                            format: syntaxMode
+                        )
+                    } else {
+                        scopeController.clearActiveScope()
+                    }
+                    onSelectionChange?(text, range)
+                },
+                onTextViewCreated: { tv in editorTextView = tv }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Scope bracket overlay in the left margin
+            if !scopeController.availableScopes.isEmpty {
+                ScopeBracketOverlayView(
+                    scopes: scopeController.availableScopes,
+                    activeScope: scopeController.activeScope,
+                    textView: editorTextView
+                ) { tappedScope in
+                    if let tv = editorTextView {
+                        tv.setSelectedRange(tappedScope.range)
+                        selectedText = (tv.string as NSString).substring(with: tappedScope.range)
+                        selectedRange = tappedScope.range
+                        showVerbBar = true
+                    }
+                }
+                .frame(width: ScopeBracketOverlay.marginWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .allowsHitTesting(true)
+            }
 
             // Helix mode indicator
             if helixModeEnabled && helixShowModeIndicator {
                 HelixModeIndicator(state: helixState, position: .bottomLeft)
-                    .padding(12)
+                    .padding(.leading, ScopeBracketOverlay.marginWidth + 4)
+                    .padding(.bottom, 12)
             }
 
             // Inline completion loading indicator
@@ -64,11 +111,135 @@ struct SourceEditorView: View {
                 .padding([.trailing, .bottom], 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
+
+            // Floating verb bar (anchored above selection)
+            if showVerbBar && !selectedText.isEmpty && !showFullPalette {
+                floatingVerbBarOverlay
+            }
+
+            // Full scope AI palette
+            if showFullPalette {
+                fullPaletteOverlay
+            }
+
+            // Multi-variant view (3 rewrites)
+            if showMultiVariant, let range = selectedRange {
+                multiVariantOverlay(range: range)
+            }
+
+            // Rewrite suggestion (single-variant Accept/Reject)
+            if let suggestion = currentSuggestion {
+                RewriteSuggestionView(
+                    suggestion: suggestion,
+                    onAccept: { text in
+                        applySuggestion(text: text, range: suggestion.range)
+                        currentSuggestion = nil
+                    },
+                    onReject: { currentSuggestion = nil },
+                    onEdit: {
+                        // Open chat sidebar with the suggestion for further refinement
+                        NotificationCenter.default.post(
+                            name: .init("ImprintOpenChatSidebar"),
+                            object: nil,
+                            userInfo: ["suggestion": suggestion]
+                        )
+                        currentSuggestion = nil
+                    },
+                    onCancel: { currentSuggestion = nil }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .accessibilityIdentifier("sourceEditor.container")
         .onDrop(of: [.impressPaperReference, .impressFigureReference], isTargeted: nil) { providers in
             handleCrossAppDrop(providers)
         }
+        // Cmd+. triggers the full AI palette
+        .onKeyPress(.init("."), modifiers: .command) {
+            if !selectedText.isEmpty {
+                showFullPalette = true
+            }
+            return .handled
+        }
+    }
+
+    // MARK: - Overlay Views
+
+    private var floatingVerbBarOverlay: some View {
+        FloatingVerbBar(
+            selectedText: selectedText,
+            selectedRange: selectedRange,
+            scopeLevel: scopeController.activeScope?.level,
+            documentSource: source,
+            anchorRect: .zero,
+            onActionResult: { suggestion in
+                if suggestion.action.id == "rewrite.three_rewrites" {
+                    showMultiVariant = true
+                } else {
+                    currentSuggestion = suggestion
+                }
+                showVerbBar = false
+            },
+            onOpenFullPalette: { showFullPalette = true }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 48)
+        .padding(.leading, ScopeBracketOverlay.marginWidth + 8)
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+        .animation(.easeOut(duration: 0.12), value: showVerbBar)
+    }
+
+    private var fullPaletteOverlay: some View {
+        ScopeAIPaletteView(
+            selectedText: $selectedText,
+            selectedRange: $selectedRange,
+            scopeLevel: scopeController.activeScope?.level,
+            documentSource: source,
+            onActionResult: { suggestion in
+                if suggestion.action.id == "rewrite.three_rewrites" {
+                    showMultiVariant = true
+                } else {
+                    currentSuggestion = suggestion
+                }
+                showFullPalette = false
+            },
+            onDismiss: { showFullPalette = false }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, 44)
+        .padding(.trailing, 12)
+        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topTrailing)))
+        .animation(.easeOut(duration: 0.12), value: showFullPalette)
+    }
+
+    private func multiVariantOverlay(range: NSRange) -> some View {
+        MultiVariantView(
+            originalText: selectedText,
+            selectedRange: range,
+            onAccept: { text, r in
+                applySuggestion(text: text, range: r)
+                showMultiVariant = false
+            },
+            onDismiss: { showMultiVariant = false }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, 44)
+        .padding(.trailing, 12)
+        .transition(.opacity.combined(with: .move(edge: .trailing)))
+        .animation(.easeOut(duration: 0.15), value: showMultiVariant)
+    }
+
+    // MARK: - Apply Suggestion
+
+    private func applySuggestion(text: String, range: NSRange) {
+        guard let tv = editorTextView else { return }
+        tv.setSelectedRange(range)
+        tv.insertText(text, replacementRange: range)
+        currentSuggestion = nil
+        showVerbBar = false
     }
 
     /// Handle drops of ImpressPaperRef (from imbib) and ImpressFigureRef (from implore).
@@ -126,7 +297,10 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     let helixState: HelixState
     let helixEnabled: Bool
     let inlineCompletionService: InlineCompletionService
+    let scopeController: ScopeSelectionController
     var onSelectionChange: ((String, NSRange) -> Void)?
+    /// Called once on creation with a reference to the underlying NSTextView.
+    var onTextViewCreated: ((NSTextView) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -176,6 +350,16 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Set up inline completion service
         textView.inlineCompletionService = inlineCompletionService
 
+        // Set up scope selection controller
+        textView.scopeController = scopeController
+        textView.scopeSyntaxMode = syntaxMode
+
+        // Notify parent of the text view reference for overlay coordination.
+        // Dispatched async to avoid mutating SwiftUI @State during the render pass.
+        let capturedTV = textView
+        let capturedCallback = onTextViewCreated
+        DispatchQueue.main.async { capturedCallback?(capturedTV) }
+
         // Add ghost text overlay
         let ghostTextView = GhostTextNSView(frame: .zero)
         ghostTextView.textFont = .monospacedSystemFont(ofSize: 14, weight: .regular)
@@ -213,6 +397,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         if modeChanged {
             context.coordinator.lastSyntaxMode = syntaxMode
             applySyntaxHighlighting(to: textView)
+            // Also update scope mode on the text view
+            textView.scopeSyntaxMode = syntaxMode
         }
 
         // Update text if changed externally
@@ -498,23 +684,59 @@ class TypstTextView: HelixTextView {
     /// Ghost text overlay view
     var ghostTextView: GhostTextNSView?
 
+    // MARK: - Scope Selection Properties
+
+    /// Structural scope controller — wired up by TypstEditorRepresentable.
+    var scopeController: ScopeSelectionController?
+
+    /// The document format, for scope analysis.
+    var scopeSyntaxMode: DocumentFormat = .typst
+
     // MARK: - Key Handling
 
     override func keyDown(with event: NSEvent) {
-        // Tab key accepts inline completion if available
+        // ── Scope Expand / Shrink ─────────────────────────────────────────────
+        // Cmd+Shift+]  →  expand to next coarser structural scope
+        // Cmd+Shift+[  →  shrink to next finer structural scope
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if mods == [.command, .shift] {
+            if event.keyCode == 30 { // ] key (keyCode 30)
+                if let ctrl = scopeController {
+                    ctrl.expandSelection(
+                        in: self,
+                        source: string,
+                        format: scopeSyntaxMode
+                    )
+                    Logger.editor.infoCapture("Scope expand", category: "scope")
+                    return
+                }
+            } else if event.keyCode == 33 { // [ key (keyCode 33)
+                if let ctrl = scopeController {
+                    ctrl.shrinkSelection(
+                        in: self,
+                        source: string,
+                        format: scopeSyntaxMode
+                    )
+                    Logger.editor.infoCapture("Scope shrink", category: "scope")
+                    return
+                }
+            }
+        }
+
+        // ── Tab: accept inline completion ─────────────────────────────────────
         if event.keyCode == 48 { // Tab key
             if let service = inlineCompletionService,
                let accepted = service.acceptCompletion() {
-                // Insert the accepted text at cursor
                 insertText(accepted, replacementRange: selectedRange())
                 Logger.editor.infoCapture("Accepted inline completion via Tab", category: "editor")
                 return
             }
         }
 
-        // Escape clears completion
+        // ── Escape: clear completion, clear active scope ──────────────────────
         if event.keyCode == 53 { // Escape key
             inlineCompletionService?.clearCompletion()
+            scopeController?.clearActiveScope()
             updateGhostText()
         }
 
