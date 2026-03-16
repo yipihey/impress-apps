@@ -36,13 +36,14 @@ public struct TagLine: View {
 
     @ViewBuilder
     private func dotsView(maxVisible: Int) -> some View {
-        if !tags.isEmpty {
+        let humanTags = tags.filter { !$0.path.hasPrefix("ai/") }
+        if !humanTags.isEmpty {
             HStack(spacing: 3) {
-                ForEach(tags.prefix(maxVisible)) { tag in
+                ForEach(humanTags.prefix(maxVisible)) { tag in
                     TagDot(tag: tag)
                 }
-                if tags.count > maxVisible {
-                    Text("+\(tags.count - maxVisible)")
+                if humanTags.count > maxVisible {
+                    Text("+\(humanTags.count - maxVisible)")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
