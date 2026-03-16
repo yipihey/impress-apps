@@ -293,8 +293,13 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showAIContextMenu)) { _ in
-            // Show AI context menu (Cmd+Shift+A)
-            showingAIContextMenu = true
+            // Cmd+Shift+A: route to scope palette when text is selected,
+            // fall back to the accordion menu when there is no selection.
+            if !appState.selectedText.isEmpty {
+                NotificationCenter.default.post(name: .showScopeAIPalette, object: nil)
+            } else {
+                showingAIContextMenu = true
+            }
         }
         .sheet(isPresented: $showingAIContextMenu) {
             AIContextMenuContent(

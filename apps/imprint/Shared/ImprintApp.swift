@@ -471,6 +471,9 @@ extension Notification.Name {
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
     static let showSymbolPalette = Notification.Name("showSymbolPalette")
     static let formatDocument = Notification.Name("formatDocument")
+    /// Posted to open the scope-aware AI verb palette inline in the source editor.
+    /// `Cmd+Shift+A` with a selection, or `<Space>a` in Helix normal mode.
+    static let showScopeAIPalette = Notification.Name("showScopeAIPalette")
 }
 
 // MARK: - Window Shadow Fix (macOS 26 compositor workaround)

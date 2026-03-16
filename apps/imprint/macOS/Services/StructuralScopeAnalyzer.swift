@@ -199,75 +199,175 @@ public actor StructuralScopeAnalyzer {
 
     // MARK: - Sentence Scope
 
+    /// Common abbreviations that end with a period but do NOT end a sentence.
+    /// Checked as lowercased prefix before the period.
+    private static let sentenceAbbreviations: Set<String> = [
+        // Titles
+        "dr", "mr", "mrs", "ms", "prof", "sr", "jr", "rev", "gen", "sgt", "cpl", "pvt",
+        // Academic
+        "fig", "eq", "sec", "ch", "vol", "no", "pp", "ibid", "cf", "et al",
+        // Latin / common
+        "e.g", "i.e", "vs", "etc", "al", "approx",
+        // Months / days (abbreviated)
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+        // Units / misc
+        "ave", "blvd", "st", "dept", "est",
+    ]
+
     private func sentenceScope(in source: String, at position: Int) -> TextScope? {
         guard !source.isEmpty else { return nil }
-        let nsSource = source as NSString
-        let fullLength = nsSource.length
-        guard position <= fullLength else { return nil }
+        guard let posRange = Range(NSRange(location: position, length: 0), in: source) else { return nil }
 
-        // Sentence terminators: . ! ? followed by whitespace or end of string
-        let terminators = CharacterSet(charactersIn: ".!?")
+        // Use paragraph boundaries as hard sentence containment.
+        let beforeText = source[..<posRange.lowerBound]
+        let afterText = source[posRange.lowerBound...]
 
-        // Scan backwards to find start of sentence
-        var start = max(0, position - 1)
-        while start > 0 {
-            let ch = UnicodeScalar(nsSource.character(at: start - 1))!
+        let paraStart: String.Index
+        if let lb = beforeText.range(of: "\n\n", options: .backwards) {
+            paraStart = lb.upperBound
+        } else {
+            paraStart = source.startIndex
+        }
+
+        let paraEnd: String.Index
+        if let ub = afterText.range(of: "\n\n") {
+            paraEnd = ub.lowerBound
+        } else {
+            paraEnd = source.endIndex
+        }
+
+        guard paraStart < paraEnd else { return nil }
+        let paragraph = String(source[paraStart..<paraEnd])
+        let paraOffset = source.distance(from: source.startIndex, to: paraStart)
+
+        // Split paragraph into sentences using a regex that respects abbreviations.
+        let sentences = splitIntoSentences(paragraph)
+
+        // Find which sentence the cursor falls in (relative to paragraph).
+        let relativeCursor = source.distance(from: source.startIndex, to: posRange.lowerBound) - paraOffset
+
+        for sentence in sentences {
+            let sentStart = sentence.start
+            let sentEnd = sentence.end
+            if sentStart <= relativeCursor && relativeCursor <= sentEnd {
+                let absStart = paraOffset + sentStart
+                let absEnd = paraOffset + sentEnd
+                guard absEnd > absStart else { continue }
+                return TextScope(
+                    level: .sentence,
+                    range: NSRange(location: absStart, length: absEnd - absStart)
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private struct SentenceSpan {
+        let start: Int   // byte offset within the paragraph
+        let end: Int
+    }
+
+    /// Split text into sentence spans using a pattern that skips common abbreviations.
+    private func splitIntoSentences(_ text: String) -> [SentenceSpan] {
+        var spans: [SentenceSpan] = []
+
+        // Pattern: a terminator (.!?) followed by a capital letter or closing quote + capital.
+        // Uses a negative lookbehind-style check for abbreviations.
+        // Strategy: find all candidate boundaries, filter abbreviations, build spans.
+        let nsText = text as NSString
+        let length = nsText.length
+
+        var sentenceStart = 0
+
+        var i = 0
+        while i < length {
+            let ch = UnicodeScalar(nsText.character(at: i))!
             let chStr = String(ch)
-            if terminators.contains(ch) {
-                // Check that the next char is whitespace (real sentence boundary)
-                if start < fullLength {
-                    let next = UnicodeScalar(nsSource.character(at: start))!
-                    if CharacterSet.whitespaces.contains(next) {
-                        break
+
+            if ".!?".contains(chStr) {
+                // Look ahead: must be followed by space + uppercase (or end of text)
+                let afterIdx = i + 1
+                var j = afterIdx
+                // Skip closing punctuation: )"'
+                while j < length && ")\u{201D}\u{2019}'\"".contains(String(UnicodeScalar(nsText.character(at: j))!)) {
+                    j += 1
+                }
+                // Need whitespace
+                if j >= length {
+                    // End of text — this is a sentence boundary
+                    spans.append(SentenceSpan(start: sentenceStart, end: i + 1))
+                    sentenceStart = i + 1
+                } else if chStr == "." {
+                    let nextCh = UnicodeScalar(nsText.character(at: j))!
+                    if CharacterSet.whitespaces.contains(nextCh) {
+                        // Check for abbreviation: get the word before the period
+                        let wordBefore = wordBefore(in: text, before: i)
+                        if !Self.sentenceAbbreviations.contains(wordBefore.lowercased()) &&
+                           !isSingleUppercaseLetter(wordBefore) &&
+                           !isNumeric(wordBefore) {
+                            // Check next non-space char is uppercase (real sentence start)
+                            var k = j
+                            while k < length && CharacterSet.whitespaces.contains(UnicodeScalar(nsText.character(at: k))!) {
+                                k += 1
+                            }
+                            if k < length {
+                                let startCh = UnicodeScalar(nsText.character(at: k))!
+                                if CharacterSet.uppercaseLetters.contains(startCh) {
+                                    spans.append(SentenceSpan(start: sentenceStart, end: j))
+                                    sentenceStart = k
+                                }
+                            }
+                        }
                     }
                 } else {
-                    break
-                }
-            }
-            // Paragraph break is also a sentence boundary
-            if chStr == "\n" {
-                let prevIdx = start - 1
-                if prevIdx > 0 {
-                    let prevCh = String(UnicodeScalar(nsSource.character(at: prevIdx - 1))!)
-                    if prevCh == "\n" {
-                        break
+                    // ! or ? — these are almost always sentence-ending
+                    let nextCh = UnicodeScalar(nsText.character(at: j))!
+                    if CharacterSet.whitespaces.contains(nextCh) || CharacterSet.newlines.contains(nextCh) {
+                        spans.append(SentenceSpan(start: sentenceStart, end: j))
+                        var k = j
+                        while k < length && CharacterSet.whitespaces.contains(UnicodeScalar(nsText.character(at: k))!) {
+                            k += 1
+                        }
+                        sentenceStart = k
                     }
                 }
             }
-            start -= 1
+            i += 1
         }
 
-        // Skip leading whitespace
-        while start < fullLength && CharacterSet.whitespaces.contains(UnicodeScalar(nsSource.character(at: start))!) {
-            start += 1
+        // Add the final sentence
+        if sentenceStart < length {
+            spans.append(SentenceSpan(start: sentenceStart, end: length))
         }
 
-        // Scan forwards to find end of sentence
-        var end = position
-        while end < fullLength {
-            let ch = UnicodeScalar(nsSource.character(at: end))!
-            if terminators.contains(ch) {
-                end += 1
-                // Skip trailing whitespace after terminator
-                while end < fullLength && CharacterSet.whitespaces.contains(UnicodeScalar(nsSource.character(at: end))!) {
-                    end += 1
-                }
+        return spans
+    }
+
+    /// Extract the word immediately before position `i` in the string (stops at whitespace/punct).
+    private func wordBefore(in text: String, before i: Int) -> String {
+        let nsText = text as NSString
+        var j = i - 1
+        while j >= 0 {
+            let ch = UnicodeScalar(nsText.character(at: j))!
+            if CharacterSet.letters.contains(ch) || ch == UnicodeScalar(".") {
+                j -= 1
+            } else {
                 break
             }
-            // Paragraph break ends a sentence too
-            let chStr = String(ch)
-            if chStr == "\n" && end + 1 < fullLength {
-                let nextCh = String(UnicodeScalar(nsSource.character(at: end + 1))!)
-                if nextCh == "\n" {
-                    break
-                }
-            }
-            end += 1
         }
+        let startJ = j + 1
+        guard startJ < i else { return "" }
+        return nsText.substring(with: NSRange(location: startJ, length: i - startJ))
+    }
 
-        let length = end - start
-        guard length > 0 else { return nil }
-        return TextScope(level: .sentence, range: NSRange(location: start, length: length))
+    private func isSingleUppercaseLetter(_ s: String) -> Bool {
+        s.count == 1 && s.unicodeScalars.first.map { CharacterSet.uppercaseLetters.contains($0) } ?? false
+    }
+
+    private func isNumeric(_ s: String) -> Bool {
+        !s.isEmpty && s.unicodeScalars.allSatisfy { CharacterSet.decimalDigits.contains($0) }
     }
 
     // MARK: - Paragraph Scope

@@ -134,6 +134,7 @@ final class ScopeBracketOverlay: NSView {
     override func mouseExited(with event: NSEvent) {
         isHovered = false
         hoveredScopeLevel = nil
+        toolTip = nil
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -152,6 +153,7 @@ final class ScopeBracketOverlay: NSView {
     private func updateHoveredScope(at point: NSPoint) {
         guard !visibleScopes.isEmpty, let textView = textView else {
             hoveredScopeLevel = nil
+            toolTip = nil
             return
         }
 
@@ -164,12 +166,23 @@ final class ScopeBracketOverlay: NSView {
                     let (visTopY, visBottomY) = clampToVisibleRect(topY: topY, bottomY: bottomY)
                     if point.y >= visBottomY && point.y <= visTopY {
                         hoveredScopeLevel = scope.level
+                        toolTip = scopeTooltip(scope)
                         return
                     }
                 }
             }
         }
         hoveredScopeLevel = nil
+        toolTip = nil
+    }
+
+    /// Build the tooltip string for a scope bracket.
+    private func scopeTooltip(_ scope: TextScope) -> String {
+        let levelName = scope.level.description.capitalized
+        if let label = scope.label, !label.isEmpty {
+            return "\(levelName): \(label)\nClick to select"
+        }
+        return "\(levelName)\nClick to select"
     }
 
     // MARK: - Drawing

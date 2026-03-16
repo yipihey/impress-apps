@@ -157,13 +157,12 @@ struct SourceEditorView: View {
         .onDrop(of: [.impressPaperReference, .impressFigureReference], isTargeted: nil) { providers in
             handleCrossAppDrop(providers)
         }
-        // Cmd+. triggers the full AI palette
-        .onKeyPress(.init("."), modifiers: .command) {
-            if !selectedText.isEmpty {
-                showFullPalette = true
-            }
-            return .handled
-        }
+        // Cmd+Shift+A with selection → scope palette (notification from ContentView)
+        .onNotifications([
+            (.showScopeAIPalette, { _ in
+                if !selectedText.isEmpty { showFullPalette = true }
+            }),
+        ])
     }
 
     // MARK: - Overlay Views
@@ -695,28 +694,53 @@ class TypstTextView: HelixTextView {
     // MARK: - Key Handling
 
     override func keyDown(with event: NSEvent) {
-        // ── Scope Expand / Shrink ─────────────────────────────────────────────
-        // Cmd+Shift+]  →  expand to next coarser structural scope
-        // Cmd+Shift+[  →  shrink to next finer structural scope
+        // ── Helix Space-Mode intercepts ───────────────────────────────────────
+        // These keys are handled BEFORE passing to Helix so we can extend the
+        // space-mode vocabulary without modifying the Rust FFI.
+        //
+        //   <Space>a  →  open scope AI palette (post showScopeAIPalette)
+        //   <Space>e  →  expand selection to next coarser structural scope
+        //   <Space>E  →  shrink selection to next finer structural scope
+        if helixAdaptor?.helixState.isSpaceMode == true {
+            if let chars = event.characters {
+                switch chars {
+                case "a":
+                    // Exit space mode and post the palette notification
+                    helixAdaptor?.helixState.exitSpaceMode()
+                    NotificationCenter.default.post(name: .showScopeAIPalette, object: self)
+                    Logger.editor.infoCapture("<Space>a: opening scope AI palette", category: "scope")
+                    return
+                case "e":
+                    // Expand scope
+                    helixAdaptor?.helixState.exitSpaceMode()
+                    scopeController?.expandSelection(in: self, source: string, format: scopeSyntaxMode)
+                    Logger.editor.infoCapture("<Space>e: scope expand", category: "scope")
+                    return
+                case "E":
+                    // Shrink scope
+                    helixAdaptor?.helixState.exitSpaceMode()
+                    scopeController?.shrinkSelection(in: self, source: string, format: scopeSyntaxMode)
+                    Logger.editor.infoCapture("<Space>E: scope shrink", category: "scope")
+                    return
+                default:
+                    break
+                }
+            }
+        }
+
+        // ── Scope Expand / Shrink (Cmd+Shift+] / [) ──────────────────────────
+        // Works in any Helix mode and outside Helix.
         let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
         if mods == [.command, .shift] {
             if event.keyCode == 30 { // ] key (keyCode 30)
                 if let ctrl = scopeController {
-                    ctrl.expandSelection(
-                        in: self,
-                        source: string,
-                        format: scopeSyntaxMode
-                    )
+                    ctrl.expandSelection(in: self, source: string, format: scopeSyntaxMode)
                     Logger.editor.infoCapture("Scope expand", category: "scope")
                     return
                 }
             } else if event.keyCode == 33 { // [ key (keyCode 33)
                 if let ctrl = scopeController {
-                    ctrl.shrinkSelection(
-                        in: self,
-                        source: string,
-                        format: scopeSyntaxMode
-                    )
+                    ctrl.shrinkSelection(in: self, source: string, format: scopeSyntaxMode)
                     Logger.editor.infoCapture("Scope shrink", category: "scope")
                     return
                 }
