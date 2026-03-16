@@ -203,10 +203,7 @@ struct SectionContentView: View {
         )
     }
 
-    private var displayedPublication: PublicationRowData? {
-        guard let id = displayedPublicationID else { return nil }
-        return libraryViewModel.publication(for: id)
-    }
+    @State private var displayedPublication: PublicationRowData?
 
     /// Get the full publication detail for APIs that need the full model.
     private func getPublicationDetail(id: UUID) -> PublicationModel? {
@@ -307,9 +304,24 @@ struct SectionContentView: View {
             }
         }
         #endif
+        .onAppear {
+            displayedPublication = displayedPublicationID.flatMap { libraryViewModel.publication(for: $0) }
+        }
+        .onChange(of: displayedPublicationID) { _, newID in
+            displayedPublication = newID.flatMap { libraryViewModel.publication(for: $0) }
+        }
+        .onChange(of: RustStoreAdapter.shared.dataVersion) { _, _ in
+            if let id = displayedPublicationID {
+                let updated = libraryViewModel.publication(for: id)
+                if updated != displayedPublication {
+                    displayedPublication = updated
+                }
+            }
+        }
         .onChange(of: tabKey) { _, _ in
             selectedPublicationIDs.removeAll()
             displayedPublicationID = nil
+            displayedPublication = nil
             selectedArtifactID = nil
             // Reset search form when switching to a search tab
             if case .searchForm = content {
