@@ -387,13 +387,6 @@ struct SectionContentView: View {
                     SciXLibraryHeader(library: library, viewModel: scixViewModel)
                     Divider()
                 }
-                if case .collection(let id) = source {
-                    CollectionSummaryInlineHeader(
-                        collectionId: id,
-                        collectionName: collectionName(for: id)
-                    )
-                    Divider()
-                }
                 UnifiedPublicationListWrapper(
                     source: source,
                     selectedPublicationID: selectedPublicationIDBinding,
@@ -984,47 +977,4 @@ struct SectionContentView: View {
     }
 }
 
-// MARK: - Collection Summary Inline Header
-
-/// Compact header shown above the publication list for collection sources.
-/// Shows a cached AI summary or a "Summarize" button to generate one.
-@MainActor
-private struct CollectionSummaryInlineHeader: View {
-    let collectionId: UUID
-    let collectionName: String
-
-    var body: some View {
-        let service = CollectionSummaryService.shared
-        Group {
-            if let summary = service.summary(for: collectionId) {
-                Text(summary.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-            } else if service.isGenerating(for: collectionId) {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Summarizing…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            } else {
-                Button("Summarize \"\(collectionName)\"") {
-                    Task { await service.generateSummary(for: collectionId) }
-                }
-                .font(.caption)
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
 

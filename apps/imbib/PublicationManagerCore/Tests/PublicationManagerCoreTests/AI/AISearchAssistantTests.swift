@@ -76,43 +76,6 @@ final class AISearchAssistantParsingTests: XCTestCase {
         XCTAssertEqual(decoded.suggested_queries, ["query 1"])
     }
 
-    // MARK: - Paper Summary JSON Parsing
-
-    func testPaperSummaryJSON_ValidJSON() throws {
-        let jsonString = """
-        {
-            "brief_summary": "This paper introduces a novel approach.",
-            "key_findings": ["Finding 1", "Finding 2"],
-            "methodology": "Experimental analysis",
-            "relevance": "High impact"
-        }
-        """
-
-        let data = jsonString.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(PaperSummaryJSONTestHelper.self, from: data)
-
-        XCTAssertEqual(decoded.brief_summary, "This paper introduces a novel approach.")
-        XCTAssertEqual(decoded.key_findings, ["Finding 1", "Finding 2"])
-        XCTAssertEqual(decoded.methodology, "Experimental analysis")
-        XCTAssertEqual(decoded.relevance, "High impact")
-    }
-
-    func testPaperSummaryJSON_MinimalFields() throws {
-        let jsonString = """
-        {
-            "brief_summary": "Summary only"
-        }
-        """
-
-        let data = jsonString.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(PaperSummaryJSONTestHelper.self, from: data)
-
-        XCTAssertEqual(decoded.brief_summary, "Summary only")
-        XCTAssertNil(decoded.key_findings)
-        XCTAssertNil(decoded.methodology)
-        XCTAssertNil(decoded.relevance)
-    }
-
     // MARK: - Paper Suggestion JSON Parsing
 
     func testPaperSuggestionJSON_ValidArray() throws {
@@ -299,14 +262,6 @@ private struct QueryExpansionJSONTestHelper: Decodable {
     let suggested_queries: [String]?
 }
 
-/// Mirror of PaperSummaryJSON for testing
-private struct PaperSummaryJSONTestHelper: Decodable {
-    let brief_summary: String?
-    let key_findings: [String]?
-    let methodology: String?
-    let relevance: String?
-}
-
 /// Mirror of PaperSuggestionJSON for testing
 private struct PaperSuggestionJSONTestHelper: Decodable {
     let title: String
@@ -332,22 +287,6 @@ final class AISearchAssistantResultTypesTests: XCTestCase {
         XCTAssertEqual(result.originalQuery, "test")
         XCTAssertEqual(result.synonyms.count, 2)
         XCTAssertEqual(result.relatedConcepts.count, 1)
-    }
-
-    func testPaperSummary_Initialization() {
-        let summary = PaperSummary(
-            title: "Test Paper",
-            briefSummary: "A brief summary.",
-            keyFindings: ["Finding 1", "Finding 2"],
-            methodology: "Experimental",
-            relevance: "High"
-        )
-
-        XCTAssertEqual(summary.title, "Test Paper")
-        XCTAssertEqual(summary.briefSummary, "A brief summary.")
-        XCTAssertEqual(summary.keyFindings.count, 2)
-        XCTAssertEqual(summary.methodology, "Experimental")
-        XCTAssertEqual(summary.relevance, "High")
     }
 
     func testPaperSuggestion_Identifiable() {

@@ -17,7 +17,6 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "aiSearchAssis
 ///
 /// Features:
 /// - Query expansion: Expand search terms with synonyms and related concepts
-/// - Paper summarization: Generate abstract summaries
 /// - Paper discovery: Find related papers based on library
 /// - BibTeX generation: Generate citations from title/DOI
 @MainActor
@@ -45,13 +44,6 @@ public final class AISearchAssistant {
         self.providerManager = providerManager
         self.categoryManager = categoryManager
         self.executor = executor
-    }
-
-    // MARK: - Availability
-
-    /// Whether the Apple Foundation Models (on-device) provider is registered and available.
-    public func isFoundationModelsAvailable() async -> Bool {
-        await providerManager.provider(for: "apple-foundation-models") != nil
     }
 
     // MARK: - Query Expansion
@@ -100,71 +92,6 @@ public final class AISearchAssistant {
             let expansion = try parseQueryExpansion(text, original: query)
             logger.debug("Expanded query: \(query) -> \(expansion.suggestedQueries.count) suggestions")
             return expansion
-        } catch {
-            errorMessage = error.localizedDescription
-            throw error
-        }
-    }
-
-    // MARK: - Paper Summarization
-
-    /// Generate a summary of a paper.
-    ///
-    /// - Parameters:
-    ///   - title: Paper title
-    ///   - abstract: Paper abstract (if available)
-    ///   - fullText: Full paper text (if available)
-    /// - Returns: Generated summary
-    public func summarizePaper(
-        title: String,
-        abstract: String? = nil,
-        fullText: String? = nil
-    ) async throws -> PaperSummary {
-        isProcessing = true
-        defer { isProcessing = false }
-
-        let content: String
-        if let fullText = fullText {
-            content = "Title: \(title)\n\nFull text:\n\(fullText.prefix(15000))"
-        } else if let abstract = abstract {
-            content = "Title: \(title)\n\nAbstract:\n\(abstract)"
-        } else {
-            content = "Title: \(title)"
-        }
-
-        let systemPrompt = """
-        You are an academic research assistant. Summarize the given paper.
-        Provide:
-        1. A brief one-paragraph summary (2-3 sentences)
-        2. Key findings/contributions (bullet points)
-        3. Methodology overview
-        4. Relevance/impact
-
-        Format as JSON:
-        {
-            "brief_summary": "...",
-            "key_findings": ["finding 1", "finding 2"],
-            "methodology": "...",
-            "relevance": "..."
-        }
-        """
-
-        let request = AICompletionRequest(
-            messages: [AIMessage(role: .user, text: content)],
-            systemPrompt: systemPrompt,
-            maxTokens: 2000
-        )
-
-        do {
-            let result = try await executor.executePrimary(request, categoryId: "research.summarize")
-
-            guard let response = result, let text = response.text else {
-                throw AISearchError.noResponse
-            }
-
-            let summary = try parsePaperSummary(text, title: title)
-            logger.debug("Summarized paper: \(title)")
-            return summary
         } catch {
             errorMessage = error.localizedDescription
             throw error
@@ -338,34 +265,6 @@ public final class AISearchAssistant {
         }
     }
 
-    private func parsePaperSummary(_ text: String, title: String) throws -> PaperSummary {
-        let jsonString = extractJSON(from: text)
-
-        guard let data = jsonString.data(using: .utf8) else {
-            throw AISearchError.parseError("Failed to parse response")
-        }
-
-        do {
-            let decoded = try JSONDecoder().decode(PaperSummaryJSON.self, from: data)
-            return PaperSummary(
-                title: title,
-                briefSummary: decoded.brief_summary ?? "",
-                keyFindings: decoded.key_findings ?? [],
-                methodology: decoded.methodology,
-                relevance: decoded.relevance
-            )
-        } catch {
-            // Fall back to using the raw text
-            return PaperSummary(
-                title: title,
-                briefSummary: text,
-                keyFindings: [],
-                methodology: nil,
-                relevance: nil
-            )
-        }
-    }
-
     private func parsePaperSuggestions(_ text: String) throws -> [PaperSuggestion] {
         let jsonString = extractJSON(from: text)
 
@@ -414,15 +313,6 @@ public struct QueryExpansionResult: Sendable {
     public let suggestedQueries: [String]
 }
 
-/// Summary of a paper.
-public struct PaperSummary: Sendable {
-    public let title: String
-    public let briefSummary: String
-    public let keyFindings: [String]
-    public let methodology: String?
-    public let relevance: String?
-}
-
 /// Suggestion for a related paper.
 public struct PaperSuggestion: Sendable, Identifiable {
     public let title: String
@@ -442,13 +332,6 @@ private struct QueryExpansionJSON: Decodable {
     let specific: [String]?
     let broader: [String]?
     let suggested_queries: [String]?
-}
-
-private struct PaperSummaryJSON: Decodable {
-    let brief_summary: String?
-    let key_findings: [String]?
-    let methodology: String?
-    let relevance: String?
 }
 
 private struct PaperSuggestionJSON: Decodable {
