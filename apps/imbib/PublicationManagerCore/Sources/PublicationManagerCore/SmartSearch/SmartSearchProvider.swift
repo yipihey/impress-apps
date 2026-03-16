@@ -188,6 +188,20 @@ public actor SmartSearchProvider {
             let findTime = (CFAbsoluteTimeGetCurrent() - findStart) * 1000
             let createTime = 0.0  // included in findTime now (single FFI call)
 
+            // Always purge dismissed papers from the collection (even if no new results).
+            // This must run outside the !allFoundIDs.isEmpty gate so that when ALL
+            // results are dismissed, stale Contains edges are still cleaned up.
+            await MainActor.run {
+                let store = RustStoreAdapter.shared
+                let purged = store.purgeCollectionDismissed(collectionId: id)
+                if purged > 0 {
+                    Logger.smartSearch.infoCapture(
+                        "Purged \(purged) dismissed papers from collection",
+                        category: "smartsearch"
+                    )
+                }
+            }
+
             // Link all found publications (new + existing) to this smart search via Contains references.
             let allFoundIDs = newPublicationIDs + existingIDs
             if !allFoundIDs.isEmpty {

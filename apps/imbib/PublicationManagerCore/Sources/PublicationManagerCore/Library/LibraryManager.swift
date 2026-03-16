@@ -320,6 +320,12 @@ public final class LibraryManager {
             return lib
         }
 
+        // Look for existing by name before creating
+        if let existing = libraries.first(where: { $0.name == "Save" }) {
+            saveLibraryID = existing.id
+            return existing
+        }
+
         // Create new Save library
         Logger.library.infoCapture("Creating Save library for Inbox triage", category: "library")
         guard let lib = store.createLibrary(name: "Save") else {
@@ -343,6 +349,12 @@ public final class LibraryManager {
         if dismissedLibraryID != nil {
             Logger.library.warningCapture("Dismissed library UUID orphaned (library deleted), clearing", category: "library")
             dismissedLibraryID = nil
+        }
+
+        // Look for existing by name before creating
+        if let existing = libraries.first(where: { $0.name == "Dismissed" }) {
+            dismissedLibraryID = existing.id
+            return existing
         }
 
         Logger.library.infoCapture("Creating Dismissed library for Inbox triage", category: "library")

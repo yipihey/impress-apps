@@ -485,6 +485,34 @@ public final class InboxManager {
         wasDismissed(doi: result.doi, arxivID: result.arxivID, bibcode: result.bibcode)
     }
 
+    /// After dismissing a paper, clean up duplicates: remove inbox copies
+    /// and unlink from smart search collections.
+    public func cleanupDismissedCopies(of primaryID: UUID, ssCollectionID: UUID? = nil) {
+        guard let pub = store.getPublication(id: primaryID) else { return }
+        let copies = store.findByIdentifiers(doi: pub.doi, arxivId: pub.arxivID, bibcode: pub.bibcode)
+        let otherCopyIDs = copies.map(\.id).filter { $0 != primaryID }
+        guard !otherCopyIDs.isEmpty else { return }
+
+        // Move inbox copies to dismissed library
+        if let inbox = inboxLibrary {
+            let inboxMemberIDs = store.queryPublicationIDs(parentId: inbox.id)
+            let inboxCopyIDs = otherCopyIDs.filter { inboxMemberIDs.contains($0) }
+            if !inboxCopyIDs.isEmpty {
+                let dismissedLib = LibraryManager().getOrCreateDismissedLibrary()
+                store.movePublications(ids: inboxCopyIDs, toLibraryId: dismissedLib.id)
+                Logger.inbox.infoCapture(
+                    "Also dismissed \(inboxCopyIDs.count) inbox copies",
+                    category: "dismiss"
+                )
+            }
+        }
+
+        // Remove all other copies from the specific SS collection (if known)
+        if let ssID = ssCollectionID {
+            store.removeFromCollection(publicationIds: otherCopyIDs, collectionId: ssID)
+        }
+    }
+
     /// Clear all dismissed paper records
     public func clearAllDismissedPapers() {
         let dismissed = store.listDismissedPapers()

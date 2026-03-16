@@ -850,12 +850,6 @@ struct UnifiedPublicationListWrapper: View {
         let a = PublicationListActions()
         if sourceCanEdit {
             a.onDelete = { ids in
-                // Track dismissal for inbox papers before deleting
-                if self.isInboxView {
-                    for id in ids {
-                        InboxManager.shared.trackDismissal(id)
-                    }
-                }
                 // Remove from local state FIRST to prevent rendering deleted objects
                 for id in ids { self.dataSource.removeRow(id: id) }
                 self.publications.removeAll { pub in
@@ -863,8 +857,44 @@ struct UnifiedPublicationListWrapper: View {
                 }
                 // Clear selection for deleted items
                 self.selectedPublicationIDs.subtract(ids)
-                // Then delete from Rust store
-                RustStoreAdapter.shared.deletePublications(ids: Array(ids))
+
+                let store = RustStoreAdapter.shared
+
+                if case .dismissed = self.source {
+                    // Dismissed library = Trash: permanently delete
+                    store.deletePublications(ids: Array(ids))
+                } else {
+                    // Everything else: move to Dismissed (like macOS Trash)
+                    let dismissed = self.libraryManager.getOrCreateDismissedLibrary()
+                    store.beginBatchMutation()
+
+                    // Track dismissal for inbox/smart-search papers
+                    if self.isInboxView {
+                        let ssID = self.smartSearchLibraryID
+                        for id in ids {
+                            InboxManager.shared.trackDismissal(id)
+                            InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
+                        }
+                    }
+
+                    // SciX libraries: also remove the Contains edge
+                    if case .scixLibrary(let scixID) = self.source {
+                        store.removeFromScixLibrary(publicationIds: Array(ids), scixLibraryId: scixID)
+                    }
+
+                    // Collections: also remove the Contains edge
+                    if case .collection(let collID) = self.source {
+                        store.removeFromCollection(publicationIds: Array(ids), collectionId: collID)
+                    }
+
+                    // Smart searches: remove from collection
+                    if let ssID = self.smartSearchLibraryID {
+                        store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                    }
+
+                    store.movePublications(ids: Array(ids), toLibraryId: dismissed.id)
+                    store.endBatchMutation()
+                }
             }
             a.onCut = { ids in
                 await self.libraryViewModel.cutToClipboard(ids)
@@ -1441,12 +1471,18 @@ struct UnifiedPublicationListWrapper: View {
         if isInboxView {
             let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .green) { ids in
-                for id in ids { InboxManager.shared.trackDismissal(id) }
-                RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                let store = RustStoreAdapter.shared
+                store.beginBatchMutation()
+                for id in ids {
+                    InboxManager.shared.trackDismissal(id)
+                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
+                }
+                store.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
                 // Also remove from smart search results so paper disappears from the list
                 if let ssID {
-                    RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                    store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
                 }
+                store.endBatchMutation()
             }
         } else {
             showTriageFlash(ids: ids, color: .green)
@@ -1469,11 +1505,17 @@ struct UnifiedPublicationListWrapper: View {
         if isInboxView {
             let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .yellow) { ids in
-                for id in ids { InboxManager.shared.trackDismissal(id) }
-                RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
-                if let ssID {
-                    RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                let store = RustStoreAdapter.shared
+                store.beginBatchMutation()
+                for id in ids {
+                    InboxManager.shared.trackDismissal(id)
+                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
                 }
+                store.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                if let ssID {
+                    store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                }
+                store.endBatchMutation()
             }
         } else {
             showTriageFlash(ids: ids, color: .yellow)
@@ -1824,14 +1866,20 @@ struct UnifiedPublicationListWrapper: View {
         let ssID = smartSearchLibraryID
 
         performTriageAnimation(ids: ids, flashColor: .orange) { ids in
+            let store = RustStoreAdapter.shared
+            store.beginBatchMutation()
             if self.isInboxView {
-                for id in ids { InboxManager.shared.trackDismissal(id) }
+                for id in ids {
+                    InboxManager.shared.trackDismissal(id)
+                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
+                }
             }
-            RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
+            store.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
             // Also remove from smart search results so paper disappears from the list
             if let ssID {
-                RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+                store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
             }
+            store.endBatchMutation()
         }
     }
 
@@ -1847,8 +1895,10 @@ struct UnifiedPublicationListWrapper: View {
 
         performTriageAnimation(ids: ids, flashColor: .green) { ids in
             let store = RustStoreAdapter.shared
+            store.beginBatchMutation()
             _ = store.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
             store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
+            store.endBatchMutation()
         }
     }
 
@@ -1916,6 +1966,12 @@ struct UnifiedPublicationListWrapper: View {
             selectedPublicationID = nil
         }
 
+        // Remove Contains edges from smart search collection (immediate feed cleanup)
+        if case .smartSearch(let ssID) = source {
+            let store = RustStoreAdapter.shared
+            store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
+        }
+
         // Move publications to the target library (triggers .storeDidMutate → refresh)
         let store = RustStoreAdapter.shared
         store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
@@ -1941,6 +1997,11 @@ struct UnifiedPublicationListWrapper: View {
         } else {
             selectedPublicationIDs.removeAll()
             selectedPublicationID = nil
+        }
+
+        // Remove Contains edges from smart search collection (immediate feed cleanup)
+        if case .smartSearch(let ssID) = source {
+            RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
         }
 
         // Move to dismissed library (triggers .storeDidMutate → refresh)
