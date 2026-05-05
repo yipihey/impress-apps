@@ -42,6 +42,7 @@
 import Foundation
 import ImpressKit
 import ImpressLogging
+import ImpressStoreKit
 import OSLog
 import CommonCrypto
 #if canImport(ImpressRustCore)
@@ -100,6 +101,13 @@ public final class ImprintStoreAdapter {
     private var store: SharedStore?
     #endif
 
+    /// Sections we've already written through `storeSection` this session.
+    /// Used to classify mutations: first write of an id is `.structural`
+    /// (new section), subsequent writes are body edits → `.otherField`.
+    /// Snapshot maintainers that only care about add/remove can ignore
+    /// the cheap field events.
+    private var knownSectionIDs: Set<String> = []
+
     // MARK: - Initialisation
 
     private init() {
@@ -123,8 +131,23 @@ public final class ImprintStoreAdapter {
     // MARK: - Mutation Signal
 
     /// Signal that the store was mutated.  Bumps `dataVersion` so observers update.
-    public func didMutate() {
+    ///
+    /// Call sites classify the mutation so snapshot maintainers can do
+    /// O(k) updates instead of full rebuilds:
+    /// - `structural: true` — shape of the item graph changed (new/deleted section)
+    /// - `structural: false` with `affectedIDs` + `kind` — an existing item's
+    ///   fields changed (body edit, metadata update)
+    public func didMutate(
+        structural: Bool = true,
+        affectedIDs: Set<UUID>? = nil,
+        kind: MutationKind? = nil
+    ) {
         dataVersion += 1
+        ImprintImpressStore.shared.postMutation(
+            structural: structural,
+            affectedIDs: affectedIDs,
+            kind: kind
+        )
     }
 
     // MARK: - Store Section
@@ -205,7 +228,108 @@ public final class ImprintStoreAdapter {
         )
         #endif
 
-        didMutate()
+        // First write of a given section id is a structural change (new
+        // section appears in the graph); subsequent writes are body
+        // edits on an existing section.
+        let isNew = knownSectionIDs.insert(sectionID).inserted
+        if isNew {
+            didMutate(structural: true)
+        } else if let uuid = UUID(uuidString: sectionID) {
+            didMutate(structural: false, affectedIDs: [uuid], kind: .otherField)
+        } else {
+            didMutate(structural: true)
+        }
+    }
+
+    // MARK: - Citation Usage
+
+    /// Upsert a `citation-usage@1.0.0` record. Writes are keyed by the
+    /// deterministic record id (`citationUsageID` below) so repeated
+    /// writes of the same `(section, citeKey)` pair are idempotent.
+    ///
+    /// The record links a manuscript section to the paper it cites.
+    /// Imbib consumes these records to surface a "papers cited in your
+    /// writing" view without needing to parse imprint source files.
+    public func upsertCitationUsage(
+        sectionID: String,
+        documentID: String?,
+        citeKey: String,
+        paperID: String?,
+        firstCitedAt: Date,
+        lastSeenAt: Date
+    ) {
+        guard isReady else { return }
+        let recordID = Self.citationUsageID(sectionID: sectionID, citeKey: citeKey)
+        let iso = ISO8601DateFormatter()
+        var payload: [String: Any] = [
+            "cite_key": citeKey,
+            "section_id": sectionID,
+            "first_cited": iso.string(from: firstCitedAt),
+            "last_seen": iso.string(from: lastSeenAt)
+        ]
+        if let documentID { payload["document_id"] = documentID }
+        if let paperID, !paperID.isEmpty { payload["paper_id"] = paperID }
+
+        guard let json = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadString = String(data: json, encoding: .utf8) else {
+            return
+        }
+
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: recordID, schemaRef: "citation-usage", payloadJson: payloadString)
+            if let recordUUID = UUID(uuidString: recordID) {
+                didMutate(structural: false, affectedIDs: [recordUUID], kind: .otherField)
+            } else {
+                didMutate(structural: true)
+            }
+        } catch {
+            logger.warningCapture(
+                "upsertCitationUsage failed for \(citeKey)@\(sectionID): \(error.localizedDescription)",
+                category: "shared-store"
+            )
+        }
+        #endif
+    }
+
+    /// Delete a previously-written citation-usage record.
+    public func deleteCitationUsage(sectionID: String, citeKey: String) {
+        guard isReady else { return }
+        let recordID = Self.citationUsageID(sectionID: sectionID, citeKey: citeKey)
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.deleteItem(id: recordID)
+            didMutate(structural: true)
+        } catch {
+            logger.debugCapture(
+                "deleteCitationUsage ignored for \(citeKey)@\(sectionID): \(error.localizedDescription)",
+                category: "shared-store"
+            )
+        }
+        #endif
+    }
+
+    /// Deterministic UUID for a `(sectionID, citeKey)` pair. Used as
+    /// the citation-usage record id so repeated upserts are idempotent.
+    /// Uses a UUIDv5-style hash over a namespace + name string, but
+    /// degraded to a simple SHA-256 truncation since CommonCrypto
+    /// doesn't ship a v5 primitive. The output is deterministic and
+    /// collision-resistant for realistic citation volumes.
+    static func citationUsageID(sectionID: String, citeKey: String) -> String {
+        let composed = "citation-usage:\(sectionID):\(citeKey)"
+        guard let data = composed.data(using: .utf8) else { return UUID().uuidString }
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes { buffer in
+            _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &digest)
+        }
+        // Take the first 16 bytes and format as a UUID string. Set the
+        // version/variant bits so the result parses as a valid UUID.
+        var bytes = Array(digest.prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50  // version 5
+        bytes[8] = (bytes[8] & 0x3F) | 0x80  // RFC 4122 variant
+        let hex = bytes.map { String(format: "%02x", $0) }.joined()
+        let s = Array(hex)
+        return "\(String(s[0..<8]))-\(String(s[8..<12]))-\(String(s[12..<16]))-\(String(s[16..<20]))-\(String(s[20..<32]))"
     }
 
     // MARK: - Content-Addressed Storage

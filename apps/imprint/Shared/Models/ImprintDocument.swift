@@ -13,9 +13,12 @@ extension UTType {
         UTType(exportedAs: "com.imbib.imprint.document", conformingTo: .package)
     }
 
-    /// LaTeX source files
+    /// LaTeX source files. The macOS UTI for `.tex` is `org.tug.tex`
+    /// (registered by the TeX User Group). Spotlight, Open dialog, and
+    /// Recent Documents all key off this identifier — declaring the
+    /// non-existent `public.tex` (an old typo) breaks all three.
     static var latexSource: UTType {
-        UTType(filenameExtension: "tex") ?? UTType("public.tex") ?? .plainText
+        UTType(filenameExtension: "tex") ?? UTType("org.tug.tex") ?? .plainText
     }
 }
 
@@ -58,6 +61,10 @@ struct ImprintDocument: FileDocument, Equatable {
     /// UUID of the linked imbib manuscript, if any
     var linkedImbibManuscriptID: UUID?
 
+    /// UUID of the imbib library that holds papers cited in this manuscript.
+    /// Created on first save; populated by `ManuscriptLibraryCoordinator`.
+    var linkedImbibLibraryID: String?
+
     /// Document snapshot for undo (CRDT bytes)
     private var automergeData: Data?
 
@@ -67,7 +74,19 @@ struct ImprintDocument: FileDocument, Equatable {
     static var writableContentTypes: [UTType] { [.imprintDocument, .latexSource, .plainText] }
 
     init(configuration: ReadConfiguration) throws {
-        if configuration.contentType == .imprintDocument {
+        // Tolerate a `.imprint` file that's actually a regular text file
+        // (e.g. saved with the wrong format dropdown by a previous build
+        // that didn't enforce the format/extension match). Detect the
+        // mismatch by inspecting the file wrapper structure: a real
+        // `.imprint` package has child wrappers; a misnamed regular file
+        // does not. If we hit that case, fall through to the
+        // plain-text/LaTeX recovery branch so the user can still
+        // recover their source.
+        let isMisnamedRegularFile = configuration.contentType == .imprintDocument
+            && configuration.file.fileWrappers == nil
+            && configuration.file.regularFileContents != nil
+
+        if configuration.contentType == .imprintDocument && !isMisnamedRegularFile {
             // Read from .imprint package
             guard let wrapper = configuration.file.fileWrappers else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -94,6 +113,7 @@ struct ImprintDocument: FileDocument, Equatable {
                     createdAt = metadata.createdAt
                     modifiedAt = metadata.modifiedAt
                     linkedImbibManuscriptID = metadata.linkedImbibManuscriptID
+                    linkedImbibLibraryID = metadata.linkedImbibLibraryID
 
                     // Validate schema version
                     let checker = DocumentVersionChecker()
@@ -134,7 +154,9 @@ struct ImprintDocument: FileDocument, Equatable {
             }
 
         } else {
-            // Plain text or LaTeX import
+            // Plain text, LaTeX import, or recovery from a misnamed
+            // `.imprint` regular file. Detect format from content rather
+            // than relying on the (possibly wrong) extension.
             guard let data = configuration.file.regularFileContents,
                   let text = String(data: data, encoding: .utf8) else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -158,17 +180,53 @@ struct ImprintDocument: FileDocument, Equatable {
     }
 
     init() {
-        id = UUID()
-        source = Self.defaultTemplate
-        title = "Untitled"
-        authors = []
-        createdAt = Date()
-        modifiedAt = Date()
-        bibliography = [:]
-        linkedImbibManuscriptID = nil
+        self.init(format: .typst)
+    }
+
+    /// Create a new empty document for the given format. Used by the
+    /// "New" / "New LaTeX Document" File-menu commands so a fresh
+    /// untitled buffer starts in the right syntax mode and with a
+    /// matching starter template.
+    init(format: DocumentFormat) {
+        self.id = UUID()
+        self.format = format
+        self.source = format == .latex ? Self.defaultLatexTemplate : Self.defaultTemplate
+        self.title = "Untitled"
+        self.authors = []
+        self.createdAt = Date()
+        self.modifiedAt = Date()
+        self.bibliography = [:]
+        self.linkedImbibManuscriptID = nil
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        // Reject format/extension mismatches BEFORE writing — otherwise a
+        // user creating a "New LaTeX Document" who hits Save without
+        // changing the format dropdown ends up with a plain .tex file
+        // wearing a `.imprint` extension. macOS then refuses to open it
+        // because `.imprint` is registered as a package (directory) and
+        // the file is not a directory.
+        if format == .latex && configuration.contentType == .imprintDocument {
+            throw NSError(
+                domain: "imprint.save",
+                code: 1001,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Can't save a LaTeX document as an Imprint package.",
+                    NSLocalizedRecoverySuggestionErrorKey: "In the Save panel, change the Format menu to \"LaTeX Source\" so the file is saved with a .tex extension."
+                ]
+            )
+        }
+        if format == .typst && configuration.contentType == .latexSource {
+            throw NSError(
+                domain: "imprint.save",
+                code: 1002,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Can't save a Typst document as LaTeX Source.",
+                    NSLocalizedRecoverySuggestionErrorKey: "In the Save panel, change the Format menu to \"Imprint Document\" so the file is saved with a .imprint extension."
+                ]
+            )
+        }
+
         // LaTeX files: write as plain .tex file, not a package
         if format == .latex {
             guard let data = source.data(using: .utf8) else {
@@ -188,7 +246,7 @@ struct ImprintDocument: FileDocument, Equatable {
         }
 
         // Metadata
-        let metadata = DocumentMetadata(
+        var metadata = DocumentMetadata(
             schemaVersion: DocumentSchemaVersion.current.rawValue,
             id: id,
             title: title,
@@ -198,6 +256,7 @@ struct ImprintDocument: FileDocument, Equatable {
             linkedImbibManuscriptID: linkedImbibManuscriptID,
             lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         )
+        metadata.linkedImbibLibraryID = linkedImbibLibraryID
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .prettyPrinted
@@ -266,6 +325,33 @@ struct ImprintDocument: FileDocument, Equatable {
     Start writing here, or use Cmd+Shift+K to insert citations from imbib.
     """
 
+    /// Minimal `article`-class LaTeX starter used by the "New LaTeX
+    /// Document" File-menu command. Mirrors the Typst template's tone:
+    /// a runnable skeleton with a hint about citation insertion.
+    private static let defaultLatexTemplate = """
+    \\documentclass{article}
+    \\usepackage[utf8]{inputenc}
+    \\usepackage{amsmath, amssymb}
+
+    \\title{Untitled}
+    \\author{}
+    \\date{\\today}
+
+    \\begin{document}
+    \\maketitle
+
+    \\section{Introduction}
+
+    This is a new LaTeX document created with imprint.
+
+    Start writing here, or use Cmd+Shift+K to insert citations from imbib.
+
+    \\bibliographystyle{plain}
+    % \\bibliography{main}
+
+    \\end{document}
+    """
+
     private static func parseBibliography(_ content: String) -> [String: String] {
         // BibTeX parser - extract individual entries by key
         var result: [String: String] = [:]
@@ -312,6 +398,9 @@ struct DocumentMetadata: Codable {
 
     /// UUID of the linked imbib manuscript, if any
     var linkedImbibManuscriptID: UUID?
+
+    /// UUID of the imbib library holding papers cited in this manuscript (created on first save).
+    var linkedImbibLibraryID: String?
 
     /// App version that last saved this document.
     var lastSavedByAppVersion: String?

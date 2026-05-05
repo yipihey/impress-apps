@@ -53,6 +53,12 @@ packages:
     path: ../../packages/ImpressToolbox
   ImpressGit:
     path: ../../packages/ImpressGit
+  ImpressSyntaxHighlight:
+    path: ../../packages/ImpressSyntaxHighlight
+  ImbibRustCore:
+    path: ../imbib/ImbibRustCore
+  ImpressPublicationUI:
+    path: ../../packages/ImpressPublicationUI
 
 targets:
   imprint:
@@ -85,6 +91,9 @@ targets:
       - package: ImpressSpotlight
       - package: ImpressToolbox
       - package: ImpressGit
+      - package: ImpressSyntaxHighlight
+      - package: ImbibRustCore
+      - package: ImpressPublicationUI
     info:
       path: macOS/Info.plist
       properties:
@@ -110,7 +119,7 @@ targets:
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:
-              - public.tex
+              - org.tug.tex
             CFBundleTypeExtensions:
               - tex
           - CFBundleTypeName: Plain Text
@@ -216,6 +225,7 @@ targets:
       - package: ImpressSpotlight
       - package: ImpressToolbox
       - package: ImpressGit
+      - package: ImpressSyntaxHighlight
       - target: imprint-ShareExtension
         embed: true
     info:
@@ -243,7 +253,7 @@ targets:
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:
-              - public.tex
+              - org.tug.tex
             CFBundleTypeExtensions:
               - tex
           - CFBundleTypeName: Plain Text

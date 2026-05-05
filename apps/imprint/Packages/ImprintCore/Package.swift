@@ -17,7 +17,8 @@ let package = Package(
         .package(path: "../../ImprintRustCore"),
         .package(path: "../../../../packages/ImpressKit"),
         .package(path: "../../../../packages/ImpressLogging"),
-        .package(path: "../../../../packages/ImpressRustCore")
+        .package(path: "../../../../packages/ImpressRustCore"),
+        .package(path: "../../../../packages/ImpressStoreKit")
     ],
     targets: [
         .target(
@@ -26,11 +27,22 @@ let package = Package(
                 .product(name: "ImprintRustCore", package: "ImprintRustCore"),
                 .product(name: "ImpressKit", package: "ImpressKit"),
                 .product(name: "ImpressLogging", package: "ImpressLogging"),
-                "ImpressRustCore"
+                "ImpressRustCore",
+                .product(name: "ImpressStoreKit", package: "ImpressStoreKit")
             ],
             path: "Sources/ImprintCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // NOTE: The test target does not build successfully under
+        // `swift test` because SwiftPM does not re-link the
+        // `impress_store_ffiFFI` binary target (in the ImpressRustCore
+        // package) into the test executable. This is a pre-existing
+        // SwiftPM limitation, not a regression from the gateway work.
+        // The tests do compile and run under `xcodebuild test -scheme
+        // imprint` because Xcode resolves the binary target correctly.
+        // The gateway test file (`ImprintImpressStoreTests.swift`)
+        // exercises the read methods against an in-memory SharedStore
+        // and will run once we fix the SwiftPM linking.
         .testTarget(
             name: "ImprintCoreTests",
             dependencies: ["ImprintCore"],

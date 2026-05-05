@@ -9,6 +9,9 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+import ImpressLogging
+import OSLog
 
 struct ProjectBrowserView: View {
     @State private var viewModel = ProjectSidebarViewModel()
@@ -122,34 +125,86 @@ struct ProjectBrowserView: View {
     }
 
     private func openDocument(_ ref: CDDocumentReference) {
+        let title = ref.displayTitle
+        Logger.documents.infoCapture("Open requested for '\(title)' (id=\(ref.id.uuidString))", category: "documents")
+
         guard let bookmark = ref.fileBookmark else {
-            // No bookmark - try to open via document UUID or alert
+            Logger.documents.warningCapture(
+                "Open '\(title)' failed: no fileBookmark stored on ref — creating a blank new document instead",
+                category: "documents"
+            )
             NSDocumentController.shared.newDocument(nil)
             return
         }
 
+        let url: URL
         do {
             var isStale = false
-            let url = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
-
+            url = try URL(
+                resolvingBookmarkData: bookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
             if isStale {
-                // Refresh bookmark
-                if let newBookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+                Logger.documents.warningCapture(
+                    "Bookmark stale for '\(title)' — refreshing",
+                    category: "documents"
+                )
+                if let newBookmark = try? url.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                ) {
                     ref.fileBookmark = newBookmark
                     try? ref.managedObjectContext?.save()
                 }
             }
-
-            guard url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
-
-            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
-                if let error = error {
-                    NSLog("[ProjectBrowser] Failed to open document: %@", error.localizedDescription)
-                }
-            }
         } catch {
-            NSLog("[ProjectBrowser] Failed to resolve bookmark: %@", error.localizedDescription)
+            Logger.documents.errorCapture(
+                "Open '\(title)' failed to resolve bookmark: \(error.localizedDescription)",
+                category: "documents"
+            )
+            return
+        }
+
+        Logger.documents.infoCapture(
+            "Open '\(title)' resolved to \(url.path)",
+            category: "documents"
+        )
+
+        // Security-scoped access must span the async openDocument call.
+        // Using `defer` at the outer function scope would release the scope
+        // before the completion handler runs, which makes NSDocument fail
+        // with "you don't have permission". Release inside the completion.
+        guard url.startAccessingSecurityScopedResource() else {
+            Logger.documents.errorCapture(
+                "Open '\(title)' failed: startAccessingSecurityScopedResource returned false for \(url.path)",
+                category: "documents"
+            )
+            return
+        }
+
+        // Route every supported extension through NSDocumentController so
+        // the file opens in an imprint editor window. imprint's
+        // `ImprintDocument.readableContentTypes` claims `.imprintDocument`,
+        // `.latexSource` (.tex), and `.plainText` — so .tex / .ltx / .md /
+        // etc. all resolve to our NSDocument subclass, not the user's
+        // default external editor.
+        let ext = url.pathExtension.lowercased()
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { doc, _, error in
+            defer { url.stopAccessingSecurityScopedResource() }
+            if let error {
+                Logger.documents.errorCapture(
+                    "NSDocumentController.openDocument failed for '\(title)' (ext=\(ext)): \(error.localizedDescription)",
+                    category: "documents"
+                )
+            } else {
+                Logger.documents.infoCapture(
+                    "Opened '\(title)' in imprint (ext=\(ext), windows=\(doc?.windowControllers.count ?? 0))",
+                    category: "documents"
+                )
+            }
         }
     }
 
@@ -200,6 +255,13 @@ private struct DocumentRefRow: View {
     let onOpen: () -> Void
 
     var body: some View {
+        // Button handles clicks. `.draggable(Transferable)` is applied to
+        // the HStack INSIDE the Button's label — this way the button gets
+        // mouse-up-without-movement (click), and the inner `.draggable`
+        // handles the drag gesture. Crucially, `Transferable` via
+        // `DataRepresentation` writes data EAGERLY to the pasteboard
+        // (unlike `.onDrag { NSItemProvider }` which is lazy and can leave
+        // drop consumers unable to read the payload).
         Button(action: onOpen) {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text")
@@ -228,8 +290,38 @@ private struct DocumentRefRow: View {
             }
             .contentShape(Rectangle())
             .padding(.vertical, 2)
+            .draggable(DocRefDragItem(id: ref.id)) {
+                // Pin into the drag session from the preview's .onAppear as a
+                // backup — this still fires, but too late for fast drops.
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text").foregroundStyle(.secondary)
+                    Text(ref.displayTitle).font(.body).lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .onAppear {
+                    DocRefDragSession.shared.begin(refID: ref.id)
+                }
+            }
         }
         .buttonStyle(.plain)
+        // Prime the drag session on FIRST pointer movement, which happens
+        // before SwiftUI renders the .draggable preview. Without this, fast
+        // drops can complete before the preview's .onAppear fires, and the
+        // session stays empty. `minimumDistance: 2` keeps pure clicks out of
+        // this path. Button's click handler still wins for non-drag taps.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 2).onChanged { _ in
+                if DocRefDragSession.shared.activeRefID != ref.id {
+                    DocRefDragSession.shared.begin(refID: ref.id)
+                    Logger.documents.infoCapture(
+                        "Drag started for '\(ref.displayTitle)' (id=\(ref.id.uuidString))",
+                        category: "drag"
+                    )
+                }
+            }
+        )
     }
 }
 

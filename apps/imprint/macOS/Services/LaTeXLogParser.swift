@@ -59,7 +59,8 @@ enum LaTeXLogParser {
                let messageRange = Range(match.range(at: 2), in: line) {
                 let packageName = String(line[packageRange])
                 let warningMessage = String(line[messageRange])
-                let lineNumber = extractLineFromWarning(line)
+                // Look at this line + a few continuation lines for "on input line N"
+                let lineNumber = extractLineFromContinuation(lines: lines, startingAt: i)
 
                 warnings.append(LaTeXDiagnostic(
                     file: currentFile,
@@ -72,7 +73,7 @@ enum LaTeXLogParser {
             // LaTeX warnings: "LaTeX Warning: ..."
             if line.hasPrefix("LaTeX Warning: ") {
                 let message = String(line.dropFirst("LaTeX Warning: ".count))
-                let lineNumber = extractLineFromWarning(line)
+                let lineNumber = extractLineFromContinuation(lines: lines, startingAt: i)
 
                 warnings.append(LaTeXDiagnostic(
                     file: currentFile,
@@ -84,7 +85,7 @@ enum LaTeXLogParser {
 
             // Overfull/Underfull box warnings
             if line.hasPrefix("Overfull \\") || line.hasPrefix("Underfull \\") {
-                let lineNumber = extractLineFromWarning(line)
+                let lineNumber = extractLineFromContinuation(lines: lines, startingAt: i)
                 warnings.append(LaTeXDiagnostic(
                     file: currentFile,
                     line: lineNumber ?? 0,
@@ -125,6 +126,23 @@ enum LaTeXLogParser {
                let range = Range(match.range(at: 1), in: text),
                let num = Int(text[range]) {
                 return num
+            }
+        }
+        return nil
+    }
+
+    /// Extract line number from a multi-line warning. LaTeX often wraps long
+    /// warning messages across several lines (each prefixed with `(<package>)`).
+    /// Search the warning header line plus a few continuation lines.
+    private static func extractLineFromContinuation(lines: [String], startingAt index: Int) -> Int? {
+        let searchEnd = min(index + 6, lines.count)
+        for j in index..<searchEnd {
+            if let n = extractLineFromWarning(lines[j]) {
+                return n
+            }
+            // Stop scanning if we hit a blank line — warnings end before blanks
+            if j > index && lines[j].trimmingCharacters(in: .whitespaces).isEmpty {
+                break
             }
         }
         return nil

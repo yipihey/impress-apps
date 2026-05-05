@@ -5,6 +5,7 @@
 //  Registry for tracking open documents and their pending automation operations.
 //
 
+import AppKit
 import Foundation
 import ImpressLogging
 import ImpressOperationQueue
@@ -25,6 +26,9 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
     /// Map of file URL -> document for URL-based lookup
     var documentsByURL: [String: ImprintDocument] = [:]
 
+    /// Map of document id -> file URL (inverse lookup, for features that need the sidecar path).
+    var urlByDocumentID: [UUID: URL] = [:]
+
     private init() {
         super.init(subsystem: "com.imprint.app", category: "registry")
     }
@@ -34,7 +38,9 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
         super.register(document, id: document.id)
         if let url = fileURL {
             documentsByURL[url.absoluteString] = document
+            urlByDocumentID[document.id] = url
         }
+        updateDockBadge()
     }
 
     /// Unregister a document and its associated data.
@@ -44,6 +50,14 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
         if let url = fileURL {
             documentsByURL.removeValue(forKey: url.absoluteString)
         }
+        urlByDocumentID.removeValue(forKey: document.id)
+        updateDockBadge()
+    }
+
+    /// Update the dock badge to show the number of open manuscripts.
+    private func updateDockBadge() {
+        let count = allDocuments.count
+        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
     }
 
     /// Find document by ID (convenience accessor).

@@ -9,32 +9,52 @@ import Foundation
 import ImpressOperationQueue
 
 /// Operations that can be queued for document automation via HTTP API.
+///
+/// Each case carries an `operationID` that agents use with
+/// `GET /api/operations/{id}` to confirm completion. The router generates
+/// the id when it queues the op; the editor view updates the registry when
+/// the op is applied.
 enum DocumentOperation: QueueableOperation {
-    case updateContent(source: String?, title: String?)
-    case insertText(position: Int, text: String)
-    case deleteText(start: Int, end: Int)
-    case replace(search: String, replacement: String, all: Bool)
-    case addCitation(citeKey: String, bibtex: String)
-    case removeCitation(citeKey: String)
-    case updateMetadata(title: String?, authors: [String]?)
+    case updateContent(operationID: UUID, source: String?, title: String?)
+    case insertText(operationID: UUID, position: Int, text: String)
+    case deleteText(operationID: UUID, start: Int, end: Int)
+    case replaceRange(operationID: UUID, start: Int, end: Int, text: String)
+    case replace(operationID: UUID, search: String, replacement: String, all: Bool)
+    case addCitation(operationID: UUID, citeKey: String, bibtex: String)
+    case removeCitation(operationID: UUID, citeKey: String)
+    case updateMetadata(operationID: UUID, title: String?, authors: [String]?)
 
-    var id: UUID { UUID() }
+    var id: UUID {
+        switch self {
+        case .updateContent(let id, _, _),
+             .insertText(let id, _, _),
+             .deleteText(let id, _, _),
+             .replaceRange(let id, _, _, _),
+             .replace(let id, _, _, _),
+             .addCitation(let id, _, _),
+             .removeCitation(let id, _),
+             .updateMetadata(let id, _, _):
+            return id
+        }
+    }
 
     var operationDescription: String {
         switch self {
-        case .updateContent(let source, let title):
+        case .updateContent(_, let source, let title):
             return "updateContent(source:\(source != nil), title:\(title != nil))"
-        case .insertText(let pos, _):
+        case .insertText(_, let pos, _):
             return "insertText@\(pos)"
-        case .deleteText(let start, let end):
+        case .deleteText(_, let start, let end):
             return "deleteText[\(start)..<\(end)]"
-        case .replace(let search, _, let all):
+        case .replaceRange(_, let start, let end, let text):
+            return "replaceRange[\(start)..<\(end)]=\(text.count)ch"
+        case .replace(_, let search, _, let all):
             return "replace(\(search), all:\(all))"
-        case .addCitation(let key, _):
+        case .addCitation(_, let key, _):
             return "addCitation(\(key))"
-        case .removeCitation(let key):
+        case .removeCitation(_, let key):
             return "removeCitation(\(key))"
-        case .updateMetadata(let title, let authors):
+        case .updateMetadata(_, let title, let authors):
             return "updateMetadata(title:\(title != nil), authors:\(authors?.count ?? 0))"
         }
     }

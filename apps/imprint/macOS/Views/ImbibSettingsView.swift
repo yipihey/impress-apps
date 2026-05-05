@@ -49,6 +49,12 @@ struct ImbibSettingsView: View {
                         .foregroundStyle(.green)
                     VStack(alignment: .leading) {
                         Text("imbib is installed")
+                        if let path = imbibService.foundPath {
+                            Text(path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                         if imbibService.isAutomationEnabled {
                             Text("Automation enabled")
                                 .font(.caption)

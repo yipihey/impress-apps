@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import ImpressLogging
 import ImprintCore
 
 /// PDF preview panel for the rendered document with cursor synchronization.
@@ -17,6 +18,7 @@ struct PDFPreviewView: View {
 
     @State private var pdfView: PDFView?
     @State private var lastScrolledPosition: Int = -1
+    @State private var lastSyncTeXHighlight: SyncTeXPosition?
 
     var body: some View {
         ZStack {
@@ -48,6 +50,18 @@ struct PDFPreviewView: View {
         .accessibilityIdentifier("pdfPreview.container")
         .onChange(of: cursorPosition) { _, newPosition in
             scrollToCursor(newPosition)
+        }
+        .onChange(of: syncTeXHighlight) { _, highlight in
+            if let highlight = highlight {
+                logInfo("PDF onChange syncTeX: page=\(highlight.page), pdfView=\(pdfView != nil)", category: "synctex")
+                scrollToSyncTeX(highlight)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("com.imprint.scrollToSyncTeX"))) { notification in
+            if let highlight = notification.object as? SyncTeXPositionBox {
+                logInfo("PDF notification syncTeX: page=\(highlight.position.page), pdfView=\(pdfView != nil)", category: "synctex")
+                scrollToSyncTeX(highlight.position)
+            }
         }
     }
 
@@ -81,6 +95,29 @@ struct PDFPreviewView: View {
         pdfView.go(to: CGRect(x: pdfPoint.x - 50, y: pdfPoint.y - 50, width: 100, height: 100), on: page)
 
         lastScrolledPosition = position
+    }
+
+    /// Scroll the PDF to a SyncTeX-resolved position (LaTeX forward sync).
+    private func scrollToSyncTeX(_ position: SyncTeXPosition) {
+        guard let pdfView = pdfView else { return }
+        guard let document = pdfView.document else { return }
+
+        // SyncTeX pages are 1-indexed
+        let pageIndex = position.page - 1
+        guard pageIndex >= 0, pageIndex < document.pageCount,
+              let page = document.page(at: pageIndex) else { return }
+
+        let pageBounds = page.bounds(for: .mediaBox)
+        // SyncTeX y is from top; PDF coordinates are from bottom
+        let pdfY = pageBounds.height - position.y
+        let rect = CGRect(
+            x: max(0, position.x - 50),
+            y: pdfY - position.height / 2,
+            width: max(position.width, 100),
+            height: max(position.height, 50)
+        )
+
+        pdfView.go(to: rect, on: page)
     }
 
     private var emptyState: some View {

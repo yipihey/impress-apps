@@ -1,20 +1,140 @@
 import SwiftUI
 
-/// Displays Typst compilation errors and warnings below the PDF preview.
+/// Displays Typst/LaTeX compilation errors and warnings below the PDF preview.
+///
+/// LaTeX errors and warnings come through `latexDiagnostics` as structured
+/// `LaTeXDiagnostic` values — every item has a parsed line number and is
+/// individually clickable to navigate to that line.
+///
+/// Typst (and any non-LaTeX format) still uses the legacy string paths.
 struct CompilationErrorView: View {
+    /// Structured LaTeX diagnostics (errors + warnings). Used when present.
+    let diagnostics: [LaTeXDiagnostic]
+    /// Fallback string error message (Typst, generic compile failures).
     let errors: String?
+    /// Fallback string warnings (Typst).
     let warnings: [String]
     let onNavigateToLine: ((Int) -> Void)?
 
+    private var hasStructuredDiagnostics: Bool {
+        !diagnostics.isEmpty
+    }
+
+    private var structuredErrors: [LaTeXDiagnostic] {
+        diagnostics.filter { $0.severity == .error }
+    }
+
+    private var structuredWarnings: [LaTeXDiagnostic] {
+        diagnostics.filter { $0.severity != .error }
+    }
+
     var body: some View {
-        if let errors = errors, !errors.isEmpty {
-            errorPanel(errors)
+        if hasStructuredDiagnostics {
+            structuredView
+        } else if let errors = errors, !errors.isEmpty {
+            legacyErrorPanel(errors)
         } else if !warnings.isEmpty {
-            warningPanel
+            legacyWarningPanel
         }
     }
 
-    private func errorPanel(_ errorText: String) -> some View {
+    // MARK: - Structured (LaTeX)
+
+    @ViewBuilder
+    private var structuredView: some View {
+        let errs = structuredErrors
+        let warns = structuredWarnings
+        if !errs.isEmpty {
+            diagnosticPanel(
+                title: "\(errs.count) Error\(errs.count == 1 ? "" : "s")",
+                icon: "xmark.circle.fill",
+                accent: .red,
+                items: errs,
+                maxHeight: 140
+            )
+        } else if !warns.isEmpty {
+            diagnosticPanel(
+                title: "\(warns.count) Warning\(warns.count == 1 ? "" : "s")",
+                icon: "exclamationmark.triangle.fill",
+                accent: .orange,
+                items: warns,
+                maxHeight: 100
+            )
+        }
+    }
+
+    private func diagnosticPanel(
+        title: String,
+        icon: String,
+        accent: Color,
+        items: [LaTeXDiagnostic],
+        maxHeight: CGFloat
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(accent)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(accent)
+                Spacer()
+            }
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(items) { diag in
+                        diagnosticRow(diag, accent: accent)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: maxHeight)
+        }
+        .padding(8)
+        .background(accent.opacity(0.08))
+        .accessibilityIdentifier("compilation.diagnostics.panel")
+    }
+
+    private func diagnosticRow(_ diag: LaTeXDiagnostic, accent: Color) -> some View {
+        Button {
+            if diag.line > 0 {
+                onNavigateToLine?(diag.line)
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 6) {
+                if diag.line > 0 {
+                    Text("\(fileLabel(for: diag)):\(diag.line)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.blue)
+                        .underline()
+                } else {
+                    Text(fileLabel(for: diag))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text(diag.message)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(diag.context ?? diag.message)
+    }
+
+    private func fileLabel(for diag: LaTeXDiagnostic) -> String {
+        // Strip path components for compactness; show just basename
+        if diag.file.isEmpty { return "?" }
+        return (diag.file as NSString).lastPathComponent
+    }
+
+    // MARK: - Legacy string-based panels (Typst, generic)
+
+    private func legacyErrorPanel(_ errorText: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "xmark.circle.fill")
@@ -28,7 +148,7 @@ struct CompilationErrorView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(parseErrorLines(errorText), id: \.self) { line in
-                        errorLineView(line)
+                        legacyLineView(line)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -40,7 +160,7 @@ struct CompilationErrorView: View {
         .accessibilityIdentifier("compilationError.panel")
     }
 
-    private var warningPanel: some View {
+    private var legacyWarningPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -54,7 +174,7 @@ struct CompilationErrorView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(warnings, id: \.self) { warning in
-                        errorLineView(warning)
+                        legacyLineView(warning)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -66,51 +186,45 @@ struct CompilationErrorView: View {
         .accessibilityIdentifier("compilationWarning.panel")
     }
 
-    private func errorLineView(_ line: String) -> some View {
+    private func legacyLineView(_ line: String) -> some View {
         let parsed = parseLineNumber(from: line)
-
-        return HStack(alignment: .top, spacing: 4) {
-            if let lineNum = parsed.lineNumber {
-                Button {
-                    onNavigateToLine?(lineNum)
-                } label: {
+        return Button {
+            if let n = parsed.lineNumber { onNavigateToLine?(n) }
+        } label: {
+            HStack(alignment: .top, spacing: 4) {
+                if let lineNum = parsed.lineNumber {
                     Text("line \(lineNum)")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.blue)
+                        .underline()
                 }
-                .buttonStyle(.plain)
+                Text(parsed.message)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
             }
-
-            Text(parsed.message)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
-
-    // MARK: - Parsing
 
     private func parseErrorLines(_ text: String) -> [String] {
         text.components(separatedBy: "\n").filter { !$0.isEmpty }
     }
 
-    private struct ParsedLine: Hashable {
+    private struct ParsedLine {
         let lineNumber: Int?
         let message: String
     }
 
-    /// Extract line number from Typst or LaTeX error messages.
-    /// Typst: "error: file.typ:12:5: unexpected token"
-    /// LaTeX: "l.42 ...", "on input line 42", "main.tex:12: ..."
     private func parseLineNumber(from line: String) -> ParsedLine {
         let patterns = [
-            #":(\d+):\d+:"#,          // file.typ:12:5: ... (Typst)
-            #"^l\.(\d+)"#,            // l.42 ... (LaTeX)
-            #"on input line (\d+)"#,   // LaTeX warning
-            #"line (\d+)"#,           // line 12: ...
-            #"\.tex:(\d+):"#,         // file.tex:12: ... (LaTeX)
+            #":(\d+):\d+:"#,
+            #"^l\.(\d+)"#,
+            #"on input line (\d+)"#,
+            #"line (\d+)"#,
+            #"\.tex:(\d+):"#,
         ]
-
         for pattern in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
                let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -119,24 +233,6 @@ struct CompilationErrorView: View {
                 return ParsedLine(lineNumber: lineNum, message: line)
             }
         }
-
         return ParsedLine(lineNumber: nil, message: line)
     }
-}
-
-#Preview {
-    VStack {
-        CompilationErrorView(
-            errors: "error: main.typ:12:5: unexpected token\nerror: main.typ:25:1: unknown variable 'foo'",
-            warnings: [],
-            onNavigateToLine: { print("Navigate to line \($0)") }
-        )
-
-        CompilationErrorView(
-            errors: nil,
-            warnings: ["warning: unused import at line 3"],
-            onNavigateToLine: nil
-        )
-    }
-    .frame(width: 500)
 }

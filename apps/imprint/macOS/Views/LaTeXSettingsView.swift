@@ -13,6 +13,7 @@ struct LaTeXSettingsView: View {
     @State private var verificationResult: String?
     @State private var isVerifying = false
     @State private var toolboxAvailable = false
+    @State private var toolboxBinaryPath: String?
 
     var body: some View {
         Form {
@@ -26,6 +27,7 @@ struct LaTeXSettingsView: View {
         .padding()
         .task {
             toolboxAvailable = await ToolboxClient.shared.isAvailable()
+            toolboxBinaryPath = ToolboxLifecycle.shared.findBinary()?.path
             await texManager.discoverDistribution()
         }
     }
@@ -53,10 +55,28 @@ struct LaTeXSettingsView: View {
                 }
             }
 
+            if let path = toolboxBinaryPath {
+                HStack {
+                    Text("Binary")
+                    Spacer()
+                    Text(path)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+
             if !toolboxAvailable {
-                Text("The toolbox server enables LaTeX compilation from the sandbox. Start it with:\n`impress-toolbox` or `cargo run --bin impress-toolbox`")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if toolboxBinaryPath == nil {
+                    Text("The toolbox server enables LaTeX compilation from the sandbox.\nInstall with: `cargo install --path crates/impress-toolbox`")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Binary found but server not running. It should auto-launch on next app start.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Button("Check Connection") {

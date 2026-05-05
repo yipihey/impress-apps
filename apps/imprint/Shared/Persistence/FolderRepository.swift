@@ -188,6 +188,64 @@ public actor FolderRepository {
         return ref
     }
 
+    /// Move a document reference to a different folder. Removes it from the
+    /// current folder's set (if any), appends it to the target folder's set
+    /// with a fresh sortOrder, and saves. Idempotent — no-op if `ref` is
+    /// already in `newFolder`.
+    @MainActor
+    public func moveDocumentReference(_ ref: CDDocumentReference, to newFolder: CDFolder) throws {
+        let context = persistence.viewContext
+        let title = ref.displayTitle
+        let oldFolder = ref.folder
+
+        if oldFolder?.id == newFolder.id {
+            Logger.folders.debugCapture(
+                "moveDocumentReference no-op: '\(title)' already in '\(newFolder.name)'",
+                category: "folders"
+            )
+            return
+        }
+
+        let oldName = oldFolder?.name ?? "(none)"
+        let oldCountBefore = oldFolder?.documentRefs?.count ?? 0
+        let newCountBefore = newFolder.documentRefs?.count ?? 0
+
+        // Compute the new sortOrder BEFORE touching the relationships, so
+        // reading `newFolder.documentRefs` gives a clean picture.
+        let existingRefs = (newFolder.documentRefs ?? []).sorted { $0.sortOrder < $1.sortOrder }
+        let newSortOrder = Int16((existingRefs.last?.sortOrder ?? -1) + 1)
+
+        // Reparent via the single inverse: setting `ref.folder` updates both
+        // sides of the relationship automatically (Core Data uses the inverse
+        // to sync the old folder's `documentRefs`). Explicit
+        // mutableSetValue manipulation is only necessary when there's no
+        // inverse or we bypass the inverse — since CDDocumentReference.folder
+        // is the inverse of CDFolder.documentRefs, setting `ref.folder`
+        // alone is the canonical, race-free way to move.
+        ref.folder = newFolder
+        ref.sortOrder = newSortOrder
+
+        context.undoManager?.setActionName("Move Document")
+        context.processPendingChanges()
+        try context.save()
+
+        // Refresh the old folder so its `documentRefs` relationship reflects
+        // the inverse update. CoreData usually does this automatically on
+        // save, but explicitly refreshing guarantees the UI sees the change.
+        if let oldFolder {
+            context.refresh(oldFolder, mergeChanges: true)
+        }
+        context.refresh(newFolder, mergeChanges: true)
+
+        let oldCountAfter = oldFolder?.documentRefs?.count ?? 0
+        let newCountAfter = newFolder.documentRefs?.count ?? 0
+        Logger.folders.infoCapture(
+            "Moved ref '\(title)': '\(oldName)' → '\(newFolder.name)' (sortOrder \(newSortOrder)). " +
+            "Counts — \(oldName): \(oldCountBefore)→\(oldCountAfter), \(newFolder.name): \(newCountBefore)→\(newCountAfter)",
+            category: "folders"
+        )
+    }
+
     /// Remove a document reference
     @MainActor
     public func removeDocumentReference(_ ref: CDDocumentReference) throws {

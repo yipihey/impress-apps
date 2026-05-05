@@ -17,6 +17,8 @@ import SwiftUI
 /// - Linked to a specific text selection
 /// - Part of a threaded discussion
 /// - Resolved when addressed
+/// - Suggestions (have `proposedText` the user can Accept to apply)
+/// - Authored by an agent (via `authorAgentId`) rather than the local user
 public struct Comment: Identifiable, Equatable, Codable {
     /// Unique identifier
     public let id: UUID
@@ -45,6 +47,14 @@ public struct Comment: Identifiable, Equatable, Codable {
     /// ID of parent comment (nil for top-level comments)
     public var parentId: UUID?
 
+    /// When non-nil, this comment is a suggestion — `proposedText` replaces
+    /// the text in `textRange` if the user clicks Accept.
+    public var proposedText: String?
+
+    /// Non-nil when an MCP / API agent authored this comment. Used by the
+    /// review UI to badge agent suggestions distinctly from human comments.
+    public var authorAgentId: String?
+
     public init(
         id: UUID = UUID(),
         author: String,
@@ -54,7 +64,9 @@ public struct Comment: Identifiable, Equatable, Codable {
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         isResolved: Bool = false,
-        parentId: UUID? = nil
+        parentId: UUID? = nil,
+        proposedText: String? = nil,
+        authorAgentId: String? = nil
     ) {
         self.id = id
         self.author = author
@@ -65,7 +77,12 @@ public struct Comment: Identifiable, Equatable, Codable {
         self.modifiedAt = modifiedAt
         self.isResolved = isResolved
         self.parentId = parentId
+        self.proposedText = proposedText
+        self.authorAgentId = authorAgentId
     }
+
+    /// Whether this comment carries a proposed text replacement.
+    public var isSuggestion: Bool { proposedText != nil }
 
     /// Color for this comment's author
     public var authorColor: Color {

@@ -31,7 +31,7 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>public.tex</string>
+				<string>org.tug.tex</string>
 			</array>
 		</dict>
 		<dict>

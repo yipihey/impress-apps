@@ -82,7 +82,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("settings.tabs.spotlight")
         }
-        .frame(width: 500, height: 500)
+        .frame(minWidth: 700, idealWidth: 800, minHeight: 450, idealHeight: 550)
         .accessibilityIdentifier("settings.container")
     }
 }

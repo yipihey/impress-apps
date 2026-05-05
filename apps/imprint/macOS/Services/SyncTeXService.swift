@@ -3,8 +3,14 @@ import Compression
 import ImpressLogging
 import OSLog
 
+/// Box wrapper for passing SyncTeXPosition through NotificationCenter.
+final class SyncTeXPositionBox: @unchecked Sendable {
+    let position: SyncTeXPosition
+    init(_ position: SyncTeXPosition) { self.position = position }
+}
+
 /// A position in the PDF identified by SyncTeX forward sync.
-struct SyncTeXPosition: Sendable {
+struct SyncTeXPosition: Sendable, Equatable {
     var page: Int       // 1-indexed
     var x: Double       // points from left
     var y: Double       // points from top
@@ -47,20 +53,73 @@ actor SyncTeXService {
 
         document = try SyncTeXParser.parse(text)
         Logger.synctex.infoCapture("Loaded SyncTeX: \(self.document?.inputs.count ?? 0) inputs, \(self.document?.sheets.count ?? 0) sheets", category: "synctex")
+        // Diagnostic: show what file IDs and line ranges are in the data
+        if let doc = document {
+            var fileStats: [Int: (count: Int, minLine: Int, maxLine: Int)] = [:]
+            for sheet in doc.sheets {
+                for node in sheet.nodes {
+                    if var stat = fileStats[node.fileID] {
+                        stat.count += 1
+                        stat.minLine = min(stat.minLine, node.line)
+                        stat.maxLine = max(stat.maxLine, node.line)
+                        fileStats[node.fileID] = stat
+                    } else {
+                        fileStats[node.fileID] = (1, node.line, node.line)
+                    }
+                }
+            }
+            for (id, stat) in fileStats.sorted(by: { $0.key < $1.key }).prefix(5) {
+                let name = doc.inputs.first { $0.id == id }?.path ?? "?"
+                Logger.synctex.infoCapture("  fileID=\(id): \(stat.count) nodes, lines \(stat.minLine)...\(stat.maxLine), path=\((name as NSString).lastPathComponent)", category: "synctex")
+            }
+        }
     }
 
     /// Forward sync: source position → PDF position(s).
     func forwardSync(file: String, line: Int, column: Int) -> [SyncTeXPosition] {
-        guard let doc = document else { return [] }
+        guard let doc = document else {
+            Logger.synctex.infoCapture("Forward sync: no SyncTeX document loaded", category: "synctex")
+            return []
+        }
 
         // Resolve file to input ID
-        guard let inputID = doc.inputID(for: file) else { return [] }
+        guard let inputID = doc.inputID(for: file) else {
+            let inputNames = doc.inputs.map { "[\($0.id)]\(($0.path as NSString).lastPathComponent)" }
+            Logger.synctex.infoCapture("Forward sync: file '\(file)' not found in inputs: \(inputNames.prefix(10))", category: "synctex")
+            return []
+        }
+        Logger.synctex.infoCapture("Forward sync: file=\(file) → inputID=\(inputID), looking for line=\(line)", category: "synctex")
 
         var results: [SyncTeXPosition] = []
 
+        // Collect all lines for this file to find the nearest if exact match fails
+        var allLines: Set<Int> = []
         for sheet in doc.sheets {
-            for node in sheet.nodes {
-                if node.fileID == inputID && node.line == line {
+            for node in sheet.nodes where node.fileID == inputID {
+                allLines.insert(node.line)
+                if node.line == line {
+                    results.append(SyncTeXPosition(
+                        page: sheet.page,
+                        x: node.x,
+                        y: node.y,
+                        width: node.width,
+                        height: node.height
+                    ))
+                }
+            }
+        }
+
+        // If exact line not found, find the closest line at or after the target.
+        // This ensures we scroll to the content that follows the section heading.
+        if results.isEmpty && !allLines.isEmpty {
+            let sortedLines = allLines.sorted()
+            // Prefer the first SyncTeX line at or after the target
+            let nearest = sortedLines.first(where: { $0 >= line })
+                ?? sortedLines.last! // fallback to last if target is past all nodes
+            Logger.synctex.infoCapture("Forward sync: exact line \(line) not in SyncTeX, nearest=\(nearest), range=\(sortedLines.first ?? 0)...\(sortedLines.last ?? 0)", category: "synctex")
+
+            for sheet in doc.sheets {
+                for node in sheet.nodes where node.fileID == inputID && node.line == nearest {
                     results.append(SyncTeXPosition(
                         page: sheet.page,
                         x: node.x,
@@ -222,6 +281,8 @@ enum SyncTeXParser {
         var inputs: [SyncTeXInput] = []
         var sheets: [SyncTeXSheet] = []
         var currentSheet: SyncTeXSheet?
+        var parsedNodeCount = 0
+        var skippedNodeCount = 0
 
         // SyncTeX uses scaled points (sp): 1 pt = 65536 sp
         let spToPoints: Double = 1.0 / 65536.0
@@ -282,35 +343,60 @@ enum SyncTeXParser {
             }
 
             // Node records: type followed by colon-separated values
-            // h (hbox), v (vbox), k (kern), g (glue), x (current), $ (math)
-            // Format: TYPE:FILE_ID:LINE:COLUMN:X:Y:W:H:D
+            // SyncTeX v1: "h FILE_ID:LINE:COL:X:Y:W:H:D" (space after type)
+            // SyncTeX v2: "hFILE_ID,LINE,COL:X,Y,W,H,D" (comma-separated in some versions)
             let firstChar = line.first
             guard firstChar == "h" || firstChar == "v" || firstChar == "k" ||
-                  firstChar == "g" || firstChar == "x" || firstChar == "$" else {
+                  firstChar == "g" || firstChar == "x" || firstChar == "$" ||
+                  firstChar == "[" || firstChar == "]" || firstChar == "(" || firstChar == ")" else {
                 continue
             }
 
-            // Only parse h (hbox) and v (vbox) — they have bounding boxes
-            guard firstChar == "h" || firstChar == "v" else { continue }
+            // Parse h (hbox), v (vbox), k (kern), g (glue), x (current) — all carry position info
+            guard firstChar == "h" || firstChar == "v" || firstChar == "k" || firstChar == "g" || firstChar == "x" else { continue }
 
             let data = line.dropFirst(1) // drop the type character
-            let fields = data.split(separator: ":", maxSplits: 8).map(String.init)
 
-            // h/v records: fileID:line:col:x:y:w:h:d
-            guard fields.count >= 8,
-                  let fileID = Int(fields[0]),
-                  let lineNum = Int(fields[1]),
-                  let col = Int(fields[2]),
-                  let rawX = Double(fields[3]),
-                  let rawY = Double(fields[4]),
-                  let rawW = Double(fields[5]),
-                  let rawH = Double(fields[6]),
-                  let rawD = Double(fields[7]) else {
+            // SyncTeX record format: hFILEID,LINE:X,Y:W,H,D
+            // Colons separate groups, commas separate values within groups
+            let groups = data.split(separator: ":", maxSplits: 2).map(String.init)
+            guard groups.count >= 2 else {
+                skippedNodeCount += 1
                 continue
             }
+
+            // Group 1: fileID,line (and optionally ,column)
+            let idLineParts = groups[0].split(separator: ",").map(String.init)
+            guard idLineParts.count >= 2,
+                  let fileID = Int(idLineParts[0]),
+                  let lineNum = Int(idLineParts[1]) else {
+                skippedNodeCount += 1
+                continue
+            }
+
+            // Group 2: x,y
+            let xyParts = groups[1].split(separator: ",").map(String.init)
+            guard xyParts.count >= 2,
+                  let rawX = Double(xyParts[0]),
+                  let rawY = Double(xyParts[1]) else {
+                skippedNodeCount += 1
+                continue
+            }
+
+            // Group 3: w,h,d (optional — some records only have position)
+            var rawW = 0.0, rawH = 0.0, rawD = 0.0
+            if groups.count >= 3 {
+                let whdParts = groups[2].split(separator: ",").map(String.init)
+                if whdParts.count >= 1 { rawW = Double(whdParts[0]) ?? 0 }
+                if whdParts.count >= 2 { rawH = Double(whdParts[1]) ?? 0 }
+                if whdParts.count >= 3 { rawD = Double(whdParts[2]) ?? 0 }
+            }
+
+            parsedNodeCount += 1
 
             // Convert from SyncTeX units to points
             let scale = unit * magnification / 1000.0 * spToPoints
+            let col = idLineParts.count >= 3 ? (Int(idLineParts[2]) ?? 0) : 0
             let node = SyncTeXNode(
                 fileID: fileID,
                 line: lineNum,
@@ -330,6 +416,8 @@ enum SyncTeXParser {
             sheets.append(sheet)
         }
 
+        let totalNodes = sheets.reduce(0) { $0 + $1.nodes.count }
+        Logger.synctex.infoCapture("SyncTeX parse: \(parsedNodeCount) nodes parsed, \(skippedNodeCount) skipped, \(totalNodes) in sheets, \(sheets.count) sheets", category: "synctex")
         return SyncTeXDocument(inputs: inputs, sheets: sheets)
     }
 }

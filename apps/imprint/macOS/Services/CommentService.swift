@@ -111,18 +111,35 @@ public final class CommentService {
     public func addComment(
         content: String,
         at range: TextRange,
-        parentId: UUID? = nil
+        parentId: UUID? = nil,
+        proposedText: String? = nil,
+        authorAgentId: String? = nil,
+        authorName: String? = nil
     ) -> Comment {
+        let displayedAuthor: String
+        let authorIdentifier: String
+        if let agentId = authorAgentId, !agentId.isEmpty {
+            displayedAuthor = authorName ?? "agent:\(agentId)"
+            authorIdentifier = "agent:\(agentId)"
+        } else {
+            displayedAuthor = authorName ?? localDisplayName
+            authorIdentifier = localAuthorId
+        }
         let comment = Comment(
-            author: localDisplayName,
-            authorId: localAuthorId,
+            author: displayedAuthor,
+            authorId: authorIdentifier,
             content: content,
             textRange: range,
-            parentId: parentId
+            parentId: parentId,
+            proposedText: proposedText,
+            authorAgentId: authorAgentId
         )
 
         comments.append(comment)
-        Logger.comments.infoCapture("Added comment \(comment.id) at \(range.start)-\(range.end)", category: "comments")
+        Logger.comments.infoCapture(
+            "Added comment \(comment.id) at \(range.start)-\(range.end) suggestion=\(proposedText != nil) agent=\(authorAgentId ?? "-")",
+            category: "comments"
+        )
 
         return comment
     }
@@ -241,10 +258,18 @@ public final class CommentService {
     }
 
     /// Get all comments overlapping a given range.
-    public func comments(in range: TextRange) -> [Comment] {
+    public func commentsOverlapping(_ range: TextRange) -> [Comment] {
         comments.filter { comment in
             comment.textRange.start < range.end && range.start < comment.textRange.end
         }
+    }
+
+    /// Update the `proposedText` on a suggestion comment. A `nil` value
+    /// clears the suggestion (turning it back into a plain comment).
+    public func updateProposedText(_ id: UUID, proposedText: String?) {
+        guard let index = comments.firstIndex(where: { $0.id == id }) else { return }
+        comments[index].proposedText = proposedText
+        comments[index].modifiedAt = Date()
     }
 
     // MARK: - Document Sync

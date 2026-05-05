@@ -7,6 +7,8 @@ import ImpressLogging
 import ImprintCore
 import ImpressKit
 import ImpressSpotlight
+import ImpressSyntaxHighlight
+import ImpressToolbox
 import SwiftUI
 
 extension NSNotification.Name {
@@ -43,6 +45,10 @@ extension View {
 final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         logInfo("imprint launched", category: "app")
+        // Route ImpressSyntaxHighlight logs into imprint's log capture
+        ImpressSyntaxLog.callback = { message in
+            logInfo(message, category: "syntax")
+        }
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         logInfo("HTTP server starting on port \(port)", category: "http-server")
         // Start HTTP automation server for AI/MCP integration
@@ -63,10 +69,70 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             _ = ImprintStoreAdapter.shared.isReady
         }
 
+        // Open the shared publication database (imbib's publications) for direct SQL access.
+        // Enables citation palette, hover preview, .bib projection, paper panel — all without HTTP.
+        Task { @MainActor in
+            ImprintPublicationService.shared.start()
+        }
+
+        // Start the snapshot maintainers that drive the live outline,
+        // recent-documents sidebar, and cross-document search. All
+        // three subscribe to `ImprintImpressStore.shared.events` on
+        // background actors and publish @Observable snapshots on
+        // MainActor — views never query the store directly.
+        Task.detached(priority: .utility) {
+            await OutlineSnapshotMaintainer.shared.start()
+            await RecentDocumentsSnapshotMaintainer.shared.start()
+            await ManuscriptSearchService.shared.start()
+            // Resolver closure: cite key → imbib publication UUID string.
+            // `ImprintPublicationService` is main-actor isolated, so we
+            // hop onto MainActor to do the SQL lookup. The tracker's
+            // refresh loop is coarse-grained enough that the round-trip
+            // cost is negligible in practice.
+            await CitationUsageTracker.shared.setPaperIDResolver { citeKey in
+                await MainActor.run {
+                    ImprintPublicationService.shared.findByCiteKey(citeKey)?.id
+                }
+            }
+            await CitationUsageTracker.shared.start()
+        }
+
+        // Initialize the Tantivy-backed multi-term search index lazily on first
+        // search use rather than at startup, so app launch isn't gated on it.
+
+        // Auto-launch impress-toolbox for LaTeX compilation (bypasses sandbox)
+        Task.detached {
+            await ToolboxLifecycle.shared.ensureRunning()
+        }
+
         // Discover TeX distribution early so LaTeX compilation works without
         // opening Settings first.
         Task { @MainActor in
             await TeXDistributionManager.shared.discoverDistribution()
+        }
+
+        // Handle `.openDocumentByID` notifications posted from the
+        // project sidebar (recent-documents section) and cross-document
+        // search window. If the document is already open we just
+        // activate its window; otherwise we look up the file URL from
+        // the document registry and ask NSDocumentController to open.
+        NotificationCenter.default.addObserver(
+            forName: .openDocumentByID,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard
+                let idString = notification.userInfo?["documentID"] as? String,
+                let uuid = UUID(uuidString: idString)
+            else { return }
+            Task { @MainActor in
+                if let url = DocumentRegistry.shared.urlByDocumentID[uuid] {
+                    NSDocumentController.shared.openDocument(
+                        withContentsOf: url,
+                        display: true
+                    ) { _, _, _ in }
+                }
+            }
         }
 
         // Spotlight indexing — deferred 90s per startup grace period
@@ -116,6 +182,13 @@ struct ImprintApp: App {
     /// Whether to load sample document
     private static let useSampleDocument = CommandLine.arguments.contains("--sample-document")
 
+    /// One-shot signal from a File-menu command to the
+    /// `DocumentGroup` factory. The "New LaTeX Document" button sets
+    /// this to `.latex` and calls `NSDocumentController.shared.newDocument(nil)`;
+    /// `createInitialDocument()` reads it once and resets to `nil`.
+    /// `nil` (the default) → standard Typst-format new document.
+    nonisolated(unsafe) static var pendingNewDocumentFormat: DocumentFormat?
+
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
         UserDefaults.standard.register(defaults: [
@@ -162,9 +235,23 @@ struct ImprintApp: App {
         }
         .defaultSize(width: 800, height: 600)
 
+        #if os(macOS)
+        // Cross-document search window — indexed from the shared store
+        // by `ManuscriptSearchService`. Opened with Cmd+Shift+F.
+        Window("Search Across Manuscripts", id: "cross-document-search") {
+            CrossDocumentSearchView(onClose: {
+                NSApp.keyWindow?.close()
+            })
+            .withAppearance()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        #endif
+
         // Document editing windows (existing)
         DocumentGroup(newDocument: Self.createInitialDocument()) { file in
             ContentView(document: file.$document)
+                .frame(minWidth: 700, minHeight: 400)
                 .environment(appState)
                 .withAppearance()
                 .task {
@@ -224,7 +311,19 @@ struct ImprintApp: App {
                     }
                 }
         }
+        .defaultSize(width: 1100, height: 700)
         .commands {
+            // File menu additions — augment the standard "New" command
+            // (which creates a Typst .imprint document) with a sibling
+            // "New LaTeX Document" that creates a .tex-format buffer.
+            CommandGroup(after: .newItem) {
+                Button("New LaTeX Document") {
+                    Self.pendingNewDocumentFormat = .latex
+                    NSDocumentController.shared.newDocument(nil)
+                }
+                .keyboardShortcut("N", modifiers: [.command, .option])
+            }
+
             // Edit menu additions
             CommandGroup(after: .textEditing) {
                 Button("Insert Citation...") {
@@ -255,6 +354,13 @@ struct ImprintApp: App {
                     NotificationCenter.default.post(name: .compileDocument, object: nil)
                 }
                 .keyboardShortcut(.return, modifiers: [.command])
+
+                Divider()
+
+                Button("Search Across Manuscripts…") {
+                    openWindow(id: "cross-document-search")
+                }
+                .keyboardShortcut("F", modifiers: [.command, .shift])
             }
 
             // View menu additions
@@ -338,7 +444,7 @@ struct ImprintApp: App {
                 Button("Commit...") {
                     NotificationCenter.default.post(name: .gitCommit, object: nil)
                 }
-                .keyboardShortcut("G", modifiers: [.command, .shift])
+                .keyboardShortcut("G", modifiers: [.command, .option])
 
                 Button("Push") {
                     NotificationCenter.default.post(name: .gitPush, object: nil)
@@ -559,6 +665,13 @@ extension ImprintApp {
     static func createInitialDocument() -> ImprintDocument {
         if useSampleDocument {
             return ImprintDocument.sampleDocument()
+        }
+        // One-shot consume of the pending format flag — set by the
+        // "New LaTeX Document" menu command before calling
+        // NSDocumentController.shared.newDocument(nil).
+        if let pending = pendingNewDocumentFormat {
+            pendingNewDocumentFormat = nil
+            return ImprintDocument(format: pending)
         }
         return ImprintDocument()
     }

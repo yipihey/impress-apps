@@ -47,6 +47,13 @@ import AppKit
 /// - `PUT /api/documents/{id}/metadata` - Update document metadata
 /// - `DELETE /api/documents/{id}/bibliography/{key}` - Remove citation
 /// - `GET /api/latex/status` - TeX distribution info and available engines
+/// - `GET /api/store-timings` - StoreTimings snapshot (per-caller stats)
+/// - `POST /api/store-timings/reset` - Reset StoreTimings counters
+/// - `GET /api/manuscripts` - List every manuscript known to the store
+/// - `GET /api/manuscripts/{id}/sections` - List sections for a manuscript
+/// - `GET /api/sections/{id}` - Fetch a single section (id, body, metadata)
+/// - `GET /api/search?q=...` - Cross-document manuscript search
+/// - `GET /api/citation-usages` - List citation-usage records
 /// - `GET /api/documents/{id}/diagnostics` - Structured compilation diagnostics
 /// - `GET /api/documents/{id}/synctex` - SyncTeX bidirectional lookup
 /// - `OPTIONS /*` - CORS preflight
@@ -87,9 +94,76 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleLaTeXStatus()
             }
 
+            if pathLower == "/api/store-timings" {
+                return handleStoreTimings(request)
+            }
+
+            if pathLower == "/api/manuscripts" {
+                return await handleListManuscripts()
+            }
+
+            if pathLower == "/api/citation-usages" {
+                return handleListCitationUsages()
+            }
+
+            if pathLower == "/api/search" {
+                return await handleCrossDocumentSearch(request)
+            }
+
+            if pathLower.hasPrefix("/api/manuscripts/") {
+                let remainder = String(path.dropFirst("/api/manuscripts/".count))
+                if remainder.hasSuffix("/sections") {
+                    let docId = String(remainder.dropLast("/sections".count))
+                    return handleManuscriptSections(id: docId)
+                }
+            }
+
+            if pathLower.hasPrefix("/api/sections/") {
+                let sectionID = String(path.dropFirst("/api/sections/".count))
+                return handleGetSection(id: sectionID)
+            }
+
+            if pathLower.hasPrefix("/api/operations/") {
+                let opID = String(path.dropFirst("/api/operations/".count))
+                return handleGetOperation(id: opID)
+            }
+
+            // GET /api/documents/{id}/comments — list comments for a document
+            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/comments") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let docId = String(remainder.dropLast("/comments".count))
+                return await handleListComments(
+                    docId: docId,
+                    filter: request.queryParams["filter"],
+                    authorAgentId: request.queryParams["authorAgentId"]
+                )
+            }
+
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
+
+                // GET /api/documents/{id}/outline/v2 — richer outline with section UUIDs
+                if remainderLower.hasSuffix("/outline/v2") {
+                    let docId = String(remainder.dropLast("/outline/v2".count))
+                    return await handleGetOutlineV2(id: docId)
+                }
+
+                // GET /api/documents/{docId}/sections — list derived sections
+                if remainderLower.hasSuffix("/sections") {
+                    let docId = String(remainder.dropLast("/sections".count))
+                    return await handleListSectionsForDocument(id: docId)
+                }
+
+                // GET /api/documents/{docId}/sections/{sectionKey}
+                if remainderLower.contains("/sections/") {
+                    let parts = remainder.components(separatedBy: "/sections/")
+                    if parts.count == 2 {
+                        let docId = parts[0]
+                        let key = parts[1]
+                        return await handleGetSectionInDocument(docId: docId, sectionKey: key)
+                    }
+                }
 
                 // Export endpoints
                 if remainderLower.hasSuffix("/export/latex") {
@@ -160,6 +234,50 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleCreateDocument(request)
             }
 
+            if pathLower == "/api/store-timings/reset" {
+                return handleResetStoreTimings()
+            }
+
+            // POST /api/documents/{docId}/sections — append a new section
+            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/sections") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let docId = String(remainder.dropLast("/sections".count))
+                return await handleCreateSection(docId: docId, request: request)
+            }
+
+            // POST /api/documents/{docId}/comments — create a comment
+            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/comments") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let docId = String(remainder.dropLast("/comments".count))
+                return await handleCreateComment(docId: docId, request: request)
+            }
+
+            // POST /api/comments/{id}/accept — apply suggestion + resolve
+            if pathLower.hasPrefix("/api/comments/") && pathLower.hasSuffix("/accept") {
+                let remainder = String(path.dropFirst("/api/comments/".count))
+                let id = String(remainder.dropLast("/accept".count))
+                return await handleAcceptComment(id: id)
+            }
+
+            // POST /api/comments/{id}/reject — resolve without applying
+            if pathLower.hasPrefix("/api/comments/") && pathLower.hasSuffix("/reject") {
+                let remainder = String(path.dropFirst("/api/comments/".count))
+                let id = String(remainder.dropLast("/reject".count))
+                return await handleRejectComment(id: id)
+            }
+
+            // POST /api/documents/{docId}/sections/{sectionKey}/citations — insert @citeKey inside a section
+            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/citations") && pathLower.contains("/sections/") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let withoutCitations = String(remainder.dropLast("/citations".count))
+                let parts = withoutCitations.components(separatedBy: "/sections/")
+                if parts.count == 2 {
+                    let docId = parts[0]
+                    let key = parts[1]
+                    return await handleInsertCitationInSection(docId: docId, sectionKey: key, request: request)
+                }
+            }
+
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
@@ -219,11 +337,47 @@ public actor ImprintHTTPRouter: HTTPRouter {
             }
         }
 
+        // PATCH endpoints
+        if request.method == "PATCH" {
+            // PATCH /api/comments/{id} — edit content / resolve / unresolve
+            if pathLower.hasPrefix("/api/comments/") {
+                let id = String(path.dropFirst("/api/comments/".count))
+                return await handlePatchComment(id: id, request: request)
+            }
+
+            // PATCH /api/documents/{docId}/sections/{sectionKey} — replace section body or metadata
+            if pathLower.hasPrefix("/api/documents/") && pathLower.contains("/sections/") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let parts = remainder.components(separatedBy: "/sections/")
+                if parts.count == 2 {
+                    let docId = parts[0]
+                    let key = parts[1]
+                    return await handlePatchSection(docId: docId, sectionKey: key, request: request)
+                }
+            }
+        }
+
         // DELETE endpoints
         if request.method == "DELETE" {
+            // DELETE /api/comments/{id}
+            if pathLower.hasPrefix("/api/comments/") {
+                let id = String(path.dropFirst("/api/comments/".count))
+                return await handleDeleteComment(id: id)
+            }
+
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
+
+                // DELETE /api/documents/{docId}/sections/{sectionKey}
+                if remainderLower.contains("/sections/") {
+                    let parts = remainder.components(separatedBy: "/sections/")
+                    if parts.count == 2 {
+                        let docId = parts[0]
+                        let key = parts[1]
+                        return await handleDeleteSection(docId: docId, sectionKey: key)
+                    }
+                }
 
                 // DELETE /api/documents/{id}/bibliography/{key}
                 if remainderLower.contains("/bibliography/") {
@@ -673,10 +827,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
         // Queue operation for view to process
         let source = json["source"] as? String
         let title = json["title"] as? String
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "updateContent")
 
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .updateContent(source: source, title: title),
+                .updateContent(operationID: opID, source: source, title: title),
                 for: uuid
             )
         }
@@ -684,7 +840,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return .json([
             "status": "ok",
             "message": "Update requested",
-            "documentId": id
+            "documentId": id,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -756,11 +913,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
         }
 
         let replaceAll = json["all"] as? Bool ?? false
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "replace")
 
         // Queue operation for view to process
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .replace(search: search, replacement: replacement, all: replaceAll),
+                .replace(operationID: opID, search: search, replacement: replacement, all: replaceAll),
                 for: uuid
             )
         }
@@ -771,7 +930,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "documentId": id,
             "search": search,
             "replacement": replacement,
-            "replaceAll": replaceAll
+            "replaceAll": replaceAll,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -800,10 +960,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .notFound("Document not found: \(id)")
         }
 
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "insertText")
+
         // Queue operation for view to process
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .insertText(position: position, text: text),
+                .insertText(operationID: opID, position: position, text: text),
                 for: uuid
             )
         }
@@ -813,7 +976,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "message": "Insert requested",
             "documentId": id,
             "position": position,
-            "textLength": text.count
+            "textLength": text.count,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -846,10 +1010,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .notFound("Document not found: \(id)")
         }
 
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "deleteText")
+
         // Queue operation for view to process
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .deleteText(start: start, end: end),
+                .deleteText(operationID: opID, start: start, end: end),
                 for: uuid
             )
         }
@@ -860,7 +1027,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "documentId": id,
             "start": start,
             "end": end,
-            "deletedLength": end - start
+            "deletedLength": end - start,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -889,10 +1057,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .notFound("Document not found: \(id)")
         }
 
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "addCitation")
+
         // Queue operation for view to process
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .addCitation(citeKey: citeKey, bibtex: bibtex),
+                .addCitation(operationID: opID, citeKey: citeKey, bibtex: bibtex),
                 for: uuid
             )
         }
@@ -901,7 +1072,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "status": "ok",
             "message": "Citation added",
             "documentId": id,
-            "citeKey": citeKey
+            "citeKey": citeKey,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -927,10 +1099,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
         // Queue operation for view to process
         let title = json["title"] as? String
         let authors = json["authors"] as? [String]
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "updateMetadata")
 
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .updateMetadata(title: title, authors: authors),
+                .updateMetadata(operationID: opID, title: title, authors: authors),
                 for: uuid
             )
         }
@@ -938,7 +1112,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return .json([
             "status": "ok",
             "message": "Metadata update requested",
-            "documentId": id
+            "documentId": id,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -955,10 +1130,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .notFound("Document not found: \(id)")
         }
 
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: uuid, kind: "removeCitation")
+
         // Queue operation for view to process
         await MainActor.run {
             DocumentRegistry.shared.queueOperation(
-                .removeCitation(citeKey: citeKey),
+                .removeCitation(operationID: opID, citeKey: citeKey),
                 for: uuid
             )
         }
@@ -967,7 +1145,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "status": "ok",
             "message": "Citation removal requested",
             "documentId": id,
-            "citeKey": citeKey
+            "citeKey": citeKey,
+            "operationId": opID.uuidString
         ])
     }
 
@@ -1092,6 +1271,846 @@ public actor ImprintHTTPRouter: HTTPRouter {
         #endif
     }
 
+    // MARK: - Store-backed Manuscript Handlers
+
+    /// GET /api/manuscripts — list every manuscript document known to
+    /// the shared store, sorted by most-recently-modified first. Same
+    /// data the `RecentDocumentsSnapshot` drives the sidebar with.
+    private func handleListManuscripts() async -> HTTPResponse {
+        let entries = await MainActor.run { RecentDocumentsSnapshot.shared.documents }
+        let iso = ISO8601DateFormatter()
+        let payload: [[String: Any]] = entries.map { entry in
+            [
+                "id": entry.id.uuidString,
+                "title": entry.title,
+                "sectionCount": entry.sectionCount,
+                "lastModified": iso.string(from: entry.lastModified),
+                "firstSectionTitle": entry.firstSectionTitle,
+                "totalWordCount": entry.totalWordCount
+            ]
+        }
+        return .json([
+            "status": "ok",
+            "count": entries.count,
+            "manuscripts": payload
+        ])
+    }
+
+    /// GET /api/manuscripts/{id}/sections — list every stored section
+    /// for a document, sorted by `order_index`. Body is inline; large
+    /// content-addressed bodies are not rehydrated here — call
+    /// `/api/sections/{id}` for those.
+    private func handleManuscriptSections(id: String) -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid manuscript id: \(id)")
+        }
+        #if canImport(ImpressRustCore)
+        let sections = ImprintImpressStore.shared.listSectionsForDocument(documentID: uuid)
+        let payload: [[String: Any]] = sections.map { Self.sectionToJSON($0) }
+        return .json([
+            "status": "ok",
+            "manuscriptID": id,
+            "count": sections.count,
+            "sections": payload
+        ])
+        #else
+        return .json(["status": "ok", "manuscriptID": id, "count": 0, "sections": []])
+        #endif
+    }
+
+    /// GET /api/sections/{id} — fetch a single section with its body
+    /// rehydrated from content-addressed storage when needed.
+    private func handleGetSection(id: String) -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid section id: \(id)")
+        }
+        #if canImport(ImpressRustCore)
+        guard let section = ImprintImpressStore.shared.loadSection(id: uuid) else {
+            return .notFound("Section not found: \(id)")
+        }
+        return .json(Self.sectionToJSON(section))
+        #else
+        return .notFound("Rust store not available")
+        #endif
+    }
+
+    /// GET /api/search?q=...&limit=... — cross-document manuscript search.
+    private func handleCrossDocumentSearch(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let query = request.queryParams["q"], !query.isEmpty else {
+            return .badRequest("Missing query parameter 'q'")
+        }
+        let limit = Int(request.queryParams["limit"] ?? "50") ?? 50
+        let hits = await ManuscriptSearchService.shared.search(query, limit: limit)
+        let payload: [[String: Any]] = hits.map { hit in
+            [
+                "sectionID": hit.sectionID.uuidString,
+                "documentID": hit.documentID?.uuidString ?? "",
+                "title": hit.title,
+                "sectionType": hit.sectionType ?? "",
+                "excerpt": hit.excerpt,
+                "score": hit.score,
+                "matchedTerms": hit.matchedTerms
+            ]
+        }
+        return .json([
+            "status": "ok",
+            "query": query,
+            "count": hits.count,
+            "results": payload
+        ])
+    }
+
+    /// GET /api/citation-usages — list every citation-usage record.
+    private func handleListCitationUsages() -> HTTPResponse {
+        #if canImport(ImpressRustCore)
+        let records = ImprintImpressStore.shared.listCitationUsages()
+        let iso = ISO8601DateFormatter()
+        let payload: [[String: Any]] = records.map { r in
+            [
+                "id": r.id.uuidString,
+                "citeKey": r.citeKey,
+                "sectionID": r.sectionID.uuidString,
+                "documentID": r.documentID?.uuidString ?? "",
+                "paperID": r.paperID?.uuidString ?? "",
+                "firstCited": r.firstCited.map { iso.string(from: $0) } ?? "",
+                "lastSeen": r.lastSeen.map { iso.string(from: $0) } ?? ""
+            ]
+        }
+        return .json([
+            "status": "ok",
+            "count": records.count,
+            "citationUsages": payload
+        ])
+        #else
+        return .json(["status": "ok", "count": 0, "citationUsages": []])
+        #endif
+    }
+
+    #if canImport(ImpressRustCore)
+    private static func sectionToJSON(_ section: ManuscriptSection) -> [String: Any] {
+        [
+            "id": section.id.uuidString,
+            "documentID": section.documentID?.uuidString ?? "",
+            "title": section.title,
+            "body": section.body ?? "",
+            "sectionType": section.sectionType ?? "",
+            "orderIndex": section.orderIndex,
+            "wordCount": section.wordCount,
+            "contentHash": section.contentHash ?? "",
+            "createdAt": ISO8601DateFormatter().string(from: section.createdAt)
+        ]
+    }
+    #endif
+
+    // MARK: - Operation Tracking
+
+    /// GET /api/operations/{id}
+    /// Status of a queued automation operation: pending / completed / failed.
+    private func handleGetOperation(id: String) -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid operation ID format")
+        }
+        guard let op = OperationTracker.shared.get(id: uuid) else {
+            return .notFound("Unknown operation ID — it may have been purged or was never queued")
+        }
+        let iso = ISO8601DateFormatter()
+        var payload: [String: Any] = [
+            "status": "ok",
+            "operationId": op.id.uuidString,
+            "documentId": op.documentID.uuidString,
+            "kind": op.kind,
+            "state": op.status.rawValue,
+            "queuedAt": iso.string(from: op.queuedAt)
+        ]
+        if let completed = op.completedAt {
+            payload["completedAt"] = iso.string(from: completed)
+        }
+        if let err = op.errorMessage {
+            payload["error"] = err
+        }
+        return .json(payload)
+    }
+
+    // MARK: - Section Handlers (document-scoped)
+
+    /// GET /api/documents/{id}/outline/v2
+    /// Richer outline that agents can drive directly: each entry has a stable
+    /// section UUID, byte range, order index, section type, and word count.
+    private func handleGetOutlineV2(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let doc = await findDocument(by: uuid) else {
+            return .notFound("Document not found: \(id)")
+        }
+        let sections = SectionExtractor.extract(from: doc.source, documentID: uuid)
+        let payload: [[String: Any]] = sections.map { s in
+            [
+                "id": s.id.uuidString,
+                "title": s.title,
+                "level": s.level,
+                "sectionType": s.sectionType ?? "",
+                "orderIndex": s.orderIndex,
+                "start": s.start,
+                "end": s.end,
+                "bodyStart": s.bodyStart,
+                "wordCount": s.wordCount
+            ]
+        }
+        return .json([
+            "status": "ok",
+            "documentId": id,
+            "count": sections.count,
+            "sections": payload
+        ])
+    }
+
+    /// GET /api/documents/{docId}/sections — same as outline/v2 for convenience.
+    private func handleListSectionsForDocument(id: String) async -> HTTPResponse {
+        await handleGetOutlineV2(id: id)
+    }
+
+    /// GET /api/documents/{docId}/sections/{sectionKey}
+    /// `sectionKey` is either a UUID (derived from the source) or a zero-based
+    /// integer index into the document's outline. Returns the section's body
+    /// content plus its range so agents can round-trip.
+    private func handleGetSectionInDocument(docId: String, sectionKey: String) async -> HTTPResponse {
+        guard let docUUID = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let doc = await findDocument(by: docUUID) else {
+            return .notFound("Document not found: \(docId)")
+        }
+        let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
+        guard let section = resolveSection(sectionKey, in: sections) else {
+            return .notFound("Section not found: \(sectionKey)")
+        }
+        let body = Self.substring(doc.source, start: section.bodyStart, end: section.end)
+        return .json([
+            "status": "ok",
+            "documentId": docId,
+            "id": section.id.uuidString,
+            "title": section.title,
+            "level": section.level,
+            "sectionType": section.sectionType ?? "",
+            "orderIndex": section.orderIndex,
+            "start": section.start,
+            "end": section.end,
+            "bodyStart": section.bodyStart,
+            "wordCount": section.wordCount,
+            "body": body
+        ])
+    }
+
+    /// PATCH /api/documents/{docId}/sections/{sectionKey}
+    /// Body: `{"body": "…"}` — replace section body only (heading preserved).
+    ///       `{"title": "…"}` — rename the heading; preserves level.
+    ///       Both can be passed at once.
+    private func handlePatchSection(docId: String, sectionKey: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let docUUID = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        let newBody = json["body"] as? String
+        let newTitle = json["title"] as? String
+        guard newBody != nil || newTitle != nil else {
+            return .badRequest("Provide at least one of 'body' or 'title'")
+        }
+        guard let doc = await findDocument(by: docUUID) else {
+            return .notFound("Document not found: \(docId)")
+        }
+        let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
+        guard let section = resolveSection(sectionKey, in: sections) else {
+            return .notFound("Section not found: \(sectionKey)")
+        }
+
+        // Compose the new section text: heading line + body.
+        let currentBody = Self.substring(doc.source, start: section.bodyStart, end: section.end)
+        let bodyToWrite = newBody ?? currentBody
+        let titleToWrite = newTitle ?? section.title
+        let headingLine = Self.composeHeading(
+            title: titleToWrite,
+            level: section.level,
+            format: SectionFormat.autoDetect(doc.source)
+        )
+        var newSectionText = headingLine + "\n" + bodyToWrite
+        // Preserve the trailing newline between this section and the next, if any.
+        if section.end < doc.source.count, !newSectionText.hasSuffix("\n") {
+            newSectionText += "\n"
+        }
+
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "patchSection")
+        await MainActor.run {
+            DocumentRegistry.shared.queueOperation(
+                .replaceRange(
+                    operationID: opID,
+                    start: section.start,
+                    end: section.end,
+                    text: newSectionText
+                ),
+                for: docUUID
+            )
+        }
+
+        return .json([
+            "status": "ok",
+            "message": "Section patch requested",
+            "documentId": docId,
+            "sectionId": section.id.uuidString,
+            "operationId": opID.uuidString,
+            "replacedRange": ["start": section.start, "end": section.end],
+            "newLength": newSectionText.count
+        ])
+    }
+
+    /// DELETE /api/documents/{docId}/sections/{sectionKey}
+    /// Removes the section (heading + body) from the source.
+    private func handleDeleteSection(docId: String, sectionKey: String) async -> HTTPResponse {
+        guard let docUUID = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let doc = await findDocument(by: docUUID) else {
+            return .notFound("Document not found: \(docId)")
+        }
+        let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
+        guard let section = resolveSection(sectionKey, in: sections) else {
+            return .notFound("Section not found: \(sectionKey)")
+        }
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "deleteSection")
+        await MainActor.run {
+            DocumentRegistry.shared.queueOperation(
+                .deleteText(operationID: opID, start: section.start, end: section.end),
+                for: docUUID
+            )
+        }
+        return .json([
+            "status": "ok",
+            "message": "Section deletion requested",
+            "documentId": docId,
+            "sectionId": section.id.uuidString,
+            "operationId": opID.uuidString,
+            "removedRange": ["start": section.start, "end": section.end]
+        ])
+    }
+
+    /// POST /api/documents/{docId}/sections
+    /// Body: `{"title": "…", "body": "…"?, "level": 1, "position": "end"|"before:{key}"|"after:{key}"}`
+    /// Default position is "end" (append to document).
+    private func handleCreateSection(docId: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let docUUID = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let title = json["title"] as? String, !title.isEmpty else {
+            return .badRequest("Missing 'title' parameter")
+        }
+        let newBody = json["body"] as? String ?? ""
+        let level = (json["level"] as? Int).map { max(1, min($0, 6)) } ?? 1
+        let position = (json["position"] as? String) ?? "end"
+
+        guard let doc = await findDocument(by: docUUID) else {
+            return .notFound("Document not found: \(docId)")
+        }
+        let format = SectionFormat.autoDetect(doc.source)
+        let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID, format: format)
+        let heading = Self.composeHeading(title: title, level: level, format: format)
+
+        // Compute insert position based on the `position` parameter.
+        let insertOffset: Int
+        if position == "end" {
+            insertOffset = doc.source.count
+        } else if position.hasPrefix("before:") {
+            let key = String(position.dropFirst("before:".count))
+            guard let target = resolveSection(key, in: sections) else {
+                return .badRequest("Unknown target section: \(key)")
+            }
+            insertOffset = target.start
+        } else if position.hasPrefix("after:") {
+            let key = String(position.dropFirst("after:".count))
+            guard let target = resolveSection(key, in: sections) else {
+                return .badRequest("Unknown target section: \(key)")
+            }
+            insertOffset = target.end
+        } else {
+            return .badRequest("Invalid 'position' — use 'end', 'before:{key}', or 'after:{key}'")
+        }
+
+        // Build the inserted text with appropriate padding.
+        var text = ""
+        if insertOffset > 0 && insertOffset == doc.source.count {
+            // Appending at the very end: ensure blank line before.
+            let chars = Array(doc.source)
+            let trailing = chars.suffix(2)
+            if trailing.count < 2 || trailing.last != "\n" { text += "\n" }
+            if !(trailing.count == 2 && trailing[trailing.startIndex] == "\n" && trailing[chars.index(before: chars.endIndex)] == "\n") {
+                text += "\n"
+            }
+        }
+        text += heading + "\n" + newBody
+        if !text.hasSuffix("\n") { text += "\n" }
+
+        // Pre-compute the id the new section will have once the source re-parses
+        // — the agent can round-trip by index anyway, but returning a stable
+        // UUID here avoids a second outline fetch for the common case.
+        let newOrderIndex = newOrderIndexFor(position: position, in: sections)
+        let newID = SectionExtractor.sectionID(documentID: docUUID, title: title, orderIndex: newOrderIndex)
+
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "createSection")
+        await MainActor.run {
+            DocumentRegistry.shared.queueOperation(
+                .insertText(operationID: opID, position: insertOffset, text: text),
+                for: docUUID
+            )
+        }
+
+        return .json([
+            "status": "ok",
+            "message": "Section create requested",
+            "documentId": docId,
+            "operationId": opID.uuidString,
+            "predictedSectionId": newID.uuidString,
+            "predictedOrderIndex": newOrderIndex,
+            "insertedAt": insertOffset,
+            "insertedLength": text.count
+        ])
+    }
+
+    /// POST /api/documents/{docId}/sections/{sectionKey}/citations
+    /// Atomic: given a cite key + BibTeX (typically from `/api/papers/resolve`
+    /// on imbib), (a) add the entry to the document bibliography, and (b)
+    /// insert `@citeKey` at the end of the section (or at `position` chars
+    /// within the section body).
+    ///
+    /// Body: `{"citeKey":"...", "bibtex"?: "...", "position"?: int}`.
+    /// `position` is a character offset *relative to the section body*
+    /// (bodyStart = 0). When omitted, the citation is appended to the body.
+    private func handleInsertCitationInSection(docId: String, sectionKey: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let docUUID = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let citeKey = json["citeKey"] as? String, !citeKey.isEmpty else {
+            return .badRequest("Missing 'citeKey' parameter")
+        }
+        let bibtex = json["bibtex"] as? String
+        let relPosition = json["position"] as? Int
+
+        guard let doc = await findDocument(by: docUUID) else {
+            return .notFound("Document not found: \(docId)")
+        }
+        let format = SectionFormat.autoDetect(doc.source)
+        let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID, format: format)
+        guard let section = resolveSection(sectionKey, in: sections) else {
+            return .notFound("Section not found: \(sectionKey)")
+        }
+
+        // Compute the absolute insert position within the source.
+        let absPosition: Int
+        if let rel = relPosition {
+            let bodyLen = section.end - section.bodyStart
+            absPosition = section.bodyStart + max(0, min(rel, bodyLen))
+        } else {
+            // Append: trim trailing whitespace/newlines of the section body,
+            // then insert a space + citation just before that trimmed boundary.
+            let bodyEnd = section.end
+            var insertAt = bodyEnd
+            let chars = Array(doc.source)
+            while insertAt > section.bodyStart {
+                let prior = chars[insertAt - 1]
+                if prior == "\n" || prior == " " || prior == "\t" {
+                    insertAt -= 1
+                } else {
+                    break
+                }
+            }
+            absPosition = insertAt
+        }
+
+        let citationText = Self.composeCitation(citeKey: citeKey, format: format, appendSpace: relPosition == nil)
+
+        // Add to bibliography first (so the .bib projector sees it) — fire
+        // this as its own operation, then queue the insertion.
+        if let bibtex, !bibtex.isEmpty {
+            let addOp = UUID()
+            OperationTracker.shared.registerPending(id: addOp, documentID: docUUID, kind: "addCitation")
+            await MainActor.run {
+                DocumentRegistry.shared.queueOperation(
+                    .addCitation(operationID: addOp, citeKey: citeKey, bibtex: bibtex),
+                    for: docUUID
+                )
+            }
+        }
+
+        let insertOp = UUID()
+        OperationTracker.shared.registerPending(id: insertOp, documentID: docUUID, kind: "insertCitation")
+        await MainActor.run {
+            DocumentRegistry.shared.queueOperation(
+                .insertText(operationID: insertOp, position: absPosition, text: citationText),
+                for: docUUID
+            )
+        }
+
+        return .json([
+            "status": "ok",
+            "message": "Section citation insert requested",
+            "documentId": docId,
+            "sectionId": section.id.uuidString,
+            "citeKey": citeKey,
+            "position": absPosition,
+            "insertedLength": citationText.count,
+            "operationId": insertOp.uuidString
+        ])
+    }
+
+    // MARK: - Comment Handlers
+
+    /// GET /api/documents/{docId}/comments?filter=unresolved|resolved|all|mine&authorAgentId=...
+    private func handleListComments(
+        docId: String,
+        filter: String?,
+        authorAgentId: String?
+    ) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let service = await MainActor.run(body: { CommentRegistry.shared.service(for: uuid) }) else {
+            return .notFound("No comment service registered for document \(docId) — is it open?")
+        }
+        let all = await MainActor.run { service.comments }
+        var filtered = all
+        switch (filter ?? "all").lowercased() {
+        case "unresolved": filtered = filtered.filter { !$0.isResolved }
+        case "resolved": filtered = filtered.filter { $0.isResolved }
+        case "suggestions": filtered = filtered.filter { $0.proposedText != nil && !$0.isResolved }
+        case "all": break
+        default: break
+        }
+        if let agentID = authorAgentId {
+            filtered = filtered.filter { $0.authorAgentId == agentID }
+        }
+        let payload: [[String: Any]] = filtered.map { Self.commentToDict($0) }
+        return .json([
+            "status": "ok",
+            "documentId": docId,
+            "count": payload.count,
+            "comments": payload
+        ])
+    }
+
+    /// POST /api/documents/{docId}/comments
+    /// Body: `{"content": "...", "start": int, "end": int, "parentId"?: "uuid",
+    ///         "proposedText"?: "...", "authorAgentId"?: "...", "authorName"?: "..."}`
+    private func handleCreateComment(docId: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: docId) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let content = json["content"] as? String, !content.isEmpty else {
+            return .badRequest("Missing 'content'")
+        }
+        let start = (json["start"] as? Int) ?? 0
+        let end = (json["end"] as? Int) ?? start
+        let parentID = (json["parentId"] as? String).flatMap { UUID(uuidString: $0) }
+        let proposedText = json["proposedText"] as? String
+        let authorAgentId = json["authorAgentId"] as? String
+        let authorName = json["authorName"] as? String
+
+        guard let service = await MainActor.run(body: { CommentRegistry.shared.service(for: uuid) }) else {
+            return .notFound("No comment service registered for document \(docId) — is it open?")
+        }
+
+        let comment = await MainActor.run {
+            service.addComment(
+                content: content,
+                at: TextRange(start: start, end: end),
+                parentId: parentID,
+                proposedText: proposedText,
+                authorAgentId: authorAgentId,
+                authorName: authorName
+            )
+        }
+
+        return .json([
+            "status": "ok",
+            "documentId": docId,
+            "comment": Self.commentToDict(comment)
+        ], status: 201)
+    }
+
+    /// PATCH /api/comments/{id}
+    /// Body: any of `{"content": "...", "isResolved": bool, "proposedText": "..."}`.
+    private func handlePatchComment(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let commentUUID = UUID(uuidString: id) else {
+            return .badRequest("Invalid comment ID format")
+        }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        let (docID, service) = await MainActor.run { () -> (UUID?, CommentService?) in
+            guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID) else {
+                return (nil, nil)
+            }
+            return (docID, CommentRegistry.shared.service(for: docID))
+        }
+        guard let docID, let service else {
+            return .notFound("Comment not found: \(id)")
+        }
+
+        await MainActor.run {
+            if let content = json["content"] as? String {
+                service.updateComment(commentUUID, content: content)
+            }
+            if let proposedText = json["proposedText"] as? String {
+                service.updateProposedText(commentUUID, proposedText: proposedText)
+            }
+            if let resolved = json["isResolved"] as? Bool {
+                if resolved {
+                    service.resolve(commentUUID, includeReplies: false)
+                } else {
+                    service.unresolve(commentUUID)
+                }
+            }
+        }
+
+        let snapshot = await MainActor.run { service.comments.first(where: { $0.id == commentUUID }) }
+        guard let comment = snapshot else {
+            return .notFound("Comment not found: \(id)")
+        }
+        return .json([
+            "status": "ok",
+            "documentId": docID.uuidString,
+            "comment": Self.commentToDict(comment)
+        ])
+    }
+
+    /// DELETE /api/comments/{id}
+    private func handleDeleteComment(id: String) async -> HTTPResponse {
+        guard let commentUUID = UUID(uuidString: id) else {
+            return .badRequest("Invalid comment ID format")
+        }
+        let deleted = await MainActor.run { () -> Bool in
+            guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID),
+                  let service = CommentRegistry.shared.service(for: docID) else {
+                return false
+            }
+            service.deleteComment(commentUUID)
+            return true
+        }
+        if !deleted {
+            return .notFound("Comment not found: \(id)")
+        }
+        return .json(["status": "ok", "commentId": id, "deleted": true])
+    }
+
+    /// POST /api/comments/{id}/accept — apply the suggestion's `proposedText`,
+    /// then resolve the comment. No-op if the comment isn't a suggestion.
+    private func handleAcceptComment(id: String) async -> HTTPResponse {
+        guard let commentUUID = UUID(uuidString: id) else {
+            return .badRequest("Invalid comment ID format")
+        }
+        let (docID, comment) = await MainActor.run { () -> (UUID?, Comment?) in
+            guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID),
+                  let service = CommentRegistry.shared.service(for: docID),
+                  let c = service.comments.first(where: { $0.id == commentUUID }) else {
+                return (nil, nil)
+            }
+            return (docID, c)
+        }
+        guard let docID, let comment else {
+            return .notFound("Comment not found: \(id)")
+        }
+        guard let proposed = comment.proposedText else {
+            return .badRequest("Comment is not a suggestion (no 'proposedText')")
+        }
+        let opID = UUID()
+        OperationTracker.shared.registerPending(id: opID, documentID: docID, kind: "acceptSuggestion")
+        await MainActor.run {
+            DocumentRegistry.shared.queueOperation(
+                .replaceRange(
+                    operationID: opID,
+                    start: comment.textRange.start,
+                    end: comment.textRange.end,
+                    text: proposed
+                ),
+                for: docID
+            )
+            CommentRegistry.shared.service(for: docID)?.resolve(commentUUID, includeReplies: false)
+        }
+        return .json([
+            "status": "ok",
+            "commentId": id,
+            "documentId": docID.uuidString,
+            "accepted": true,
+            "operationId": opID.uuidString
+        ])
+    }
+
+    /// POST /api/comments/{id}/reject — resolve without applying the suggestion.
+    private func handleRejectComment(id: String) async -> HTTPResponse {
+        guard let commentUUID = UUID(uuidString: id) else {
+            return .badRequest("Invalid comment ID format")
+        }
+        let resolved = await MainActor.run { () -> Bool in
+            guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID),
+                  let service = CommentRegistry.shared.service(for: docID) else {
+                return false
+            }
+            service.resolve(commentUUID, includeReplies: false)
+            return true
+        }
+        if !resolved {
+            return .notFound("Comment not found: \(id)")
+        }
+        return .json(["status": "ok", "commentId": id, "rejected": true])
+    }
+
+    /// Convert a Comment to a JSON-serializable dictionary.
+    private static func commentToDict(_ c: Comment) -> [String: Any] {
+        let iso = ISO8601DateFormatter()
+        var dict: [String: Any] = [
+            "id": c.id.uuidString,
+            "author": c.author,
+            "authorId": c.authorId,
+            "content": c.content,
+            "range": ["start": c.textRange.start, "end": c.textRange.end],
+            "createdAt": iso.string(from: c.createdAt),
+            "modifiedAt": iso.string(from: c.modifiedAt),
+            "isResolved": c.isResolved,
+            "isSuggestion": c.isSuggestion
+        ]
+        if let parentID = c.parentId { dict["parentId"] = parentID.uuidString }
+        if let proposed = c.proposedText { dict["proposedText"] = proposed }
+        if let agent = c.authorAgentId { dict["authorAgentId"] = agent }
+        return dict
+    }
+
+    /// Compose the citation token for the given format.
+    private static func composeCitation(citeKey: String, format: SectionFormat, appendSpace: Bool) -> String {
+        let token: String
+        switch format {
+        case .typst: token = "@\(citeKey)"
+        case .latex: token = "\\cite{\(citeKey)}"
+        }
+        return appendSpace ? " " + token : token
+    }
+
+    // MARK: - Section helpers
+
+    /// Resolve a section key (UUID string or integer order index) to a section.
+    private func resolveSection(_ key: String, in sections: [ExtractedSection]) -> ExtractedSection? {
+        if let uuid = UUID(uuidString: key) {
+            return sections.first { $0.id == uuid }
+        }
+        if let idx = Int(key), idx >= 0, idx < sections.count {
+            return sections[idx]
+        }
+        return nil
+    }
+
+    /// Substring by character offsets — tolerant of out-of-range values.
+    private static func substring(_ source: String, start: Int, end: Int) -> String {
+        let chars = Array(source)
+        let lo = max(0, min(start, chars.count))
+        let hi = max(lo, min(end, chars.count))
+        return String(chars[lo..<hi])
+    }
+
+    /// Build a heading line at the given level for the given format.
+    private static func composeHeading(title: String, level: Int, format: SectionFormat) -> String {
+        switch format {
+        case .typst:
+            let prefix = String(repeating: "=", count: max(1, min(level, 6)))
+            return "\(prefix) \(title)"
+        case .latex:
+            switch level {
+            case 1: return "\\section{\(title)}"
+            case 2: return "\\subsection{\(title)}"
+            case 3: return "\\subsubsection{\(title)}"
+            case 4: return "\\paragraph{\(title)}"
+            default: return "\\subparagraph{\(title)}"
+            }
+        }
+    }
+
+    /// Predict the order index a newly-created section will occupy.
+    private func newOrderIndexFor(position: String, in existing: [ExtractedSection]) -> Int {
+        if position == "end" { return existing.count }
+        if position.hasPrefix("before:") {
+            let key = String(position.dropFirst("before:".count))
+            if let target = resolveSection(key, in: existing) {
+                return target.orderIndex
+            }
+        }
+        if position.hasPrefix("after:") {
+            let key = String(position.dropFirst("after:".count))
+            if let target = resolveSection(key, in: existing) {
+                return target.orderIndex + 1
+            }
+        }
+        return existing.count
+    }
+
+    // MARK: - Store Timings Handlers
+
+    /// GET /api/store-timings?top=20
+    /// Returns a JSON snapshot of `StoreTimings.shared` — per-caller counts,
+    /// mean/max latencies, and how much time was spent on the main thread.
+    /// Mirrors imbib's endpoint so `impress-toolbox` can query either app.
+    private func handleStoreTimings(_ request: HTTPRequest) -> HTTPResponse {
+        let top = Int(request.queryParams["top"] ?? "20") ?? 20
+        let snap = StoreTimings.shared.snapshot(topCallerCount: top)
+        let callers: [[String: Any]] = snap.topCallers.map { stat in
+            [
+                "caller": stat.caller,
+                "count": stat.count,
+                "mainThreadCount": stat.mainThreadCount,
+                "meanMillis": round(stat.meanMillis * 1000) / 1000,
+                "maxMillis": round(stat.maxMillis * 1000) / 1000,
+                "totalNanos": stat.totalNanos
+            ]
+        }
+        let payload: [String: Any] = [
+            "status": "ok",
+            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
+            "totalCalls": snap.totalCalls,
+            "mainThreadCalls": snap.mainThreadCalls,
+            "backgroundCalls": snap.backgroundCalls,
+            "mainThreadShare": round(snap.mainThreadShare * 10000) / 10000,
+            "totalMainThreadMillis": round(snap.totalMainThreadMillis * 1000) / 1000,
+            "slowestMainThreadCaller": snap.slowestMainThreadCaller,
+            "slowestMainThreadMillis": round(snap.slowestMainThreadMillis * 1000) / 1000,
+            "topCallers": callers
+        ]
+        return .json(payload)
+    }
+
+    /// POST /api/store-timings/reset
+    private func handleResetStoreTimings() -> HTTPResponse {
+        StoreTimings.shared.reset()
+        return .json(["status": "ok", "reset": true])
+    }
+
     // MARK: - Helpers
 
     /// CORS preflight response.
@@ -1101,7 +2120,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             statusText: "No Content",
             headers: [
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, Authorization",
                 "Access-Control-Max-Age": "86400"
             ]
