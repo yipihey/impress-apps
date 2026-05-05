@@ -26,7 +26,7 @@ impl Default for ThumbnailConfig {
 /// Returns RGBA pixel data
 #[cfg(not(target_arch = "wasm32"))]
 pub fn generate_thumbnail(pdf_bytes: &[u8], config: &ThumbnailConfig) -> Result<Vec<u8>, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = super::extract::try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     let page = document
@@ -65,7 +65,7 @@ pub fn generate_thumbnails(
     width: u32,
     height: u32,
 ) -> Result<Vec<(u32, Vec<u8>)>, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = super::extract::try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     let mut results = Vec::new();

@@ -22,7 +22,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
-    @State private var nlSearchService = NLSearchService()
+    @State private var smartSearchService = SmartSearchService()
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
     @Environment(\.scenePhase) private var scenePhase
@@ -84,12 +84,6 @@ struct imbibApp: App {
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
             appLogger.info("BrowserURLProviders registered")
 
-            // Configure staggered smart search refresh service (before InboxCoordinator)
-            await SmartSearchRefreshService.shared.configure(
-                sourceManager: sourceManager
-            )
-            appLogger.info("SmartSearchRefreshService configured")
-
             // Start background enrichment coordinator
             await EnrichmentCoordinator.shared.start()
             appLogger.info("EnrichmentCoordinator started")
@@ -128,9 +122,13 @@ struct imbibApp: App {
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
-                .environment(nlSearchService)
+                .environment(smartSearchService)
                 .environment(settingsViewModel)
                 .onAppear {
+                    // Wire SmartSearch to the user's "Save" library so Cmd+S
+                    // imports land in the same place as inbox-triage `s`.
+                    smartSearchService.libraryManager = libraryManager
+
                     setupBadgeObserver()
                     // Initialize share extension handler
                     if shareExtensionHandler == nil {

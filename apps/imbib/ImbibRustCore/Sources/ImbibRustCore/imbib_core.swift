@@ -667,6 +667,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func countUnread(parentId: String?) throws  -> UInt32
     
+    /**
+     * Count unread publications referenced by a collection. Uses Contains-edge join + is_read filter.
+     */
+    func countUnreadInCollection(collectionId: String) throws  -> UInt32
+    
     func createActivityRecord(libraryId: String, activityType: String, actorDisplayName: String?, targetTitle: String?, targetId: String?, detail: String?) throws  -> ActivityRecordRow
     
     func createAnnotation(linkedFileId: String, annotationType: String, pageNumber: Int64, boundsJson: String?, color: String?, contents: String?, selectedText: String?) throws  -> AnnotationRow
@@ -871,6 +876,11 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Returns the number of members removed.
      */
     func purgeDismissedFromCollection(collectionId: String) throws  -> UInt32
+    
+    /**
+     * Return ALL publications in the store (no parent filter), for full-text search indexing.
+     */
+    func queryAllPublications(limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     func queryByTag(tagPath: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
@@ -1254,6 +1264,17 @@ open func countUnread(parentId: String?)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_unread(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Count unread publications referenced by a collection. Uses Contains-edge join + is_read filter.
+     */
+open func countUnreadInCollection(collectionId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_unread_in_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(collectionId),$0
     )
 })
 }
@@ -1966,6 +1987,18 @@ open func purgeDismissedFromCollection(collectionId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_purge_dismissed_from_collection(self.uniffiClonePointer(),
         FfiConverterString.lower(collectionId),$0
+    )
+})
+}
+    
+    /**
+     * Return ALL publications in the store (no parent filter), for full-text search indexing.
+     */
+open func queryAllPublications(limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
+    return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_query_all_publications(self.uniffiClonePointer(),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -12274,10 +12307,38 @@ public struct SmartSearchRow {
     public var lastExecuted: Int64?
     public var libraryId: String?
     public var sortOrder: Int32
+    /**
+     * Target library/collection ID for triage save action (None = use global default).
+     */
+    public var saveTargetId: String?
+    /**
+     * Whether to show dismissed papers in this collection's results.
+     */
+    public var showDismissed: Bool
+    /**
+     * Per-collection retention in days (0 = use global setting, None = no retention).
+     */
+    public var retentionDays: Int32?
+    /**
+     * Whether to auto-remove read papers during retention cleanup.
+     */
+    public var autoRemoveRead: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, query: String, sourceIds: [String], maxResults: Int32, feedsToInbox: Bool, autoRefreshEnabled: Bool, refreshIntervalSeconds: Int32, lastFetchCount: Int32, lastExecuted: Int64?, libraryId: String?, sortOrder: Int32) {
+    public init(id: String, name: String, query: String, sourceIds: [String], maxResults: Int32, feedsToInbox: Bool, autoRefreshEnabled: Bool, refreshIntervalSeconds: Int32, lastFetchCount: Int32, lastExecuted: Int64?, libraryId: String?, sortOrder: Int32, 
+        /**
+         * Target library/collection ID for triage save action (None = use global default).
+         */saveTargetId: String?, 
+        /**
+         * Whether to show dismissed papers in this collection's results.
+         */showDismissed: Bool, 
+        /**
+         * Per-collection retention in days (0 = use global setting, None = no retention).
+         */retentionDays: Int32?, 
+        /**
+         * Whether to auto-remove read papers during retention cleanup.
+         */autoRemoveRead: Bool) {
         self.id = id
         self.name = name
         self.query = query
@@ -12290,6 +12351,10 @@ public struct SmartSearchRow {
         self.lastExecuted = lastExecuted
         self.libraryId = libraryId
         self.sortOrder = sortOrder
+        self.saveTargetId = saveTargetId
+        self.showDismissed = showDismissed
+        self.retentionDays = retentionDays
+        self.autoRemoveRead = autoRemoveRead
     }
 }
 
@@ -12333,6 +12398,18 @@ extension SmartSearchRow: Equatable, Hashable {
         if lhs.sortOrder != rhs.sortOrder {
             return false
         }
+        if lhs.saveTargetId != rhs.saveTargetId {
+            return false
+        }
+        if lhs.showDismissed != rhs.showDismissed {
+            return false
+        }
+        if lhs.retentionDays != rhs.retentionDays {
+            return false
+        }
+        if lhs.autoRemoveRead != rhs.autoRemoveRead {
+            return false
+        }
         return true
     }
 
@@ -12349,6 +12426,10 @@ extension SmartSearchRow: Equatable, Hashable {
         hasher.combine(lastExecuted)
         hasher.combine(libraryId)
         hasher.combine(sortOrder)
+        hasher.combine(saveTargetId)
+        hasher.combine(showDismissed)
+        hasher.combine(retentionDays)
+        hasher.combine(autoRemoveRead)
     }
 }
 
@@ -12371,7 +12452,11 @@ public struct FfiConverterTypeSmartSearchRow: FfiConverterRustBuffer {
                 lastFetchCount: FfiConverterInt32.read(from: &buf), 
                 lastExecuted: FfiConverterOptionInt64.read(from: &buf), 
                 libraryId: FfiConverterOptionString.read(from: &buf), 
-                sortOrder: FfiConverterInt32.read(from: &buf)
+                sortOrder: FfiConverterInt32.read(from: &buf), 
+                saveTargetId: FfiConverterOptionString.read(from: &buf), 
+                showDismissed: FfiConverterBool.read(from: &buf), 
+                retentionDays: FfiConverterOptionInt32.read(from: &buf), 
+                autoRemoveRead: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -12388,6 +12473,10 @@ public struct FfiConverterTypeSmartSearchRow: FfiConverterRustBuffer {
         FfiConverterOptionInt64.write(value.lastExecuted, into: &buf)
         FfiConverterOptionString.write(value.libraryId, into: &buf)
         FfiConverterInt32.write(value.sortOrder, into: &buf)
+        FfiConverterOptionString.write(value.saveTargetId, into: &buf)
+        FfiConverterBool.write(value.showDismissed, into: &buf)
+        FfiConverterOptionInt32.write(value.retentionDays, into: &buf)
+        FfiConverterBool.write(value.autoRemoveRead, into: &buf)
     }
 }
 
@@ -21672,6 +21761,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_count_unread() != 53670) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_unread_in_collection() != 42077) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_activity_record() != 57505) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21883,6 +21975,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_purge_dismissed_from_collection() != 7576) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_all_publications() != 1063) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_by_tag() != 57550) {

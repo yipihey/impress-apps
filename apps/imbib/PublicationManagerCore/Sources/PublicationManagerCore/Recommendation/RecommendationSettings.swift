@@ -36,21 +36,16 @@ public actor RecommendationSettingsStore {
         /// Days after which negative preferences decay
         public var negativePrefDecayDays: Int
 
-        /// Whether recommendation sorting is enabled
+        /// Whether recommendation training is enabled
         public var isEnabled: Bool
-
-        /// The recommendation engine type to use
-        public var engineType: RecommendationEngineType
 
         public init(
             featureWeights: [String: Double] = [:],
             serendipitySlotFrequency: Int = 10,
             reRankThrottleMinutes: Int = 5,
             negativePrefDecayDays: Int = 90,
-            isEnabled: Bool = true,
-            engineType: RecommendationEngineType = .classic
+            isEnabled: Bool = true
         ) {
-            // Initialize with defaults if empty
             if featureWeights.isEmpty {
                 self.featureWeights = Dictionary(
                     uniqueKeysWithValues: FeatureType.allCases.map { ($0.rawValue, $0.defaultWeight) }
@@ -62,7 +57,6 @@ public actor RecommendationSettingsStore {
             self.reRankThrottleMinutes = reRankThrottleMinutes
             self.negativePrefDecayDays = negativePrefDecayDays
             self.isEnabled = isEnabled
-            self.engineType = engineType
         }
 
         /// Get weight for a specific feature type
@@ -101,7 +95,6 @@ public actor RecommendationSettingsStore {
     // MARK: - Initialization
 
     private init() {
-        // Load settings on init
         Task {
             _ = await loadSettings()
         }
@@ -121,6 +114,9 @@ public actor RecommendationSettingsStore {
     public func update(_ settings: Settings) async {
         cachedSettings = settings
         await saveSettings(settings)
+        await MainActor.run {
+            NotificationCenter.default.post(name: .recommendationSettingsDidChange, object: nil)
+        }
         Logger.settings.info("Recommendation settings updated")
     }
 
@@ -185,7 +181,7 @@ public actor RecommendationSettingsStore {
     /// Set serendipity frequency
     public func setSerendipityFrequency(_ frequency: Int) async {
         var settings = await settings()
-        settings.serendipitySlotFrequency = max(1, frequency)  // At least 1
+        settings.serendipitySlotFrequency = max(1, frequency)
         await update(settings)
     }
 
@@ -208,78 +204,84 @@ public actor RecommendationSettingsStore {
         await update(settings)
     }
 
-    /// Get current engine type
-    public func engineType() async -> RecommendationEngineType {
-        let settings = await settings()
-        return settings.engineType
-    }
-
-    /// Set engine type
-    public func setEngineType(_ type: RecommendationEngineType) async {
-        var settings = await settings()
-        settings.engineType = type
-        await update(settings)
-        Logger.settings.info("Recommendation engine type changed to: \(type.rawValue)")
-    }
-
     // MARK: - Private Methods
 
     @discardableResult
     private func loadSettings() async -> Settings {
-        // Check for synced enabled state
         let enabled = syncedStore.bool(forKey: .recommendationEnabled) ?? true
 
-        // Check for synced weights
-        let weights: [String: Double]
+        var weights: [String: Double] = [:]
         if let data = syncedStore.data(forKey: .recommendationWeights),
            let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
-            weights = decoded
-        } else {
-            weights = [:]
+            weights = migrateWeightsIfNeeded(decoded)
         }
 
-        // Check for other settings
         let serendipity = syncedStore.int(forKey: .recommendationSerendipityFrequency) ?? 10
         let decayDays = syncedStore.int(forKey: .recommendationDecayDays) ?? 90
         let throttle = syncedStore.int(forKey: .recommendationReRankThrottleMinutes) ?? 5
-
-        // Check for engine type
-        let engineTypeRaw = syncedStore.string(forKey: .recommendationEngineType)
-        let engineType = engineTypeRaw.flatMap { RecommendationEngineType(rawValue: $0) } ?? .classic
 
         let settings = Settings(
             featureWeights: weights,
             serendipitySlotFrequency: serendipity,
             reRankThrottleMinutes: throttle,
             negativePrefDecayDays: decayDays,
-            isEnabled: enabled,
-            engineType: engineType
+            isEnabled: enabled
         )
 
         cachedSettings = settings
         return settings
     }
 
+    /// Migrate old 18-feature weight keys to new 12-feature keys.
+    private func migrateWeightsIfNeeded(_ stored: [String: Double]) -> [String: Double] {
+        // Check if any old keys are present
+        let oldKeys = ["authorStarred", "saveRateAuthor", "dismissRateAuthor",
+                       "readingTimeTopic", "collectionMatch", "venueFrequency",
+                       "saveRateVenue", "tagMatch", "authorCoauthorship",
+                       "fieldCitationVelocity", "librarySimilarity",
+                       "citationOverlap", "pdfDownloadAuthor"]
+        let hasOldKeys = stored.keys.contains { oldKeys.contains($0) }
+
+        guard hasOldKeys else { return stored }
+
+        var migrated: [String: Double] = [:]
+
+        for (key, value) in stored {
+            if let newKey = FeatureType.migrateWeightKey(key) {
+                // For merged features, keep the max absolute value
+                if let existing = migrated[newKey] {
+                    if abs(value) > abs(existing) {
+                        migrated[newKey] = value
+                    }
+                } else {
+                    migrated[newKey] = value
+                }
+            } else if FeatureType(rawValue: key) != nil {
+                // Already a valid new key
+                migrated[key] = value
+            }
+            // Drop keys that map to nil (removed features)
+        }
+
+        Logger.settings.info("Migrated recommendation weights from old 18-feature format to new 12-feature format")
+        return migrated
+    }
+
     private func saveSettings(_ settings: Settings) async {
-        // Save enabled state
         syncedStore.set(settings.isEnabled, forKey: .recommendationEnabled)
 
-        // Save weights
         if let data = try? JSONEncoder().encode(settings.featureWeights) {
             syncedStore.set(data, forKey: .recommendationWeights)
         }
 
-        // Save other settings
         syncedStore.set(settings.serendipitySlotFrequency, forKey: .recommendationSerendipityFrequency)
         syncedStore.set(settings.negativePrefDecayDays, forKey: .recommendationDecayDays)
         syncedStore.set(settings.reRankThrottleMinutes, forKey: .recommendationReRankThrottleMinutes)
-        syncedStore.set(settings.engineType.rawValue, forKey: .recommendationEngineType)
+        // No longer saving engineType — removed
     }
 
     // MARK: - External Change Handling
 
-    /// Called when synced settings change from another device.
-    /// Invalidates the cache so next access reloads from store.
     public func handleExternalChange() async {
         cachedSettings = nil
         Logger.settings.info("Recommendation settings invalidated due to external change")

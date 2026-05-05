@@ -90,8 +90,23 @@ struct SectionContentView: View {
                 return .searchForm(formType, .inboxFeed)
             }
             return .feedFormPicker
+        case .addLibraryFeed(let libraryID):
+            let libName = libraryManager.libraries.first(where: { $0.id == libraryID })?.name ?? "Library"
+            if let formType = feedCreationFormType {
+                return .searchForm(formType, .libraryFeed(libraryID, libName))
+            }
+            return .feedFormPicker
         case .editFeed(let feedID):
             if let formType = feedFormTypeForFeed(feedID) {
+                // Determine correct mode based on feed type
+                if let ss = RustStoreAdapter.shared.getSmartSearch(id: feedID) {
+                    if ss.feedsToInbox {
+                        return .searchForm(formType, .inboxFeed)
+                    } else if let libID = ss.libraryID {
+                        let libName = libraryManager.libraries.first(where: { $0.id == libID })?.name ?? "Library"
+                        return .searchForm(formType, .libraryFeed(libID, libName))
+                    }
+                }
                 return .searchForm(formType, .inboxFeed)
             }
             return nil
@@ -102,11 +117,30 @@ struct SectionContentView: View {
 
     /// Resolves the current sidebar selection to a PublicationSource.
     private var currentSource: PublicationSource? {
+        // Multi-selection takes priority. The view model populates this array
+        // with the resolvable subset (library / collection nodes) of whatever
+        // the user has multi-selected. Mixed-kind selections (e.g. library +
+        // smart search) end up with fewer entries than total selection — we
+        // surface the resolvable subset rather than silently falling back.
+        let combined = viewModel.selectedSourcesForCombinedView
+        if combined.count >= 2 {
+            return .combined(combined)
+        }
+        if combined.count == 1 {
+            // Multi-select with one resolvable node — show its content
+            // directly (no `.combined` wrapper, since a single-element union
+            // is just the source itself).
+            return combined[0]
+        }
+
         switch viewModel.selectedTab {
         case .inbox:
             return InboxManager.shared.inboxLibrary.map { .inbox($0.id) }
         case .inboxFeed(let id):
             return fetchInboxFeed(id: id).map { .smartSearch($0.id) }
+        case .libraryFeed(let id):
+            guard RustStoreAdapter.shared.getSmartSearch(id: id) != nil else { return nil }
+            return .smartSearch(id)
         case .inboxCollection(let id):
             guard let inboxLib = InboxManager.shared.inboxLibrary else { return nil }
             let inboxCollections = RustStoreAdapter.shared.listCollections(libraryId: inboxLib.id)
@@ -135,9 +169,11 @@ struct SectionContentView: View {
             return .flagged(color)
         case .dismissed:
             return libraryManager.dismissedLibrary.map { _ in .dismissed }
+        case .citedInManuscripts:
+            return .citedInManuscripts
         case .allArtifacts, .artifactType:
             return nil
-        case .searchForm, .scixLibrary, .addFeed, .editFeed, nil:
+        case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
         }
     }
@@ -147,6 +183,8 @@ struct SectionContentView: View {
         switch viewModel.selectedTab {
         case .inbox, .inboxFeed, .inboxCollection:
             return InboxManager.shared.inboxLibrary?.id
+        case .libraryFeed(let feedID):
+            return RustStoreAdapter.shared.getSmartSearch(id: feedID)?.libraryID
         case .library(let id):
             return id
         case .sharedLibrary(let id):
@@ -159,9 +197,12 @@ struct SectionContentView: View {
             return nil
         case .dismissed:
             return libraryManager.dismissedLibrary?.id
+        case .citedInManuscripts:
+            // Cross-library pseudo source — no owning library.
+            return nil
         case .allArtifacts, .artifactType:
             return nil
-        case .searchForm, .scixLibrary, .addFeed, .editFeed, nil:
+        case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
         }
     }
@@ -173,10 +214,17 @@ struct SectionContentView: View {
         guard let content = resolvedContent else { return "none" }
         switch content {
         case .source(let source): return "source-\(source.viewID)"
-        case .searchForm(let type, let mode): return "search-\(type.rawValue)-\(mode == .inboxFeed ? "feed" : "explore")"
+        case .searchForm(let type, _): return "search-\(type.rawValue)"
         case .artifacts(let type): return "artifacts-\(type?.rawValue ?? "all")"
         case .feedFormPicker: return "feedFormPicker"
         }
+    }
+
+    private var showFeedSettingsBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.feedSettingsID != nil },
+            set: { newValue in if !newValue { viewModel.feedSettingsID = nil } }
+        )
     }
 
     private var selectedPublicationID: UUID? {
@@ -327,10 +375,6 @@ struct SectionContentView: View {
             if case .searchForm = content {
                 showSearchForm = true
             }
-            // Clear feed creation state when leaving addFeed
-            if case .addFeed = viewModel.selectedTab {} else {
-                feedCreationFormType = nil
-            }
         }
         .onChange(of: searchViewModel.isSearching) { wasSearching, isSearching in
             if wasSearching && !isSearching {
@@ -374,6 +418,13 @@ struct SectionContentView: View {
             PaperComparisonView(viewModel: comparisonViewModel,
                                 publicationIDs: Array(selectedPublicationIDs),
                                 onNavigateToPaper: { id in navigateToPublication(id) })
+        }
+        .sheet(isPresented: showFeedSettingsBinding) {
+            if let feedID = viewModel.feedSettingsID {
+                FeedSettingsView(feedID: feedID) {
+                    viewModel.feedSettingsID = nil
+                }
+            }
         }
         .onChange(of: selectedPublicationIDs) { _, newIDs in
             if !newIDs.isEmpty {
@@ -456,7 +507,7 @@ struct SectionContentView: View {
 
         switch formType {
         case .nlSearch:
-            NLSearchFormView(mode: mode, editingFeedID: editingFeedID)
+            Text("Use Cmd+S for natural language search")
                 .navigationTitle(mode == .inboxFeed ? "Create AI Feed" : "Smart Search (AI)")
         case .adsModern:
             ADSModernSearchFormView(mode: mode, editingFeedID: editingFeedID)
@@ -474,7 +525,7 @@ struct SectionContentView: View {
             ArXivFeedFormView(mode: mode)
                 .navigationTitle(mode == .inboxFeed ? "arXiv Feed" : "arXiv Category Search")
         case .arxivGroupFeed:
-            GroupArXivFeedFormView(mode: mode)
+            GroupArXivFeedFormView(mode: mode, editingFeedID: editingFeedID)
                 .navigationTitle(mode == .inboxFeed ? "Group arXiv Feed" : "Group arXiv Search")
         case .adsVagueMemory:
             VagueMemorySearchFormView(mode: mode, editingFeedID: editingFeedID)
@@ -492,107 +543,6 @@ struct SectionContentView: View {
             systemImage: "magnifyingglass",
             description: Text("Results appear in the Exploration section of the sidebar.")
         )
-    }
-
-    // MARK: - Feed Form Picker
-
-    @ViewBuilder
-    private var feedFormPickerView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Add Feed", systemImage: "plus.circle")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    Text("Choose a search interface to create a new inbox feed")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 8)
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(SearchFormType.allCases) { formType in
-                        Button {
-                            feedCreationFormType = formType
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: formType.icon)
-                                        .font(.title3)
-                                        .foregroundStyle(.tint)
-                                        .frame(width: 28, height: 28)
-                                    Spacer()
-                                }
-                                Text(formType.displayName)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                Text(formType.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(nsColor: .textBackgroundColor))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding()
-        }
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    /// Determine which search form type matches a feed's source/query.
-    private func feedFormTypeForFeed(_ feedID: UUID) -> SearchFormType? {
-        guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return nil }
-        let sourceIDs = feed.sourceIDs
-
-        // NL-created feeds (name starts with "AI: ")
-        if feed.name.hasPrefix("AI: ") {
-            return .nlSearch
-        }
-
-        // arXiv feeds with category queries
-        if sourceIDs == ["arxiv"] {
-            let query = feed.query
-            if query.contains("cat:") {
-                // Check if it's a group feed (has author terms alongside categories)
-                if query.contains("au:") || query.contains("author:") {
-                    return .arxivGroupFeed
-                }
-                return .arxivFeed
-            }
-            return .arxivAdvanced
-        }
-
-        // OpenAlex feeds
-        if sourceIDs == ["openalex"] || sourceIDs.contains("openalex") {
-            return .openalex
-        }
-
-        // ADS feeds — detect subtype from query structure
-        if sourceIDs.contains("ads") || sourceIDs.isEmpty {
-            let query = feed.query
-            // Paper lookup (bibcode/doi/arxiv ID)
-            if query.contains("bibcode:") || query.contains("doi:") || query.contains("arXiv:") {
-                return .adsPaper
-            }
-            // Classic form indicators (multiple field prefixes)
-            if query.contains("author:") && (query.contains("title:") || query.contains("abstract:")) {
-                return .adsClassic
-            }
-            return .adsModern
-        }
-
-        return .adsModern
     }
 
     // MARK: - Detail View
@@ -938,12 +888,6 @@ struct SectionContentView: View {
 
     // MARK: - Lookup Helpers
 
-    private func fetchInboxFeed(id: UUID) -> SmartSearch? {
-        let feed = RustStoreAdapter.shared.getSmartSearch(id: id)
-        guard let feed, feed.feedsToInbox else { return nil }
-        return feed
-    }
-
     /// Find which library contains the given collection ID
     private func findCollectionLibraryID(collectionId: UUID) -> UUID? {
         for library in libraryManager.libraries {
@@ -966,21 +910,136 @@ struct SectionContentView: View {
         return "Collection"
     }
 
+    // MARK: - Feed Helpers
+
+    /// Look up an inbox feed (smart search) by ID.
+    private func fetchInboxFeed(id: UUID) -> SmartSearch? {
+        guard let inboxLib = InboxManager.shared.inboxLibrary else { return nil }
+        let feeds = RustStoreAdapter.shared.listSmartSearches(libraryId: inboxLib.id)
+        return feeds.first(where: { $0.id == id })
+    }
+
+    /// Determine which search form type matches a feed's source/query.
+    private func feedFormTypeForFeed(_ feedID: UUID) -> SearchFormType? {
+        guard let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) else { return nil }
+        let sourceIDs = feed.sourceIDs
+
+        // NL-created feeds (name starts with "AI: ")
+        if feed.name.hasPrefix("AI: ") {
+            return .nlSearch
+        }
+
+        // arXiv feeds with category queries
+        if sourceIDs == ["arxiv"] {
+            let query = feed.query
+            if query.contains("cat:") {
+                if query.contains("au:") || query.contains("author:") {
+                    return .arxivGroupFeed
+                }
+                return .arxivFeed
+            }
+            return .arxivAdvanced
+        }
+
+        // OpenAlex feeds
+        if sourceIDs == ["openalex"] || sourceIDs.contains("openalex") {
+            return .openalex
+        }
+
+        // ADS feeds — detect subtype from query structure
+        if sourceIDs.contains("ads") || sourceIDs.isEmpty {
+            let query = feed.query
+            if query.contains("bibcode:") || query.contains("doi:") || query.contains("arXiv:") {
+                return .adsPaper
+            }
+            if query.contains("author:") && (query.contains("title:") || query.contains("abstract:")) {
+                return .adsClassic
+            }
+            return .adsModern
+        }
+
+        return .adsModern
+    }
+
+    /// Feed form picker view — lets user choose which search form type to use for feed creation.
+    @ViewBuilder
+    private var feedFormPickerView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Add Feed", systemImage: "plus.circle")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Choose a search interface to create a new inbox feed")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 8)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(SearchFormType.allCases) { formType in
+                        Button {
+                            feedCreationFormType = formType
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: formType.icon)
+                                        .font(.title3)
+                                        .foregroundStyle(.tint)
+                                        .frame(width: 28, height: 28)
+                                    Spacer()
+                                }
+                                Text(formType.displayName)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text(formType.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(nsColor: .textBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding()
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
     /// Navigate to a publication from global search: switch to its library, select it, scroll to it.
     private func navigateToPublication(_ publicationID: UUID) {
         // Find which library the publication belongs to
         let detail = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
+        let needsLibrarySwitch: Bool
         if let libraryID = detail?.libraryIDs.first {
             viewModel.navigateToTab(.library(libraryID))
+            needsLibrarySwitch = true
+        } else {
+            needsLibrarySwitch = false
         }
 
-        // Select the publication after a brief delay for the list to load
+        // Select the publication after a delay for the list to load.
+        // Cross-library navigation needs a longer delay since the entire
+        // PublicationListView is recreated (due to .id(source.id)).
+        let delay: Duration = needsLibrarySwitch ? .milliseconds(400) : .milliseconds(150)
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: delay)
             selectedPublicationIDs = [publicationID]
             displayedPublicationID = publicationID
 
-            try? await Task.sleep(for: .milliseconds(50))
+            // Post scroll notification as a fallback for cases where
+            // .onChange(of: selection) doesn't trigger scroll (e.g., same selection value)
+            try? await Task.sleep(for: .milliseconds(100))
             NotificationCenter.default.post(name: .scrollToSelection, object: nil)
 
             // Show the Info tab for the selected paper

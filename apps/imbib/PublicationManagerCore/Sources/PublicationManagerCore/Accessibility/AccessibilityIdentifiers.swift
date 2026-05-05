@@ -232,11 +232,8 @@ public enum AccessibilityID {
 
         public enum Recommendations {
             public static let enableToggle = "settings.recommendations.enableToggle"
-            public static let algorithmPicker = "settings.recommendations.algorithmPicker"
-            public static let maxRecommendationsStepper = "settings.recommendations.maxRecommendationsStepper"
-            public static let includeArxivToggle = "settings.recommendations.includeArxivToggle"
-            public static let includeSemanticScholarToggle = "settings.recommendations.includeSemanticScholarToggle"
-            public static let refreshButton = "settings.recommendations.refreshButton"
+            public static let modePicker = "settings.recommendations.modePicker"
+            public static let varietySlider = "settings.recommendations.varietySlider"
         }
 
         public enum Shortcuts {

@@ -662,6 +662,48 @@ public actor AutomationService: AutomationOperations {
         return true
     }
 
+    /// Delete a single library. Optionally removes its file container too.
+    /// Mirrors `LibraryManager.deleteLibrary(id:deleteFiles:)` for the HTTP /
+    /// AppIntents / MCP path that has no view-model in scope. Papers are
+    /// **unlinked**, not cascade-deleted; restorable via Edit → Undo.
+    public func deleteLibrary(id: UUID, deleteFiles: Bool = false) async throws -> Bool {
+        try await checkAuthorization()
+
+        if deleteFiles {
+            let containerURL = await MainActor.run { LibraryManager.containerURL(for: id) }
+            if FileManager.default.fileExists(atPath: containerURL.path) {
+                try? FileManager.default.removeItem(at: containerURL)
+            }
+        }
+
+        await withStore { store in
+            store.deleteLibrary(id: id)
+        }
+        return true
+    }
+
+    /// Delete multiple libraries in one consolidated batch. Wraps the per-id
+    /// deletes in `beginBatchMutation` / `endBatchMutation` so observers fire
+    /// once. Matches the on-device `LibraryManager.deleteLibraries(ids:)` semantics.
+    public func deleteLibraries(ids: [UUID], deleteFiles: Bool = false) async throws -> Int {
+        try await checkAuthorization()
+        guard !ids.isEmpty else { return 0 }
+
+        if deleteFiles {
+            let urls = await MainActor.run { ids.map(LibraryManager.containerURL(for:)) }
+            for url in urls where FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        await withStore { store in
+            store.beginBatchMutation()
+            for id in ids { store.deleteLibrary(id: id) }
+            store.endBatchMutation()
+        }
+        return ids.count
+    }
+
     public func addToCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
 
@@ -1538,6 +1580,696 @@ public actor AutomationService: AutomationOperations {
             dateCreated: annotation.dateCreated,
             dateModified: annotation.dateModified
         )
+    }
+
+    // MARK: - Structured Citation Resolution
+
+    /// Resolve a structured citation into a single imbib paper or a ranked
+    /// list of external candidates.
+    ///
+    /// Cascade, in order (short-circuits at first success):
+    ///   1. Try to extract a DOI / arXiv id / bibcode / PMID from the
+    ///      provided identifier fields or `rawBibtex`. If any is found:
+    ///      • look it up locally → return `via: "local-identifier"`
+    ///      • otherwise `addPapers(...)` → return `via: "imported-identifier"`
+    ///   2. Search the local library by title text. Single hit →
+    ///      `via: "local-text"`.
+    ///   3. Build a structured ADS query via `SearchFormQueryBuilder` from
+    ///      (authors, title, year). Search ADS only. Score each hit against
+    ///      the `CitationInput`. If the top score ≥ 0.85 AND there is no
+    ///      other candidate within 0.15 of it → auto-accept, add the paper,
+    ///      return `via: "ads-high-confidence"`. Otherwise return ranked
+    ///      candidates, `via: "ads-candidates"`.
+    ///   4. If ADS returned zero hits, fan out to all sources with the
+    ///      `freeText` query (or a synthesized "FirstAuthor Year Title"),
+    ///      dedup, score, return `via: "all-sources-fallback"`.
+    ///   5. Nothing anywhere → `via: "not-found"`.
+    public func resolveStructuredCitation(
+        _ input: CitationInput,
+        library: UUID?,
+        downloadPDFs: Bool = false,
+        importIfMissing: Bool = true
+    ) async throws -> StructuredResolveResult {
+        try await checkAuthorization()
+        Logger.sources.infoCapture(
+            "resolveStructured: authors=\(input.authors.count) year=\(input.year.map(String.init) ?? "?") journal=\(input.journal ?? "?") hasID=\(input.hasIdentifier) hasTitle=\(input.title?.isEmpty == false) import=\(importIfMissing)",
+            category: "citations"
+        )
+
+        // Decode LaTeX everywhere — authors/title/journal/raw bibtex may
+        // arrive with `\'e`, `\&`, `\textit{...}`, etc.
+        let decodedAuthors = input.authors.map { LaTeXDecoder.decode($0) }
+        let decodedTitle = input.title.map { LaTeXDecoder.decode($0) }
+        let decodedJournal = input.journal.map { LaTeXDecoder.decode($0) }
+        let decodedBibtex = input.rawBibtex.map { LaTeXDecoder.decode($0) } ?? ""
+
+        // Step 1: identifier path.
+        let identifier: PaperIdentifier? = {
+            if let doi = input.doi, !doi.isEmpty { return .doi(doi) }
+            if let arxiv = input.arxiv, !arxiv.isEmpty { return .arxiv(arxiv) }
+            if let bib = input.bibcode, !bib.isEmpty { return .bibcode(bib) }
+            return Self.extractIdentifierFromBibTeX(decodedBibtex)
+        }()
+
+        if let id = identifier {
+            Logger.sources.infoCapture("resolveStructured: identifier \(id.typeName)=\(id.value)", category: "citations")
+            if let paper = try await getPaper(identifier: id) {
+                return StructuredResolveResult(via: "local-identifier", paper: paper)
+            }
+            if importIfMissing {
+                // Not local — import via the appropriate source, return the
+                // imported paper. This is the HTTP/MCP `/api/papers/resolve`
+                // contract: callers expect the paper to exist after the call.
+                let addResult = try await addPapers(
+                    identifiers: [id],
+                    collection: nil,
+                    library: library,
+                    downloadPDFs: downloadPDFs
+                )
+                if let added = addResult.added.first {
+                    return StructuredResolveResult(via: "imported-identifier", paper: added)
+                }
+                if !addResult.duplicates.isEmpty {
+                    // Rare: duplicate detection caught it after our miss.
+                    if let paper = try await getPaper(identifier: id) {
+                        return StructuredResolveResult(via: "duplicate", paper: paper)
+                    }
+                }
+                // Fall through to structured search — the identifier may have
+                // been malformed or the source might not have responded.
+            } else {
+                // Preview mode (Smart Search). Don't write to the library —
+                // fetch metadata only and return as a single ranked candidate
+                // so the user can confirm via Add Selected.
+                if let preview = try? await previewByIdentifier(id) {
+                    return StructuredResolveResult(
+                        via: "external-identifier-preview",
+                        candidates: [preview]
+                    )
+                }
+                // Fall through to structured search if the source had nothing.
+            }
+        }
+
+        // Step 2: local text search by title OR by raw bibtex fragment.
+        // Many manuscripts have no explicit title in their `\bibitem` block,
+        // so we also try the full reference line as a query — imbib's SQL
+        // search matches on title and author fields.
+        let localSearchQuery: String? = {
+            if let title = decodedTitle, title.count >= 10 { return title }
+            if !decodedBibtex.isEmpty { return String(decodedBibtex.prefix(120)) }
+            return nil
+        }()
+        if let lq = localSearchQuery {
+            let filters = SearchFilters(limit: 5)
+            let hits = try await searchLibrary(query: lq, filters: filters)
+            // Score each local hit with the same heuristic we use for external
+            // candidates. A strong match wins even when the DB has many
+            // superficial title hits.
+            let scored = hits.map { hit -> (PaperResult, Double) in
+                let ext = ExternalSearchResult(
+                    title: hit.title,
+                    authors: hit.authors,
+                    year: hit.year,
+                    venue: hit.venue ?? "",
+                    abstract: hit.abstract ?? "",
+                    sourceID: "local",
+                    doi: hit.doi,
+                    arxivID: hit.arxivID,
+                    bibcode: hit.bibcode
+                )
+                let score = scoreCandidate(
+                    ext,
+                    against: input,
+                    decodedAuthors: decodedAuthors,
+                    decodedTitle: decodedTitle,
+                    decodedJournal: decodedJournal
+                )
+                return (hit, score)
+            }.sorted { $0.1 > $1.1 }
+            if let (top, topScore) = scored.first, topScore >= 0.55 {
+                Logger.sources.infoCapture(
+                    "resolveStructured: local-text hit '\(top.title)' score=\(String(format: "%.2f", topScore))",
+                    category: "citations"
+                )
+                return StructuredResolveResult(via: "local-text", paper: top)
+            }
+        }
+
+        // Step 3: structured ADS search.
+        let adsQuery = buildADSQuery(
+            authors: decodedAuthors,
+            title: decodedTitle,
+            year: input.year,
+            database: input.preferredDatabase
+        )
+        var adsCandidates: [RankedCandidate] = []
+        var adsUnavailableReason: String?
+        if !adsQuery.isEmpty {
+            Logger.sources.infoCapture("resolveStructured: ADS query = '\(adsQuery)'", category: "citations")
+            // Try ADS up to twice — a single 429 at startup (from SciX
+            // sync hammering the shared rate limit) shouldn't kill the
+            // whole ADS pass. Sleep 1.2s between attempts.
+            var attempt = 0
+            let maxAttempts = 2
+            while attempt < maxAttempts {
+                attempt += 1
+                do {
+                    let adsResults = try await sourceManager.search(
+                        query: adsQuery,
+                        sourceID: "ads",
+                        maxResults: 10
+                    )
+                    Logger.sources.infoCapture(
+                        "resolveStructured: ADS (attempt \(attempt)) returned \(adsResults.count) result(s)",
+                        category: "citations"
+                    )
+                    adsCandidates = adsResults
+                        .map { result in
+                            let ext = Self.toExternalSearchResult(result)
+                            let score = scoreCandidate(
+                                ext,
+                                against: input,
+                                decodedAuthors: decodedAuthors,
+                                decodedTitle: decodedTitle,
+                                decodedJournal: decodedJournal
+                            )
+                            return RankedCandidate(result: ext, confidence: score)
+                        }
+                        .sorted { $0.confidence > $1.confidence }
+                    adsUnavailableReason = nil
+                    break
+                } catch let error as SourceError {
+                    switch error {
+                    case .authenticationRequired:
+                        adsUnavailableReason = "ADS API key not configured (imbib Settings → Sources → ADS)"
+                        attempt = maxAttempts   // no point retrying
+                    case .rateLimited(let retryAfter):
+                        adsUnavailableReason = "ADS rate-limited (retry after \(retryAfter.map(String.init(describing:)) ?? "unknown")s); using secondary sources"
+                        if attempt < maxAttempts {
+                            Logger.sources.warningCapture(
+                                "resolveStructured: ADS rate-limited on attempt \(attempt), retrying in 1.2s",
+                                category: "citations"
+                            )
+                            try? await Task.sleep(for: .milliseconds(1200))
+                            continue
+                        }
+                    default:
+                        adsUnavailableReason = "ADS error: \(error.localizedDescription)"
+                        attempt = maxAttempts
+                    }
+                    Logger.sources.warningCapture(
+                        "resolveStructured: ADS unavailable after \(attempt) attempt(s) — \(adsUnavailableReason ?? "")",
+                        category: "citations"
+                    )
+                } catch {
+                    adsUnavailableReason = "ADS error: \(error.localizedDescription)"
+                    Logger.sources.warningCapture(
+                        "resolveStructured: ADS search failed — \(error.localizedDescription)",
+                        category: "citations"
+                    )
+                    attempt = maxAttempts
+                }
+            }
+        }
+
+        // Auto-accept from ADS — three paths:
+        //   (a) High-confidence top with clear margin over runner-up.
+        //   (b) ADS returned exactly ONE candidate with confidence ≥ 0.50.
+        //       The structured query (`author:"X" year:Y bibstem:Z
+        //       volume:V page:P`) is precise enough that a single hit means
+        //       "this is the paper."
+        //   (c) Two candidates where the top is ≥ 0.70 and the margin
+        //       over second is ≥ 0.25 — ADS sometimes duplicates
+        //       preprint + published; prefer top.
+        let shouldAutoAccept: Bool = {
+            guard let top = adsCandidates.first else { return false }
+            let runnerUp = adsCandidates.dropFirst().first?.confidence ?? 0
+            if top.confidence >= 0.85 && (top.confidence - runnerUp) >= 0.15 {
+                return true
+            }
+            if adsCandidates.count == 1 && top.confidence >= 0.50 {
+                return true
+            }
+            if top.confidence >= 0.70 && (top.confidence - runnerUp) >= 0.25 {
+                return true
+            }
+            return false
+        }()
+        if shouldAutoAccept, let top = adsCandidates.first {
+            if importIfMissing {
+                let bestID = Self.bestIdentifier(from: top.result)
+                if let id = bestID {
+                    Logger.sources.infoCapture(
+                        "resolveStructured: auto-accepting top ADS hit (confidence=\(String(format: "%.2f", top.confidence))): \(top.result.title)",
+                        category: "citations"
+                    )
+                    let addResult = try await addPapers(
+                        identifiers: [id],
+                        collection: nil,
+                        library: library,
+                        downloadPDFs: downloadPDFs
+                    )
+                    if let added = addResult.added.first {
+                        return StructuredResolveResult(via: "ads-high-confidence", paper: added)
+                    }
+                    if let duplicate = addResult.duplicates.first,
+                       let paper = try await getPaper(identifier: PaperIdentifier.fromString(duplicate)) {
+                        return StructuredResolveResult(via: "duplicate", paper: paper)
+                    }
+                }
+                // Fell through — still return as a top candidate.
+            } else {
+                Logger.sources.infoCapture(
+                    "resolveStructured: high-confidence ADS hit returned as preview (confidence=\(String(format: "%.2f", top.confidence))): \(top.result.title)",
+                    category: "citations"
+                )
+                return StructuredResolveResult(
+                    via: "ads-high-confidence-preview",
+                    candidates: [top]
+                )
+            }
+        }
+
+        if !adsCandidates.isEmpty {
+            // Filter out low-confidence junk — a 0.15 candidate from ADS is
+            // still garbage; without at least an author+year match there's
+            // no reason to surface it.
+            let keep = adsCandidates.filter { $0.confidence >= 0.30 }
+            if !keep.isEmpty {
+                return StructuredResolveResult(
+                    via: "ads-candidates",
+                    candidates: Array(keep.prefix(10))
+                )
+            }
+        }
+
+        // Step 4: all-sources fallback. Build a richer query than bare
+        // "FirstAuthor Year" — add the journal name when we have it so
+        // openalex/crossref can narrow down by venue.
+        let fallbackQuery = Self.richFallbackQuery(
+            authors: decodedAuthors,
+            year: input.year,
+            title: decodedTitle,
+            journal: decodedJournal,
+            providedFreeText: input.freeText
+        )
+        if !fallbackQuery.isEmpty {
+            Logger.sources.infoCapture("resolveStructured: all-sources fallback = '\(fallbackQuery)'", category: "citations")
+            do {
+                let allResults = try await sourceManager.search(
+                    query: fallbackQuery,
+                    options: SearchOptions(maxResults: 20)
+                )
+                Logger.sources.infoCapture(
+                    "resolveStructured: all-sources returned \(allResults.count) raw result(s)",
+                    category: "citations"
+                )
+                let dedup = Self.dedupByIdentifier(allResults)
+                let candidates = dedup
+                    .map { result -> RankedCandidate in
+                        let ext = Self.toExternalSearchResult(result)
+                        let score = scoreCandidate(
+                            ext,
+                            against: input,
+                            decodedAuthors: decodedAuthors,
+                            decodedTitle: decodedTitle,
+                            decodedJournal: decodedJournal
+                        )
+                        return RankedCandidate(result: ext, confidence: score)
+                    }
+                    .sorted { $0.confidence > $1.confidence }
+
+                // Same filter as ADS — don't surface garbage. Without any
+                // match on author surname or year this is noise.
+                let kept = candidates.filter { $0.confidence >= 0.30 }
+                Logger.sources.infoCapture(
+                    "resolveStructured: all-sources kept \(kept.count)/\(candidates.count) after confidence filter (top=\(String(format: "%.2f", candidates.first?.confidence ?? 0)))",
+                    category: "citations"
+                )
+                if !kept.isEmpty {
+                    return StructuredResolveResult(
+                        via: "all-sources-fallback",
+                        candidates: Array(kept.prefix(10))
+                    )
+                }
+            } catch {
+                Logger.sources.warningCapture(
+                    "resolveStructured: fallback search failed for '\(fallbackQuery)': \(error.localizedDescription)",
+                    category: "citations"
+                )
+            }
+        }
+
+        let reason: String = {
+            if let adsReason = adsUnavailableReason {
+                return "No relevant matches. \(adsReason). Consider configuring ADS to improve results for astronomy papers."
+            }
+            return "No external source returned a confident match for this citation"
+        }()
+        return StructuredResolveResult(via: "not-found", reason: reason)
+    }
+
+    // MARK: - Structured resolution helpers
+
+    /// Build an ADS Lucene query string via `SearchFormQueryBuilder` from
+    /// decoded structured inputs. Returns "" when there's nothing to search.
+    private func buildADSQuery(
+        authors: [String],
+        title: String?,
+        year: Int?,
+        database: String?
+    ) -> String {
+        // Only include author lines that look like real surnames. Strip
+        // trailing ranks/numbers and "et al.".
+        let authorLines = authors
+            .map { $0.replacingOccurrences(of: #"(?i)\s*et\s*al\.?\s*"#, with: "", options: .regularExpression) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+        // Filter title words: ≥4 chars, not a stopword. Hand ADS only
+        // terms that actually narrow the search; otherwise `title:(The AND
+        // ...)` matches nothing because `The` is filtered by ADS's own
+        // stopword list and the AND short-circuits.
+        let titleWords = Self.titleSearchWords(from: title ?? "").joined(separator: " ")
+        let db: ADSDatabase = {
+            switch database?.lowercased() {
+            case "astronomy": return .astronomy
+            case "physics": return .physics
+            case "arxiv": return .arxiv
+            case "all", "", nil: return .all
+            default: return .all
+            }
+        }()
+        return SearchFormQueryBuilder.buildClassicQuery(
+            authors: authorLines,
+            objects: "",
+            titleWords: titleWords,
+            titleLogic: .and,
+            abstractWords: "",
+            abstractLogic: .and,
+            yearFrom: year,
+            yearTo: year,
+            database: db,
+            refereedOnly: false,
+            articlesOnly: false
+        )
+    }
+
+    /// Score a candidate against structured input. Heuristic only — used to
+    /// rank and to decide whether to auto-accept.
+    ///
+    /// Points (out of 1.0):
+    ///   • first-author last-name match → 0.25
+    ///   • year exact match             → 0.20
+    ///   • journal (bibstem) match      → 0.20
+    ///   • title contains 3+ query words → up to 0.20
+    ///   • has a usable identifier      → 0.15
+    private func scoreCandidate(
+        _ c: ExternalSearchResult,
+        against input: CitationInput,
+        decodedAuthors: [String],
+        decodedTitle: String?,
+        decodedJournal: String?
+    ) -> Double {
+        var score = 0.0
+
+        // Author match — use first author's last name.
+        if let queryAuthor = decodedAuthors.first,
+           let candidateAuthor = c.authors.first {
+            let qLast = Self.lastName(from: queryAuthor).lowercased()
+            let cLast = Self.lastName(from: candidateAuthor).lowercased()
+            if !qLast.isEmpty && qLast == cLast {
+                score += 0.25
+            } else if !qLast.isEmpty && cLast.contains(qLast) {
+                score += 0.15
+            }
+        }
+
+        // Year match.
+        if let y = input.year, c.year == y {
+            score += 0.20
+        } else if let y = input.year, let cy = c.year, abs(cy - y) <= 1 {
+            score += 0.08
+        }
+
+        // Journal / venue match. Users typically send a short bibstem
+        // ("JCAP", "ApJ", "MNRAS"), while ADS / OpenAlex / Crossref
+        // return the full journal name. Normalize both sides to a
+        // bibstem-ish form before comparing.
+        if let j = decodedJournal,
+           !j.isEmpty,
+           !c.venue.isEmpty {
+            let jLow = j.lowercased()
+            let vLow = c.venue.lowercased()
+            if vLow.contains(jLow) || jLow.contains(vLow) {
+                score += 0.20
+            } else if Self.venueMatchesBibstem(venue: c.venue, bibstem: j) {
+                score += 0.20
+            }
+        }
+
+        // Title overlap.
+        if let t = decodedTitle, !t.isEmpty, !c.title.isEmpty {
+            let queryWords = Set(
+                t.lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 4 }
+            )
+            let titleWords = Set(
+                c.title.lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 4 }
+            )
+            let overlap = queryWords.intersection(titleWords).count
+            if overlap >= 5 {
+                score += 0.20
+            } else if overlap >= 3 {
+                score += 0.12
+            } else if overlap >= 1 {
+                score += 0.05
+            }
+        }
+
+        // Has a usable identifier (so we can actually import it) — but only
+        // reward this if there's already *some* real match above zero. A
+        // completely unrelated paper that happens to have a DOI shouldn't
+        // edge past the filter on ID alone.
+        if score > 0,
+           (c.doi?.isEmpty == false) || (c.arxivID?.isEmpty == false) || (c.bibcode?.isEmpty == false) {
+            score += 0.15
+        }
+
+        return min(1.0, score)
+    }
+
+    /// Cross-check: does `venue` (e.g. "Journal of Cosmology and
+    /// Astroparticle Physics") correspond to the short-form `bibstem`
+    /// (e.g. "JCAP") the caller provided? ADS/OpenAlex/Crossref return
+    /// full venue strings; callers send bibstems. This dictionary covers
+    /// the most common astronomy/physics journals.
+    ///
+    /// Matching is case-insensitive and tolerant of extra whitespace
+    /// and punctuation in the venue.
+    private static func venueMatchesBibstem(venue: String, bibstem: String) -> Bool {
+        let bib = bibstem
+            .replacingOccurrences(of: ".", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .uppercased()
+        let v = venue.lowercased()
+        let expansions: [String: [String]] = [
+            "APJ": ["astrophysical journal"],
+            "APJL": ["astrophysical journal letters"],
+            "APJS": ["astrophysical journal supplement"],
+            "MNRAS": ["monthly notices", "mon not r astron soc"],
+            "JCAP": ["journal of cosmology and astroparticle", "cosmology and astroparticle physics"],
+            "JHEP": ["journal of high energy physics"],
+            "PHRVD": ["physical review d", "phys rev d", "phys. rev. d"],
+            "PHRVL": ["physical review letters", "phys rev lett", "phys. rev. lett"],
+            "PHRV": ["physical review"],
+            "NUPHB": ["nuclear physics b"],
+            "NUPHA": ["nuclear physics a"],
+            "NATUR": ["nature"],
+            "NATAS": ["nature astronomy"],
+            "SCI": ["science"],
+            "A&A": ["astronomy and astrophysics", "astronomy & astrophysics"],
+            "PHLB": ["physics letters b"],
+            "PHLA": ["physics letters a"],
+            "PRD": ["physical review d"],
+            "PRL": ["physical review letters"]
+        ]
+        if let needles = expansions[bib] {
+            for n in needles where v.contains(n) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Title words worth feeding an ADS `title:(... AND ...)` clause.
+    /// Drops stopwords and tokens shorter than 4 characters.
+    private static func titleSearchWords(from title: String) -> [String] {
+        let stop: Set<String> = [
+            "the", "and", "for", "with", "from", "that", "this", "these",
+            "those", "their", "about", "into", "onto", "over", "under",
+            "upon", "after", "before", "between", "within", "without",
+            "new", "novel", "paper", "study", "analysis", "investigation"
+        ]
+        return title
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 4 && !stop.contains($0.lowercased()) }
+    }
+
+    private static func lastName(from author: String) -> String {
+        // "Bardeen, J.M." → "Bardeen"
+        // "J.M. Bardeen" → "Bardeen"
+        // "Bardeen" → "Bardeen"
+        let trimmed = author.trimmingCharacters(in: .whitespaces)
+        if let comma = trimmed.firstIndex(of: ",") {
+            return String(trimmed[..<comma]).trimmingCharacters(in: .whitespaces)
+        }
+        let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        return parts.last ?? trimmed
+    }
+
+    /// Dedup search results by DOI/arXiv/bibcode identity. Keeps the first
+    /// occurrence (preserves source ordering).
+    /// Fetch metadata for a known identifier without writing to the library.
+    /// Used by Smart Search's preview path so the user can confirm the match
+    /// via "Add Selected" instead of being shown a paper that's already been
+    /// imported. Reuses `fetchFromExternal`'s source-fallback ladder.
+    private func previewByIdentifier(_ id: PaperIdentifier) async throws -> RankedCandidate {
+        let result = try await fetchFromExternal(identifier: id)
+        let ext = Self.toExternalSearchResult(result)
+        Logger.sources.infoCapture(
+            "resolveStructured: identifier preview \(id.typeName)=\(id.value) → \(result.sourceID): \(result.title)",
+            category: "citations"
+        )
+        return RankedCandidate(result: ext, confidence: 1.0)
+    }
+
+    private static func dedupByIdentifier(_ results: [SearchResult]) -> [SearchResult] {
+        var seen = Set<String>()
+        var out: [SearchResult] = []
+        for r in results {
+            let key = [r.doi, r.arxivID, r.bibcode]
+                .compactMap { $0 }
+                .first { !$0.isEmpty } ?? "\(r.sourceID):\(r.title)"
+            if seen.insert(key.lowercased()).inserted {
+                out.append(r)
+            }
+        }
+        return out
+    }
+
+    private static func toExternalSearchResult(_ r: SearchResult) -> ExternalSearchResult {
+        ExternalSearchResult(
+            title: r.title,
+            authors: r.authors,
+            year: r.year,
+            venue: r.venue ?? "",
+            abstract: r.abstract ?? "",
+            sourceID: r.sourceID,
+            doi: r.doi,
+            arxivID: r.arxivID,
+            bibcode: r.bibcode
+        )
+    }
+
+    private static func bestIdentifier(from result: ExternalSearchResult) -> PaperIdentifier? {
+        if let doi = result.doi, !doi.isEmpty { return .doi(doi) }
+        if let arxiv = result.arxivID, !arxiv.isEmpty { return .arxiv(arxiv) }
+        if let bib = result.bibcode, !bib.isEmpty { return .bibcode(bib) }
+        return nil
+    }
+
+    private static func freeTextFallback(authors: [String], year: Int?, title: String?) -> String {
+        var parts: [String] = []
+        if let first = authors.first {
+            parts.append(Self.lastName(from: first))
+        }
+        if let y = year { parts.append(String(y)) }
+        if let t = title, !t.isEmpty {
+            parts.append(String(t.prefix(80)))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Build the best all-sources free-text query we can. Order of preference:
+    /// 1. Caller-provided `freeText` if non-empty (imprint already packs
+    ///    the bibitem reference line here).
+    /// 2. Synthesize "LastName Year Journal Volume Title..." from the fields.
+    /// 3. Fall back to `freeTextFallback` (author+year+title).
+    ///
+    /// The rich synthesis matters because openalex / crossref / arxiv
+    /// relevance scoring rewards longer, more specific queries — a short
+    /// "Bardeen 1986" matches almost anything. Adding "ApJ 304 15 Gaussian"
+    /// narrows the top-10 to the real paper.
+    private static func richFallbackQuery(
+        authors: [String],
+        year: Int?,
+        title: String?,
+        journal: String?,
+        providedFreeText: String?
+    ) -> String {
+        if let t = providedFreeText, !t.isEmpty {
+            return String(t.prefix(220))
+        }
+        var parts: [String] = []
+        if let first = authors.first {
+            parts.append(Self.lastName(from: first))
+        }
+        if let y = year { parts.append(String(y)) }
+        if let j = journal, !j.isEmpty { parts.append(j) }
+        if let t = title, !t.isEmpty { parts.append(String(t.prefix(120))) }
+        let joined = parts.joined(separator: " ")
+        if joined.isEmpty {
+            return Self.freeTextFallback(authors: authors, year: year, title: title)
+        }
+        return joined
+    }
+
+    /// Identifier extraction from a LaTeX-decoded BibTeX fragment. Mirrors
+    /// the router's private helper so the cascade can be driven from here
+    /// without a string round-trip.
+    private static func extractIdentifierFromBibTeX(_ bibtex: String) -> PaperIdentifier? {
+        guard !bibtex.isEmpty else { return nil }
+        func match(_ pattern: String) -> String? {
+            guard let rx = try? NSRegularExpression(pattern: pattern) else { return nil }
+            let r = NSRange(bibtex.startIndex..., in: bibtex)
+            guard let m = rx.firstMatch(in: bibtex, range: r),
+                  m.numberOfRanges > 1,
+                  let g = Range(m.range(at: 1), in: bibtex) else {
+                return nil
+            }
+            return String(bibtex[g])
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "{}\""))
+        }
+        if let doi = match(#"(?i)\bdoi\s*=\s*[{"]?\s*(?:https?://(?:dx\.)?doi\.org/)?(10\.[^\s",}]+)"#) {
+            return .doi(doi)
+        }
+        if let doi = match(#"(?i)https?://(?:dx\.)?doi\.org/(10\.[^\s",}]+)"#) {
+            return .doi(doi)
+        }
+        let archiveIsArxiv = bibtex.range(of: #"(?i)archivePrefix\s*=\s*[{"]?\s*arxiv"#, options: .regularExpression) != nil
+        if let eprint = match(#"(?i)\beprint\s*=\s*[{"]?\s*([^\s",}]+)"#) {
+            let looksLikeArxiv = eprint.range(of: #"^(\d{4}\.\d{4,5}|[a-z\-]+/\d{7})$"#, options: .regularExpression) != nil
+            if archiveIsArxiv || looksLikeArxiv {
+                return .arxiv(eprint)
+            }
+        }
+        if let arxiv = match(#"(?i)https?://arxiv\.org/abs/([^\s",}]+)"#) {
+            return .arxiv(arxiv)
+        }
+        if let bibcode = match(#"(?i)\bbibcode\s*=\s*[{"]?\s*([0-9]{4}[A-Za-z0-9.&]{14,19})"#) {
+            return .bibcode(bibcode)
+        }
+        if let pmid = match(#"(?i)\bpmid\s*=\s*[{"]?\s*(\d+)"#) {
+            return .pmid(pmid)
+        }
+        return nil
     }
 }
 

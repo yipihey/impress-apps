@@ -10,6 +10,7 @@ import CoreSpotlight
 import PublicationManagerCore
 import ImpressKit
 import ImpressAI
+import ImpressStoreKit
 import OSLog
 import UniformTypeIdentifiers
 import ImpressKeyboard
@@ -36,6 +37,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugLog("AppDelegate.applicationDidFinishLaunching called")
 
+        // Disable window restoration — prevents macOS from reopening
+        // dozens of windows if the previous session had many open
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+
+        // Clear stale window restoration state unless the user explicitly
+        // saved it via "Save Window State & Quit" (Cmd+Option+Q)
+        if UserDefaults.standard.bool(forKey: "imbib.restoreWindowState") {
+            UserDefaults.standard.set(false, forKey: "imbib.restoreWindowState")
+            debugLog("Restoring saved window state (user-requested)")
+        } else {
+            clearWindowRestorationState()
+        }
+
         // Clear any corrupted SwiftUI window state on launch
         // This prevents oversized windows from being restored
         sanitizeWindowDefaults()
@@ -45,6 +59,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Register global hotkey for quick artifact capture (Cmd+Shift+Space)
         CaptureHotkeyManager.shared.register()
+
+        // Pre-warm tag autocomplete cache so first `t`-keypress is instant
+        TagAutocompleteService.shared.warmCache()
+
+        // Phase 3: Start the sidebar snapshot maintainer so unread counts
+        // refresh in the background instead of being computed during the
+        // sidebar rebuild on the main thread.
+        Task { await SidebarSnapshotMaintainer.shared.start() }
     }
 
     /// Monitor mouse back/forward buttons and map them to focus cycling (h/l shortcuts).
@@ -71,6 +93,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             mouseEventMonitor = nil
         }
         CaptureHotkeyManager.shared.unregister()
+    }
+
+    /// Save current window state and quit so it restores on next launch.
+    @objc func saveStateAndQuit() {
+        // Tell next launch to preserve (not clear) the saved state
+        UserDefaults.standard.set(true, forKey: "imbib.restoreWindowState")
+        // Enable macOS window state saving for this quit
+        UserDefaults.standard.set(true, forKey: "NSQuitAlwaysKeepsWindows")
+        // Force all windows to snapshot their restorable state
+        for window in NSApp.windows {
+            window.invalidateRestorableState()
+        }
+        NSApp.terminate(nil)
     }
 
     /// Remove corrupted SwiftUI window state that could cause oversized windows.
@@ -129,6 +164,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         defaults.removeObject(forKey: key)
                     }
                 }
+            }
+        }
+    }
+
+    /// Remove macOS Saved Application State so the system won't restore
+    /// dozens of windows from a previous crash or URL-scheme flood.
+    private func clearWindowRestorationState() {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.impress.imbib"
+        let savedStateDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Saved Application State")
+            .appendingPathComponent("\(bundleID).savedState")
+
+        if let dir = savedStateDir, FileManager.default.fileExists(atPath: dir.path) {
+            do {
+                try FileManager.default.removeItem(at: dir)
+                appLogger.info("Cleared window restoration state at \(dir.path)")
+            } catch {
+                appLogger.warning("Failed to clear window restoration state: \(error.localizedDescription)")
             }
         }
     }
@@ -246,7 +299,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
-    @State private var nlSearchService = NLSearchService()
+    @State private var smartSearchService = SmartSearchService()
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
     /// Development mode: edit the bundled default library set
@@ -403,7 +456,7 @@ struct imbibApp: App {
 
             // Run FTS init and source registration IN PARALLEL.
             // Previously FTS rebuild (3+ min for 4000 pubs) blocked source registration,
-            // InboxCoordinator, SmartSearchRefreshService, and HTTP server startup.
+            // InboxCoordinator and HTTP server startup.
             async let ftsInit: Void = {
                 await FullTextSearchService.shared.initialize()
                 appLogger.info("Full-text search index initialized")
@@ -421,12 +474,6 @@ struct imbibApp: App {
                 await BrowserURLProviderRegistry.shared.register(SciXSource.self, priority: 11)
                 await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
                 appLogger.info("BrowserURLProviders registered")
-
-                // These depend on sourceManager being registered, NOT on FTS
-                await SmartSearchRefreshService.shared.configure(
-                    sourceManager: deps.sourceManager
-                )
-                appLogger.info("SmartSearchRefreshService configured")
 
                 await EnrichmentCoordinator.shared.start()
                 appLogger.info("EnrichmentCoordinator started")
@@ -473,13 +520,24 @@ struct imbibApp: App {
 
                 let coordinator = SpotlightSyncCoordinator(provider: ImbibSpotlightProvider())
                 await coordinator.initialRebuildIfNeeded()
-                await coordinator.startObserving(
-                    mutationName: .storeDidMutate,
-                    fieldChangeName: .fieldDidChange,
-                    extractIDs: { notification in
-                        notification.userInfo?["publicationIDs"] as? [UUID] ?? []
+                // Drive the coordinator from the typed StoreEvent stream
+                // instead of legacy notifications. `.structural` events
+                // trigger a full diff; `.itemsMutated` events hand the
+                // affected ids to the field-change handler.
+                Task.detached { [coordinator] in
+                    for await event in ImbibImpressStore.shared.events.subscribe() {
+                        switch event {
+                        case .structural:
+                            await coordinator.handleMutation()
+                        case .itemsMutated(_, let ids):
+                            if !ids.isEmpty {
+                                await coordinator.handleFieldChange(ids: Array(ids))
+                            }
+                        case .collectionMembershipChanged:
+                            break
+                        }
                     }
-                )
+                }
                 await SpotlightBridge.shared.setCoordinator(coordinator)
                 appLogger.info("SpotlightSyncCoordinator started for imbib")
             }
@@ -509,9 +567,13 @@ struct imbibApp: App {
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
-                .environment(nlSearchService)
+                .environment(smartSearchService)
                 .environment(settingsViewModel)
                 .task {
+                    // Wire SmartSearch to the user's "Save" library so Cmd+S
+                    // imports land in the same place as inbox-triage `s`.
+                    smartSearchService.libraryManager = libraryManager
+
                     // Start heartbeat for SiblingDiscovery
                     Task.detached {
                         while !Task.isCancelled {
@@ -755,6 +817,14 @@ struct AppCommands: Commands {
 
                 Divider()
             }
+        }
+
+        // App menu — save state & quit
+        CommandGroup(before: .appTermination) {
+            Button("Save Window State & Quit") {
+                (NSApp.delegate as? AppDelegate)?.saveStateAndQuit()
+            }
+            .keyboardShortcut("q", modifiers: [.command, .option])
         }
 
         // File menu

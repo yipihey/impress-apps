@@ -33,31 +33,23 @@ public struct FeatureExtractor {
     ) -> [FeatureType: Double] {
         var features: [FeatureType: Double] = [:]
 
-        // Explicit signals
-        features[.authorStarred] = authorStarredScore(publication, profile: profile)
-        features[.collectionMatch] = collectionMatchScore(publication, profile: profile)
-        features[.tagMatch] = tagMatchScore(publication, profile: profile)
-        features[.mutedAuthor] = mutedAuthorPenalty(publication)
-        features[.mutedCategory] = mutedCategoryPenalty(publication)
-        features[.mutedVenue] = mutedVenuePenalty(publication)
-
-        // Behavioral signals
-        features[.saveRateAuthor] = saveRateAuthorScore(publication, profile: profile)
-        features[.saveRateVenue] = saveRateVenueScore(publication, profile: profile)
-        features[.dismissRateAuthor] = dismissRateAuthorPenalty(publication, profile: profile)
-        features[.readingTimeTopic] = readingTimeTopicScore(publication, profile: profile)
-        features[.pdfDownloadAuthor] = pdfDownloadAuthorScore(publication, profile: profile)
-
-        // Content signals
-        features[.citationOverlap] = citationOverlapScore(publication)
-        features[.authorCoauthorship] = authorCoauthorshipScore(publication, libraryPublications: libraryPublications)
-        features[.venueFrequency] = venueFrequencyScore(publication, libraryPublications: libraryPublications)
+        // Tunable features
+        features[.authorAffinity] = authorAffinityScore(publication, profile: profile)
+        features[.topicMatch] = topicMatchScore(publication, profile: profile)
+        features[.tagAffinity] = tagAffinityScore(publication, profile: profile)
+        features[.venueAffinity] = venueAffinityScore(publication, profile: profile, libraryPublications: libraryPublications)
+        features[.coauthorNetwork] = coauthorNetworkScore(publication, libraryPublications: libraryPublications)
         features[.recency] = recencyScore(publication)
-        features[.fieldCitationVelocity] = citationVelocityScore(publication)
+        features[.citationVelocity] = citationVelocityScore(publication)
         features[.smartSearchMatch] = 0.0  // Computed separately if needed
 
         // Semantic similarity computed asynchronously by EmbeddingService
-        features[.librarySimilarity] = 0.0
+        features[.aiSimilarity] = 0.0
+
+        // Mute filters
+        features[.mutedAuthor] = mutedAuthorPenalty(publication)
+        features[.mutedCategory] = mutedCategoryPenalty(publication)
+        features[.mutedVenue] = mutedVenuePenalty(publication)
 
         return features
     }
@@ -171,33 +163,41 @@ public struct FeatureExtractor {
     }
 
     /// Map Rust FeatureType → Swift FeatureType.
+    /// Rust still uses the old granular names; we map them to merged features here.
     private static let rustToSwiftFeatureMap: [ImbibRustCore.FeatureType: FeatureType] = [
-        .authorStarred: .authorStarred,
-        .collectionMatch: .collectionMatch,
-        .tagMatch: .tagMatch,
+        .authorStarred: .authorAffinity,
+        .collectionMatch: .topicMatch,
+        .tagMatch: .tagAffinity,
         .mutedAuthor: .mutedAuthor,
         .mutedCategory: .mutedCategory,
         .mutedVenue: .mutedVenue,
-        .keepRateAuthor: .saveRateAuthor,
-        .keepRateVenue: .saveRateVenue,
-        .dismissRateAuthor: .dismissRateAuthor,
-        .readingTimeTopic: .readingTimeTopic,
-        .pdfDownloadAuthor: .pdfDownloadAuthor,
-        .citationOverlap: .citationOverlap,
-        .authorCoauthorship: .authorCoauthorship,
-        .venueFrequency: .venueFrequency,
+        .keepRateAuthor: .authorAffinity,   // merged — take max
+        .keepRateVenue: .venueAffinity,     // merged — take max
+        .dismissRateAuthor: .authorAffinity, // merged — contributes negatively
+        .readingTimeTopic: .topicMatch,     // merged — take max
+        .pdfDownloadAuthor: .authorAffinity, // absorbed
+        .authorCoauthorship: .coauthorNetwork,
+        .venueFrequency: .venueAffinity,    // merged — take max
         .recency: .recency,
-        .fieldCitationVelocity: .fieldCitationVelocity,
+        .fieldCitationVelocity: .citationVelocity,
         .smartSearchMatch: .smartSearchMatch,
-        .librarySimilarity: .librarySimilarity,
+        .librarySimilarity: .aiSimilarity,
     ]
 
     /// Convert Rust FeatureVector to Swift feature dictionary.
+    /// When multiple Rust features map to the same Swift feature, take the max absolute value.
     private static func fromFeatureVector(_ vector: ImbibRustCore.FeatureVector) -> [FeatureType: Double] {
         var result: [FeatureType: Double] = [:]
         for (rustType, value) in vector.features {
             if let swiftType = rustToSwiftFeatureMap[rustType] {
-                result[swiftType] = value
+                if let existing = result[swiftType] {
+                    // For merged features, take the value with the largest absolute magnitude
+                    if abs(value) > abs(existing) {
+                        result[swiftType] = value
+                    }
+                } else {
+                    result[swiftType] = value
+                }
             }
         }
         return result
@@ -211,13 +211,15 @@ public struct FeatureExtractor {
         similarityScore: Double
     ) -> [FeatureType: Double] {
         var features = extract(from: publication, profile: profile, libraryPublications: libraryPublications)
-        features[.librarySimilarity] = similarityScore
+        features[.aiSimilarity] = similarityScore
         return features
     }
 
-    // MARK: - Explicit Signals (PublicationModel)
+    // MARK: - Merged Feature Extractors (PublicationModel)
 
-    public static func authorStarredScore(
+    /// Author Affinity: merged from authorStarred + saveRateAuthor + dismissRateAuthor.
+    /// Uses the max affinity across all authors (positive or negative).
+    public static func authorAffinityScore(
         _ publication: PublicationModel,
         profile: RecommendationProfile?
     ) -> Double {
@@ -226,28 +228,35 @@ public struct FeatureExtractor {
         var maxAffinity = 0.0
         for author in publication.authors {
             let affinity = profile.authorAffinity(for: author.familyName)
-            maxAffinity = max(maxAffinity, affinity)
+            if abs(affinity) > abs(maxAffinity) {
+                maxAffinity = affinity
+            }
         }
 
         return tanh(maxAffinity)
     }
 
-    public static func collectionMatchScore(
+    /// Topic Match: merged from collectionMatch + readingTimeTopic.
+    /// Extracts title keywords and looks up topic affinities.
+    public static func topicMatchScore(
         _ publication: PublicationModel,
         profile: RecommendationProfile?
     ) -> Double {
         guard let profile = profile else { return 0.0 }
 
         let titleKeywords = extractKeywords(from: publication.title)
-        var topicScore = 0.0
+        guard !titleKeywords.isEmpty else { return 0.0 }
+
+        var totalAffinity = 0.0
         for keyword in titleKeywords {
-            topicScore += profile.topicAffinity(for: keyword)
+            totalAffinity += profile.topicAffinity(for: keyword)
         }
 
-        return tanh(topicScore / max(1.0, Double(titleKeywords.count)))
+        return tanh(totalAffinity / Double(titleKeywords.count))
     }
 
-    public static func tagMatchScore(
+    /// Tag Affinity: matches paper tags to topic interests.
+    public static func tagAffinityScore(
         _ publication: PublicationModel,
         profile: RecommendationProfile?
     ) -> Double {
@@ -262,6 +271,39 @@ public struct FeatureExtractor {
 
         return tanh(totalAffinity / Double(publication.tags.count))
     }
+
+    /// Venue Affinity: merged from venueFrequency + saveRateVenue.
+    /// Combines profile affinity with library frequency.
+    public static func venueAffinityScore(
+        _ publication: PublicationModel,
+        profile: RecommendationProfile?,
+        libraryPublications: [PublicationRowData]
+    ) -> Double {
+        guard let journal = publication.journal?.lowercased() else { return 0.0 }
+
+        // Profile-based venue affinity
+        var score = 0.0
+        if let profile = profile {
+            let affinity = profile.venueAffinity(for: journal)
+            if affinity > 0 {
+                score = tanh(affinity)
+            }
+        }
+
+        // Library frequency bonus
+        var venueCount = 0
+        for pub in libraryPublications {
+            if pub.venue?.lowercased() == journal {
+                venueCount += 1
+            }
+        }
+        let frequencyScore = tanh(Double(venueCount) / 5.0)
+
+        // Take the higher of the two signals
+        return max(score, frequencyScore)
+    }
+
+    // MARK: - Mute Filters
 
     @MainActor public static func mutedAuthorPenalty(_ publication: PublicationModel) -> Double {
         let mutedAuthors = fetchMutedItems(type: "author")
@@ -293,95 +335,16 @@ public struct FeatureExtractor {
         return 0.0
     }
 
-    // MARK: - Behavioral Signals (PublicationModel)
+    // MARK: - Content Signals
 
-    public static func saveRateAuthorScore(
-        _ publication: PublicationModel,
-        profile: RecommendationProfile?
-    ) -> Double {
-        guard let profile = profile else { return 0.0 }
-
-        var maxAffinity = 0.0
-        for author in publication.authors {
-            let affinity = profile.authorAffinity(for: author.familyName)
-            if affinity > 0 {
-                maxAffinity = max(maxAffinity, affinity)
-            }
-        }
-
-        return tanh(maxAffinity)
-    }
-
-    public static func saveRateVenueScore(
-        _ publication: PublicationModel,
-        profile: RecommendationProfile?
-    ) -> Double {
-        guard let profile = profile,
-              let journal = publication.journal else { return 0.0 }
-
-        let affinity = profile.venueAffinity(for: journal)
-        return affinity > 0 ? tanh(affinity) : 0.0
-    }
-
-    public static func dismissRateAuthorPenalty(
-        _ publication: PublicationModel,
-        profile: RecommendationProfile?
-    ) -> Double {
-        guard let profile = profile else { return 0.0 }
-
-        var minAffinity = 0.0
-        for author in publication.authors {
-            let affinity = profile.authorAffinity(for: author.familyName)
-            if affinity < 0 {
-                minAffinity = min(minAffinity, affinity)
-            }
-        }
-
-        return minAffinity < 0 ? tanh(minAffinity) : 0.0
-    }
-
-    public static func readingTimeTopicScore(
-        _ publication: PublicationModel,
-        profile: RecommendationProfile?
-    ) -> Double {
-        guard let profile = profile else { return 0.0 }
-
-        let titleKeywords = extractKeywords(from: publication.title)
-        var totalAffinity = 0.0
-
-        for keyword in titleKeywords {
-            let affinity = profile.topicAffinity(for: keyword)
-            if affinity > 0 {
-                totalAffinity += affinity
-            }
-        }
-
-        return titleKeywords.isEmpty ? 0.0 : tanh(totalAffinity / Double(titleKeywords.count))
-    }
-
-    public static func pdfDownloadAuthorScore(
-        _ publication: PublicationModel,
-        profile: RecommendationProfile?
-    ) -> Double {
-        return saveRateAuthorScore(publication, profile: profile) * 0.8
-    }
-
-    // MARK: - Content Signals (PublicationModel)
-
-    public static func citationOverlapScore(_ publication: PublicationModel) -> Double {
-        return 0.0
-    }
-
-    public static func authorCoauthorshipScore(
+    public static func coauthorNetworkScore(
         _ publication: PublicationModel,
         libraryPublications: [PublicationRowData]
     ) -> Double {
         guard !libraryPublications.isEmpty else { return 0.0 }
 
-        // Build set of author family names from library
         var libraryAuthors = Set<String>()
         for pub in libraryPublications {
-            // Parse author string into family names
             for name in pub.authorString.components(separatedBy: ",") {
                 let familyName = name.trimmingCharacters(in: .whitespaces)
                     .components(separatedBy: " ").first ?? ""
@@ -400,22 +363,6 @@ public struct FeatureExtractor {
 
         let authorCount = publication.authors.count
         return authorCount > 0 ? Double(matchCount) / Double(authorCount) : 0.0
-    }
-
-    public static func venueFrequencyScore(
-        _ publication: PublicationModel,
-        libraryPublications: [PublicationRowData]
-    ) -> Double {
-        guard let journal = publication.journal?.lowercased() else { return 0.0 }
-
-        var venueCount = 0
-        for pub in libraryPublications {
-            if pub.venue?.lowercased() == journal {
-                venueCount += 1
-            }
-        }
-
-        return tanh(Double(venueCount) / 5.0)
     }
 
     public static func recencyScore(_ publication: PublicationModel) -> Double {

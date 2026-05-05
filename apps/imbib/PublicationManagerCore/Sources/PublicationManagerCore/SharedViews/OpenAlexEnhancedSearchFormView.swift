@@ -96,6 +96,7 @@ public struct OpenAlexEnhancedSearchFormView: View {
     @State private var feedName: String = ""
     @State private var refreshPreset: RefreshIntervalPreset = .daily
     @State private var isCreating: Bool = false
+    @State private var saveTargetID: UUID?
 
     // MARK: - Initialization
 
@@ -115,7 +116,7 @@ public struct OpenAlexEnhancedSearchFormView: View {
                 headerSection
 
                 // Feed settings (shown when creating a feed)
-                if mode == .inboxFeed {
+                if mode.isFeedMode {
                     feedSettingsSection
                     Divider()
                 }
@@ -506,7 +507,7 @@ public struct OpenAlexEnhancedSearchFormView: View {
                 Button("Save Feed") { saveFeed() }
                     .buttonStyle(.borderedProminent).disabled(isFormEmpty)
                     .keyboardShortcut(.return, modifiers: .command)
-            } else if mode == .inboxFeed {
+            } else if mode.isFeedMode {
                 Button { createFeed() } label: {
                     if isCreating { ProgressView().controlSize(.small) }
                     else { Text("Create Feed") }
@@ -651,6 +652,8 @@ public struct OpenAlexEnhancedSearchFormView: View {
                 }
             }
             .frame(width: 200)
+
+            FeedSaveTargetPicker(saveTargetID: $saveTargetID)
         }
     }
 
@@ -664,13 +667,23 @@ public struct OpenAlexEnhancedSearchFormView: View {
         let name = feedName.isEmpty ? "OpenAlex: \(query.prefix(40))" : feedName
 
         Task {
-            let feed = RustStoreAdapter.shared.createInboxFeed(
-                name: name, query: query, sourceIDs: ["openalex"],
-                refreshIntervalSeconds: Int64(refreshPreset.rawValue)
-            )
+            let feed: SmartSearch?
+            if case .libraryFeed(let libraryID, _) = mode {
+                feed = RustStoreAdapter.shared.createLibraryFeed(
+                    name: name, query: query, sourceIDs: ["openalex"],
+                    libraryID: libraryID,
+                    refreshIntervalSeconds: Int64(refreshPreset.rawValue),
+                    saveTargetID: saveTargetID
+                )
+            } else {
+                feed = RustStoreAdapter.shared.createInboxFeed(
+                    name: name, query: query, sourceIDs: ["openalex"],
+                    refreshIntervalSeconds: Int64(refreshPreset.rawValue)
+                )
+            }
             if let feed {
                 if let fetchService = await InboxCoordinator.shared.paperFetchService {
-                    _ = try? await fetchService.fetchForInbox(smartSearchID: feed.id)
+                    _ = try? await fetchService.fetchForFeed(smartSearchID: feed.id)
                 }
                 await MainActor.run {
                     NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)

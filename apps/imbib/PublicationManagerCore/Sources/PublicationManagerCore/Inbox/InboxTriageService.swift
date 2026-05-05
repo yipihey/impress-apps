@@ -27,6 +27,23 @@ public final class InboxTriageService {
 
     private init() {}
 
+    // MARK: - Save Target Resolution
+
+    /// Resolve the save target for a smart search collection.
+    ///
+    /// Priority: smartSearch.saveTargetID > global default save library
+    public func resolveSaveTarget(for smartSearchID: UUID) -> UUID? {
+        guard let ss = store.getSmartSearch(id: smartSearchID) else { return nil }
+
+        // Use per-feed save target if configured
+        if let saveTargetID = ss.saveTargetID {
+            return saveTargetID
+        }
+
+        // Fall back to default library
+        return store.getDefaultLibrary()?.id
+    }
+
     // MARK: - Save to Library
 
     /// Save publications to a target library.
@@ -74,7 +91,14 @@ public final class InboxTriageService {
                 // ADR-020: Record save signal for recommendation engine
                 Task { await SignalCollector.shared.recordSave(id) }
 
-            case .regularLibrary(let sourceLibraryID):
+            case .feedCollection:
+                // Feed collection save: track dismissal, move to target library
+                inboxManager.trackDismissal(id)
+                store.movePublications(ids: [id], toLibraryId: targetLibraryID)
+                savedCount += 1
+                Task { await SignalCollector.shared.recordSave(id) }
+
+            case .regularLibrary:
                 // Non-inbox: move to target library from source
                 store.movePublications(ids: [id], toLibraryId: targetLibraryID)
                 savedCount += 1
@@ -163,6 +187,9 @@ public enum TriageSource {
     /// Viewing a regular (non-inbox) library
     case regularLibrary(UUID)  // library ID
 
+    /// Viewing a generalized feed collection (smart search with auto-refresh, not inbox)
+    case feedCollection(UUID)  // smart search ID
+
     var logDescription: String {
         switch self {
         case .inboxLibrary:
@@ -171,6 +198,8 @@ public enum TriageSource {
             return "feed '\(id)'"
         case .regularLibrary(let id):
             return "library '\(id)'"
+        case .feedCollection(let id):
+            return "feed collection '\(id)'"
         }
     }
 }

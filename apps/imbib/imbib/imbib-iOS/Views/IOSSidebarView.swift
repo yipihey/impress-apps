@@ -68,8 +68,6 @@ struct IOSSidebarView: View {
     @State private var showDeleteLibraryConfirmation = false
 
     // Inbox feed creation sheets
-    @State private var showArXivFeedForInbox = false
-    @State private var showGroupFeedForInbox = false
 
     // Settings sheets for retention labels
     @State private var showInboxSettings = false
@@ -265,31 +263,6 @@ struct IOSSidebarView: View {
                 isPresented: $showArXivCategoryBrowser,
                 library: selectedLibraryForAction ?? libraryManager.libraries.first(where: { !$0.isInbox })
             )
-        }
-        // Inbox feed creation sheets
-        .sheet(isPresented: $showArXivFeedForInbox) {
-            NavigationStack {
-                ArXivFeedFormView(mode: .inboxFeed)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
-                                showArXivFeedForInbox = false
-                            }
-                        }
-                    }
-            }
-        }
-        .sheet(isPresented: $showGroupFeedForInbox) {
-            NavigationStack {
-                GroupArXivFeedFormView(mode: .inboxFeed)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
-                                showGroupFeedForInbox = false
-                            }
-                        }
-                    }
-            }
         }
         .sheet(item: $showNewCollectionForLibrary) { library in
             NewCollectionSheet(
@@ -559,20 +532,6 @@ struct IOSSidebarView: View {
                         createInboxRootCollection()
                     } label: {
                         Label("New Collection", systemImage: "folder.badge.plus")
-                    }
-
-                    Divider()
-
-                    Button {
-                        showArXivFeedForInbox = true
-                    } label: {
-                        Label("arXiv Category Feed", systemImage: "doc.text.magnifyingglass")
-                    }
-
-                    Button {
-                        showGroupFeedForInbox = true
-                    } label: {
-                        Label("arXiv Group Feed", systemImage: "person.3")
                     }
 
                     Divider()
@@ -1052,28 +1011,6 @@ struct IOSSidebarView: View {
 
     // MARK: - Inbox Section
 
-    /// Get all smart searches that feed to the Inbox (using Core Data fetch like macOS)
-    private var inboxFeeds: [CDSmartSearch] {
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-
-        do {
-            return try PersistenceController.shared.viewContext.fetch(request)
-        } catch {
-            return []
-        }
-    }
-
-    /// Get unread count for a specific inbox feed
-    private func unreadCountForFeed(_ feed: CDSmartSearch) -> Int {
-        guard let collection = feed.resultCollection,
-              let publications = collection.publications else {
-            return 0
-        }
-        return publications.filter { !$0.isRead && !$0.isDeleted }.count
-    }
-
     /// Flagged section content — shows per-color flag items
     @ViewBuilder
     private var flaggedSectionContent: some View {
@@ -1096,18 +1033,10 @@ struct IOSSidebarView: View {
     }
 
     /// Inbox section content (without Section wrapper)
-    /// Now tapping the "Inbox" header shows all papers, so we don't need an "Inbox" row.
-    /// Content includes: top-level feeds, collections (with their nested feeds)
+    /// Shows inbox collections only.
     @ViewBuilder
     private var inboxSectionContent: some View {
-        // Top-level feeds (no parent collection)
-        let topLevelFeeds = inboxFeeds.filter { $0.inboxParentCollection == nil }
-
-        ForEach(topLevelFeeds, id: \.id) { feed in
-            iosInboxFeedRow(for: feed)
-        }
-
-        // Inbox collections (hierarchical) with their nested feeds
+        // Inbox collections (hierarchical)
         if let inboxLibrary = InboxManager.shared.inboxLibrary,
            let collections = inboxLibrary.collections,
            !collections.isEmpty {
@@ -1121,40 +1050,12 @@ struct IOSSidebarView: View {
         }
     }
 
-    /// Row for an inbox feed on iOS
-    @ViewBuilder
-    private func iosInboxFeedRow(for feed: CDSmartSearch) -> some View {
-        HStack {
-            Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-            Spacer()
-            let unread = unreadCountForFeed(feed)
-            if unread > 0 {
-                Text("\(unread)")
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-            }
-        }
-        .tag(SidebarSection.inboxFeed(feed))
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                removeFromInbox(feed)
-            } label: {
-                Label("Remove", systemImage: "trash")
-            }
-        }
-    }
-
     /// Row for an inbox collection on iOS (with expand/collapse)
     @ViewBuilder
     private func iosInboxCollectionRow(collection: CDCollection, depth: Int) -> some View {
         let isExpanded = expandedInboxCollections.contains(collection.id)
         let hasChildren = collection.hasChildren
-        let nestedFeeds = inboxFeeds.filter { $0.inboxParentCollection?.id == collection.id }
-        let hasContent = hasChildren || !nestedFeeds.isEmpty
+        let hasContent = hasChildren
 
         // Collection row
         HStack {
@@ -1213,26 +1114,6 @@ struct IOSSidebarView: View {
 
         // Show nested content when expanded
         if isExpanded {
-            // Nested feeds
-            ForEach(nestedFeeds, id: \.id) { feed in
-                HStack {
-                    Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-                    Spacer()
-                    let unread = unreadCountForFeed(feed)
-                    if unread > 0 {
-                        Text("\(unread)")
-                            .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(.blue)
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
-                    }
-                }
-                .padding(.leading, CGFloat(depth + 1) * 16)
-                .tag(SidebarSection.inboxFeed(feed))
-            }
-
             // Nested collections (use AnyView to break recursive type inference)
             ForEach(collection.sortedChildren, id: \.id) { childCollection in
                 AnyView(iosInboxCollectionRow(collection: childCollection, depth: depth + 1))
@@ -1252,14 +1133,6 @@ struct IOSSidebarView: View {
     /// Delete an inbox collection
     private func deleteInboxCollection(_ collection: CDCollection) {
         let context = PersistenceController.shared.viewContext
-
-        // Move any feeds in this collection to top level
-        if let feeds = collection.inboxFeeds {
-            for feed in feeds {
-                feed.inboxParentCollection = nil
-            }
-        }
-
         context.delete(collection)
         try? context.save()
         refreshID = UUID()
@@ -1307,12 +1180,7 @@ struct IOSSidebarView: View {
         renamingCollection = newCollection
     }
 
-    /// Remove a feed from the Inbox (disable feedsToInbox)
-    private func removeFromInbox(_ feed: CDSmartSearch) {
-        feed.feedsToInbox = false
-        try? PersistenceController.shared.viewContext.save()
-        refreshID = UUID()
-    }
+
 
     // MARK: - Library Section
 

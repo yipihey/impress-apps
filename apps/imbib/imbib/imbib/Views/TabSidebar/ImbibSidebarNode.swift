@@ -23,6 +23,7 @@ enum ImbibSidebarNodeType: Hashable {
     case inboxCollection(collectionID: UUID)
     case library(libraryID: UUID)
     case libraryCollection(collectionID: UUID, libraryID: UUID)
+    case libraryFeed(feedID: UUID, libraryID: UUID)
     case sharedLibrary(libraryID: UUID)
     case scixLibrary(libraryID: UUID)
     case searchForm(SearchFormType)
@@ -33,6 +34,7 @@ enum ImbibSidebarNodeType: Hashable {
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
+    case citedInManuscripts
 }
 
 // MARK: - Sidebar Node
@@ -80,6 +82,8 @@ extension ImbibSidebarNode {
             return .library(libraryID)
         case .libraryCollection(let collectionID, _):
             return .collection(collectionID)
+        case .libraryFeed(let feedID, _):
+            return .libraryFeed(feedID)
         case .sharedLibrary(let libraryID):
             return .sharedLibrary(libraryID)
         case .scixLibrary(let libraryID):
@@ -100,6 +104,8 @@ extension ImbibSidebarNode {
             return .artifactType(rawValue)
         case .dismissed:
             return .dismissed
+        case .citedInManuscripts:
+            return .citedInManuscripts
         }
     }
 }
@@ -140,6 +146,7 @@ enum ImbibSidebarNodeID {
     static let allInbox = stable("allInbox")
     static let anyFlag = stable("anyFlag")
     static let dismissed = stable("dismissed")
+    static let citedInManuscripts = stable("citedInManuscripts")
 
     static func section(_ type: SidebarSectionType) -> UUID {
         stable("section.\(type.rawValue)")

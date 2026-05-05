@@ -33,6 +33,7 @@ public struct ArXivAdvancedSearchFormView: View {
     @State private var feedName: String = ""
     @State private var refreshPreset: RefreshIntervalPreset = .daily
     @State private var isCreating: Bool = false
+    @State private var saveTargetID: UUID?
 
     // MARK: - Initialization
 
@@ -60,7 +61,7 @@ public struct ArXivAdvancedSearchFormView: View {
                 .padding(.bottom, 8)
 
                 // Feed settings (shown when creating a feed)
-                if mode == .inboxFeed {
+                if mode.isFeedMode {
                     feedSettingsSection
                     Divider()
                 }
@@ -119,7 +120,7 @@ public struct ArXivAdvancedSearchFormView: View {
                         Button("Save Feed") { saveFeed() }
                             .buttonStyle(.borderedProminent).disabled(isFormEmpty)
                             .keyboardShortcut(.return, modifiers: .command)
-                    } else if mode == .inboxFeed {
+                    } else if mode.isFeedMode {
                         Button { createFeed() } label: {
                             if isCreating { ProgressView().controlSize(.small) }
                             else { Text("Create Feed") }
@@ -470,6 +471,8 @@ public struct ArXivAdvancedSearchFormView: View {
                 }
             }
             .frame(width: 200)
+
+            FeedSaveTargetPicker(saveTargetID: $saveTargetID)
         }
     }
 
@@ -489,13 +492,23 @@ public struct ArXivAdvancedSearchFormView: View {
         let name = feedName.isEmpty ? "arXiv: \(query.prefix(40))" : feedName
 
         Task {
-            let feed = RustStoreAdapter.shared.createInboxFeed(
-                name: name, query: query, sourceIDs: ["arxiv"],
-                refreshIntervalSeconds: Int64(refreshPreset.rawValue)
-            )
+            let feed: SmartSearch?
+            if case .libraryFeed(let libraryID, _) = mode {
+                feed = RustStoreAdapter.shared.createLibraryFeed(
+                    name: name, query: query, sourceIDs: ["arxiv"],
+                    libraryID: libraryID,
+                    refreshIntervalSeconds: Int64(refreshPreset.rawValue),
+                    saveTargetID: saveTargetID
+                )
+            } else {
+                feed = RustStoreAdapter.shared.createInboxFeed(
+                    name: name, query: query, sourceIDs: ["arxiv"],
+                    refreshIntervalSeconds: Int64(refreshPreset.rawValue)
+                )
+            }
             if let feed {
                 if let fetchService = await InboxCoordinator.shared.paperFetchService {
-                    _ = try? await fetchService.fetchForInbox(smartSearchID: feed.id)
+                    _ = try? await fetchService.fetchForFeed(smartSearchID: feed.id)
                 }
                 await MainActor.run {
                     NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)

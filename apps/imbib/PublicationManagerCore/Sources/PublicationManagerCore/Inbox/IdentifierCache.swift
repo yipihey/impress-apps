@@ -45,7 +45,10 @@ public actor IdentifierCache {
         // Query all publications from each library and extract identifiers
         let allPubs: [PublicationRowData] = await MainActor.run {
             let store = RustStoreAdapter.shared
-            let libraries = store.listLibraries()
+            let libraries = store.listLibraries().filter { lib in
+                let name = lib.name.lowercased()
+                return name != "dismissed" && name != "exploration"
+            }
             var pubs: [PublicationRowData] = []
             var seenIDs = Set<UUID>()
             for lib in libraries {
@@ -74,7 +77,7 @@ public actor IdentifierCache {
         }
 
         Logger.inbox.debugCapture(
-            "Identifier cache loaded: \(dois.count) DOIs, \(arxivIDs.count) arXiv, \(bibcodes.count) bibcodes",
+            "Identifier cache loaded: \(dois.count) DOIs, \(arxivIDs.count) arXiv, \(bibcodes.count) bibcodes (excluding Dismissed/Exploration)",
             category: "cache"
         )
     }

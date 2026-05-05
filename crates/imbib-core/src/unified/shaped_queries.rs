@@ -167,6 +167,14 @@ pub struct SmartSearchRow {
     pub last_executed: Option<i64>,
     pub library_id: Option<String>,
     pub sort_order: i32,
+    /// Target library/collection ID for triage save action (None = use global default).
+    pub save_target_id: Option<String>,
+    /// Whether to show dismissed papers in this collection's results.
+    pub show_dismissed: bool,
+    /// Per-collection retention in days (0 = use global setting, None = no retention).
+    pub retention_days: Option<i32>,
+    /// Whether to auto-remove read papers during retention cleanup.
+    pub auto_remove_read: bool,
 }
 
 /// Muted item (author/venue/category hidden from inbox).
@@ -603,6 +611,10 @@ pub fn item_to_smart_search_row(item: &Item) -> SmartSearchRow {
         last_executed: get_i64(payload, "last_executed"),
         library_id: item.parent.map(|p| p.to_string()),
         sort_order: get_i64(payload, "sort_order").unwrap_or(0) as i32,
+        save_target_id: get_str(payload, "save_target_id"),
+        show_dismissed: get_bool(payload, "show_dismissed"),
+        retention_days: get_i64(payload, "retention_days").map(|v| v as i32),
+        auto_remove_read: get_bool(payload, "auto_remove_read"),
     }
 }
 

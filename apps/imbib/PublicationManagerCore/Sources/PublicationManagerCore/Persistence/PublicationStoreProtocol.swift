@@ -71,6 +71,7 @@ public protocol PublicationStoreProtocol {
     func countPublications(parentId: UUID?) -> Int
     func countPublications(for source: PublicationSource) -> Int
     func countUnread(parentId: UUID?) -> Int
+    func countUnreadInCollection(collectionId: UUID) -> Int
     func countStarred(parentId: UUID?) -> Int
     func countArtifacts(type: ArtifactType?) -> Int
 

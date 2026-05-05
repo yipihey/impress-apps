@@ -25,183 +25,108 @@ When enabled, you can sort your Inbox by "Recommended" to see papers ranked by p
 ## Enabling Recommendations
 
 1. Open **Settings > Recommendations**
-2. Toggle **Enable recommendation sorting**
-3. Papers in Inbox can now be sorted by relevance
+2. Toggle **Enable recommendation training**
+3. The "Recommended" sort option appears in list view sort menus
 
-Once enabled, the "Recommended" sort option appears in the Inbox toolbar.
-
----
-
-## Engine Types
-
-imbib offers three recommendation algorithms, each with different tradeoffs:
-
-### Weighted Features (Default)
-
-A transparent, interpretable scoring formula.
-
-**How it works:**
-- Calculates a score from weighted features (author match, topic match, recency, etc.)
-- You can see and adjust each weight
-- Fast, works offline
-
-**Best for:**
-- Users who want full control
-- Understanding why papers are ranked
-- Low-resource devices
-
-### Semantic Similarity
-
-AI-powered similarity matching using embeddings.
-
-**How it works:**
-- Converts paper abstracts to vector embeddings
-- Finds papers similar to ones you've liked
-- Discovers connections across different terminology
-
-**Best for:**
-- Finding papers outside your usual keywords
-- Interdisciplinary research
-- When you trust the AI recommendations
-
-**Requirements:**
-- Building a similarity index (one-time, may be slow for large libraries)
-- More memory usage
-
-### Hybrid
-
-Combines weighted features with semantic similarity.
-
-**How it works:**
-- Uses weighted features as the base score
-- Adds semantic similarity as a signal
-- Balances interpretability with discovery
-
-**Best for:**
-- Best of both worlds
-- Users who want transparency plus AI assistance
+When disabled, the "Recommended" sort option is hidden. If you had "Recommended" sort active and disable training, the sort falls back to Date Added.
 
 ---
 
-## Building the Similarity Index
+## Modes
 
-For Semantic and Hybrid modes, you need to build an embedding index:
+Three modes control the overall character of recommendations:
 
-1. Go to **Settings > Recommendations**
-2. Select **Semantic** or **Hybrid** engine type
-3. Click **Build Similarity Index**
-4. Wait for indexing to complete (progress shown)
+### Focused
+"Papers from authors and topics you know."
 
-The index is stored locally and persists across app launches. Rebuild if you add many new papers to your library.
+Emphasizes author affinity and topic matching. Good for deep dives in a specific area.
+
+### Balanced (Default)
+"Mix of familiar and new."
+
+Even weights across all signals. Good for most users.
+
+### Explorer
+"Surprise me with new directions."
+
+High citation velocity and AI similarity, low author affinity. Good for finding new research areas.
+
+Select a mode using the segmented control at the top of Settings > Recommendations.
+
+---
+
+## Variety Slider
+
+Controls how often "discovery" papers appear — papers from outside your usual reading patterns.
+
+- **Less**: Mostly papers matching your preferences
+- **More**: Frequent surprises from new areas
+
+This maps to the serendipity frequency (1 discovery paper per N papers).
 
 ---
 
 ## Feature Weights
 
-In Weighted and Hybrid modes, you can adjust how much each signal influences rankings.
+In Advanced Settings, you can adjust how much each of 9 signals influences rankings.
 
-### Content Signals
-
-| Feature | Description | Default |
-|---------|-------------|---------|
-| Author Match | Paper by authors you've kept before | 0.8 |
-| Keyword Match | Contains keywords from papers you like | 0.6 |
-| Topic Match | In research areas you frequently read | 0.7 |
-| Journal Match | From journals you prefer | 0.4 |
-| Abstract Similarity | Text similarity to liked papers | 0.5 |
-
-### Behavioral Signals
+### Your Preferences
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| Keep History | Based on papers you've kept | 0.9 |
-| Star History | Based on papers you've starred | 1.0 |
-| Citation Overlap | Cites or cited by your papers | 0.6 |
-| Author Network | By collaborators of preferred authors | 0.3 |
+| Authors you follow | Learned preference for authors | 0.8 |
+| Topics you read | Learned preference for topics | 0.6 |
+| Your tags | Papers matching your tag interests | 0.5 |
+| Journals you read | Learned preference for venues | 0.4 |
 
-### Metadata Signals
-
-| Feature | Description | Default |
-|---------|-------------|---------|
-| Recency | Newer papers score higher | 0.5 |
-| Citation Count | Well-cited papers score higher | 0.3 |
-| Open Access | Prefer papers with free PDFs | 0.1 |
-
-### Penalty Signals (Negative Weights)
+### Discovery
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| Dismiss History | Papers similar to dismissed ones | -0.7 |
-| Muted Authors | Papers by muted authors | -1.0 |
-| Muted Keywords | Papers with muted keywords | -0.8 |
+| Collaborators of your authors | Co-authors of library authors | 0.3 |
+| Recently published | Newer papers score higher | 0.3 |
+| Trending in the field | High citation velocity | 0.2 |
+| Matches your searches | Papers matching saved smart searches | 0.6 |
+| Similar to your library | AI-powered semantic similarity | 0.5 |
+
+### Mute Filters (Always Active)
+
+| Filter | Effect |
+|--------|--------|
+| Muted Author | -1.0 penalty |
+| Muted Category | -0.8 penalty |
+| Muted Venue | -0.6 penalty |
+
+Mute filters are binary (on/off) and not adjustable via sliders.
 
 ### Adjusting Weights
 
 1. Go to **Settings > Recommendations**
-2. Expand a feature category
-3. Use the slider to adjust each weight (0.0 to 2.0, or -2.0 to 0.0 for penalties)
+2. Expand **Advanced settings**
+3. Use sliders to adjust each weight (0.0 to 2.0)
 4. Changes apply immediately to Inbox ranking
 
 **Tips:**
 - Increase a weight to make that signal more important
 - Set to 0.0 to ignore a signal entirely
-- Negative weights push matching papers down
-
----
-
-## Presets
-
-Quick configurations for different research styles:
-
-### Focused
-Emphasizes author and topic matching. Good for deep dives in a specific area.
-
-**Adjustments:**
-- High: Author Match, Topic Match, Keep History
-- Low: Recency, Discovery signals
-
-### Balanced
-Default settings that work well for most users.
-
-### Exploratory
-Emphasizes discovery and serendipity. Good for finding new directions.
-
-**Adjustments:**
-- High: Abstract Similarity, Semantic signals
-- Low: Author Match, Topic Match
-
-### Research
-Optimized for literature review and citation tracking.
-
-**Adjustments:**
-- High: Citation Overlap, Citation Count
-- Medium: Author Network
-
-To apply a preset, click its button in **Settings > Recommendations > Presets**.
 
 ---
 
 ## Anti-Filter-Bubble Features
 
-The engine includes safeguards against creating an echo chamber:
+### Serendipity Slots (Variety)
 
-### Serendipity Slots
+Every N papers, one "wild card" paper is inserted to expose you to new topics. Controlled via the Variety slider or the numeric stepper in Advanced settings.
 
-Every N papers, one "wild card" paper is inserted to expose you to new topics.
-
-**Setting:** "Insert one serendipity paper every X papers"
 - Default: 1 per 10 papers
 - Range: 3 to 50
-- Lower = more serendipity, higher = more focused
 
 ### Negative Preference Decay
 
-Dismissed papers influence recommendations, but that influence fades over time.
+Dismissed papers influence recommendations, but that influence fades over time. Each negative affinity decays by 5% per week of inactivity.
 
-**Setting:** "Forget dismissals after X days"
-- Default: 90 days
+- Default decay period: 90 days
 - Range: 7 to 365 days
-- Prevents permanent exclusion of topics you might revisit
 
 ---
 
@@ -210,7 +135,7 @@ Dismissed papers influence recommendations, but that influence fades over time.
 The engine learns from your actions. View and manage this training data:
 
 1. Go to **Settings > Recommendations**
-2. Click **View Training History**
+2. Click **View training history**
 3. See recent keep/dismiss/star actions
 4. Click **Undo** to remove a training signal
 
@@ -221,16 +146,16 @@ The engine learns from your actions. View and manage this training data:
 | Keep paper | Positive | High |
 | Star paper | Positive | Very High |
 | Dismiss paper | Negative | Medium |
-| Delete paper | Negative | Low |
 | Time spent reading | Positive | Low |
+| More Like This | Positive | Very High |
+| Less Like This | Negative | Very High |
 
 ### Resetting Training
 
 To start fresh:
-1. Click **Reset to Defaults** in Recommendation settings
-2. This clears learned preferences
-3. Weights return to defaults
-4. Training history is cleared
+1. Expand **Advanced settings** in Recommendation settings
+2. Click **Reset to Defaults**
+3. Weights return to defaults; training history is preserved in the training history view
 
 ---
 
@@ -244,12 +169,12 @@ Score = Σ (feature_value × feature_weight)
 
 For example:
 ```
-Author Match:    0.8 × 0.8 = 0.64   (author you've kept before)
-Topic Match:     0.7 × 0.7 = 0.49   (in your preferred topic)
-Recency:         0.5 × 0.9 = 0.45   (published last week)
-Dismiss History: -0.7 × 0.3 = -0.21 (similar to a dismissed paper)
-────────────────────────────────────
-Total Score:     1.37
+Authors you follow:     0.8 × 0.8 = 0.64   (author you've kept before)
+Topics you read:        0.6 × 0.7 = 0.42   (in your preferred topic)
+Recently published:     0.3 × 0.9 = 0.27   (published last week)
+Muted Author:          -1.0 × 0.0 = 0.00   (not muted)
+────────────────────────────────────────────
+Total Score:     1.33
 ```
 
 Papers are sorted by total score in descending order.
@@ -260,67 +185,27 @@ Papers are sorted by total score in descending order.
 
 In the Inbox with "Recommended" sort:
 
-1. Hover over a paper (macOS) or long-press (iOS)
-2. Select **Show Recommendation Details**
-3. See the breakdown of scores by feature
-4. Understand exactly why this paper ranked where it did
+1. Each paper shows a one-line reason (e.g., "authors you follow · recently published")
+2. Click **Show Recommendation Details** to see the full breakdown
+3. The breakdown shows context-specific details (which authors matched, which topics, etc.)
+4. Use "More like this" / "Less like this" to train the engine directly
 
 ---
 
-## Performance Tips
+## Performance
 
-### Large Libraries
+- All recommendation processing happens on-device
+- No paper data sent to external servers
+- Scoring is fast and works offline
+- If AI Similarity weight > 0, a local embedding index is used (built on demand)
 
-If you have thousands of papers:
-- Building the semantic index may be slow initially
-- Use Weighted mode for faster performance
-- Consider excluding old papers from indexing
+---
 
-### Battery Usage
-
-- Weighted mode uses minimal resources
-- Semantic mode uses more CPU/memory when indexing
-- Once indexed, all modes are efficient
-
-### Sync Across Devices
+## Sync Across Devices
 
 - Weights sync via iCloud
 - Training history syncs via iCloud
-- Semantic index is device-local (rebuild on each device)
-
----
-
-## Troubleshooting
-
-### Recommendations Seem Off
-
-1. Check your training history for accidental signals
-2. Undo any incorrect training events
-3. Let the engine learn from more actions
-4. Try adjusting weights manually
-
-### Index Building Fails
-
-1. Ensure sufficient storage space
-2. Keep app in foreground during indexing
-3. Try with a smaller library first
-4. Check for corrupted paper records
-
-### No "Recommended" Sort Option
-
-1. Verify recommendations are enabled in Settings
-2. Ensure you're in Inbox (not Library)
-3. Restart the app
-
----
-
-## Privacy
-
-All recommendation processing happens on-device:
-- No paper data sent to external servers
-- Embeddings generated locally
-- Training history stored in your iCloud (if enabled)
-- No third-party analytics
+- Embedding index is device-local (rebuilt on each device)
 
 ---
 

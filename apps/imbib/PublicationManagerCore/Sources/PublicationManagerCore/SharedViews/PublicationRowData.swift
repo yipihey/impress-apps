@@ -104,10 +104,12 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// to filter stale publications without N+1 getPublicationDetail() calls.
     public let enrichmentDate: String?
 
-    // MARK: - Library Context (for grouped search results)
+    // MARK: - Library Context (for grouped search results / combined views)
 
-    /// Name of the library this publication belongs to (for grouping in search results)
-    public let libraryName: String?
+    /// Name of the library (or collection) this row was sourced from.
+    /// `var` so the union-query path can stamp each row with its source name
+    /// after the row is constructed; nil in single-source views.
+    public var libraryName: String?
 
     // MARK: - Memberwise Init
 
@@ -182,7 +184,17 @@ extension PublicationRowData: MailStyleItem {
 
     public var previewText: String? { abstract }
 
-    public var subtitleText: String? { venue }
+    public var subtitleText: String? {
+        // In combined / multi-library views, append the source library's name
+        // after the venue so each row carries its provenance. In single-source
+        // views, `libraryName` is nil and we just show the venue (unchanged).
+        switch (venue, libraryName) {
+        case (let v?, let lib?): return "\(v) · \(lib)"
+        case (nil, let lib?):    return lib
+        case (let v?, nil):      return v
+        case (nil, nil):         return nil
+        }
+    }
 
     public var trailingBadgeText: String? {
         citationCount > 0 ? "\(citationCount)" : nil

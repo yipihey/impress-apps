@@ -433,9 +433,16 @@ public struct MailStylePublicationRow: View, Equatable {
             onFileDrop(providers)
             return true
         }
+        #if os(iOS)
+        // iOS: per-row context menu (no list-level forSelectionType support)
         .contextMenu {
             contextMenuContent
         }
+        #endif
+        // macOS: context menu handled by PublicationListView's
+        // .contextMenu(forSelectionType:) for proper multi-selection support.
+        // Having both row-level and list-level context menus causes them to
+        // conflict, resulting in no menu appearing at all.
         // Swipe actions (works on both iOS and macOS with trackpad)
         // Swipe LEFT (.trailing) = Dismiss (moves to dismissed library, like Mail archive)
         // Note: allowsFullSwipe is disabled to prevent gesture conflicts with

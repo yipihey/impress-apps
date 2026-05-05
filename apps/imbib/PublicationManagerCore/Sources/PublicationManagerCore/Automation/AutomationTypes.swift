@@ -689,6 +689,121 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     }
 }
 
+// MARK: - Structured Citation Resolution
+
+/// Structured input to `/api/papers/resolve` for callers that already have
+/// bibliographic fields parsed (e.g. imprint with a LaTeX `\bibitem` line).
+///
+/// Fields are left unsanitized — the server is responsible for LaTeX → Unicode
+/// conversion (via `LaTeXDecoder`) and per-source query escaping. Provide as
+/// much as you know; empty fields are skipped when building queries.
+public struct CitationInput: Codable, Sendable {
+    /// Author surnames or full names. Each entry becomes a separate
+    /// `author:"..."` clause in ADS queries.
+    public var authors: [String]
+    public var title: String?
+    public var year: Int?
+    /// Human-readable journal name, e.g. `"ApJ"`, `"Phys. Rev. D"`,
+    /// `"JHEP"`. The server normalizes to ADS's `bibstem:` form.
+    public var journal: String?
+    public var volume: String?
+    public var pages: String?
+    public var doi: String?
+    public var arxiv: String?
+    public var bibcode: String?
+    /// Any BibTeX fragment the caller has for this citation. Scanned for
+    /// identifiers before structured search is attempted.
+    public var rawBibtex: String?
+    /// Free-text fallback query. Used when structured fields yield zero
+    /// candidates from the preferred source.
+    public var freeText: String?
+    /// Preferred ADS `collection`: `"astronomy"`, `"physics"`, or `"all"`.
+    /// Default: `"all"`.
+    public var preferredDatabase: String?
+
+    public init(
+        authors: [String] = [],
+        title: String? = nil,
+        year: Int? = nil,
+        journal: String? = nil,
+        volume: String? = nil,
+        pages: String? = nil,
+        doi: String? = nil,
+        arxiv: String? = nil,
+        bibcode: String? = nil,
+        rawBibtex: String? = nil,
+        freeText: String? = nil,
+        preferredDatabase: String? = nil
+    ) {
+        self.authors = authors
+        self.title = title
+        self.year = year
+        self.journal = journal
+        self.volume = volume
+        self.pages = pages
+        self.doi = doi
+        self.arxiv = arxiv
+        self.bibcode = bibcode
+        self.rawBibtex = rawBibtex
+        self.freeText = freeText
+        self.preferredDatabase = preferredDatabase
+    }
+
+    /// True if we have *any* identifier. These skip structured search and
+    /// go straight to identifier-based local lookup / import.
+    public var hasIdentifier: Bool {
+        !(doi ?? "").isEmpty || !(arxiv ?? "").isEmpty || !(bibcode ?? "").isEmpty
+    }
+}
+
+/// Candidate returned from structured resolution. A ranked version of
+/// `ExternalSearchResult` — carries a confidence score so imprint can
+/// auto-accept the top hit when confidence is high.
+public struct RankedCandidate: Codable, Sendable {
+    public let result: ExternalSearchResult
+    /// 0.0–1.0. Higher = better match to the input `CitationInput`.
+    public let confidence: Double
+
+    public init(result: ExternalSearchResult, confidence: Double) {
+        self.result = result
+        self.confidence = max(0, min(1, confidence))
+    }
+}
+
+/// Outcome of `AutomationService.resolveStructuredCitation(_:library:)`.
+/// Mirrors the JSON emitted by `/api/papers/resolve` when called with
+/// the `citation` field.
+public struct StructuredResolveResult: Codable, Sendable {
+    /// Cascade branch taken, for diagnostics:
+    /// - `local-identifier`
+    /// - `local-text`
+    /// - `imported-identifier`
+    /// - `ads-high-confidence` (top ADS hit ≥ 0.85, auto-accepted)
+    /// - `ads-candidates`
+    /// - `all-sources-fallback`
+    /// - `duplicate`
+    /// - `not-found`
+    public let via: String
+    /// Single paper, present when we auto-accepted or found a local hit.
+    public let paper: PaperResult?
+    /// Ranked candidates, present when the caller must disambiguate.
+    public let candidates: [RankedCandidate]?
+    /// Human-readable reason (for `not-found` or ambiguous cases).
+    public let reason: String?
+
+    public init(
+        via: String,
+        paper: PaperResult? = nil,
+        candidates: [RankedCandidate]? = nil,
+        reason: String? = nil
+    ) {
+        self.via = via
+        self.paper = paper
+        self.candidates = candidates
+        self.reason = reason
+    }
+}
+
 // MARK: - Automation Errors
 
 /// Errors that can occur during automation operations.

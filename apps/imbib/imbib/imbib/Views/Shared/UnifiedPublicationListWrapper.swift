@@ -10,6 +10,7 @@ import PublicationManagerCore
 import OSLog
 import ImpressKeyboard
 import ImpressFTUI
+import ImpressStoreKit
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
 
@@ -134,6 +135,7 @@ struct UnifiedPublicationListWrapper: View {
     @State private var recommendationScores: [UUID: Double] = [:]
     @State private var serendipitySlotIDs: Set<UUID> = []
     @State private var isComputingRecommendations: Bool = false
+    @State private var recommendationsEnabled: Bool = true
 
     /// Cached library list — avoids recreating a non-Equatable tuple array
     /// on every body evaluation, which would force PublicationListView to re-evaluate.
@@ -216,6 +218,10 @@ struct UnifiedPublicationListWrapper: View {
             return store.getLibrary(id: id)?.name ?? "Inbox"
         case .dismissed:
             return "Dismissed"
+        case .citedInManuscripts:
+            return "Cited in Manuscripts"
+        case .combined(let children):
+            return "\(children.count) Sources"
         }
     }
 
@@ -227,7 +233,11 @@ struct UnifiedPublicationListWrapper: View {
         case .smartSearch(let id):
             return RustStoreAdapter.shared.getSmartSearch(id: id)?.libraryID
                 ?? RustStoreAdapter.shared.getDefaultLibrary()?.id
-        case .collection, .flagged, .unread, .starred, .tag, .dismissed:
+        case .collection, .flagged, .unread, .starred, .tag, .dismissed, .citedInManuscripts:
+            return RustStoreAdapter.shared.getDefaultLibrary()?.id
+        case .combined:
+            // Multi-source: no single "current" library — fall back to default
+            // for behaviors keyed off currentLibraryID (e.g., new-paper landing).
             return RustStoreAdapter.shared.getDefaultLibrary()?.id
         }
     }
@@ -253,6 +263,10 @@ struct UnifiedPublicationListWrapper: View {
         case .inbox(let id):
             return .library(id)
         case .dismissed:
+            return .library(source.viewID)
+        case .citedInManuscripts:
+            return .library(source.viewID)
+        case .combined:
             return .library(source.viewID)
         }
     }
@@ -281,6 +295,10 @@ struct UnifiedPublicationListWrapper: View {
             return "Inbox Empty"
         case .dismissed:
             return "No Dismissed Papers"
+        case .citedInManuscripts:
+            return "No Cited Papers"
+        case .combined:
+            return "No Publications"
         }
     }
 
@@ -306,6 +324,10 @@ struct UnifiedPublicationListWrapper: View {
             return "No new papers in your inbox."
         case .dismissed:
             return "No dismissed papers."
+        case .citedInManuscripts:
+            return "Cite a paper in imprint to see it here."
+        case .combined(let children):
+            return "Combined view of \(children.count) libraries / collections."
         }
     }
 
@@ -318,9 +340,19 @@ struct UnifiedPublicationListWrapper: View {
             return true
         case .smartSearch(let id):
             return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
-        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed:
+        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed, .citedInManuscripts, .combined:
             return false
         }
+    }
+
+    /// Check if we're viewing any auto-refreshing feed (inbox or library).
+    /// Feed views have triage behavior: S saves to target library + removes, D dismisses + removes.
+    private var isFeedView: Bool {
+        if isInboxView { return true }
+        if case .smartSearch(let id) = source {
+            return RustStoreAdapter.shared.getSmartSearch(id: id)?.autoRefreshEnabled ?? false
+        }
+        return false
     }
 
     /// Check if we're viewing an exploration collection (in the system Exploration library).
@@ -366,8 +398,9 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// Main body content separated to help compiler type-checking
-    @ViewBuilder
-    private var bodyContent: some View {
+    /// Base content view with focus, keyboard, and data-loading modifiers.
+    /// Split from `bodyContent` to help the type-checker.
+    private var bodyContentBase: some View {
         contentView
             #if os(iOS)
             .navigationTitle(navigationTitle)
@@ -379,50 +412,7 @@ struct UnifiedPublicationListWrapper: View {
             .onKeyPress { press in handleVimNavigation(press) }
             .onKeyPress(.init("d")) { handleDismissKey() }
             .task(id: source.viewID) {
-                filterMode = initialFilterMode
-                filterScope = .current  // Reset scope on navigation
-                unreadFilterSnapshot = nil  // Reset snapshot on navigation
-
-                // If starting with unread filter, capture snapshot after loading data
-                if initialFilterMode == .unread {
-                    refreshPublicationsList(force: true)
-                    unreadFilterSnapshot = captureUnreadSnapshot()
-                } else {
-                    refreshPublicationsList(force: true)
-                }
-
-                if case .smartSearch(let ssID) = source {
-                    await queueBackgroundRefreshIfNeeded(ssID)
-                }
-
-                // Auto-refresh SciX libraries that haven't been synced yet,
-                // or whose papers are missing (edges lost, metadata-only sync, etc.)
-                if case .scixLibrary(let id) = source {
-                    let store = RustStoreAdapter.shared
-                    if let scix = store.getScixLibrary(id: id) {
-                        let neverSynced = scix.syncState == "pending" || scix.lastSyncDate == nil
-                        let edgesMissing = scix.publicationCount == 0 && scix.documentCount > 0
-                        let needsRefresh = neverSynced || edgesMissing
-                        if needsRefresh, !scix.remoteID.isEmpty {
-                            Logger.library.infoCapture("SciX auto-refresh: '\(scix.name)' syncState=\(scix.syncState), pubCount(edges)=\(scix.publicationCount), docCount(remote)=\(scix.documentCount)", category: "scix")
-                            isBackgroundRefreshing = true
-                            do {
-                                try await SciXSyncManager.shared.pullLibraryPapers(libraryID: scix.remoteID)
-                                await MainActor.run {
-                                    isBackgroundRefreshing = false
-                                    refreshPublicationsList(force: true)
-                                    // Re-check after refresh
-                                    if let updated = RustStoreAdapter.shared.getScixLibrary(id: id) {
-                                        Logger.library.infoCapture("SciX auto-refresh done: '\(updated.name)' pubCount(edges)=\(updated.publicationCount)", category: "scix")
-                                    }
-                                }
-                            } catch {
-                                Logger.library.errorCapture("SciX auto-refresh failed: \(error.localizedDescription)", category: "scix")
-                                isBackgroundRefreshing = false
-                            }
-                        }
-                    }
-                }
+                await onSourceChanged()
             }
             // Belt-and-suspenders: .task(id:) can miss re-fires inside
             // AppKit-bridged containers (HSplitView/ZStack). Explicit
@@ -454,13 +444,17 @@ struct UnifiedPublicationListWrapper: View {
                     publications = dataSource.rows
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { notification in
-                // Only do a full list refresh for structural mutations (add/remove/move).
-                // In-place mutations (read/star/flag/tag) are handled by row-level
-                // notifications in PublicationListView via O(1) updateSingleRowData().
-                let structural = notification.userInfo?["structural"] as? Bool ?? true
-                if structural {
-                    refreshPublicationsList()
+            .task {
+                // Structural mutations trigger a full list refresh.
+                // Field-level mutations (read/star/flag/tag) are handled by
+                // PublicationListView's own subscription via O(1)
+                // updateSingleRowData. The new event vocabulary already
+                // distinguishes the two, so the old userInfo["structural"]
+                // branch disappears.
+                for await event in ImbibImpressStore.shared.events.subscribe() {
+                    if case .structural = event {
+                        refreshPublicationsList()
+                    }
                 }
             }
             .onAppear {
@@ -469,7 +463,7 @@ struct UnifiedPublicationListWrapper: View {
                     isListFocused = true
                 }
             }
-            .onChange(of: selectedPublicationIDs) { _, _ in
+            .onChange(of: selectedPublicationIDs) { _, newIDs in
                 // Re-request focus after selection changes. Clicking a row in the
                 // List gives AppKit's NSTableView first responder, which steals
                 // focus from our .focusable() wrapper and breaks .onKeyPress.
@@ -478,7 +472,20 @@ struct UnifiedPublicationListWrapper: View {
                 DispatchQueue.main.async {
                     isListFocused = true
                 }
+
+                // Global search navigation: if the selected paper isn't in the
+                // currently loaded pages, load more pages until it appears.
+                if let targetID = newIDs.first,
+                   !publications.contains(where: { $0.id == targetID }),
+                   dataSource.loadUntilFound(id: targetID) {
+                    publications = dataSource.rows
+                }
             }
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        bodyContentBase
             .modifier(InputOverlayFocusModifier(
                 isFlagInputActive: isFlagInputActive,
                 isTagInputActive: isTagInputActive,
@@ -510,14 +517,11 @@ struct UnifiedPublicationListWrapper: View {
                 },
                 onSelectAll: selectAllPublications
             ))
-            .modifier(SmartSearchRefreshModifier(
-                source: source,
-                onRefreshComplete: { smartSearchName in
-                    logger.info("Background refresh completed for '\(smartSearchName)', refreshing UI")
-                    isBackgroundRefreshing = false
-                    refreshPublicationsList(force: true)
+            .onReceive(NotificationCenter.default.publisher(for: .recommendationSettingsDidChange)) { _ in
+                Task {
+                    recommendationsEnabled = await RecommendationSettingsStore.shared.isEnabled()
                 }
-            ))
+            }
             .onReceive(NotificationCenter.default.publisher(for: .activateFilter)) { _ in
                 _ = handleFilterKey()
             }
@@ -826,6 +830,7 @@ struct UnifiedPublicationListWrapper: View {
             allScixLibraries: cachedWritableScixLibraries,
             showImportButton: false,
             showSortMenu: true,
+            recommendationsEnabled: recommendationsEnabled,
             emptyStateMessage: emptyMessage,
             emptyStateDescription: emptyDescription,
             listID: listID,
@@ -1165,8 +1170,15 @@ struct UnifiedPublicationListWrapper: View {
                 refreshPublicationsList(force: true)
             }
 
-        case .unread, .starred, .tag, .inbox, .dismissed:
+        case .unread, .starred, .tag, .inbox, .dismissed, .citedInManuscripts:
             logger.info("Virtual source refresh requested")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList(force: true)
+            }
+
+        case .combined(let children):
+            logger.info("Combined source refresh requested (\(children.count) children)")
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {
                 refreshPublicationsList(force: true)
@@ -1177,34 +1189,63 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// Queue a background refresh for the smart search if needed (stale or empty).
-    ///
-    /// This does NOT block the UI - cached results are shown immediately while
-    /// the refresh happens in the background via SmartSearchRefreshService.
     private func queueBackgroundRefreshIfNeeded(_ smartSearchID: UUID) async {
         let store = RustStoreAdapter.shared
         guard let ss = store.getSmartSearch(id: smartSearchID) else { return }
 
-        // TODO: implement full smart search background refresh with Rust store
-        // For now, check if results are empty and log
         let isEmpty = publications.isEmpty
-
         if isEmpty {
-            logger.info("Smart search '\(ss.name)' needs refresh (empty: \(isEmpty))")
-
-            // Check if already being refreshed
-            let alreadyRefreshing = await SmartSearchRefreshService.shared.isRefreshing(smartSearchID)
-            let alreadyQueued = await SmartSearchRefreshService.shared.isQueued(smartSearchID)
-
-            if alreadyRefreshing || alreadyQueued {
-                logger.debug("Smart search '\(ss.name)' already refreshing/queued")
-                isBackgroundRefreshing = alreadyRefreshing
-            } else {
-                // TODO: queue refresh via Rust store smart search service
-                // Don't set isBackgroundRefreshing — no actual refresh mechanism yet
-                logger.info("Would queue high-priority background refresh for '\(ss.name)'")
-            }
+            logger.info("Smart search '\(ss.name)' needs refresh (empty results)")
         } else {
             logger.debug("Smart search '\(ss.name)' has results, no refresh needed")
+        }
+    }
+
+    /// Called when the publication source changes (via .task(id:)).
+    /// Resets filters, refreshes data, and triggers background work.
+    private func onSourceChanged() async {
+        recommendationsEnabled = await RecommendationSettingsStore.shared.isEnabled()
+        filterMode = initialFilterMode
+        filterScope = .current
+        unreadFilterSnapshot = nil
+
+        if initialFilterMode == .unread {
+            refreshPublicationsList(force: true)
+            unreadFilterSnapshot = captureUnreadSnapshot()
+        } else {
+            refreshPublicationsList(force: true)
+        }
+
+        if case .smartSearch(let ssID) = source {
+            await queueBackgroundRefreshIfNeeded(ssID)
+        }
+
+        if case .scixLibrary(let id) = source {
+            await autoRefreshScixLibraryIfNeeded(id: id)
+        }
+    }
+
+    /// Auto-refresh SciX libraries that haven't been synced yet,
+    /// or whose papers are missing (edges lost, metadata-only sync, etc.)
+    private func autoRefreshScixLibraryIfNeeded(id: UUID) async {
+        let store = RustStoreAdapter.shared
+        guard let scix = store.getScixLibrary(id: id) else { return }
+        let neverSynced = scix.syncState == "pending" || scix.lastSyncDate == nil
+        let edgesMissing = scix.publicationCount == 0 && scix.documentCount > 0
+        let needsRefresh = neverSynced || edgesMissing
+        guard needsRefresh, !scix.remoteID.isEmpty else { return }
+        Logger.library.infoCapture("SciX auto-refresh: '\(scix.name)' syncState=\(scix.syncState), pubCount(edges)=\(scix.publicationCount), docCount(remote)=\(scix.documentCount)", category: "scix")
+        isBackgroundRefreshing = true
+        do {
+            try await SciXSyncManager.shared.pullLibraryPapers(libraryID: scix.remoteID)
+            isBackgroundRefreshing = false
+            refreshPublicationsList(force: true)
+            if let updated = RustStoreAdapter.shared.getScixLibrary(id: id) {
+                Logger.library.infoCapture("SciX auto-refresh done: '\(updated.name)' pubCount(edges)=\(updated.publicationCount)", category: "scix")
+            }
+        } catch {
+            Logger.library.errorCapture("SciX auto-refresh failed: \(error.localizedDescription)", category: "scix")
+            isBackgroundRefreshing = false
         }
     }
 
@@ -1465,14 +1506,22 @@ struct UnifiedPublicationListWrapper: View {
         return nil
     }
 
-    /// Save selected publications to the Save library (created on first use if needed).
-    /// Inbox: moves papers (removes from inbox). Other sources: copies papers (keeps in source).
+    /// Save selected publications to the target library.
+    /// Feed views (inbox or library feeds): resolves per-feed save target, moves papers, tracks dismissal.
+    /// Other sources: copies papers to global save library (keeps in source).
     private func saveSelectedToDefaultLibrary() {
-        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
         guard !ids.isEmpty else { return }
 
-        if isInboxView {
+        if isFeedView {
+            // Resolve save target: per-feed target > global save library
+            let targetLibraryID: UUID
+            if case .smartSearch(let ssID) = source,
+               let resolved = InboxTriageService.shared.resolveSaveTarget(for: ssID) {
+                targetLibraryID = resolved
+            } else {
+                targetLibraryID = libraryManager.getOrCreateSaveLibrary().id
+            }
             let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .green) { ids in
                 let store = RustStoreAdapter.shared
@@ -1481,14 +1530,14 @@ struct UnifiedPublicationListWrapper: View {
                     InboxManager.shared.trackDismissal(id)
                     InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
                 }
-                store.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
-                // Also remove from smart search results so paper disappears from the list
+                store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
                 if let ssID {
                     store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
                 }
                 store.endBatchMutation()
             }
         } else {
+            let saveLibrary = libraryManager.getOrCreateSaveLibrary()
             showTriageFlash(ids: ids, color: .green)
             Task {
                 _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
@@ -1496,17 +1545,24 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
-    /// Save and star selected publications to the Save library.
-    /// Inbox: moves papers (removes from inbox). Other sources: copies papers (keeps in source).
+    /// Save and star selected publications to the target library.
+    /// Feed views: resolves per-feed save target, moves papers, tracks dismissal.
+    /// Other sources: copies papers to global save library (keeps in source).
     private func saveAndStarSelected() {
-        let saveLibrary = libraryManager.getOrCreateSaveLibrary()
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
         guard !ids.isEmpty else { return }
 
         // Star unconditionally regardless of source
         RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: true)
 
-        if isInboxView {
+        if isFeedView {
+            let targetLibraryID: UUID
+            if case .smartSearch(let ssID) = source,
+               let resolved = InboxTriageService.shared.resolveSaveTarget(for: ssID) {
+                targetLibraryID = resolved
+            } else {
+                targetLibraryID = libraryManager.getOrCreateSaveLibrary().id
+            }
             let ssID = smartSearchLibraryID
             performTriageAnimation(ids: ids, flashColor: .yellow) { ids in
                 let store = RustStoreAdapter.shared
@@ -1515,13 +1571,14 @@ struct UnifiedPublicationListWrapper: View {
                     InboxManager.shared.trackDismissal(id)
                     InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
                 }
-                store.movePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
                 if let ssID {
                     store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
                 }
                 store.endBatchMutation()
             }
         } else {
+            let saveLibrary = libraryManager.getOrCreateSaveLibrary()
             showTriageFlash(ids: ids, color: .yellow)
             Task {
                 _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
@@ -1735,10 +1792,8 @@ struct UnifiedPublicationListWrapper: View {
         tagTargetIDs = selectedPublicationIDs
         tagCompletions = []
 
-        // Lazily initialize autocomplete service
-        if tagAutocomplete == nil {
-            tagAutocomplete = TagAutocompleteService()
-        }
+        // Use shared autocomplete service with pre-warmed cache
+        tagAutocomplete = TagAutocompleteService.shared
 
         withAnimation(.easeInOut(duration: 0.15)) {
             isTagInputActive = true
@@ -1775,7 +1830,8 @@ struct UnifiedPublicationListWrapper: View {
 
             logInfo("commitTag: done", category: "tags")
 
-            tagAutocomplete?.invalidate()
+            // TagAutocompleteService refreshes automatically via the
+            // .tagDidChange notification posted by RustStoreAdapter.addTag.
             tagTargetIDs = []
         }
     }
@@ -1861,7 +1917,8 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
-    /// Dismiss selected publications from inbox (moves to Dismissed library, not delete)
+    /// Dismiss selected publications (moves to Dismissed library, not delete).
+    /// In feed views: also tracks dismissal to prevent re-entry.
     /// Advances selection to next paper for rapid triage.
     private func dismissSelectedFromInbox() {
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
@@ -1872,14 +1929,13 @@ struct UnifiedPublicationListWrapper: View {
         performTriageAnimation(ids: ids, flashColor: .orange) { ids in
             let store = RustStoreAdapter.shared
             store.beginBatchMutation()
-            if self.isInboxView {
+            if self.isFeedView {
                 for id in ids {
                     InboxManager.shared.trackDismissal(id)
                     InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
                 }
             }
             store.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
-            // Also remove from smart search results so paper disappears from the list
             if let ssID {
                 store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
             }
@@ -2097,24 +2153,6 @@ private struct NotificationModifiers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
                 onSelectAll()
-            }
-    }
-}
-
-/// Handles smart search refresh completion notifications
-private struct SmartSearchRefreshModifier: ViewModifier {
-    let source: PublicationSource
-    let onRefreshComplete: (String) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .smartSearchRefreshCompleted)) { notification in
-                if case .smartSearch(let ssID) = source,
-                   let completedID = notification.object as? UUID,
-                   completedID == ssID {
-                    let name = RustStoreAdapter.shared.getSmartSearch(id: ssID)?.name ?? "unknown"
-                    onRefreshComplete(name)
-                }
             }
     }
 }

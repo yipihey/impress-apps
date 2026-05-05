@@ -11,6 +11,8 @@ import Foundation
 import ImbibRustCore
 import ImpressFTUI
 import ImpressKit
+import ImpressLogging
+import ImpressStoreKit
 import OSLog
 
 // MARK: - Rust Store Adapter
@@ -25,7 +27,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Shared singleton instance.
     /// When launched with `--ui-testing`, uses an in-memory store for deterministic tests.
-    public static let shared: RustStoreAdapter = {
+    ///
+    /// `nonisolated` so it can be accessed from the `ImbibImpressStore`
+    /// gateway actor without crossing into the main actor. The instance
+    /// itself is `@MainActor`; only the `shared` accessor bypass is
+    /// nonisolated. Off-main callers may only touch nonisolated members
+    /// of the returned instance (e.g., `imbibStore`).
+    public nonisolated(unsafe) static let shared: RustStoreAdapter = {
         do {
             let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
             if isUITesting {
@@ -125,16 +133,27 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// - Parameter structural: `true` (default) for mutations that add, remove, or move
     ///   publications (requiring a full list refresh). `false` for in-place field changes
     ///   (read/star/flag/tag) that are handled by row-level notifications (O(1) updates).
-    private func didMutate(structural: Bool = true) {
+    private func didMutate(
+        structural: Bool = true,
+        affectedIDs: Set<UUID>? = nil,
+        kind: MutationKind? = nil
+    ) {
         dataVersion += 1
         if batchDepth > 0 {
             if structural { batchHadStructural = true }
-            return  // notification deferred until endBatchMutation()
+            if let affectedIDs, !affectedIDs.isEmpty {
+                batchChangedFieldIDs.formUnion(affectedIDs)
+            }
+            return  // event deferred until endBatchMutation()
         }
-        NotificationCenter.default.post(
-            name: .storeDidMutate,
-            object: nil,
-            userInfo: ["structural": structural]
+        // Fan out through the ImbibImpressStore event publisher.
+        // Subscribers (sidebar snapshot, list view, detail views,
+        // tag autocomplete, …) receive a typed StoreEvent instead of
+        // a NotificationCenter post.
+        ImbibImpressStore.shared.postMutation(
+            structural: structural,
+            affectedIDs: affectedIDs,
+            kind: kind
         )
     }
 
@@ -152,23 +171,21 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         precondition(batchDepth > 0, "endBatchMutation called without matching beginBatchMutation")
         batchDepth -= 1
         if batchDepth == 0 {
-            // Post coalesced field changes (one notification instead of per-field)
+            // Emit a single coalesced field event for the whole batch.
             if !batchChangedFieldIDs.isEmpty {
-                NotificationCenter.default.post(
-                    name: .fieldDidChange,
-                    object: nil,
-                    userInfo: ["publicationIDs": Array(batchChangedFieldIDs)]
-                )
+                let ids = batchChangedFieldIDs
                 batchChangedFieldIDs.removeAll()
+                ImbibImpressStore.shared.postMutation(
+                    structural: false,
+                    affectedIDs: ids,
+                    kind: .otherField
+                )
             }
 
             let structural = batchHadStructural
             batchHadStructural = false
-            NotificationCenter.default.post(
-                name: .storeDidMutate,
-                object: nil,
-                userInfo: ["structural": structural]
-            )
+            // One consolidated StoreEvent for the whole batch.
+            ImbibImpressStore.shared.postMutation(structural: structural)
         }
     }
 
@@ -182,18 +199,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         limit: UInt32? = nil,
         offset: UInt32? = nil
     ) -> [PublicationRowData] {
-        do {
-            let rows = try store.queryPublications(
-                parentId: parentId.uuidString,
-                sortField: sort,
-                ascending: ascending,
-                limit: limit,
-                offset: offset
-            )
-            return rows.compactMap { PublicationRowData(from: $0) }
-        } catch {
-            Logger.library.error("queryPublications failed: \(error)")
-            return []
+        StoreTimings.shared.measure("queryPublications(parentId:)") {
+            do {
+                let rows = try store.queryPublications(
+                    parentId: parentId.uuidString,
+                    sortField: sort,
+                    ascending: ascending,
+                    limit: limit,
+                    offset: offset
+                )
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                Logger.library.error("queryPublications failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -227,18 +246,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         limit: UInt32? = nil,
         offset: UInt32? = nil
     ) -> [PublicationRowData] {
-        do {
-            let rows = try store.queryStarred(
-                parentId: parentId?.uuidString,
-                sortField: sort,
-                ascending: ascending,
-                limit: limit,
-                offset: offset
-            )
-            return rows.compactMap { PublicationRowData(from: $0) }
-        } catch {
-            Logger.library.error("queryStarred failed: \(error)")
-            return []
+        StoreTimings.shared.measure("queryStarred") {
+            do {
+                let rows = try store.queryStarred(
+                    parentId: parentId?.uuidString,
+                    sortField: sort,
+                    ascending: ascending,
+                    limit: limit,
+                    offset: offset
+                )
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                Logger.library.error("queryStarred failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -366,18 +387,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         limit: UInt32? = nil,
         offset: UInt32? = nil
     ) -> [PublicationRowData] {
-        do {
-            let rows = try store.getFlaggedPublications(
-                color: color,
-                sortField: sort,
-                ascending: ascending,
-                limit: limit,
-                offset: offset
-            )
-            return rows.compactMap { PublicationRowData(from: $0) }
-        } catch {
-            Logger.library.error("getFlaggedPublications failed: \(error)")
-            return []
+        StoreTimings.shared.measure("getFlaggedPublications") {
+            do {
+                let rows = try store.getFlaggedPublications(
+                    color: color,
+                    sortField: sort,
+                    ascending: ascending,
+                    limit: limit,
+                    offset: offset
+                )
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                Logger.library.error("getFlaggedPublications failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -482,33 +505,35 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Import BibTeX into a library.
     public func importBibTeX(_ bibtex: String, libraryId: UUID) -> [UUID] {
-        do {
-            let ids = try store.importBibtex(bibtex: bibtex, libraryId: libraryId.uuidString)
-            didMutate()
-            UserDefaults.standard.set(true, forKey: "needsStartupDedup")
-            let imported = ids.compactMap { UUID(uuidString: $0) }
-            if !ids.isEmpty {
-                let count = ids.count
-                let desc = count == 1 ? "Import Paper" : "Import \(count) Papers"
-                let capturedStore = store
-                let capturedIds = ids
-                UndoCoordinator.shared.registerUndoClosure(
-                    actionName: desc,
-                    undo: { [weak self] in
-                        do {
-                            try capturedStore.deletePublications(ids: capturedIds)
-                            self?.didMutate()
-                        } catch {
-                            Logger.library.error("Undo importBibTeX failed: \(error)")
+        StoreTimings.shared.measure("importBibTeX") {
+            do {
+                let ids = try store.importBibtex(bibtex: bibtex, libraryId: libraryId.uuidString)
+                didMutate()
+                UserDefaults.standard.set(true, forKey: "needsStartupDedup")
+                let imported = ids.compactMap { UUID(uuidString: $0) }
+                if !ids.isEmpty {
+                    let count = ids.count
+                    let desc = count == 1 ? "Import Paper" : "Import \(count) Papers"
+                    let capturedStore = store
+                    let capturedIds = ids
+                    UndoCoordinator.shared.registerUndoClosure(
+                        actionName: desc,
+                        undo: { [weak self] in
+                            do {
+                                try capturedStore.deletePublications(ids: capturedIds)
+                                self?.didMutate()
+                            } catch {
+                                Logger.library.error("Undo importBibTeX failed: \(error)")
+                            }
                         }
-                    }
-                )
+                    )
+                }
+                Logger.library.infoCapture("importBibTeX: imported \(imported.count) entries", category: "import")
+                return imported
+            } catch {
+                Logger.library.errorCapture("importBibTeX failed: \(error)", category: "import")
+                return []
             }
-            Logger.library.infoCapture("importBibTeX: imported \(imported.count) entries", category: "import")
-            return imported
-        } catch {
-            Logger.library.errorCapture("importBibTeX failed: \(error)", category: "import")
-            return []
         }
     }
 
@@ -576,14 +601,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Set read state for publications.
     public func setRead(ids: [UUID], read: Bool) {
-        do {
-            let info = try store.setRead(ids: ids.map(\.uuidString), read: read)
-            didMutate(structural: false)
-            UndoCoordinator.shared.registerUndo(info: info)
-            NotificationCenter.default.post(name: .readStatusDidChange, object: nil,
-                userInfo: ["publicationIDs": ids])
-        } catch {
-            Logger.library.error("setRead failed: \(error)")
+        StoreTimings.shared.measure("setRead") {
+            do {
+                let info = try store.setRead(ids: ids.map(\.uuidString), read: read)
+                didMutate(structural: false, affectedIDs: Set(ids), kind: .readState)
+                UndoCoordinator.shared.registerUndo(info: info)
+            } catch {
+                Logger.library.error("setRead failed: \(error)")
+            }
         }
     }
 
@@ -591,9 +616,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func setStarred(ids: [UUID], starred: Bool) {
         do {
             let info = try store.setStarred(ids: ids.map(\.uuidString), starred: starred)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: Set(ids), kind: .starred)
             UndoCoordinator.shared.registerUndo(info: info)
-            NotificationCenter.default.post(name: .starDidChange, object: nil)
         } catch {
             Logger.library.error("setStarred failed: \(error)")
         }
@@ -603,10 +627,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func setFlag(ids: [UUID], color: String?, style: String? = nil, length: String? = nil) {
         do {
             let info = try store.setFlag(ids: ids.map(\.uuidString), color: color, style: style, length: length)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: Set(ids), kind: .flag)
             UndoCoordinator.shared.registerUndo(info: info)
-            NotificationCenter.default.post(name: .flagDidChange, object: nil,
-                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("setFlag failed: \(error)")
         }
@@ -616,14 +638,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func updateField(id: UUID, field: String, value: String?) {
         do {
             let info = try store.updateField(id: id.uuidString, field: field, value: value)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: [id], kind: .otherField)
             UndoCoordinator.shared.registerUndo(info: info)
-            if batchDepth > 0 {
-                batchChangedFieldIDs.insert(id)
-            } else {
-                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
-                    userInfo: ["publicationIDs": [id]])
-            }
         } catch {
             Logger.library.error("updateField failed: \(error)")
         }
@@ -633,14 +649,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func updateBoolField(id: UUID, field: String, value: Bool) {
         do {
             let info = try store.updateBoolField(id: id.uuidString, field: field, value: value)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: [id], kind: .otherField)
             UndoCoordinator.shared.registerUndo(info: info)
-            if batchDepth > 0 {
-                batchChangedFieldIDs.insert(id)
-            } else {
-                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
-                    userInfo: ["publicationIDs": [id]])
-            }
         } catch {
             Logger.library.error("updateBoolField failed: \(error)")
         }
@@ -650,14 +660,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func updateIntField(id: UUID, field: String, value: Int64?) {
         do {
             let info = try store.updateIntField(id: id.uuidString, field: field, value: value)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: [id], kind: .otherField)
             UndoCoordinator.shared.registerUndo(info: info)
-            if batchDepth > 0 {
-                batchChangedFieldIDs.insert(id)
-            } else {
-                NotificationCenter.default.post(name: .fieldDidChange, object: nil,
-                    userInfo: ["publicationIDs": [id]])
-            }
         } catch {
             Logger.library.error("updateIntField failed: \(error)")
         }
@@ -789,11 +793,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// List all libraries.
     public func listLibraries() -> [LibraryModel] {
-        do {
-            return try store.listLibraries().map { LibraryModel(from: $0) }
-        } catch {
-            Logger.library.error("listLibraries failed: \(error)")
-            return []
+        StoreTimings.shared.measure("listLibraries") {
+            do {
+                return try store.listLibraries().map { LibraryModel(from: $0) }
+            } catch {
+                Logger.library.error("listLibraries failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -810,12 +816,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Get the default library.
     public func getDefaultLibrary() -> LibraryModel? {
-        do {
-            guard let row = try store.getDefaultLibrary() else { return nil }
-            return LibraryModel(from: row)
-        } catch {
-            Logger.library.error("getDefaultLibrary failed: \(error)")
-            return nil
+        StoreTimings.shared.measure("getDefaultLibrary") {
+            do {
+                guard let row = try store.getDefaultLibrary() else { return nil }
+                return LibraryModel(from: row)
+            } catch {
+                Logger.library.error("getDefaultLibrary failed: \(error)")
+                return nil
+            }
         }
     }
 
@@ -951,11 +959,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// List collections in a library.
     public func listCollections(libraryId: UUID) -> [CollectionModel] {
-        do {
-            return try store.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
-        } catch {
-            Logger.library.error("listCollections failed: \(error)")
-            return []
+        StoreTimings.shared.measure("listCollections") {
+            do {
+                return try store.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
+            } catch {
+                Logger.library.error("listCollections failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -986,12 +996,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Add publications to a collection.
     public func addToCollection(publicationIds: [UUID], collectionId: UUID) {
-        do {
-            let info = try store.addToCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
-            didMutate()
-            UndoCoordinator.shared.registerUndo(info: info)
-        } catch {
-            Logger.library.error("addToCollection failed: \(error)")
+        StoreTimings.shared.measure("addToCollection") {
+            do {
+                let info = try store.addToCollection(publicationIds: publicationIds.map(\.uuidString), collectionId: collectionId.uuidString)
+                didMutate()
+                UndoCoordinator.shared.registerUndo(info: info)
+            } catch {
+                Logger.library.error("addToCollection failed: \(error)")
+            }
         }
     }
 
@@ -1042,11 +1054,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// List tag definitions with publication counts (for settings/management).
     public func listTagsWithCounts() -> [TagDefinition] {
-        do {
-            return try store.listTagsWithCounts().map { TagDefinition(from: $0) }
-        } catch {
-            Logger.library.error("listTagsWithCounts failed: \(error)")
-            return []
+        StoreTimings.shared.measure("listTagsWithCounts") {
+            do {
+                return try store.listTagsWithCounts().map { TagDefinition(from: $0) }
+            } catch {
+                Logger.library.error("listTagsWithCounts failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -1076,10 +1090,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func addTag(ids: [UUID], tagPath: String) {
         do {
             let info = try store.addTag(ids: ids.map(\.uuidString), tagPath: tagPath)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: Set(ids), kind: .tag)
             UndoCoordinator.shared.registerUndo(info: info)
-            NotificationCenter.default.post(name: .tagDidChange, object: nil,
-                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("addTag failed: \(error)")
         }
@@ -1089,10 +1101,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func removeTag(ids: [UUID], tagPath: String) {
         do {
             let info = try store.removeTag(ids: ids.map(\.uuidString), tagPath: tagPath)
-            didMutate(structural: false)
+            didMutate(structural: false, affectedIDs: Set(ids), kind: .tag)
             UndoCoordinator.shared.registerUndo(info: info)
-            NotificationCenter.default.post(name: .tagDidChange, object: nil,
-                userInfo: ["publicationIDs": ids])
         } catch {
             Logger.library.error("removeTag failed: \(error)")
         }
@@ -1474,11 +1484,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// List smart searches.
     public func listSmartSearches(libraryId: UUID? = nil) -> [SmartSearch] {
-        do {
-            return try store.listSmartSearches(libraryId: libraryId?.uuidString).map { SmartSearch(from: $0) }
-        } catch {
-            Logger.library.error("listSmartSearches failed: \(error)")
-            return []
+        StoreTimings.shared.measure("listSmartSearches") {
+            do {
+                return try store.listSmartSearches(libraryId: libraryId?.uuidString).map { SmartSearch(from: $0) }
+            } catch {
+                Logger.library.error("listSmartSearches failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -1633,11 +1645,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Check if a paper has been dismissed.
     public func isPaperDismissed(doi: String? = nil, arxivId: String? = nil, bibcode: String? = nil, citeKey: String? = nil) -> Bool {
-        do {
-            return try store.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
-        } catch {
-            Logger.library.error("isPaperDismissed failed: \(error)")
-            return false
+        StoreTimings.shared.measure("isPaperDismissed") {
+            do {
+                return try store.isPaperDismissed(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
+            } catch {
+                Logger.library.error("isPaperDismissed failed: \(error)")
+                return false
+            }
         }
     }
 
@@ -1658,6 +1672,18 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         } catch {
             Logger.library.error("countUnread failed: \(error)")
             return 0
+        }
+    }
+
+    /// Count unread publications in a collection (via Contains-edge join).
+    public func countUnreadInCollection(collectionId: UUID) -> Int {
+        StoreTimings.shared.measure("countUnreadInCollection") {
+            do {
+                return Int(try store.countUnreadInCollection(collectionId: collectionId.uuidString))
+            } catch {
+                Logger.library.error("countUnreadInCollection failed: \(error)")
+                return 0
+            }
         }
     }
 
@@ -1831,6 +1857,131 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             guard let idStr = UserDefaults.standard.string(forKey: "dismissedLibraryID"),
                   let dismissedID = UUID(uuidString: idStr) else { return [] }
             return queryPublications(parentId: dismissedID, sort: sort, ascending: ascending, limit: limit, offset: offset)
+        case .citedInManuscripts:
+            return queryCitedInManuscripts(sort: sort, ascending: ascending, limit: limit, offset: offset)
+        case .combined(let children):
+            return queryCombined(children: children, ascending: ascending, limit: limit, offset: offset)
+        }
+    }
+
+    /// Query the union of multiple child sources. Fetches each child's rows,
+    /// deduplicates by paper UUID (first occurrence wins), sorts by date-added
+    /// (descending unless `ascending` is true), then applies paging.
+    ///
+    /// Honors only the `ascending` flag — `sort` is ignored, matching the
+    /// established pattern for pseudo-sources like `.citedInManuscripts`.
+    /// At scale (5+ libraries with thousands of papers each) this materialises
+    /// the full set in memory; profile and optimise to a Rust-side `Predicate::Or`
+    /// query if the client-side dedup proves slow in practice.
+    /// Cached merged-sorted result for `queryCombined`. Pagination calls slice
+    /// from this cache instead of re-materialising on every page load. The
+    /// cache key encodes the deduplicated set of child viewIDs and the store's
+    /// `dataVersion` — any mutation bumps `dataVersion` and invalidates the cache.
+    private var combinedCache: (key: String, descending: [PublicationRowData])? = nil
+
+    public func queryCombined(
+        children: [PublicationSource],
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
+        StoreTimings.shared.measure("queryCombined") {
+            guard !children.isEmpty else { return [] }
+
+            // Cache key: child viewIDs (set semantics, order-independent) + dataVersion.
+            // Identical re-queries during a scroll session hit the cached merged set.
+            let childKey = children.map { $0.viewID.uuidString }.sorted().joined(separator: "|")
+            let key = "\(childKey)#\(dataVersion)"
+
+            let merged: [PublicationRowData]
+            if let cache = combinedCache, cache.key == key {
+                merged = cache.descending
+            } else {
+                var seen = Set<UUID>()
+                var assembled: [PublicationRowData] = []
+                for child in children {
+                    let rows = queryPublications(for: child, sort: "created", ascending: false, limit: nil, offset: nil)
+                    let label = sourceLabel(for: child)
+                    for row in rows where seen.insert(row.id).inserted {
+                        var tagged = row
+                        if tagged.libraryName == nil { tagged.libraryName = label }
+                        assembled.append(tagged)
+                    }
+                }
+                assembled.sort { $0.dateAdded > $1.dateAdded }
+                combinedCache = (key, assembled)
+                merged = assembled
+            }
+
+            // Slice. Caller may want ascending — reverse the descending cache lazily.
+            let ordered: [PublicationRowData] = ascending ? merged.reversed() : merged
+
+            let startIndex = Int(offset ?? 0)
+            guard startIndex < ordered.count else { return [] }
+            let endIndex: Int
+            if let limit {
+                endIndex = min(ordered.count, startIndex + Int(limit))
+            } else {
+                endIndex = ordered.count
+            }
+            return Array(ordered[startIndex..<endIndex])
+        }
+    }
+
+    /// Display label for a child source in `.combined` rendering. Library
+    /// names are looked up directly; collection names are not yet plumbed
+    /// (no `getCollection(id:)` API on the store) — fall back to "Collection".
+    /// Other source kinds receive a generic label or nil.
+    private func sourceLabel(for source: PublicationSource) -> String? {
+        switch source {
+        case .library(let id):
+            return getLibrary(id: id)?.name
+        case .collection:
+            return "Collection"
+        case .inbox(let id):
+            return getLibrary(id: id)?.name
+        default:
+            return nil
+        }
+    }
+
+    /// Fetch every publication that appears in at least one
+    /// `citation-usage@1.0.0` record written by imprint's tracker.
+    /// Reads the set of cited paper IDs from the live snapshot and
+    /// materializes each via `getPublication(id:)`. Sort/limit/offset
+    /// are applied client-side because the set is in-memory.
+    public func queryCitedInManuscripts(
+        sort: String = "created",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [PublicationRowData] {
+        StoreTimings.shared.measure("queryCitedInManuscripts") {
+            let ids = CitedInManuscriptsSnapshot.shared.citedPaperIDs
+            guard !ids.isEmpty else { return [] }
+            var rows: [PublicationRowData] = []
+            rows.reserveCapacity(ids.count)
+            for id in ids {
+                if let row = getPublication(id: id) {
+                    rows.append(row)
+                }
+            }
+            // Sort by date_modified descending by default; callers
+            // rarely pass a different sort for this pseudo-source.
+            rows.sort { lhs, rhs in
+                let cmp = lhs.dateAdded > rhs.dateAdded
+                return ascending ? !cmp : cmp
+            }
+            // Apply paging semantics if the caller supplied them.
+            let startIndex = Int(offset ?? 0)
+            guard startIndex < rows.count else { return [] }
+            let endIndex: Int
+            if let limit {
+                endIndex = min(rows.count, startIndex + Int(limit))
+            } else {
+                endIndex = rows.count
+            }
+            return Array(rows[startIndex..<endIndex])
         }
     }
 
@@ -1859,6 +2010,15 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                     guard let idStr = UserDefaults.standard.string(forKey: "dismissedLibraryID"),
                           let dismissedID = UUID(uuidString: idStr) else { return 0 }
                     return try store.countPublications(parentId: dismissedID.uuidString)
+                case .citedInManuscripts:
+                    // Snapshot is authoritative — no SQL COUNT needed.
+                    return UInt32(CitedInManuscriptsSnapshot.shared.citedPaperIDs.count)
+                case .combined(let children):
+                    // Reuse queryCombined's cache. Calling with no limit/offset
+                    // returns the full merged set; we just need its count, and
+                    // the Array slice is cheap (it's the cache's storage).
+                    let merged = queryCombined(children: children, ascending: false, limit: nil, offset: nil)
+                    return UInt32(merged.count)
                 }
             }()
             return Int(count)
@@ -1876,18 +2036,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         limit: UInt32? = nil,
         offset: UInt32? = nil
     ) -> [PublicationRowData] {
-        do {
-            let rows = try store.queryScixLibraryPublications(
-                scixLibraryId: scixLibraryId.uuidString,
-                sortField: sort,
-                ascending: ascending,
-                limit: limit,
-                offset: offset
-            )
-            return rows.compactMap { PublicationRowData(from: $0) }
-        } catch {
-            Logger.library.error("queryScixLibraryPublications failed: \(error)")
-            return []
+        StoreTimings.shared.measure("queryScixLibraryPublications") {
+            do {
+                let rows = try store.queryScixLibraryPublications(
+                    scixLibraryId: scixLibraryId.uuidString,
+                    sortField: sort,
+                    ascending: ascending,
+                    limit: limit,
+                    offset: offset
+                )
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                Logger.library.error("queryScixLibraryPublications failed: \(error)")
+                return []
+            }
         }
     }
 
@@ -1932,6 +2094,25 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             updateField(id: id, field: "source_ids_json", value: sourceIdsJson)
         }
         updateIntField(id: id, field: "max_results", value: maxResults)
+    }
+
+    /// Update a smart search's feed settings (save target, retention, etc.).
+    public func updateSmartSearchFeedSettings(
+        id: UUID,
+        saveTargetID: UUID?,
+        showDismissed: Bool,
+        retentionDays: Int?,
+        autoRemoveRead: Bool
+    ) {
+        updateField(id: id, field: "save_target_id", value: saveTargetID?.uuidString)
+        updateBoolField(id: id, field: "show_dismissed", value: showDismissed)
+        updateIntField(id: id, field: "retention_days", value: retentionDays.map { Int64($0) })
+        updateBoolField(id: id, field: "auto_remove_read", value: autoRemoveRead)
+    }
+
+    /// Update just the save target for a smart search.
+    public func updateSmartSearchSaveTarget(id: UUID, saveTargetID: UUID?) {
+        updateField(id: id, field: "save_target_id", value: saveTargetID?.uuidString)
     }
 
     /// Create an inbox feed smart search.
@@ -1990,6 +2171,42 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         )
     }
 
+    /// Create an auto-refreshing feed in a non-inbox library.
+    ///
+    /// Unlike inbox feeds, these don't set `feedsToInbox`. FeedScheduler picks them up
+    /// automatically since they have `autoRefreshEnabled = true`.
+    public func createLibraryFeed(
+        name: String,
+        query: String,
+        sourceIDs: [String],
+        libraryID: UUID,
+        maxResults: Int16? = nil,
+        refreshIntervalSeconds: Int64 = 3600,
+        saveTargetID: UUID? = nil
+    ) -> SmartSearch? {
+        let sourceIdsJson = sourceIDs.isEmpty ? nil : {
+            if let data = try? JSONEncoder().encode(sourceIDs) {
+                return String(data: data, encoding: .utf8)
+            }
+            return nil as String?
+        }()
+        guard let ss = createSmartSearch(
+            name: name,
+            query: query,
+            libraryId: libraryID,
+            sourceIdsJson: sourceIdsJson,
+            maxResults: Int64(maxResults ?? 500),
+            feedsToInbox: false,
+            autoRefreshEnabled: true,
+            refreshIntervalSeconds: refreshIntervalSeconds
+        ) else { return nil }
+
+        if let saveTargetID {
+            updateSmartSearchSaveTarget(id: ss.id, saveTargetID: saveTargetID)
+        }
+        return ss
+    }
+
     /// Create an exploration search.
     public func createExplorationSearch(
         name: String,
@@ -2035,21 +2252,41 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Add a comment to a publication.
-    public func addComment(text: String, to publicationID: UUID, parentCommentID: UUID? = nil) {
-        addCommentToItem(text: text, itemID: publicationID, parentCommentID: parentCommentID)
+    ///
+    /// `authorDisplayName` is the human-readable origin of the comment
+    /// (typically `ImpressKit.CurrentDeviceAuthor.displayName`). Callers
+    /// in the UI layer must pass it explicitly; Rule 7 of ADR-023
+    /// keeps the data layer free of platform-specific lookups.
+    public func addComment(
+        text: String,
+        to publicationID: UUID,
+        authorDisplayName: String?,
+        parentCommentID: UUID? = nil
+    ) {
+        addCommentToItem(
+            text: text,
+            itemID: publicationID,
+            authorDisplayName: authorDisplayName,
+            parentCommentID: parentCommentID
+        )
     }
 
     /// Add a comment to any item (publication, artifact, etc.).
-    public func addCommentToItem(text: String, itemID: UUID, parentCommentID: UUID? = nil) {
-        #if os(macOS)
-        let authorName = Host.current().localizedName
-        #else
-        let authorName: String? = UIDevice.current.name
-        #endif
+    ///
+    /// `authorDisplayName` is the human-readable origin of the comment.
+    /// Pass `ImpressKit.CurrentDeviceAuthor.displayName` from the UI
+    /// layer. See `addComment(text:to:authorDisplayName:)` for the
+    /// rationale.
+    public func addCommentToItem(
+        text: String,
+        itemID: UUID,
+        authorDisplayName: String?,
+        parentCommentID: UUID? = nil
+    ) {
         _ = createCommentOnItem(
             itemId: itemID,
             text: text,
-            authorDisplayName: authorName,
+            authorDisplayName: authorDisplayName,
             parentCommentId: parentCommentID
         )
     }
@@ -2099,14 +2336,12 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         listAssignments().filter { $0.libraryID == libraryID }
     }
 
-    /// List assignments for the current user.
-    public func myAssignments(libraryID: UUID) -> [Assignment] {
-        #if os(macOS)
-        let currentName = Host.current().localizedName ?? ""
-        #else
-        let currentName = UIDevice.current.name
-        #endif
-        return listAssignments().filter { $0.assigneeName == currentName }
+    /// List assignments whose `assigneeName` matches the provided
+    /// `currentUserName`. Callers from the UI layer should pass
+    /// `ImpressKit.CurrentDeviceAuthor.displayName ?? ""` — keeping
+    /// the platform lookup out of the data layer (ADR-023 Rule 7).
+    public func myAssignments(libraryID: UUID, currentUserName: String) -> [Assignment] {
+        listAssignments().filter { $0.assigneeName == currentUserName }
     }
 
     /// Remove an assignment.
@@ -2123,23 +2358,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Suggest a publication to a participant.
+    ///
+    /// `assignedByName` is the human-readable author stamp for the
+    /// assignment (typically `ImpressKit.CurrentDeviceAuthor.displayName`).
+    /// Callers in the UI layer must pass it explicitly — ADR-023
+    /// Rule 7 keeps the data layer free of platform lookups.
     public func suggestPublication(
         publicationID: UUID,
         to assigneeName: String,
         libraryID: UUID,
+        assignedByName: String?,
         note: String? = nil,
         dueDate: Date? = nil
     ) throws {
-        #if os(macOS)
-        let assignedBy = Host.current().localizedName
-        #else
-        let assignedBy: String? = UIDevice.current.name
-        #endif
         let dueDateTimestamp: Int64? = dueDate.map { Int64($0.timeIntervalSince1970 * 1000) }
         _ = createAssignment(
             publicationId: publicationID,
             assigneeName: assigneeName,
-            assignedByName: assignedBy,
+            assignedByName: assignedByName,
             note: note,
             dueDate: dueDateTimestamp
         )
@@ -2302,10 +2538,12 @@ extension RustStoreAdapter {
 
     /// Count all artifacts, optionally filtered by type.
     public func countArtifacts(type: ArtifactType? = nil) -> Int {
-        do {
-            return Int(try store.countArtifacts(schemaFilter: type?.rawValue))
-        } catch {
-            return 0
+        StoreTimings.shared.measure("countArtifacts") {
+            do {
+                return Int(try store.countArtifacts(schemaFilter: type?.rawValue))
+            } catch {
+                return 0
+            }
         }
     }
 
@@ -2361,15 +2599,17 @@ extension RustStoreAdapter {
         arxivIds: [String],
         bibcodes: [String]
     ) -> [PublicationRowData] {
-        do {
-            let rows = try imbibStore.findByIdentifiersBatch(
-                dois: dois,
-                arxivIds: arxivIds,
-                bibcodes: bibcodes
-            )
-            return rows.compactMap { PublicationRowData(from: $0) }
-        } catch {
-            return []
+        StoreTimings.shared.measure("findByIdentifiersBatchBackground") {
+            do {
+                let rows = try imbibStore.findByIdentifiersBatch(
+                    dois: dois,
+                    arxivIds: arxivIds,
+                    bibcodes: bibcodes
+                )
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                return []
+            }
         }
     }
 
@@ -2528,6 +2768,56 @@ extension RustStoreAdapter {
         }
     }
 
+    /// List collections for a library off the main thread.
+    nonisolated public func listCollectionsBackground(libraryId: UUID) -> [CollectionModel] {
+        do {
+            return try imbibStore.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// List collection members off the main thread.
+    nonisolated public func listCollectionMembersBackground(collectionId: UUID) -> [PublicationRowData] {
+        do {
+            let rows = try imbibStore.listCollectionMembers(
+                collectionId: collectionId.uuidString,
+                sortField: "dateAdded",
+                ascending: false,
+                limit: nil,
+                offset: nil
+            )
+            return rows.compactMap { PublicationRowData(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// List SciX libraries off the main thread.
+    nonisolated public func listScixLibrariesBackground() -> [SciXLibrary] {
+        do {
+            return try imbibStore.listScixLibraries().map { SciXLibrary(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
+    /// List SciX library members off the main thread.
+    nonisolated public func listScixLibraryMembersBackground(scixLibraryId: UUID) -> [PublicationRowData] {
+        do {
+            let rows = try imbibStore.queryScixLibraryPublications(
+                scixLibraryId: scixLibraryId.uuidString,
+                sortField: "dateAdded",
+                ascending: false,
+                limit: nil,
+                offset: nil
+            )
+            return rows.compactMap { PublicationRowData(from: $0) }
+        } catch {
+            return []
+        }
+    }
+
     /// Get a single publication off the main thread.
     nonisolated public func getPublicationBackground(id: UUID) -> PublicationRowData? {
         do {
@@ -2547,15 +2837,33 @@ extension RustStoreAdapter {
         }
     }
 
+    /// List tag definitions with publication counts off the main thread.
+    nonisolated public func listTagsWithCountsBackground() -> [TagDefinition] {
+        StoreTimings.shared.measure("listTagsWithCountsBackground") {
+            do {
+                return try imbibStore.listTagsWithCounts().map { TagDefinition(from: $0) }
+            } catch {
+                return []
+            }
+        }
+    }
+
+    /// Count unread publications in a collection off the main thread (Contains-edge join).
+    nonisolated public func countUnreadInCollectionBackground(collectionId: UUID) -> Int {
+        StoreTimings.shared.measure("countUnreadInCollectionBackground") {
+            do {
+                return Int(try imbibStore.countUnreadInCollection(collectionId: collectionId.uuidString))
+            } catch {
+                return 0
+            }
+        }
+    }
+
     /// Bump dataVersion and post a single storeDidMutate notification from background work.
     /// Must be called on @MainActor after all background mutations are complete.
     @MainActor public func notifyMutationFromBackground() {
         dataVersion += 1
-        NotificationCenter.default.post(
-            name: .storeDidMutate,
-            object: nil,
-            userInfo: ["structural": true]
-        )
+        ImbibImpressStore.shared.postMutation(structural: true)
     }
 }
 

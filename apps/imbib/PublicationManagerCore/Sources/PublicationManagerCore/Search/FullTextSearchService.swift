@@ -191,14 +191,41 @@ public actor FullTextSearchService {
 
         Logger.search.infoCapture("Rebuilding search index...", category: "search")
 
-        // Fetch ALL publication data in one batch via background store access.
-        // This avoids 4000 individual MainActor.run hops that blocked startup for ~3 minutes.
+        // Fetch ALL publication data via background store access.
+        // Includes papers from libraries (HasParent edges), collections (Contains edges),
+        // and SciX libraries (Contains edges) to ensure complete FTS coverage.
         let adapter = await MainActor.run { RustStoreAdapter.shared }
-        let libraries = adapter.listLibrariesBackground()
+        var indexedIDs = Set<UUID>()
         var allPubs: [PublicationRowData] = []
+
+        // 1. Library direct members (HasParent edges)
+        let libraries = adapter.listLibrariesBackground()
         for library in libraries {
             let pubs = adapter.queryPublicationsBackground(parentId: library.id)
-            allPubs.append(contentsOf: pubs)
+            for pub in pubs where !indexedIDs.contains(pub.id) {
+                indexedIDs.insert(pub.id)
+                allPubs.append(pub)
+            }
+
+            // 2. Collection members within each library (Contains edges)
+            let collections = adapter.listCollectionsBackground(libraryId: library.id)
+            for collection in collections {
+                let members = adapter.listCollectionMembersBackground(collectionId: collection.id)
+                for pub in members where !indexedIDs.contains(pub.id) {
+                    indexedIDs.insert(pub.id)
+                    allPubs.append(pub)
+                }
+            }
+        }
+
+        // 3. SciX library members (Contains edges)
+        let scixLibraries = adapter.listScixLibrariesBackground()
+        for scixLib in scixLibraries {
+            let members = adapter.listScixLibraryMembersBackground(scixLibraryId: scixLib.id)
+            for pub in members where !indexedIDs.contains(pub.id) {
+                indexedIDs.insert(pub.id)
+                allPubs.append(pub)
+            }
         }
 
         // Convert all pubs to Rust Publication structs on the Swift side,

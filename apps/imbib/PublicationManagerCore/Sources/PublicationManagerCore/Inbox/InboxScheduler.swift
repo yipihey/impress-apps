@@ -139,10 +139,16 @@ public actor InboxScheduler {
         let name = await withStore { $0.getSmartSearch(id: smartSearchID)?.name ?? "unknown" }
         Logger.inbox.infoCapture("Manual refresh of feed: \(name)", category: "scheduler")
 
-        await SmartSearchRefreshService.shared.queueRefreshByID(smartSearchID, priority: .high)
-        lastRefreshTimes[smartSearchID] = Date()
-
-        return 0
+        // Direct fetch for the specific feed
+        do {
+            let count = try await paperFetchService.fetchForInbox(smartSearchID: smartSearchID)
+            lastRefreshTimes[smartSearchID] = Date()
+            return count
+        } catch {
+            Logger.inbox.errorCapture("Failed to refresh feed \(smartSearchID): \(error.localizedDescription)", category: "scheduler")
+            lastRefreshTimes[smartSearchID] = Date()
+            return 0
+        }
     }
 
     // MARK: - Status
@@ -252,13 +258,19 @@ public actor InboxScheduler {
             category: "inbox"
         )
 
+        var totalFetched = 0
         for feed in dueFeeds {
-            await SmartSearchRefreshService.shared.queueRefreshByID(feed.id, priority: .low)
+            do {
+                let count = try await paperFetchService.fetchForInbox(smartSearchID: feed.id)
+                totalFetched += count
+            } catch {
+                Logger.inbox.errorCapture("Failed to refresh feed '\(feed.name)': \(error.localizedDescription)", category: "inbox")
+            }
             lastRefreshTimes[feed.id] = Date()
         }
 
         Logger.inbox.infoCapture(
-            "Queued \(dueFeeds.count) feeds for staggered background refresh",
+            "Refreshed \(dueFeeds.count) feeds, fetched \(totalFetched) papers",
             category: "inbox"
         )
 

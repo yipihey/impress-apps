@@ -571,6 +571,13 @@ public final class AttachmentManager {
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 return legacyURL
             }
+            // File not found at any known location. Return the primary URL
+            // (callers may still act on it, e.g. reveal the parent folder),
+            // but surface the miss so it isn't silent.
+            Logger.files.warningCapture(
+                "resolveURL: linked file '\(linkedFile.filename)' not found — checked container=\(libContainerURL.path), alt=\(altSandboxURL?.path ?? "n/a"), legacy=\(legacyURL.path)",
+                category: "files"
+            )
             return libContainerURL
         }
 

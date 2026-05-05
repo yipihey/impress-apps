@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 import ImbibRustCore
 
 /// A remote SciX (ADS) library synced to the local store.
@@ -24,7 +25,12 @@ public struct SciXLibrary: Identifiable, Hashable, Sendable {
     public let sortOrder: Int
 
     public init(from row: SciXLibraryRow) {
-        self.id = UUID(uuidString: row.id) ?? UUID()
+        if let parsed = UUID(uuidString: row.id) {
+            self.id = parsed
+        } else {
+            Logger.scix.error("SciXLibrary: invalid UUID from Rust store: '\(row.id)' for library '\(row.name)' — using random fallback")
+            self.id = UUID()
+        }
         self.remoteID = row.remoteId
         self.name = row.name
         self.description = row.description

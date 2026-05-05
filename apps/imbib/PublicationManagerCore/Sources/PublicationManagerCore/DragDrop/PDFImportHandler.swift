@@ -663,49 +663,31 @@ public final class PDFImportHandler {
     }
 
     /// Create a new publication from preview via BibTeX import.
+    ///
+    /// Flow (two-step, deliberate ordering):
+    ///   1. Synthesize a minimal placeholder BibTeX and import it — creates
+    ///      the publication record we need as a target for `importPDF`.
+    ///   2. Run `attachmentManager.importPDF` to copy the file into
+    ///      `Libraries/<uuid>/Papers/<filename>` and register the linked
+    ///      file.
+    ///   3. Synthesize the *final* BibTeX — this time including a
+    ///      `file = {Papers/<filename>}` field, so Bdsk-compatible tools
+    ///      and imbib's own "Show in Finder" fallback (via bibtex parse)
+    ///      can always locate the PDF.
+    ///   4. Verify the publication's stored `rawBibTeX` is non-empty; log
+    ///      a warning if the Rust canonicalizer dropped it so we can
+    ///      diagnose future regressions.
     @discardableResult
     private func createPublicationFromPreview(_ preview: PDFImportPreview, libraryID: UUID) async throws -> UUID {
-        let bibtex: String
-        if let enrichedBibtex = preview.enrichedMetadata?.bibtex {
-            bibtex = enrichedBibtex
-        } else {
-            let citeKey = generateCiteKey(
-                author: preview.effectiveAuthors.first,
-                year: preview.effectiveYear,
-                title: preview.effectiveTitle
-            )
-            let entryType = (preview.enrichedMetadata?.journal != nil) ? "article" : "misc"
-            var fields: [String] = []
-            if let title = preview.effectiveTitle {
-                fields.append("  title = {\(title)}")
-            }
-            if !preview.effectiveAuthors.isEmpty {
-                fields.append("  author = {\(preview.effectiveAuthors.joined(separator: " and "))}")
-            }
-            if let year = preview.effectiveYear {
-                fields.append("  year = {\(year)}")
-            }
-            if let doi = preview.effectiveDOI {
-                fields.append("  doi = {\(doi)}")
-            }
-            if let arxiv = preview.effectiveArXivID {
-                fields.append("  eprint = {\(arxiv)}")
-            }
-            if let journal = preview.enrichedMetadata?.journal {
-                fields.append("  journal = {\(journal)}")
-            }
-            if let abstract = preview.enrichedMetadata?.abstract ?? preview.extractedMetadata?.firstPageText?.prefix(500).description {
-                let escaped = abstract.replacingOccurrences(of: "{", with: "\\{").replacingOccurrences(of: "}", with: "\\}")
-                fields.append("  abstract = {\(escaped)}")
-            }
-            bibtex = "@\(entryType){\(citeKey),\n\(fields.joined(separator: ",\n"))\n}"
-        }
+        // Step 1: synthesize placeholder BibTeX (no file field yet).
+        let initialBibtex = Self.synthesizeBibTeX(from: preview, fileRelativePath: nil)
 
-        let importedIDs = store.importBibTeX(bibtex, libraryId: libraryID)
+        let importedIDs = store.importBibTeX(initialBibtex, libraryId: libraryID)
         guard let newID = importedIDs.first else {
             throw DragDropError.importFailed
         }
 
+        // Step 2: copy PDF into the library.
         let linkedFile = try attachmentManager.importPDF(
             from: preview.sourceURL,
             for: newID,
@@ -713,6 +695,31 @@ public final class PDFImportHandler {
         )
 
         Logger.files.infoCapture("Created publication with PDF: \(newID)", category: "files")
+
+        // Step 3: re-synthesize BibTeX with the final file field so the
+        // record is Bdsk-compatible and self-describing. We reimport it
+        // under the same publication (via importBibTeX's cite-key-based
+        // dedup) — the Rust side updates the existing row in place.
+        if preview.enrichedMetadata?.bibtex == nil,
+           let relativePath = linkedFile.relativePath {
+            let finalBibtex = Self.synthesizeBibTeX(from: preview, fileRelativePath: relativePath)
+            // Deduplicator will see the same cite key and update the row
+            // rather than inserting a duplicate. (If it does insert, the
+            // store's subsequent detail read will still surface the
+            // correct bibtex for the new row.)
+            _ = store.importBibTeX(finalBibtex, libraryId: libraryID)
+        }
+
+        // Step 4: sanity-check that the publication has a non-empty bibtex.
+        // If the canonicalizer dropped it despite our synthesis, log so
+        // future regressions are visible.
+        if let detail = store.getPublicationDetail(id: newID),
+           (detail.rawBibTeX ?? "").isEmpty {
+            Logger.files.warningCapture(
+                "Imported publication \(newID) has empty rawBibTeX — synthesis may have been dropped by parser/canonicalizer",
+                category: "files"
+            )
+        }
 
         let pubID = newID
         let libID = libraryID
@@ -826,7 +833,7 @@ public final class PDFImportHandler {
         }
     }
 
-    private func generateCiteKey(author: String?, year: Int?, title: String?) -> String {
+    private static func generateCiteKey(author: String?, year: Int?, title: String?) -> String {
         let authorPart: String
         if let author {
             let parts = author.components(separatedBy: " ")
@@ -856,6 +863,87 @@ public final class PDFImportHandler {
             .joined()
 
         return sanitized.isEmpty ? "import\(UUID().uuidString.prefix(8))" : sanitized
+    }
+
+    // MARK: - BibTeX Synthesis
+
+    /// Build the BibTeX entry for a drag-dropped PDF from whatever metadata
+    /// the preview has.
+    ///
+    /// Always emits a non-empty `@<type>{citeKey, …}` block with at least
+    /// a title field (the cite key is unique). `fileRelativePath`, when
+    /// non-nil, is emitted as a `file = {Papers/…}` field so the
+    /// downstream record is Bdsk-compatible and "Show in Finder" has a
+    /// secondary source of truth when the linked-file record is missing.
+    ///
+    /// Prefers `preview.enrichedMetadata?.bibtex` when available — that
+    /// path runs when ADS/Crossref enrichment succeeded and gives us a
+    /// full proper entry. Otherwise synthesizes from effective fields.
+    private static func synthesizeBibTeX(
+        from preview: PDFImportPreview,
+        fileRelativePath: String?
+    ) -> String {
+        // Happy path: enrichment produced a full BibTeX string.
+        if let enriched = preview.enrichedMetadata?.bibtex,
+           !enriched.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // If we have a file path and the enriched bibtex doesn't
+            // mention it yet, append it just before the closing brace.
+            if let path = fileRelativePath,
+               enriched.range(of: #"file\s*="#, options: .regularExpression) == nil {
+                return Self.appendFileField(to: enriched, relativePath: path)
+            }
+            return enriched
+        }
+
+        // Synthesis path — at minimum always emit a title.
+        let citeKey = generateCiteKey(
+            author: preview.effectiveAuthors.first,
+            year: preview.effectiveYear,
+            title: preview.effectiveTitle
+        )
+        let entryType = (preview.enrichedMetadata?.journal != nil) ? "article" : "misc"
+        let title = preview.effectiveTitle ?? "Untitled PDF (\(preview.filename))"
+
+        var fields: [String] = []
+        fields.append("  title = {\(title)}")
+        if !preview.effectiveAuthors.isEmpty {
+            fields.append("  author = {\(preview.effectiveAuthors.joined(separator: " and "))}")
+        }
+        if let year = preview.effectiveYear {
+            fields.append("  year = {\(year)}")
+        }
+        if let doi = preview.effectiveDOI {
+            fields.append("  doi = {\(doi)}")
+        }
+        if let arxiv = preview.effectiveArXivID {
+            fields.append("  eprint = {\(arxiv)}")
+        }
+        if let journal = preview.enrichedMetadata?.journal {
+            fields.append("  journal = {\(journal)}")
+        }
+        if let abstract = preview.enrichedMetadata?.abstract
+            ?? preview.extractedMetadata?.firstPageText?.prefix(500).description {
+            let escaped = abstract
+                .replacingOccurrences(of: "{", with: "\\{")
+                .replacingOccurrences(of: "}", with: "\\}")
+            fields.append("  abstract = {\(escaped)}")
+        }
+        if let path = fileRelativePath {
+            fields.append("  file = {\(path)}")
+        }
+        return "@\(entryType){\(citeKey),\n\(fields.joined(separator: ",\n"))\n}"
+    }
+
+    /// Insert a `file = {path}` field just before the closing `}` of a
+    /// bibtex entry. No-op if the input looks malformed.
+    private static func appendFileField(to bibtex: String, relativePath: String) -> String {
+        guard let lastBrace = bibtex.range(of: "}", options: .backwards) else {
+            return bibtex
+        }
+        let insertion = ",\n  file = {\(relativePath)}\n"
+        var out = bibtex
+        out.replaceSubrange(lastBrace, with: insertion + "}")
+        return out
     }
 
     // MARK: - Post-Import Processing

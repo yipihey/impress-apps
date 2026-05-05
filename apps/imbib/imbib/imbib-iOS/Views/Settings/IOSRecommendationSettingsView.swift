@@ -9,19 +9,46 @@ import SwiftUI
 import PublicationManagerCore
 
 /// iOS settings view for the recommendation engine.
+///
+/// Two-tier UX matching the macOS version: simple mode (toggle + mode + variety)
+/// with an advanced disclosure group for per-feature weight tuning.
 struct IOSRecommendationSettingsView: View {
-
-    // MARK: - Environment
-
-    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
 
     @State private var settings = RecommendationSettingsStore.Settings()
     @State private var isLoading = true
-    @State private var isBuildingIndex = false
-    @State private var indexedCount = 0
     @State private var showingTrainingHistory = false
+
+    // MARK: - Derived State
+
+    private var varietySliderValue: Binding<Double> {
+        Binding(
+            get: {
+                let clamped = Double(max(3, min(50, settings.serendipitySlotFrequency)))
+                return 1.0 - (clamped - 3.0) / 47.0
+            },
+            set: { newValue in
+                let freq = Int(round(50.0 - newValue * 47.0))
+                settings.serendipitySlotFrequency = max(3, min(50, freq))
+            }
+        )
+    }
+
+    private var activePreset: RecommendationPreset? {
+        for preset in RecommendationPreset.allCases {
+            var matches = true
+            for (feature, presetWeight) in preset.weights where !feature.isMuteFilter {
+                let currentWeight = settings.weight(for: feature)
+                if abs(currentWeight - presetWeight) > 0.15 {
+                    matches = false
+                    break
+                }
+            }
+            if matches { return preset }
+        }
+        return nil
+    }
 
     // MARK: - Body
 
@@ -29,103 +56,101 @@ struct IOSRecommendationSettingsView: View {
         List {
             // Enable/Disable
             Section {
-                Toggle("Enable Recommendations", isOn: $settings.isEnabled)
+                Toggle("Enable recommendation training", isOn: $settings.isEnabled)
             } footer: {
-                Text("Sort Inbox by 'Recommended' to see papers ranked by predicted relevance.")
+                Text("When enabled, imbib learns from your keep/dismiss/star actions. A 'Recommended' sort option appears in the list view.")
             }
 
-            // Engine Type Selection
-            Section {
-                Picker("Engine Type", selection: $settings.engineType) {
-                    ForEach(RecommendationEngineType.allCases) { engineType in
-                        Label(engineType.displayName, systemImage: engineType.icon)
-                            .tag(engineType)
-                    }
-                }
-
-                // Engine description
-                Text(settings.engineType.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                // Build index button for semantic/hybrid modes
-                if settings.engineType.requiresEmbeddings {
-                    Button {
-                        buildIndex()
-                    } label: {
-                        HStack {
-                            if isBuildingIndex {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Building Index...")
-                            } else {
-                                Label("Build Similarity Index", systemImage: "arrow.triangle.2.circlepath")
-                            }
-                            Spacer()
-                            if indexedCount > 0 {
-                                Text("\(indexedCount) papers")
-                                    .foregroundStyle(.secondary)
-                            }
+            if settings.isEnabled {
+                // Mode Picker
+                Section {
+                    Picker("Mode", selection: modeBinding) {
+                        ForEach(RecommendationPreset.allCases, id: \.self) { preset in
+                            Label(preset.displayName, systemImage: preset.icon)
+                                .tag(preset)
                         }
                     }
-                    .disabled(isBuildingIndex)
+                    .pickerStyle(.segmented)
+
+                    if let preset = activePreset {
+                        Text(preset.description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Mode")
                 }
-            } header: {
-                Text("Engine Type")
-            } footer: {
-                if settings.engineType.requiresEmbeddings {
-                    Text("AI-powered modes use semantic similarity to find related papers.")
-                }
-            }
 
-            // Discovery Settings
-            Section("Discovery") {
-                Stepper(
-                    "Serendipity: 1 per \(settings.serendipitySlotFrequency)",
-                    value: $settings.serendipitySlotFrequency,
-                    in: 3...50
-                )
-
-                Stepper(
-                    "Decay: \(settings.negativePrefDecayDays) days",
-                    value: $settings.negativePrefDecayDays,
-                    in: 7...365
-                )
-            }
-
-            // Presets
-            Section("Presets") {
-                ForEach([RecommendationPreset.focused, .balanced, .exploratory, .research], id: \.self) { preset in
-                    Button {
-                        settings.apply(preset: preset)
-                    } label: {
+                // Variety Slider
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Variety")
                         HStack {
-                            Image(systemName: presetIcon(preset))
-                                .frame(width: 24)
-                            VStack(alignment: .leading) {
-                                Text(preset.displayName)
-                                Text(preset.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("Less")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Slider(value: varietySliderValue, in: 0...1, step: 0.05)
+                            Text("More")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .foregroundStyle(.primary)
-                }
-            }
-
-            // Training History
-            Section {
-                Button {
-                    showingTrainingHistory = true
-                } label: {
-                    Label("Training History", systemImage: "clock.arrow.circlepath")
+                } footer: {
+                    Text("How often to include papers from outside your usual reading")
                 }
 
-                Button("Reset to Defaults", role: .destructive) {
-                    Task {
-                        await RecommendationSettingsStore.shared.resetToDefaults()
-                        settings = await RecommendationSettingsStore.shared.settings()
+                // Training History
+                Section {
+                    Button {
+                        showingTrainingHistory = true
+                    } label: {
+                        Label("Training History", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
+                // Advanced
+                Section {
+                    DisclosureGroup("Advanced Settings") {
+                        ForEach(FeatureType.tunableFeatures, id: \.self) { feature in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(feature.displayName)
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text(String(format: "%.1f", settings.weight(for: feature)))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Slider(
+                                    value: Binding(
+                                        get: { settings.weight(for: feature) },
+                                        set: { settings.setWeight($0, for: feature) }
+                                    ),
+                                    in: 0.0...2.0,
+                                    step: 0.1
+                                )
+                            }
+                            .padding(.vertical, 2)
+                        }
+
+                        Stepper(
+                            "Serendipity: 1 per \(settings.serendipitySlotFrequency)",
+                            value: $settings.serendipitySlotFrequency,
+                            in: 3...50
+                        )
+
+                        Stepper(
+                            "Decay: \(settings.negativePrefDecayDays) days",
+                            value: $settings.negativePrefDecayDays,
+                            in: 7...365
+                        )
+
+                        Button("Reset to Defaults", role: .destructive) {
+                            Task {
+                                await RecommendationSettingsStore.shared.resetToDefaults()
+                                settings = await RecommendationSettingsStore.shared.settings()
+                            }
+                        }
                     }
                 }
             }
@@ -133,7 +158,6 @@ struct IOSRecommendationSettingsView: View {
         .navigationTitle("Recommendations")
         .task {
             settings = await RecommendationSettingsStore.shared.settings()
-            indexedCount = await EmbeddingService.shared.indexedCount()
             isLoading = false
         }
         .onChange(of: settings) { _, newSettings in
@@ -149,27 +173,13 @@ struct IOSRecommendationSettingsView: View {
 
     // MARK: - Helpers
 
-    private func buildIndex() {
-        Task {
-            isBuildingIndex = true
-            // Index all libraries except "Dismissed" and system libraries
-            let librariesToIndex = libraryManager.libraries.filter { library in
-                let name = library.name.lowercased()
-                return name != "dismissed" && !library.isSystemLibrary
+    private var modeBinding: Binding<RecommendationPreset> {
+        Binding(
+            get: { activePreset ?? .balanced },
+            set: { preset in
+                settings.apply(preset: preset)
             }
-            indexedCount = await RecommendationEngine.shared.buildEmbeddingIndex(from: librariesToIndex)
-            isBuildingIndex = false
-        }
-    }
-
-    private func presetIcon(_ preset: RecommendationPreset) -> String {
-        switch preset {
-        case .focused: return "scope"
-        case .balanced: return "scale.3d"
-        case .exploratory: return "binoculars"
-        case .research: return "text.book.closed"
-        case .defaults: return "arrow.counterclockwise"
-        }
+        )
     }
 }
 

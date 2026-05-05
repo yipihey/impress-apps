@@ -34,10 +34,10 @@ final class RecommendationSettingsTests: XCTestCase {
     func testWeightForFeature() {
         var settings = RecommendationSettingsStore.Settings()
 
-        let originalWeight = settings.weight(for: .authorStarred)
-        settings.setWeight(1.5, for: .authorStarred)
+        let originalWeight = settings.weight(for: .authorAffinity)
+        settings.setWeight(1.5, for: .authorAffinity)
 
-        XCTAssertEqual(settings.weight(for: .authorStarred), 1.5)
+        XCTAssertEqual(settings.weight(for: .authorAffinity), 1.5)
         XCTAssertNotEqual(originalWeight, 1.5)
     }
 
@@ -45,14 +45,14 @@ final class RecommendationSettingsTests: XCTestCase {
         var settings = RecommendationSettingsStore.Settings()
 
         // Modify some weights
-        settings.setWeight(999.0, for: .authorStarred)
+        settings.setWeight(999.0, for: .authorAffinity)
         settings.setWeight(-999.0, for: .mutedAuthor)
 
         // Reset
         settings.resetToDefaults()
 
         // Verify reset to default values
-        XCTAssertEqual(settings.weight(for: .authorStarred), FeatureType.authorStarred.defaultWeight)
+        XCTAssertEqual(settings.weight(for: .authorAffinity), FeatureType.authorAffinity.defaultWeight)
         XCTAssertEqual(settings.weight(for: .mutedAuthor), FeatureType.mutedAuthor.defaultWeight)
     }
 
@@ -62,8 +62,8 @@ final class RecommendationSettingsTests: XCTestCase {
         settings.apply(preset: .focused)
 
         // Focused preset should have high author weight
-        let focusedAuthorWeight = RecommendationPreset.focused.weights[.authorStarred] ?? 0
-        XCTAssertEqual(settings.weight(for: .authorStarred), focusedAuthorWeight)
+        let focusedAuthorWeight = RecommendationPreset.focused.weights[.authorAffinity] ?? 0
+        XCTAssertEqual(settings.weight(for: .authorAffinity), focusedAuthorWeight)
     }
 
     func testSettingsEquality() {
@@ -73,14 +73,14 @@ final class RecommendationSettingsTests: XCTestCase {
         XCTAssertEqual(settings1, settings2)
 
         var settings3 = RecommendationSettingsStore.Settings()
-        settings3.setWeight(999.0, for: .authorStarred)
+        settings3.setWeight(999.0, for: .authorAffinity)
 
         XCTAssertNotEqual(settings1, settings3)
     }
 
     func testSettingsCodable() throws {
         var original = RecommendationSettingsStore.Settings()
-        original.setWeight(1.234, for: .authorStarred)
+        original.setWeight(1.234, for: .authorAffinity)
         original.serendipitySlotFrequency = 15
         original.isEnabled = false
 
@@ -90,9 +90,17 @@ final class RecommendationSettingsTests: XCTestCase {
         let decoder = JSONDecoder()
         let decoded = try decoder.decode(RecommendationSettingsStore.Settings.self, from: data)
 
-        XCTAssertEqual(decoded.weight(for: .authorStarred), 1.234)
+        XCTAssertEqual(decoded.weight(for: .authorAffinity), 1.234)
         XCTAssertEqual(decoded.serendipitySlotFrequency, 15)
         XCTAssertFalse(decoded.isEnabled)
+    }
+
+    func testNoEngineTypeInSettings() {
+        // Engine type was removed — Settings struct should not have it
+        let settings = RecommendationSettingsStore.Settings()
+        let mirror = Mirror(reflecting: settings)
+        let propertyNames = mirror.children.compactMap { $0.label }
+        XCTAssertFalse(propertyNames.contains("engineType"), "engineType should be removed from Settings")
     }
 
     // MARK: - Serendipity Frequency Tests

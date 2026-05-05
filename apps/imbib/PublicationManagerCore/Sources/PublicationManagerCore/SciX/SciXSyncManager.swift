@@ -158,23 +158,15 @@ public actor SciXSyncManager {
         let papers = try await fetchPapersFromADS(bibcodes: bibcodes)
         Logger.scix.infoCapture("SciX sync: fetched \(papers.count) papers from ADS for \(bibcodes.count) bibcodes", category: "scix")
 
-        // Cache papers locally and link to library
-        await MainActor.run {
+        // Resolve library ID on MainActor (quick lookup)
+        let libraryInfo: (id: UUID, name: String, importLibraryID: UUID?)? = await MainActor.run {
             let store = RustStoreAdapter.shared
-
             guard let library = SciXLibraryRepository.shared.findLibrary(remoteID: libraryID) else {
                 Logger.scix.errorCapture("SciX sync: library not found for remoteID \(libraryID)", category: "scix")
-                return
+                return nil
             }
 
-            Logger.scix.infoCapture("SciX sync: resolved library '\(library.name)' (id: \(library.id))", category: "scix")
-
-            // Batch all mutations — single notification at end
-            store.beginBatchMutation()
-
-            // Resolve a library for importing new papers:
-            // default library → first non-special library → inbox
-            let importLibraryID: UUID? = {
+            let importLibID: UUID? = {
                 if let lib = store.getDefaultLibrary() { return lib.id }
                 let allLibs = store.listLibraries()
                 let regular = allLibs.first { !$0.isInbox && $0.name != "Dismissed" }
@@ -186,76 +178,102 @@ public actor SciXSyncManager {
                 return nil
             }()
 
-            // Import papers via BibTeX and link to library
+            return (library.id, library.name, importLibID)
+        }
+
+        guard let info = libraryInfo else { return }
+
+        Logger.scix.infoCapture("SciX sync: resolved library '\(info.name)' (id: \(info.id))", category: "scix")
+
+        // Do all heavy work (find-by-identifier, BibTeX import) off the main thread
+        let store = await MainActor.run { RustStoreAdapter.shared }
+        let capturedPapers = papers
+        let capturedInfo = info
+
+        let importResult: (importedIDs: [UUID], foundByBibcode: Int, foundByDoi: Int, importedNew: Int, importFailed: Int) = await Task.detached(priority: .userInitiated) {
+            // Batch-resolve existing papers by identifiers (single query)
+            let allBibcodes = capturedPapers.compactMap(\.bibcode)
+            let allDois = capturedPapers.compactMap(\.doi)
+            let existingByIdentifier = store.findByIdentifiersBatchBackground(
+                dois: allDois,
+                arxivIds: [],
+                bibcodes: allBibcodes
+            )
+
+            // Build lookup maps for O(1) matching
+            var bibcodeMap: [String: UUID] = [:]
+            var doiMap: [String: UUID] = [:]
+            for pub in existingByIdentifier {
+                if let bc = pub.bibcode, !bc.isEmpty { bibcodeMap[bc] = pub.id }
+                if let doi = pub.doi, !doi.isEmpty { doiMap[doi] = pub.id }
+            }
+
             var importedIDs: [UUID] = []
             var foundByBibcode = 0
             var foundByDoi = 0
             var importedNew = 0
             var importFailed = 0
 
-            for paper in papers {
-                // Try to find existing by bibcode first
-                if let bibcode = paper.bibcode {
-                    let existing = store.findByBibcode(bibcode: bibcode)
-                    if let first = existing.first {
-                        importedIDs.append(first.id)
-                        foundByBibcode += 1
-                        continue
-                    }
+            for paper in capturedPapers {
+                // Try to find existing by bibcode
+                if let bibcode = paper.bibcode, let existingID = bibcodeMap[bibcode] {
+                    importedIDs.append(existingID)
+                    foundByBibcode += 1
+                    continue
                 }
 
                 // Try by DOI
-                if let doi = paper.doi {
-                    let existing = store.findByDoi(doi: doi)
-                    if let first = existing.first {
-                        importedIDs.append(first.id)
-                        foundByDoi += 1
-                        continue
-                    }
+                if let doi = paper.doi, let existingID = doiMap[doi] {
+                    importedIDs.append(existingID)
+                    foundByDoi += 1
+                    continue
                 }
 
-                // Create new publication via BibTeX import
-                if let libID = importLibraryID {
+                // Create new publication via BibTeX import (off main thread)
+                if let libID = capturedInfo.importLibraryID {
                     let bibtex = self.searchResultToBibTeX(paper)
-                    let ids = store.importBibTeX(bibtex, libraryId: libID)
+                    let ids = store.importBibTeXBackground(bibtex, libraryId: libID)
                     if ids.isEmpty {
                         importFailed += 1
-                        Logger.scix.warningCapture("SciX sync: BibTeX import returned 0 IDs for '\(paper.title.prefix(60))'", category: "scix")
                     } else {
                         importedNew += ids.count
                         importedIDs.append(contentsOf: ids)
                     }
                 } else {
                     importFailed += 1
-                    if importedIDs.isEmpty && importFailed == 1 {
-                        Logger.scix.errorCapture("SciX sync: no library available for import — all new papers will fail", category: "scix")
-                    }
                 }
             }
 
-            Logger.scix.infoCapture("SciX sync: resolved \(importedIDs.count) papers — bibcode: \(foundByBibcode), doi: \(foundByDoi), new: \(importedNew), failed: \(importFailed)", category: "scix")
+            return (importedIDs, foundByBibcode, foundByDoi, importedNew, importFailed)
+        }.value
 
-            // Add all publications to the SciX library
-            if !importedIDs.isEmpty {
-                Logger.scix.infoCapture("SciX sync: linking \(importedIDs.count) pubs to library \(library.id) (\(library.name))", category: "scix")
-                store.addToScixLibrary(publicationIds: importedIDs, scixLibraryId: library.id)
+        Logger.scix.infoCapture("SciX sync: resolved \(importResult.importedIDs.count) papers — bibcode: \(importResult.foundByBibcode), doi: \(importResult.foundByDoi), new: \(importResult.importedNew), failed: \(importResult.importFailed)", category: "scix")
+
+        // Final step: link to SciX library and update metadata (brief MainActor hop)
+        await MainActor.run {
+            let store = RustStoreAdapter.shared
+
+            store.beginBatchMutation()
+
+            if !importResult.importedIDs.isEmpty {
+                Logger.scix.infoCapture("SciX sync: linking \(importResult.importedIDs.count) pubs to library \(info.id) (\(info.name))", category: "scix")
+                store.addToScixLibrary(publicationIds: importResult.importedIDs, scixLibraryId: info.id)
             } else {
                 Logger.scix.warningCapture("SciX sync: importedIDs is empty — no edges will be created", category: "scix")
             }
 
-            // Update library metadata
-            store.updateIntField(id: library.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
-            store.updateIntField(id: library.id, field: "document_count", value: Int64(papers.count))
-            store.updateField(id: library.id, field: "sync_state", value: "synced")
+            store.updateIntField(id: info.id, field: "last_sync_date", value: Int64(Date().timeIntervalSince1970 * 1000))
+            store.updateIntField(id: info.id, field: "document_count", value: Int64(papers.count))
+            store.updateField(id: info.id, field: "sync_state", value: "synced")
 
             store.endBatchMutation()
 
             // Verify edges were created
-            if let updated = store.getScixLibrary(id: library.id) {
+            if let updated = store.getScixLibrary(id: info.id) {
                 let edgeCount = updated.publicationCount
                 Logger.scix.infoCapture("SciX sync: VERIFY library '\(updated.name)' — documentCount=\(updated.documentCount), publicationCount(edges)=\(edgeCount)", category: "scix")
-                if edgeCount == 0 && !importedIDs.isEmpty {
-                    Logger.scix.errorCapture("SciX sync: BUG — linked \(importedIDs.count) pubs but publicationCount is 0! Edges not persisted.", category: "scix")
+                if edgeCount == 0 && !importResult.importedIDs.isEmpty {
+                    Logger.scix.errorCapture("SciX sync: BUG — linked \(importResult.importedIDs.count) pubs but publicationCount is 0! Edges not persisted.", category: "scix")
                 }
             } else {
                 Logger.scix.errorCapture("SciX sync: library \(libraryID) not found after sync", category: "scix")
@@ -308,18 +326,30 @@ public actor SciXSyncManager {
 
     // MARK: - Helper Methods
 
-    /// Fetch paper details from ADS using bibcodes
+    /// Fetch paper details from ADS using bibcodes.
+    /// Batches into chunks of 50 to avoid ADS query length limits.
     private func fetchPapersFromADS(bibcodes: [String]) async throws -> [SearchResult] {
-        // Use ADSSource to fetch paper details
         guard !bibcodes.isEmpty else { return [] }
 
-        // ADS query: identifier:"bibcode1" OR identifier:"bibcode2" OR ...
-        let query = bibcodes
-            .map { "identifier:\"\($0)\"" }
-            .joined(separator: " OR ")
-
         let source = ADSSource(credentialManager: CredentialManager.shared)
-        return try await source.search(query: query)
+        let chunkSize = 50
+        var allResults: [SearchResult] = []
+
+        for chunk in stride(from: 0, to: bibcodes.count, by: chunkSize) {
+            let end = min(chunk + chunkSize, bibcodes.count)
+            let batch = Array(bibcodes[chunk..<end])
+
+            let query = batch
+                .map { "identifier:\"\($0)\"" }
+                .joined(separator: " OR ")
+
+            let results = try await source.search(query: query)
+            allResults.append(contentsOf: results)
+
+            Logger.scix.debug("SciX sync: fetched batch \(chunk/chunkSize + 1) — \(results.count) papers for \(batch.count) bibcodes")
+        }
+
+        return allResults
     }
 
     /// Convert a SearchResult to minimal BibTeX for import

@@ -33,11 +33,14 @@ enum ImbibTab: Hashable {
     case explorationCollection(UUID) // Collection in exploration library
     case inboxFeed(UUID)             // Smart search with feedsToInbox
     case inboxCollection(UUID)       // Collection in the inbox library
+    case libraryFeed(UUID)           // Auto-refreshing feed in a non-inbox library
     case flagged(String?)     // nil = any flag, String = FlagColor.rawValue
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
+    case citedInManuscripts   // pseudo smart library — papers cited in any imprint manuscript
     case addFeed                 // Navigate to search form picker for feed creation
+    case addLibraryFeed(UUID)    // Navigate to feed creation for a specific library
     case editFeed(UUID)          // Navigate to search form to edit an existing feed
 }
 

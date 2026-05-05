@@ -10,6 +10,7 @@ import SwiftUI
 import PublicationManagerCore
 import ImpressKit
 import ImpressSidebar
+import ImpressStoreKit
 import OSLog
 
 /// Root view using NavigationSplitView with an NSOutlineView sidebar.
@@ -95,15 +96,28 @@ struct TabContentView: View {
                 }
             }
         }
-        .onNotifications([
-            (.storeDidMutate, { notification in
-                let structural = (notification.userInfo?["structural"] as? Bool) ?? true
-                if structural {
+        .task {
+            // Subscribe to the gateway's event stream directly.
+            // Structural events re-read the full sidebar; field-only
+            // mutations just bump flag counts + a light data version.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                switch event {
+                case .structural:
                     viewModel.refreshFromStore()
-                } else {
+                case .itemsMutated:
                     viewModel.refreshFlagCounts()
-                    viewModel.bumpDataVersion()
+                    viewModel.bumpDataVersionLight()
+                case .collectionMembershipChanged:
+                    viewModel.refreshFromStore()
                 }
+            }
+        }
+        .onNotifications([
+            (.sidebarSnapshotDidUpdate, { _ in
+                // Phase 3: snapshot refreshed in the background; rebuild
+                // the sidebar so the NSOutlineView picks up the new counts.
+                // Non-structural — tree shape is unchanged, only badges.
+                viewModel.bumpDataVersionLight()
             }),
             (.navigateToCollection, { notification in
                 if let collectionID = notification.userInfo?["collectionID"] as? UUID {
@@ -134,6 +148,35 @@ struct TabContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: { library in
             Text("Are you sure you want to delete \"\(library.name)\"? This cannot be undone.")
+        }
+        .alert(
+            "Delete \(viewModel.librariesPendingBulkDelete.count) Libraries?",
+            isPresented: $viewModel.showDeleteMultipleLibrariesConfirmation
+        ) {
+            Button("Delete \(viewModel.librariesPendingBulkDelete.count) Libraries", role: .destructive) {
+                viewModel.performBulkDeleteLibraries()
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.librariesPendingBulkDelete = []
+            }
+        } message: {
+            let names = viewModel.librariesPendingBulkDelete.map { $0.name }
+            let preview = names.prefix(3).joined(separator: ", ")
+            let suffix = names.count > 3 ? ", and \(names.count - 3) more" : ""
+            Text("\"\(preview)\(suffix)\" will be removed from the sidebar. The papers they contain are not deleted — they remain in any other libraries they belong to. Papers that are only in these libraries will be unlinked and can be recovered via Edit → Undo.")
+        }
+        .alert(
+            "Delete \(viewModel.collectionsPendingBulkDelete.count) Collections?",
+            isPresented: $viewModel.showDeleteMultipleCollectionsConfirmation
+        ) {
+            Button("Delete \(viewModel.collectionsPendingBulkDelete.count) Collections", role: .destructive) {
+                viewModel.performBulkDeleteCollections()
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.collectionsPendingBulkDelete = []
+            }
+        } message: {
+            Text("\(viewModel.collectionsPendingBulkDelete.count) collections will be removed. The papers they contain stay in their libraries. Recoverable via Edit → Undo.")
         }
         .alert("Delete SciX Library", isPresented: $viewModel.showSciXDeleteConfirmation, presenting: viewModel.scixLibraryToDelete) { library in
             Button("Delete", role: .destructive) {

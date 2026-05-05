@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 #if canImport(CloudKit)
 import CloudKit
@@ -237,12 +238,10 @@ public actor LibrarySharingService {
             return (name: name, identifier: userRecordID.recordName)
         } catch {
             Logger.sync.info("[LibrarySharing] Could not fetch CloudKit identity: \(error)")
-            // Fallback to device name
-            #if os(macOS)
-            let deviceName = Host.current().localizedName ?? "Unknown"
-            #else
-            let deviceName = await UIDevice.current.name
-            #endif
+            // Fallback to device name via the shared ImpressKit
+            // helper — keeps LibrarySharingService platform-clean per
+            // ADR-023 Rule 7.
+            let deviceName = CurrentDeviceAuthor.displayName ?? "Unknown"
             return (name: deviceName, identifier: deviceName)
         }
     }

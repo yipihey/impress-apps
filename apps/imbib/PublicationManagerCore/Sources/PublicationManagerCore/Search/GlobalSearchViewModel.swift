@@ -57,6 +57,14 @@ public final class GlobalSearchViewModel {
     private var searchTask: Task<Void, Never>?
     private let debounceDelay: Duration = .milliseconds(200)
 
+    /// Pre-built library membership: library UUID → set of publication UUIDs.
+    /// Includes papers linked via HasParent edges AND papers in collections belonging to the library.
+    /// Built once per search in `mergeResults`, consumed by `applyContextFilter`.
+    private var libraryMembership: [UUID: Set<UUID>] = [:]
+
+    /// Pre-built collection membership: collection UUID → set of publication UUIDs.
+    private var collectionMembership: [UUID: Set<UUID>] = [:]
+
     // MARK: - Initialization
 
     public init() {}
@@ -271,15 +279,38 @@ public final class GlobalSearchViewModel {
         allIDs.formUnion(semanticMap.keys)
         allIDs.formUnion(chunkMap.keys)
 
-        // Pre-build library membership map ONCE for all results (avoids O(N*M*P) per-result lookup)
+        // Pre-build library membership maps ONCE for all results.
+        // Papers can belong to a library via HasParent edges (direct import)
+        // OR via Contains edges from collections within the library.
         let allLibraries = store.listLibraries()
         var pubToLibraryNames: [UUID: [String]] = [:]
+        var libMembership: [UUID: Set<UUID>] = [:]
+        var collMembership: [UUID: Set<UUID>] = [:]
+
         for library in allLibraries {
-            let members = store.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false)
-            for member in members {
+            // Direct library members (HasParent edges)
+            let directMembers = store.queryPublications(parentId: library.id, sort: "dateAdded", ascending: false)
+            var memberIDs = Set(directMembers.map(\.id))
+            for member in directMembers {
                 pubToLibraryNames[member.id, default: []].append(library.name)
             }
+
+            // Collection members (Contains edges) — papers in collections belonging to this library
+            let collections = store.listCollections(libraryId: library.id)
+            for collection in collections {
+                let collMembers = store.listCollectionMembers(collectionId: collection.id)
+                let collMemberIDs = Set(collMembers.map(\.id))
+                collMembership[collection.id] = collMemberIDs
+                for member in collMembers where !memberIDs.contains(member.id) {
+                    memberIDs.insert(member.id)
+                    pubToLibraryNames[member.id, default: []].append(library.name)
+                }
+            }
+
+            libMembership[library.id] = memberIDs
         }
+        libraryMembership = libMembership
+        collectionMembership = collMembership
 
         // Build merged results
         var merged: [GlobalSearchResult] = []
@@ -494,19 +525,14 @@ public final class GlobalSearchViewModel {
 
     // MARK: - Context Filter Helpers
 
-    /// Check if a publication is in the specified library
+    /// Check if a publication is in the specified library (uses precomputed membership map).
     private func isInLibrary(_ publicationID: UUID, libraryID: UUID) -> Bool {
-        let store = RustStoreAdapter.shared
-        // Query publications in this library and check if publicationID is among them
-        let pubs = store.queryPublications(parentId: libraryID, sort: "dateAdded", ascending: false)
-        return pubs.contains { $0.id == publicationID }
+        libraryMembership[libraryID]?.contains(publicationID) ?? false
     }
 
-    /// Check if a publication is in the specified collection
+    /// Check if a publication is in the specified collection (uses precomputed membership map).
     private func isInCollection(_ publicationID: UUID, collectionID: UUID) -> Bool {
-        let store = RustStoreAdapter.shared
-        let members = store.listCollectionMembers(collectionId: collectionID)
-        return members.contains { $0.id == publicationID }
+        collectionMembership[collectionID]?.contains(publicationID) ?? false
     }
 
     /// Check if a publication matches the specified smart search.

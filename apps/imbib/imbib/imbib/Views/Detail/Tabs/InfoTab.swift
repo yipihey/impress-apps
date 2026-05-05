@@ -8,6 +8,7 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI
+import ImpressStoreKit
 import OSLog
 #if os(macOS)
 import AppKit
@@ -105,6 +106,15 @@ struct InfoTab: View {
                         Divider()
                     }
 
+                    // MARK: - Cited in Manuscripts
+                    // Shown when this publication appears in at least one
+                    // citation-usage record written by imprint's tracker.
+                    // The section lists every manuscript section that
+                    // cites this paper, with cite key and timestamp.
+                    if let pubID = publicationID {
+                        CitedInManuscriptsSection(publicationID: pubID)
+                    }
+
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
                         infoSection("Abstract") {
@@ -181,20 +191,17 @@ struct InfoTab: View {
             explorationError = nil
             enrichmentRefreshID = UUID()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
-            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
-                  let pubID = publicationID, ids.contains(pubID) else { return }
-            loadPublication()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
-            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
-                  let pubID = publicationID, ids.contains(pubID) else { return }
-            loadPublication()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .fieldDidChange)) { notification in
-            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
-                  let pubID = publicationID, ids.contains(pubID) else { return }
-            loadPublication()
+        .task {
+            // One subscription replaces the three legacy
+            // flag/tag/field observers. Reload the publication only
+            // when the current pub id is among the affected ids.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                guard case .itemsMutated(_, let ids) = event,
+                      let pubID = publicationID,
+                      ids.contains(pubID)
+                else { continue }
+                loadPublication()
+            }
         }
         .onAppear {
             let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
@@ -1058,8 +1065,17 @@ struct InfoTab: View {
         }
     }
 
+    /// Library UUID that owns the current publication. Falls back to the
+    /// active library only if the paper isn't attached to any. Always use
+    /// this (not `libraryManager.activeLibrary`) when resolving linked-file
+    /// URLs — the active library is a UI concept and may differ from the
+    /// one the paper's files actually live under.
+    private var fileOwnerLibraryID: UUID? {
+        publication?.libraryIDs.first ?? libraryManager.activeLibrary?.id
+    }
+
     private func getFileSize(for file: LinkedFileModel) -> Int64? {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: fileOwnerLibraryID) else {
             return nil
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
@@ -1096,7 +1112,7 @@ struct InfoTab: View {
                     let _ = try AttachmentManager.shared.importAttachments(
                         from: urls,
                         for: pub.id,
-                        in: libraryManager.activeLibrary?.id
+                        in: fileOwnerLibraryID
                     )
                     Logger.files.infoCapture("Imported \(urls.count) files via file picker", category: "files")
                 } catch {
@@ -1110,7 +1126,19 @@ struct InfoTab: View {
     }
 
     private func openFile(_ file: LinkedFileModel) {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
+        let libID = fileOwnerLibraryID
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libID) else {
+            Logger.files.warningCapture(
+                "openFile: resolveURL returned nil for \(file.filename) in library \(libID?.uuidString ?? "nil")",
+                category: "files"
+            )
+            return
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            Logger.files.warningCapture(
+                "openFile: resolved path does not exist on disk: \(url.path)",
+                category: "files"
+            )
             return
         }
         #if os(macOS)
@@ -1120,7 +1148,22 @@ struct InfoTab: View {
 
     #if os(macOS)
     private func showInFinder(_ file: LinkedFileModel) {
-        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary?.id) else {
+        let libID = fileOwnerLibraryID
+        guard let url = AttachmentManager.shared.resolveURL(for: file, in: libID) else {
+            Logger.files.warningCapture(
+                "showInFinder: resolveURL returned nil for \(file.filename) in library \(libID?.uuidString ?? "nil")",
+                category: "files"
+            )
+            return
+        }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            // File missing at computed path — reveal its expected directory
+            // instead of silently no-oping. Better than nothing.
+            Logger.files.warningCapture(
+                "showInFinder: resolved path missing (\(url.path)); revealing parent dir",
+                category: "files"
+            )
+            NSWorkspace.shared.activateFileViewerSelecting([url.deletingLastPathComponent()])
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -1129,7 +1172,7 @@ struct InfoTab: View {
 
     private func deleteFile(_ file: LinkedFileModel) {
         do {
-            try AttachmentManager.shared.delete(file, in: libraryManager.activeLibrary?.id)
+            try AttachmentManager.shared.delete(file, in: fileOwnerLibraryID)
             Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
         } catch {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")

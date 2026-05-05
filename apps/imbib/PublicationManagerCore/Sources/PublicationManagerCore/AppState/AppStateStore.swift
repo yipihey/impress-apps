@@ -14,7 +14,6 @@ import OSLog
 /// Stores UUIDs instead of Core Data objects for persistence.
 public enum SidebarSelectionState: Codable, Equatable, Sendable {
     case inbox
-    case inboxFeed(UUID)              // Smart search ID (feeds to inbox)
     case inboxCollection(UUID)        // Collection ID within Inbox
     case library(UUID)                // Library ID
     case search                       // Legacy search (kept for compatibility)

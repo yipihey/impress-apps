@@ -253,6 +253,60 @@ public final class LibraryManager {
         closeLibrary(id: id)
     }
 
+    /// Delete multiple libraries in one batch.
+    ///
+    /// Wraps the per-library deletes in `store.beginBatchMutation()` / `endBatchMutation()`
+    /// so downstream observers (sidebar tree rebuild, list refresh) fire exactly once
+    /// instead of N times. Active library is reset once at the end if it was in
+    /// the deleted set. Each individual delete remains undoable via `UndoCoordinator`
+    /// (registered inside `RustStoreAdapter.deleteLibrary`).
+    ///
+    /// Like `deleteLibrary(id:deleteFiles:)`, this **unlinks** papers — it does not
+    /// cascade-delete them. Papers that lived only in deleted libraries become
+    /// orphaned and can be restored by the matching undo entries.
+    ///
+    /// - Returns: count of libraries deleted (always equal to `ids.count` when none
+    ///   are missing from the store).
+    @discardableResult
+    public func deleteLibraries(ids: [UUID], deleteFiles: Bool = false) -> Int {
+        guard !ids.isEmpty else { return 0 }
+        Logger.library.warningCapture(
+            "Bulk deleting \(ids.count) libraries, deleteFiles: \(deleteFiles)",
+            category: "library"
+        )
+
+        let idSet = Set(ids)
+        let activeWasInSet = activeLibraryID.map { idSet.contains($0) } ?? false
+
+        // Optionally remove file containers (this is FS work, no store traffic).
+        if deleteFiles {
+            for id in ids {
+                let containerURL = Self.containerURL(for: id)
+                if FileManager.default.fileExists(atPath: containerURL.path) {
+                    try? FileManager.default.removeItem(at: containerURL)
+                }
+            }
+        }
+
+        // Single batch — one consolidated `.storeDidMutate` event for the whole
+        // sequence so the sidebar / list rebuild once, not per-iteration.
+        store.beginBatchMutation()
+        for id in ids {
+            store.deleteLibrary(id: id)
+        }
+        store.endBatchMutation()
+
+        // Reload library list once. If the previously active library was in
+        // the deleted set, fall back to the first survivor.
+        loadLibraries()
+        if activeWasInSet {
+            activeLibraryID = libraries.first?.id
+        }
+
+        Logger.library.infoCapture("Bulk deleted \(ids.count) libraries", category: "library")
+        return ids.count
+    }
+
     /// Set a library as the default
     public func setDefault(id: UUID) {
         Logger.library.infoCapture("Setting default library: \(id)", category: "library")

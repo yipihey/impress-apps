@@ -181,6 +181,19 @@ targets:
         excludes:
           - "**/ShareExtension/**"
           - "**/FileProvider/**"
+          # iOS migration debt — these files reference deleted Core Data
+          # types (CDPublication, CDLibrary, CDCollection, CDSmartSearch)
+          # and APIs removed during the Rust migration. Excluded until
+          # they're rewritten to the value-type + RustStoreAdapter world.
+          # Stub replacements live alongside as `*Stub.swift`.
+          - "Views/IOSSidebarView.swift"
+          - "Views/IOSPDFBrowserView.swift"
+          - "Views/IOSUnifiedPublicationListWrapper.swift"
+          - "Views/Detail/IOSNoPDFView.swift"
+          - "Views/Detail/IOSPDFTab.swift"
+          - "Views/IOSSettingsView.swift"
+          - "Views/Sharing/IOSMailComposer.swift"
+          - "Views/Detail/IOSInfoTab.swift"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
       - path: imbib/Resources/PrivacyInfo.xcprivacy
@@ -477,6 +490,10 @@ targets:
       - path: imbib-iOS/FileProvider
         excludes:
           - "**/*.entitlements"
+      # Shared stub data service — same Foundation-only file the
+      # macOS FileProvider target uses. Keeps FileProviderPublication
+      # in one place instead of duplicating it into imbib-iOS/.
+      - path: FileProvider/FileProviderDataService.swift
     dependencies:
       - package: PublicationManagerCore
       - package: ImbibRustCore

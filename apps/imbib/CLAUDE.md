@@ -130,6 +130,51 @@ When adding new features that touch Core Data, always add console logging for:
 - The save (did `context.hasChanges` report true?)
 - The display extraction (did the snapshot see the data?)
 
+### Structured Citation Resolution (`POST /api/papers/resolve`)
+
+For callers that already have parsed bibliographic fields (e.g. imprint with a LaTeX `\bibitem` line), the endpoint accepts a `citation` object instead of the free-text `query` / `bibtex` shape:
+
+```json
+POST /api/papers/resolve
+{
+  "citation": {
+    "authors": ["Bardeen", "Bond", "Kaiser", "Szalay"],
+    "title": "...",
+    "year": 1986,
+    "journal": "ApJ",
+    "volume": "304",
+    "pages": "15",
+    "doi": null, "arxiv": null, "bibcode": null,
+    "rawBibtex": "...",
+    "freeText": "...",
+    "preferredDatabase": "astronomy"
+  },
+  "library": "<optional UUID>",
+  "download_pdfs": false
+}
+```
+
+Cascade (implemented in `AutomationService.resolveStructuredCitation`):
+
+1. Identifier from DOI/arXiv/bibcode (or scanned from `rawBibtex`) → local lookup → return `via: "local-identifier"`. If missing locally: `addPapers(...)` → `via: "imported-identifier"`.
+2. Local title search → `via: "local-text"` when unique.
+3. Structured ADS query via `SearchFormQueryBuilder.buildClassicQuery(...)`; score each hit by (author+year+journal+page match); auto-accept ≥ 0.85 confidence → `via: "ads-high-confidence"` (auto-imported). Otherwise return top N ranked candidates → `via: "ads-candidates"`.
+4. If ADS returns zero: all-sources fan-out via `SourceManager.search(query: freeText, options:)`, dedup by identifier, rank → `via: "all-sources-fallback"`.
+5. No hits anywhere → `via: "not-found"`.
+
+Response shape:
+
+```json
+{ "status": "ok", "via": "...",
+  "paper": {...}?, "candidates": [ {..., "confidence": 0.0–1.0 }, ... ]?,
+  "reason": "..."?
+}
+```
+
+LaTeX decoding is applied to authors/title/journal/rawBibtex via `LaTeXDecoder`. Title words shorter than 4 chars (or matching a stopword list) are filtered out of the ADS title clause so a reference like `"The gravity-induced..."` doesn't over-constrain the query.
+
+Used by `ImbibBridge.resolveCitation(_:library:)` in `ImpressKit` — impress apps should call this instead of building source-specific query strings themselves.
+
 ### Live Log Access via HTTP
 
 When the HTTP server is enabled (Settings > General > Automation), logs are accessible at `http://localhost:23120/api/logs`. Use this in Claude Code sessions to verify features work at runtime:
@@ -182,7 +227,7 @@ try? await Task.sleep(for: .seconds(60))  // cancels cleanly
 
 **How to detect:** Use `log show --process imbib --last 15s | grep -c SHKSharingServicePicker`. After 90s of runtime, this should be 0. If it's > 0, there's a render loop. The 2 ShareLinks in the toolbar cause 2 `SHKSharingServicePicker` inits per body re-evaluation, making this a reliable proxy.
 
-**Background services that mutate data (SmartSearchRefreshService, InboxScheduler, EnrichmentCoordinator) must defer their first work cycle** until after the UI has settled (~60-90s). The existing `startupGracePeriod` in SmartSearchRefreshService and the 90s delay in InboxScheduler serve this purpose — do not reduce or remove them.
+**Background services that mutate data (InboxScheduler, EnrichmentCoordinator) must defer their first work cycle** until after the UI has settled (~60-90s). The 90s delay in InboxScheduler serves this purpose — do not reduce or remove it.
 
 ### Sidebar Selection Patterns
 

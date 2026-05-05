@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressKit
 
 // MARK: - Comment Section
 
@@ -254,6 +255,7 @@ public struct CommentSectionView: View {
         RustStoreAdapter.shared.addCommentToItem(
             text: text,
             itemID: itemID,
+            authorDisplayName: CurrentDeviceAuthor.displayName,
             parentCommentID: replyingTo?.id
         )
 

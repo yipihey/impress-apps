@@ -460,6 +460,24 @@ impl ImbibStore {
         self.items_to_bibliography_rows(&items, &tag_defs)
     }
 
+    /// Return ALL publications in the store (no parent filter), for full-text search indexing.
+    pub fn query_all_publications(
+        &self,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Vec<BibliographyRow>, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![],
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        self.items_to_bibliography_rows(&items, &tag_defs)
+    }
+
     /// Return just the UUID strings of publications in a library (skips full row conversion).
     pub fn query_publication_ids(
         &self,
@@ -681,8 +699,34 @@ impl ImbibStore {
             match crate::bibtex::parse(result.bibtex.clone()) {
                 Ok(parse_result) => {
                     for entry in &parse_result.entries {
-                        let publication =
+                        let mut publication =
                             crate::conversions::bibtex_entry_to_publication(entry.clone());
+                        // Merge identifiers from SearchResultInput that
+                        // the BibTeX didn't carry. This is critical for
+                        // published papers whose ADS BibTeX omits the
+                        // eprint field — the arXiv ID from the search
+                        // result is the only source.
+                        if publication.identifiers.arxiv_id.is_none() {
+                            if let Some(ref a) = result.arxiv_id {
+                                if !a.is_empty() {
+                                    publication.identifiers.arxiv_id = Some(a.clone());
+                                }
+                            }
+                        }
+                        if publication.identifiers.doi.is_none() {
+                            if let Some(ref d) = result.doi {
+                                if !d.is_empty() {
+                                    publication.identifiers.doi = Some(d.clone());
+                                }
+                            }
+                        }
+                        if publication.identifiers.bibcode.is_none() {
+                            if let Some(ref b) = result.bibcode {
+                                if !b.is_empty() {
+                                    publication.identifiers.bibcode = Some(b.clone());
+                                }
+                            }
+                        }
                         // Per-item dedup (checks cite key + arXiv version variants)
                         match self.is_duplicate_in_library(&publication, parent_uuid) {
                             Ok(true) => {} // skip duplicate
@@ -1826,6 +1870,23 @@ impl ImbibStore {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Count unread publications referenced by a collection. Uses Contains-edge join + is_read filter.
+    pub fn count_unread_in_collection(
+        &self,
+        collection_id: String,
+    ) -> Result<u32, StoreApiError> {
+        let coll_uuid = parse_uuid(&collection_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![
+                Predicate::ReferencedBy(EdgeType::Contains, coll_uuid),
+                Predicate::IsRead(false),
+            ],
             ..Default::default()
         };
         Ok(self.store.count(&q)? as u32)

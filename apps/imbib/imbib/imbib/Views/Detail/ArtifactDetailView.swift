@@ -8,6 +8,7 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI
+import ImpressStoreKit
 #if canImport(WebKit)
 import WebKit
 #endif
@@ -60,8 +61,13 @@ struct ArtifactDetailView: View {
         .task(id: artifactID) {
             loadArtifact()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .storeDidMutate)) { _ in
-            loadArtifact()
+        .task {
+            // Re-read on any store mutation. Artifacts have a different
+            // schema than publications, so we don't filter by kind —
+            // if any event fires, we conservatively reload.
+            for await _ in ImbibImpressStore.shared.events.subscribe() {
+                loadArtifact()
+            }
         }
         #if os(macOS)
         .sheet(isPresented: $showArchiveViewer) {

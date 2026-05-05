@@ -19,6 +19,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     case search
     case exploration
     case flagged
+    case citedInManuscripts
     case artifacts
     case dismissed
 
@@ -33,6 +34,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .search: return "Search"
         case .exploration: return "Exploration"
         case .flagged: return "Flagged"
+        case .citedInManuscripts: return "Cited in Manuscripts"
         case .artifacts: return "Artifacts"
         case .dismissed: return "Dismissed"
         }
@@ -47,6 +49,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .search: return "magnifyingglass"
         case .exploration: return "sparkle.magnifyingglass"
         case .flagged: return "flag.fill"
+        case .citedInManuscripts: return "text.book.closed.fill"
         case .artifacts: return "archivebox"
         case .dismissed: return "trash"
         }
@@ -71,6 +74,7 @@ public final class SidebarSectionOrderStoreWrapper: Sendable {
         .search,
         .exploration,
         .flagged,
+        .citedInManuscripts,
         .artifacts,
         .dismissed
     ]

@@ -13,17 +13,39 @@ import Foundation
 ///
 /// The recommendation engine uses a linear weighted sum: `score = Σ (weight_i × feature_i)`
 /// Every feature type can be inspected and its weight adjusted by the user.
+///
+/// 9 tunable features + 3 binary mute filters.
 public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
-    // MARK: - Explicit Signals (User Actions)
+    // MARK: - Tunable Features
 
-    /// Author of this paper has starred papers from the user
-    case authorStarred
+    /// Learned preference for authors (merged: starred + save rate + dismiss rate)
+    case authorAffinity
 
-    /// Paper matches a collection the user has added papers to
-    case collectionMatch
+    /// Learned preference for topics (merged: reading time + collection match)
+    case topicMatch
 
-    /// Paper has tags the user frequently uses
-    case tagMatch
+    /// Paper has tags matching the user's topic interests
+    case tagAffinity
+
+    /// Learned preference for journals/venues (merged: venue frequency + save rate)
+    case venueAffinity
+
+    /// Author has co-authored with authors in user's library
+    case coauthorNetwork
+
+    /// Paper recency (newer papers score higher)
+    case recency
+
+    /// Citation velocity (citations per year, indicates field impact)
+    case citationVelocity
+
+    /// Matches a saved smart search query
+    case smartSearchMatch
+
+    /// Similarity to papers in user's library (via embedding vectors)
+    case aiSimilarity
+
+    // MARK: - Mute Filters (binary on/off, not user-tunable weights)
 
     /// Author is muted by the user (negative signal)
     case mutedAuthor
@@ -34,182 +56,159 @@ public enum FeatureType: String, Codable, CaseIterable, Sendable, Identifiable {
     /// Venue/journal is muted by the user (negative signal)
     case mutedVenue
 
-    // MARK: - Implicit Signals (Behavioral)
-
-    /// User's historical save rate for this author
-    case saveRateAuthor
-
-    /// User's historical save rate for this venue
-    case saveRateVenue
-
-    /// User's historical dismiss rate for this author (negative signal)
-    case dismissRateAuthor
-
-    /// User has read/spent time on papers with similar topics
-    case readingTimeTopic
-
-    /// User frequently downloads PDFs from this author
-    case pdfDownloadAuthor
-
-    // MARK: - Content Signals (Paper Properties)
-
-    /// Paper cites or is cited by papers in user's library
-    case citationOverlap
-
-    /// Author has co-authored with authors in user's library
-    case authorCoauthorship
-
-    /// User has papers from this venue in their library
-    case venueFrequency
-
-    /// Paper recency (newer papers score higher)
-    case recency
-
-    /// Citation velocity (citations per year, indicates field impact)
-    case fieldCitationVelocity
-
-    /// Matches a saved smart search query
-    case smartSearchMatch
-
-    /// Similarity to papers in user's library (via embedding vectors)
-    case librarySimilarity
-
     public var id: String { rawValue }
 
     /// Human-readable name for UI display
     public var displayName: String {
         switch self {
-        case .authorStarred: return "Author Starred"
-        case .collectionMatch: return "Collection Match"
-        case .tagMatch: return "Tag Match"
+        case .authorAffinity: return "Authors you follow"
+        case .topicMatch: return "Topics you read"
+        case .tagAffinity: return "Your tags"
+        case .venueAffinity: return "Journals you read"
+        case .coauthorNetwork: return "Collaborators of your authors"
+        case .recency: return "Recently published"
+        case .citationVelocity: return "Trending in the field"
+        case .smartSearchMatch: return "Matches your searches"
+        case .aiSimilarity: return "Similar to your library"
         case .mutedAuthor: return "Muted Author"
         case .mutedCategory: return "Muted Category"
         case .mutedVenue: return "Muted Venue"
-        case .saveRateAuthor: return "Author Save Rate"
-        case .saveRateVenue: return "Venue Save Rate"
-        case .dismissRateAuthor: return "Author Dismiss Rate"
-        case .readingTimeTopic: return "Reading Time (Topic)"
-        case .pdfDownloadAuthor: return "PDF Downloads (Author)"
-        case .citationOverlap: return "Citation Overlap"
-        case .authorCoauthorship: return "Co-author Network"
-        case .venueFrequency: return "Venue Frequency"
-        case .recency: return "Recency"
-        case .fieldCitationVelocity: return "Citation Velocity"
-        case .smartSearchMatch: return "Smart Search Match"
-        case .librarySimilarity: return "Library Similarity"
         }
     }
 
     /// Description of what this feature measures
     public var featureDescription: String {
         switch self {
-        case .authorStarred:
-            return "Papers by authors whose work you've starred"
-        case .collectionMatch:
-            return "Papers matching collections you've curated"
-        case .tagMatch:
-            return "Papers with tags you frequently apply"
+        case .authorAffinity:
+            return "Papers by authors whose work you've kept, starred, or engaged with"
+        case .topicMatch:
+            return "Topics you spend time reading about and curate in collections"
+        case .tagAffinity:
+            return "Papers with tags matching your interests"
+        case .venueAffinity:
+            return "Venues and journals represented in your library"
+        case .coauthorNetwork:
+            return "Authors who've collaborated with authors in your library"
+        case .recency:
+            return "Recently published papers (exponential decay)"
+        case .citationVelocity:
+            return "Highly-cited papers relative to their age"
+        case .smartSearchMatch:
+            return "Papers matching your saved smart searches"
+        case .aiSimilarity:
+            return "Papers semantically similar to those in your library (AI-powered)"
         case .mutedAuthor:
             return "Papers by authors you've muted (reduces score)"
         case .mutedCategory:
             return "Papers in categories you've muted (reduces score)"
         case .mutedVenue:
             return "Papers from venues you've muted (reduces score)"
-        case .saveRateAuthor:
-            return "Your historical rate of saving papers by this author"
-        case .saveRateVenue:
-            return "Your historical rate of saving papers from this venue"
-        case .dismissRateAuthor:
-            return "Your historical rate of dismissing papers by this author (reduces score)"
-        case .readingTimeTopic:
-            return "Topics you spend time reading about"
-        case .pdfDownloadAuthor:
-            return "Authors whose PDFs you frequently download"
-        case .citationOverlap:
-            return "Papers connected to your library through citations"
-        case .authorCoauthorship:
-            return "Authors who've collaborated with authors in your library"
-        case .venueFrequency:
-            return "Venues/journals represented in your library"
-        case .recency:
-            return "Recently published papers (exponential decay)"
-        case .fieldCitationVelocity:
-            return "Highly-cited papers relative to their age"
-        case .smartSearchMatch:
-            return "Papers matching your saved smart searches"
-        case .librarySimilarity:
-            return "Papers semantically similar to those in your library (AI-powered)"
         }
     }
 
     /// Default weight for this feature (used in cold start)
     public var defaultWeight: Double {
         switch self {
-        // Explicit positive signals: high weight
-        case .authorStarred: return 0.8
-        case .collectionMatch: return 0.7
-        case .tagMatch: return 0.6
+        // Tunable features
+        case .authorAffinity: return 0.8
+        case .topicMatch: return 0.6
+        case .tagAffinity: return 0.5
+        case .venueAffinity: return 0.4
+        case .coauthorNetwork: return 0.3
+        case .recency: return 0.3
+        case .citationVelocity: return 0.2
         case .smartSearchMatch: return 0.6
+        case .aiSimilarity: return 0.5
 
-        // Explicit negative signals: strong negative weight
+        // Mute filters (fixed penalties)
         case .mutedAuthor: return -1.0
         case .mutedCategory: return -0.8
         case .mutedVenue: return -0.6
-
-        // Behavioral signals: moderate weight
-        case .saveRateAuthor: return 0.5
-        case .saveRateVenue: return 0.3
-        case .dismissRateAuthor: return -0.4
-        case .readingTimeTopic: return 0.4
-        case .pdfDownloadAuthor: return 0.5
-
-        // Content signals: lower weight (let user preferences dominate)
-        case .citationOverlap: return 0.4
-        case .authorCoauthorship: return 0.3
-        case .venueFrequency: return 0.2
-        case .recency: return 0.3
-        case .fieldCitationVelocity: return 0.2
-        case .librarySimilarity: return 0.6  // Higher weight for semantic similarity
         }
     }
 
-    /// Whether this is a negative feature (penalties)
-    public var isNegativeFeature: Bool {
+    /// Whether this is a mute filter (binary, not user-adjustable weight)
+    public var isMuteFilter: Bool {
         switch self {
-        case .mutedAuthor, .mutedCategory, .mutedVenue, .dismissRateAuthor:
+        case .mutedAuthor, .mutedCategory, .mutedVenue:
             return true
         default:
             return false
         }
     }
 
+    /// Whether this is a negative feature (penalties)
+    public var isNegativeFeature: Bool {
+        isMuteFilter
+    }
+
+    /// Tunable features (excludes mute filters)
+    public static var tunableFeatures: [FeatureType] {
+        allCases.filter { !$0.isMuteFilter }
+    }
+
     /// Category for grouping in settings UI
     public var category: FeatureCategory {
         switch self {
-        case .authorStarred, .collectionMatch, .tagMatch, .mutedAuthor, .mutedCategory, .mutedVenue:
-            return .explicit
-        case .saveRateAuthor, .saveRateVenue, .dismissRateAuthor, .readingTimeTopic, .pdfDownloadAuthor:
-            return .implicit
-        case .citationOverlap, .authorCoauthorship, .venueFrequency, .recency, .fieldCitationVelocity, .smartSearchMatch, .librarySimilarity:
-            return .content
+        case .authorAffinity, .topicMatch, .tagAffinity, .venueAffinity:
+            return .preferences
+        case .coauthorNetwork, .recency, .citationVelocity, .smartSearchMatch, .aiSimilarity:
+            return .discovery
+        case .mutedAuthor, .mutedCategory, .mutedVenue:
+            return .filters
+        }
+    }
+
+    // MARK: - Migration from old 18-feature keys
+
+    /// Map old feature rawValues to new ones for settings migration.
+    public static func migrateWeightKey(_ oldKey: String) -> String? {
+        switch oldKey {
+        // Merged into authorAffinity
+        case "authorStarred", "saveRateAuthor", "dismissRateAuthor":
+            return FeatureType.authorAffinity.rawValue
+        // Merged into topicMatch
+        case "readingTimeTopic", "collectionMatch":
+            return FeatureType.topicMatch.rawValue
+        // Merged into venueAffinity
+        case "venueFrequency", "saveRateVenue":
+            return FeatureType.venueAffinity.rawValue
+        // Renamed
+        case "tagMatch":
+            return FeatureType.tagAffinity.rawValue
+        case "authorCoauthorship":
+            return FeatureType.coauthorNetwork.rawValue
+        case "fieldCitationVelocity":
+            return FeatureType.citationVelocity.rawValue
+        case "librarySimilarity":
+            return FeatureType.aiSimilarity.rawValue
+        // Removed (phantom/dead)
+        case "citationOverlap", "pdfDownloadAuthor":
+            return nil
+        // Already valid
+        case "recency", "smartSearchMatch",
+             "mutedAuthor", "mutedCategory", "mutedVenue":
+            return oldKey
+        default:
+            return nil
         }
     }
 }
 
 /// Categories for feature types (for settings UI grouping)
 public enum FeatureCategory: String, CaseIterable, Sendable {
-    case explicit = "Explicit Signals"
-    case implicit = "Behavioral Signals"
-    case content = "Content Signals"
+    case preferences = "Your Preferences"
+    case discovery = "Discovery"
+    case filters = "Mute Filters"
 
     public var description: String {
         switch self {
-        case .explicit:
-            return "Actions you've taken (stars, mutes, collections)"
-        case .implicit:
-            return "Patterns from your usage (keeps, dismisses, reading)"
-        case .content:
-            return "Properties of the paper itself"
+        case .preferences:
+            return "Learned from your reading patterns"
+        case .discovery:
+            return "Signals for finding new papers"
+        case .filters:
+            return "Binary filters (always active)"
         }
     }
 }
@@ -353,16 +352,21 @@ public struct RecommendationScore: Sendable {
     /// Whether this is a serendipity slot (high potential, low topic match)
     public let isSerendipitySlot: Bool
 
+    /// Top reasons for the recommendation (human-readable strings)
+    public let topReasons: [String]
+
     public init(
         total: Double,
         breakdown: [FeatureType: Double],
         explanation: String,
-        isSerendipitySlot: Bool = false
+        isSerendipitySlot: Bool = false,
+        topReasons: [String] = []
     ) {
         self.total = total
         self.breakdown = breakdown
         self.explanation = explanation
         self.isSerendipitySlot = isSerendipitySlot
+        self.topReasons = topReasons
     }
 
     /// Top contributing features (positive contributions only)
@@ -425,14 +429,16 @@ public struct ScoreComponent: Sendable, Identifiable {
     public let rawValue: Double      // The raw feature value (0-1)
     public let weight: Double        // The user's weight for this feature
     public let contribution: Double  // rawValue × weight
+    public let detail: String?       // Optional contextual detail (e.g., "Smith, Jones")
 
     public var id: String { feature.rawValue }
 
-    public init(feature: FeatureType, rawValue: Double, weight: Double) {
+    public init(feature: FeatureType, rawValue: Double, weight: Double, detail: String? = nil) {
         self.feature = feature
         self.rawValue = rawValue
         self.weight = weight
         self.contribution = rawValue * weight
+        self.detail = detail
     }
 
     /// Whether this component adds to or subtracts from the score
@@ -454,34 +460,30 @@ public enum RecommendationPreset: String, CaseIterable, Sendable {
     /// Prioritize diverse discovery, high serendipity
     case exploratory
 
-    /// Citation-heavy, good for literature reviews
-    case research
-
-    /// Reset all weights to defaults
-    case defaults
-
     public var displayName: String {
         switch self {
         case .focused: return "Focused"
         case .balanced: return "Balanced"
-        case .exploratory: return "Exploratory"
-        case .research: return "Research Mode"
-        case .defaults: return "Reset to Defaults"
+        case .exploratory: return "Explorer"
         }
     }
 
     public var description: String {
         switch self {
         case .focused:
-            return "Prioritize authors and venues you know"
+            return "Papers from authors and topics you know"
         case .balanced:
-            return "Mix of familiar and new content"
+            return "Mix of familiar and new"
         case .exploratory:
-            return "Discover new authors and topics"
-        case .research:
-            return "Emphasize citation connections"
-        case .defaults:
-            return "Reset all weights to default values"
+            return "Surprise me with new directions"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .focused: return "scope"
+        case .balanced: return "scale.3d"
+        case .exploratory: return "binoculars"
         }
     }
 
@@ -490,113 +492,36 @@ public enum RecommendationPreset: String, CaseIterable, Sendable {
         switch self {
         case .focused:
             return [
-                .authorStarred: 1.0,
-                .collectionMatch: 0.9,
-                .saveRateAuthor: 0.8,
-                .venueFrequency: 0.7,
+                .authorAffinity: 1.0,
+                .topicMatch: 0.9,
+                .tagAffinity: 0.7,
+                .venueAffinity: 0.7,
+                .coauthorNetwork: 0.3,
                 .recency: 0.2,
-                .citationOverlap: 0.3,
-                .fieldCitationVelocity: 0.1,
-                // Negative features
+                .citationVelocity: 0.1,
+                .smartSearchMatch: 0.6,
+                .aiSimilarity: 0.2,
                 .mutedAuthor: -1.0,
                 .mutedCategory: -0.8,
                 .mutedVenue: -0.6,
-                .dismissRateAuthor: -0.6,
             ]
         case .balanced:
-            // Use default weights
             return Dictionary(uniqueKeysWithValues: FeatureType.allCases.map { ($0, $0.defaultWeight) })
         case .exploratory:
             return [
-                .authorStarred: 0.3,
-                .collectionMatch: 0.3,
-                .saveRateAuthor: 0.2,
-                .venueFrequency: 0.1,
+                .authorAffinity: 0.2,
+                .topicMatch: 0.2,
+                .tagAffinity: 0.3,
+                .venueAffinity: 0.1,
+                .coauthorNetwork: 0.5,
                 .recency: 0.6,
-                .citationOverlap: 0.5,
-                .fieldCitationVelocity: 0.7,
-                .authorCoauthorship: 0.6,
-                .librarySimilarity: 0.5,  // Moderate weight for discovery
-                // Negative features (weaker)
+                .citationVelocity: 0.7,
+                .smartSearchMatch: 0.4,
+                .aiSimilarity: 0.8,
                 .mutedAuthor: -1.0,
                 .mutedCategory: -0.4,
                 .mutedVenue: -0.3,
-                .dismissRateAuthor: -0.3,
             ]
-        case .research:
-            return [
-                .citationOverlap: 0.9,
-                .authorCoauthorship: 0.7,
-                .fieldCitationVelocity: 0.8,
-                .librarySimilarity: 0.8,  // High weight for semantic similarity in research mode
-                .authorStarred: 0.6,
-                .collectionMatch: 0.5,
-                .recency: 0.4,
-                .smartSearchMatch: 0.7,
-                // Negative features
-                .mutedAuthor: -1.0,
-                .mutedCategory: -0.8,
-                .mutedVenue: -0.6,
-                .dismissRateAuthor: -0.5,
-            ]
-        case .defaults:
-            return Dictionary(uniqueKeysWithValues: FeatureType.allCases.map { ($0, $0.defaultWeight) })
-        }
-    }
-}
-
-// MARK: - Recommendation Engine Type
-
-/// Available recommendation engine types.
-///
-/// Users can choose which engine to use based on their preferences:
-/// - Classic: Fast, rule-based scoring using explicit signals
-/// - Semantic (ANN): AI-powered embedding similarity for deeper content matching
-/// - Hybrid: Combines both approaches for best results
-public enum RecommendationEngineType: String, Codable, CaseIterable, Sendable, Identifiable {
-    /// Classic rule-based recommendation using feature weights
-    case classic
-
-    /// Semantic similarity using embedding vectors and ANN search
-    case semantic
-
-    /// Hybrid approach combining classic and semantic signals
-    case hybrid
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .classic: return "Classic"
-        case .semantic: return "AI-Powered"
-        case .hybrid: return "Hybrid"
-        }
-    }
-
-    public var description: String {
-        switch self {
-        case .classic:
-            return "Fast, rule-based ranking using your reading history and preferences"
-        case .semantic:
-            return "AI-powered semantic similarity finds papers related to your library"
-        case .hybrid:
-            return "Best of both: combines rule-based signals with AI similarity"
-        }
-    }
-
-    public var icon: String {
-        switch self {
-        case .classic: return "slider.horizontal.3"
-        case .semantic: return "brain"
-        case .hybrid: return "sparkles"
-        }
-    }
-
-    /// Whether this engine type requires embedding computation
-    public var requiresEmbeddings: Bool {
-        switch self {
-        case .classic: return false
-        case .semantic, .hybrid: return true
         }
     }
 }

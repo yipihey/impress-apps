@@ -55,6 +55,16 @@ public actor CrossrefSource: SourcePlugin {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
+        // Bare DOI? Hit the exact /works/{doi} endpoint, NOT the fuzzy
+        // /works?query= endpoint. Crossref's fuzzy search will happily
+        // return the wrong paper if the DOI shares any tokens with another
+        // entry's metadata (e.g. "10.1007/BF01696781" returns "Synthesis of
+        // Sitagliptin" because of suffix-string overlap).
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.range(of: #"^10\.\d{4,9}/\S+$"#, options: .regularExpression) != nil {
+            return try await fetchByDOI(trimmed)
+        }
+
         await rateLimiter.waitIfNeeded()
 
         // Cap results to API limits
@@ -146,6 +156,52 @@ public actor CrossrefSource: SourcePlugin {
         }
 
         return try parseSingleWork(data, doi: doi)
+    }
+
+    // MARK: - Direct DOI lookup
+
+    /// Hit the `/works/{doi}` endpoint for an exact-DOI lookup. Avoids the
+    /// fuzzy-search misbehavior that would otherwise return unrelated papers
+    /// whose metadata happens to overlap with the DOI string.
+    private func fetchByDOI(_ doi: String) async throws -> [SearchResult] {
+        await rateLimiter.waitIfNeeded()
+
+        // Encode the DOI's slashes per Crossref's URL conventions.
+        let encoded = doi.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? doi
+        var components = URLComponents(string: "\(baseURL)/works/\(encoded)")!
+        if let email = await credentialManager.email(for: "crossref") {
+            components.queryItems = [URLQueryItem(name: "mailto", value: email)]
+        }
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid URL for DOI: \(doi)")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("imbib/1.0 (https://github.com/yipihey/impress-apps; mailto:contact@imbib.app)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        // 404 on /works/{doi} means the DOI isn't in Crossref. Don't error —
+        // return empty so callers can fall through to other sources.
+        if httpResponse.statusCode == 404 { return [] }
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 429 { throw SourceError.rateLimited(retryAfter: 60) }
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        // Single-work response wraps the work directly in `message`, not in
+        // `message.items` like the search endpoint.
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let message = json?["message"] as? [String: Any] else {
+            throw SourceError.invalidResponse("Invalid Crossref single-work response")
+        }
+        return parseWorkItem(message).map { [$0] } ?? []
     }
 
     // MARK: - Parsing

@@ -197,12 +197,6 @@ struct IOSContentView: View {
                 )
             }
 
-        case .inboxFeed(let smartSearchID):
-            IOSUnifiedPublicationListWrapper(
-                source: .smartSearch(smartSearchID),
-                selectedPublicationID: $selectedPublicationID
-            )
-
         case .inboxCollection(let collectionID):
             IOSUnifiedPublicationListWrapper(
                 source: .collection(collectionID),
@@ -228,7 +222,7 @@ struct IOSContentView: View {
         case .searchForm(let formType):
             switch formType {
             case .nlSearch:
-                NLSearchFormView()
+                Text("Use Cmd+S for natural language search")
             case .adsModern:
                 ADSModernSearchFormView()
             case .adsClassic:
@@ -271,6 +265,12 @@ struct IOSContentView: View {
                 selectedPublicationID: $selectedPublicationID
             )
 
+        case .citedInManuscripts:
+            IOSUnifiedPublicationListWrapper(
+                source: .citedInManuscripts,
+                selectedPublicationID: $selectedPublicationID
+            )
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -301,11 +301,6 @@ struct IOSContentView: View {
         switch selectedSection {
         case .inbox:
             return RustStoreAdapter.shared.getInboxLibrary()?.id
-        case .inboxFeed(let ssID):
-            if let ss = RustStoreAdapter.shared.getSmartSearch(id: ssID) {
-                return ss.libraryID ?? RustStoreAdapter.shared.getInboxLibrary()?.id
-            }
-            return RustStoreAdapter.shared.getInboxLibrary()?.id
         case .inboxCollection:
             return RustStoreAdapter.shared.getInboxLibrary()?.id
         case .library(let libraryID):
@@ -327,6 +322,9 @@ struct IOSContentView: View {
             return libID
         case .flagged:
             return RustStoreAdapter.shared.getDefaultLibrary()?.id
+        case .citedInManuscripts:
+            // Cross-library pseudo source — no owning library.
+            return nil
         default:
             return nil
         }
@@ -337,8 +335,6 @@ struct IOSContentView: View {
         switch selectedSection {
         case .inbox:
             return RustStoreAdapter.shared.getInboxLibrary().map { .library($0.id) }
-        case .inboxFeed(let ssID):
-            return .smartSearch(ssID)
         case .inboxCollection(let colID):
             return .collection(colID)
         case .library(let libraryID):
@@ -352,6 +348,8 @@ struct IOSContentView: View {
         case .flagged(let color):
             let source = IOSUnifiedPublicationListWrapper.Source.flagged(color)
             return .flagged(source.id)
+        case .citedInManuscripts:
+            return .library(UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!)
         default:
             return nil
         }
@@ -389,7 +387,7 @@ struct IOSContentView: View {
         case .inboxCollection(let colID):
             return .collection(colID, "Collection")
 
-        case .inbox, .inboxFeed, .search, .searchForm, .flagged, .none:
+        case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .none:
             return .global
         }
     }
@@ -475,7 +473,6 @@ struct BibTeXDocument: FileDocument {
 /// Sidebar navigation targets using UUIDs and value types only (no Core Data).
 enum SidebarSection: Hashable {
     case inbox
-    case inboxFeed(UUID)              // SmartSearch ID
     case inboxCollection(UUID)        // Collection ID
     case library(UUID)                // Library ID
     case search                       // Legacy, kept for compatibility
@@ -484,6 +481,7 @@ enum SidebarSection: Hashable {
     case collection(UUID)             // Collection ID
     case scixLibrary(UUID)            // SciXLibrary ID
     case flagged(String?)             // Flagged publications (nil = any flag, or specific color name)
+    case citedInManuscripts           // Papers cited in any imprint manuscript
 }
 
 // MARK: - iOS Search View
@@ -505,12 +503,21 @@ struct IOSSearchView: View {
     @State private var isSearchBarExpanded = true
     @FocusState private var isSearchFieldFocused: Bool
 
+    /// iOS migration debt: `SearchViewModel.publications` was removed
+    /// when ADR-016 routed auto-imports into the active library instead
+    /// of exposing a separate results array. The iOS search UI hasn't
+    /// been updated to query the resulting publications from the
+    /// library yet, so we render an empty array here to keep the file
+    /// compiling. The "Search Online" ContentUnavailableView is shown
+    /// instead of results.
+    private var searchResultStub: [PublicationRowData] { [] }
+
     var body: some View {
         VStack(spacing: 0) {
             // Search bar section - stays pinned at top regardless of keyboard
             VStack(spacing: 0) {
                 // Collapsed search bar (shows when results are displayed and search bar is collapsed)
-                if !isSearchBarExpanded && !searchViewModel.publications.isEmpty {
+                if !isSearchBarExpanded && !searchResultStub.isEmpty {
                     collapsedSearchBar
                         .padding(.horizontal)
                         .padding(.vertical, 8)
@@ -542,7 +549,7 @@ struct IOSSearchView: View {
         .toolbar {
             // Clear results / Cancel button
             ToolbarItem(placement: .topBarLeading) {
-                if !searchViewModel.publications.isEmpty {
+                if !searchResultStub.isEmpty {
                     Button("Clear") {
                         searchText = ""
                         searchViewModel.query = ""
@@ -675,14 +682,14 @@ struct IOSSearchView: View {
         if searchViewModel.isSearching {
             ProgressView("Searching...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if searchViewModel.publications.isEmpty {
+        } else if searchResultStub.isEmpty {
             ContentUnavailableView(
                 "Search Online",
                 systemImage: "magnifyingglass",
                 description: Text("Search arXiv, ADS, Crossref, and more")
             )
         } else {
-            List(searchViewModel.publications, id: \.id, selection: $multiSelection) { publication in
+            List(searchResultStub, id: \.id, selection: $multiSelection) { publication in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(publication.title ?? "Untitled")
                         .font(.headline)
@@ -692,8 +699,8 @@ struct IOSSearchView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    if publication.year > 0 {
-                        Text(String(publication.year))
+                    if let year = publication.year, year > 0 {
+                        Text(String(year))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -736,9 +743,7 @@ struct IOSSearchView: View {
 
         // Add selected publications to Inbox
         for id in multiSelection {
-            if let publication = searchViewModel.publications.first(where: { $0.id == id }) {
-                inboxManager.addToInbox(publication)
-            }
+            inboxManager.addToInbox(id)
         }
 
         // Clear selection after sending
@@ -969,8 +974,7 @@ private struct FileHandlers: ViewModifier {
         .environment(LibraryViewModel())
         .environment(SearchViewModel(
             sourceManager: SourceManager(),
-            deduplicationService: DeduplicationService(),
-            repository: PublicationRepository()
+            deduplicationService: DeduplicationService()
         ))
         .environment(SettingsViewModel(
             sourceManager: SourceManager(),

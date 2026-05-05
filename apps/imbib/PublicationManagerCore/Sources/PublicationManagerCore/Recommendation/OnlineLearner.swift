@@ -222,39 +222,71 @@ public actor OnlineLearner {
 
     /// Apply decay to negative preferences over time.
     ///
-    /// This prevents old dismissals from permanently affecting rankings.
+    /// Per-entry decay: each negative affinity is decayed by 0.95 per week of inactivity
+    /// since the profile was last updated. This prevents old dismissals from permanently
+    /// affecting rankings, and unlike the old approach, it works for active users too.
+    ///
     /// Called periodically (e.g., on app launch).
     public func applyDecay() async {
         let decayDays = await settingsStore.negativePrefDecayDays()
-        let decayFactor = 0.9  // 10% decay per application
+        let decayPerWeek = 0.95  // 5% decay per week of inactivity
 
         await MainActor.run {
             var profile = getOrCreateProfile()
 
-            let cutoffDate = Calendar.current.date(byAdding: .day, value: -decayDays, to: Date()) ?? Date()
+            // Calculate weeks since last update
+            let daysSinceUpdate = Calendar.current.dateComponents(
+                [.day], from: profile.lastUpdated, to: Date()
+            ).day ?? 0
 
-            // Only apply decay if profile is old enough
-            guard profile.lastUpdated < cutoffDate else { return }
+            // Only apply if at least 1 week has passed since last decay
+            guard daysSinceUpdate >= 7 else { return }
+
+            let weeksSinceUpdate = Double(daysSinceUpdate) / 7.0
+            let decayFactor = pow(decayPerWeek, weeksSinceUpdate)
+
+            var decayCount = 0
+            let threshold = 0.01  // Remove entries that have decayed to near-zero
 
             // Decay negative author affinities
             for (key, value) in profile.authorAffinities where value < 0 {
-                profile.authorAffinities[key] = value * decayFactor
+                let decayed = value * decayFactor
+                if abs(decayed) < threshold {
+                    profile.authorAffinities.removeValue(forKey: key)
+                } else {
+                    profile.authorAffinities[key] = decayed
+                }
+                decayCount += 1
             }
 
             // Decay negative venue affinities
             for (key, value) in profile.venueAffinities where value < 0 {
-                profile.venueAffinities[key] = value * decayFactor
+                let decayed = value * decayFactor
+                if abs(decayed) < threshold {
+                    profile.venueAffinities.removeValue(forKey: key)
+                } else {
+                    profile.venueAffinities[key] = decayed
+                }
+                decayCount += 1
             }
 
             // Decay negative topic affinities
             for (key, value) in profile.topicAffinities where value < 0 {
-                profile.topicAffinities[key] = value * decayFactor
+                let decayed = value * decayFactor
+                if abs(decayed) < threshold {
+                    profile.topicAffinities.removeValue(forKey: key)
+                } else {
+                    profile.topicAffinities[key] = decayed
+                }
+                decayCount += 1
             }
+
+            guard decayCount > 0 else { return }
 
             profile.lastUpdated = Date()
             saveProfile(profile)
 
-            Logger.recommendation.info("Applied negative preference decay")
+            Logger.recommendation.info("Applied negative preference decay to \(decayCount) entries (factor: \(String(format: "%.3f", decayFactor)))")
         }
 
         await RecommendationEngine.shared.invalidateCache()

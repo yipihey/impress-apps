@@ -12,7 +12,7 @@ import SwiftUI
 /// Shows the detailed score breakdown for a publication.
 ///
 /// Explains why a paper is ranked where it is, with all feature contributions visible.
-/// Users can adjust weights or request "less/more like this" from this view.
+/// Uses plain-language labels and context-specific details (author names, venue names).
 public struct ScoreBreakdownView: View {
 
     // MARK: - Properties
@@ -60,20 +60,16 @@ public struct ScoreBreakdownView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Paper info header
                     paperHeader
 
                     Divider()
 
-                    // Overall score
                     overallScoreSection
 
-                    // Feature contributions
                     if let breakdown = breakdown {
                         contributionsSection(breakdown)
                     }
 
-                    // Quick actions
                     quickActionsSection
                 }
                 .padding()
@@ -127,25 +123,60 @@ public struct ScoreBreakdownView: View {
     private var overallScoreSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Relevance Score")
+                Text("Relevance")
                     .font(.title3.bold())
                 Spacer()
                 if let breakdown = breakdown {
-                    Text(String(format: "%.2f", breakdown.total))
-                        .font(.title2.monospacedDigit().bold())
-                        .foregroundStyle(scoreColor(breakdown.total))
+                    relevanceIndicator(breakdown.total)
                 } else if isLoading {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
 
-            Text("Higher scores indicate papers more likely to interest you based on your activity.")
+            Text("Based on your reading patterns and preferences.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding()
         .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Relevance Indicator (replaces raw numerical score)
+
+    @ViewBuilder
+    private func relevanceIndicator(_ score: Double) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: relevanceIcon(score))
+                .foregroundStyle(relevanceColor(score))
+            Text(relevanceLabel(score))
+                .font(.subheadline.bold())
+                .foregroundStyle(relevanceColor(score))
+        }
+    }
+
+    private func relevanceLabel(_ score: Double) -> String {
+        if score > 1.5 { return "Very High" }
+        if score > 0.8 { return "High" }
+        if score > 0.3 { return "Moderate" }
+        if score > 0 { return "Low" }
+        return "Unlikely"
+    }
+
+    private func relevanceIcon(_ score: Double) -> String {
+        if score > 1.5 { return "flame.fill" }
+        if score > 0.8 { return "arrow.up.circle.fill" }
+        if score > 0.3 { return "equal.circle.fill" }
+        if score > 0 { return "arrow.down.circle" }
+        return "xmark.circle"
+    }
+
+    private func relevanceColor(_ score: Double) -> Color {
+        if score > 1.0 { return .green }
+        if score > 0.5 { return .blue }
+        if score > 0 { return .primary }
+        if score > -0.5 { return .orange }
+        return .red
     }
 
     // MARK: - Contributions Section
@@ -160,7 +191,6 @@ public struct ScoreBreakdownView: View {
                     .foregroundStyle(.secondary)
                     .italic()
             } else {
-                // Positive contributions
                 let positive = breakdown.components.filter { $0.isPositiveContribution }
                 if !positive.isEmpty {
                     Text("Positive signals")
@@ -172,7 +202,6 @@ public struct ScoreBreakdownView: View {
                     }
                 }
 
-                // Negative contributions
                 let negative = breakdown.components.filter { !$0.isPositiveContribution }
                 if !negative.isEmpty {
                     Text("Negative signals")
@@ -239,20 +268,6 @@ public struct ScoreBreakdownView: View {
         breakdown = await RecommendationEngine.shared.scoreBreakdown(publicationID)
         isLoading = false
     }
-
-    private func scoreColor(_ score: Double) -> Color {
-        if score > 1.0 {
-            return .green
-        } else if score > 0.5 {
-            return .blue
-        } else if score > 0 {
-            return .primary
-        } else if score > -0.5 {
-            return .orange
-        } else {
-            return .red
-        }
-    }
 }
 
 // MARK: - Score Component Row
@@ -263,8 +278,15 @@ private struct ScoreComponentRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(component.feature.displayName)
-                    .font(.subheadline)
+                HStack(spacing: 4) {
+                    Text(component.feature.displayName)
+                        .font(.subheadline)
+                    if let detail = component.detail {
+                        Text("(\(detail))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text(component.feature.featureDescription)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -276,7 +298,7 @@ private struct ScoreComponentRow: View {
             // Visual bar
             contributionBar
 
-            // Numeric value
+            // Relative indicator instead of raw number
             Text(String(format: "%+.2f", component.contribution))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(component.isPositiveContribution ? .green : .red)

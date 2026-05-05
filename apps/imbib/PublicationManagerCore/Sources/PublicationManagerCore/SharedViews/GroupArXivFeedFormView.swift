@@ -31,6 +31,9 @@ public struct GroupArXivFeedFormView: View {
     /// The mode determines where results are stored. Group feeds always use inbox mode.
     public let mode: SearchFormMode
 
+    /// When set, the form loads this feed's data on appear (edit mode).
+    public let editingFeedID: UUID?
+
     // MARK: - Local State
 
     @State private var feedName: String = ""
@@ -43,6 +46,7 @@ public struct GroupArXivFeedFormView: View {
     @State private var errorMessage: String = ""
     /// Maximum results to return (0 = use default, which is 500 for feeds)
     @State private var formMaxResults: Int = 0
+    @State private var saveTargetID: UUID?
 
     // MARK: - Edit Mode State
 
@@ -55,9 +59,12 @@ public struct GroupArXivFeedFormView: View {
     // MARK: - Initialization
 
     /// Create a group arXiv feed form. Group feeds always feed to inbox.
-    /// - Parameter mode: The search form mode (defaults to `.inboxFeed`)
-    public init(mode: SearchFormMode = .inboxFeed) {
+    /// - Parameters:
+    ///   - mode: The search form mode (defaults to `.inboxFeed`)
+    ///   - editingFeedID: If set, loads this feed's data into the form on appear.
+    public init(mode: SearchFormMode = .inboxFeed, editingFeedID: UUID? = nil) {
         self.mode = mode
+        self.editingFeedID = editingFeedID
     }
 
     // MARK: - Body
@@ -81,6 +88,9 @@ public struct GroupArXivFeedFormView: View {
 
                 // Feed Name Section
                 feedNameSection
+
+                // Save target picker
+                FeedSaveTargetPicker(saveTargetID: $saveTargetID)
 
                 // Authors Section
                 authorsSection
@@ -182,6 +192,13 @@ public struct GroupArXivFeedFormView: View {
             .padding()
         }
         .background(Color(nsColor: .controlBackgroundColor))
+        .onAppear {
+            if let feedID = editingFeedID,
+               editingFeed == nil,
+               let feed = RustStoreAdapter.shared.getSmartSearch(id: feedID) {
+                loadFeedForEditing(feed)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .editGroupArXivFeed)) { notification in
             if let feed = notification.object as? SmartSearch {
                 loadFeedForEditing(feed)
@@ -316,19 +333,35 @@ public struct GroupArXivFeedFormView: View {
                 // Build the group feed query string
                 let query = buildGroupFeedQuery()
 
-                // Create the smart search using the inbox feed factory method
-                // Group feeds are always inbox feeds with auto-refresh
                 // Use formMaxResults if > 0, otherwise pass nil to use default
                 let maxResultsParam: Int? = formMaxResults > 0 ? formMaxResults : nil
-                guard let smartSearch = SmartSearchRepository.shared.createInboxFeed(
-                    name: effectiveFeedName,
-                    query: query,
-                    sourceIDs: ["arxiv"],
-                    maxResults: maxResultsParam,
-                    refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
-                    isGroupFeed: true
-                ) else {
-                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create inbox feed"])
+                let smartSearch: SmartSearch?
+
+                if case .libraryFeed(let libraryID, _) = mode {
+                    smartSearch = RustStoreAdapter.shared.createLibraryFeed(
+                        name: effectiveFeedName,
+                        query: query,
+                        sourceIDs: ["arxiv"],
+                        libraryID: libraryID,
+                        maxResults: maxResultsParam.map { Int16($0) },
+                        refreshIntervalSeconds: 86400,
+                        saveTargetID: saveTargetID
+                    )
+                } else {
+                    // Create the smart search using the inbox feed factory method
+                    // Group feeds are always inbox feeds with auto-refresh
+                    smartSearch = SmartSearchRepository.shared.createInboxFeed(
+                        name: effectiveFeedName,
+                        query: query,
+                        sourceIDs: ["arxiv"],
+                        maxResults: maxResultsParam,
+                        refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
+                        isGroupFeed: true
+                    )
+                }
+
+                guard let smartSearch else {
+                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create feed"])
                 }
 
                 Logger.viewModels.infoCapture(
@@ -400,6 +433,11 @@ public struct GroupArXivFeedFormView: View {
         editingFeed = feed
         feedName = feed.name
 
+        Logger.viewModels.infoCapture(
+            "Loading group feed '\(feed.name)' raw query: \(feed.query)",
+            category: "feed"
+        )
+
         // Parse the query to extract authors and categories
         let (authors, categories) = parseGroupFeedQuery(feed.query)
         authorsText = authors.joined(separator: "\n")
@@ -412,21 +450,25 @@ public struct GroupArXivFeedFormView: View {
         formMaxResults = feed.maxResults
 
         Logger.viewModels.infoCapture(
-            "Loaded group feed '\(feed.name)' for editing with \(authors.count) authors and \(categories.count) categories",
+            "Loaded group feed '\(feed.name)' for editing with \(authors.count) authors (\(authorsText.prefix(100))...) and \(categories.count) categories",
             category: "feed"
         )
     }
 
-    /// Build the query string for a group feed
+    /// Build the query string for a group feed.
+    /// Uses `;` as the author separator (not `,`) because author names
+    /// themselves may contain ", " (e.g. "Lastname, Firstname").
     private func buildGroupFeedQuery() -> String {
-        // Format: GROUP_FEED|authors:Author1,Author2,Author3|categories:cat1,cat2|crosslist:true
-        let authorsString = parsedAuthors.joined(separator: ",")
+        // Format: GROUP_FEED|authors:Author1;Author2;Author3|categories:cat1,cat2|crosslist:true
+        let authorsString = parsedAuthors.joined(separator: ";")
         let categoriesString = selectedCategories.sorted().joined(separator: ",")
         let crosslistString = includeCrossListed ? "true" : "false"
         return "GROUP_FEED|authors:\(authorsString)|categories:\(categoriesString)|crosslist:\(crosslistString)"
     }
 
-    /// Parse a group feed query string to extract authors and categories
+    /// Parse a group feed query string to extract authors and categories.
+    /// Supports current format (`authors:`, `categories:`, `crosslist:`) and
+    /// legacy format (`au:`, `cat:` with `;` or ambiguous `,` author separators).
     private func parseGroupFeedQuery(_ query: String) -> ([String], Set<String>) {
         var authors: [String] = []
         var categories: Set<String> = []
@@ -435,18 +477,67 @@ public struct GroupArXivFeedFormView: View {
             return (authors, categories)
         }
 
-        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        let parts = query.dropFirst("GROUP_FEED|".count)
+            .components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
         for part in parts {
-            if part.hasPrefix("authors:") {
-                let authorsString = String(part.dropFirst("authors:".count))
-                authors = authorsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            } else if part.hasPrefix("categories:") {
-                let categoriesString = String(part.dropFirst("categories:".count))
-                categories = Set(categoriesString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+            if let raw = Self.stripPrefix(part, prefixes: ["authors:", "au:"]) {
+                authors = Self.splitAuthorList(raw)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            } else if let raw = Self.stripPrefix(part, prefixes: ["categories:", "cat:"]) {
+                categories = Set(
+                    raw.components(separatedBy: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                )
             }
         }
 
         return (authors, categories)
+    }
+
+    private static func stripPrefix(_ s: String, prefixes: [String]) -> String? {
+        for p in prefixes where s.hasPrefix(p) {
+            return String(s.dropFirst(p.count))
+        }
+        return nil
+    }
+
+    /// Split an author list string, preserving full "Lastname, Firstname" names.
+    /// ";" always separates authors. A bare "," only separates authors when NOT
+    /// followed by whitespace (", " is treated as part of a name).
+    private static func splitAuthorList(_ s: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == ";" {
+                result.append(current)
+                current = ""
+                i += 1
+                continue
+            }
+            if c == "," {
+                let next = i + 1 < chars.count ? chars[i + 1] : nil
+                if let n = next, n.isWhitespace {
+                    current.append(c)
+                    i += 1
+                } else {
+                    result.append(current)
+                    current = ""
+                    i += 1
+                }
+                continue
+            }
+            current.append(c)
+            i += 1
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 
     private func exitEditMode() {
@@ -495,6 +586,7 @@ public struct GroupArXivFeedFormView: View {
     @State private var errorMessage: String = ""
     /// Maximum results to return (0 = use default, which is 500 for feeds)
     @State private var formMaxResults: Int = 0
+    @State private var saveTargetID: UUID?
 
     // MARK: - Edit Mode State
 
@@ -693,19 +785,34 @@ public struct GroupArXivFeedFormView: View {
             do {
                 let query = buildGroupFeedQuery()
 
-                // Create the smart search using the inbox feed factory method
-                // Group feeds are always inbox feeds with auto-refresh
-                // Use formMaxResults if > 0, otherwise pass nil to use default
                 let maxResultsParam: Int? = formMaxResults > 0 ? formMaxResults : nil
-                guard let smartSearch = SmartSearchRepository.shared.createInboxFeed(
-                    name: effectiveFeedName,
-                    query: query,
-                    sourceIDs: ["arxiv"],
-                    maxResults: maxResultsParam,
-                    refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
-                    isGroupFeed: true
-                ) else {
-                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create inbox feed"])
+                let smartSearch: SmartSearch?
+
+                if case .libraryFeed(let libraryID, _) = mode {
+                    smartSearch = RustStoreAdapter.shared.createLibraryFeed(
+                        name: effectiveFeedName,
+                        query: query,
+                        sourceIDs: ["arxiv"],
+                        libraryID: libraryID,
+                        maxResults: maxResultsParam.map { Int16($0) },
+                        refreshIntervalSeconds: 86400,
+                        saveTargetID: saveTargetID
+                    )
+                } else {
+                    // Create the smart search using the inbox feed factory method
+                    // Group feeds are always inbox feeds with auto-refresh
+                    smartSearch = SmartSearchRepository.shared.createInboxFeed(
+                        name: effectiveFeedName,
+                        query: query,
+                        sourceIDs: ["arxiv"],
+                        maxResults: maxResultsParam,
+                        refreshIntervalSeconds: 86400,  // 24 hours (daily refresh)
+                        isGroupFeed: true
+                    )
+                }
+
+                guard let smartSearch else {
+                    throw NSError(domain: "GroupFeed", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create feed"])
                 }
 
                 Logger.viewModels.infoCapture(
@@ -786,7 +893,8 @@ public struct GroupArXivFeedFormView: View {
     }
 
     private func buildGroupFeedQuery() -> String {
-        let authorsString = parsedAuthors.joined(separator: ",")
+        // Use ";" between authors to avoid ambiguity with "," inside names.
+        let authorsString = parsedAuthors.joined(separator: ";")
         let categoriesString = selectedCategories.sorted().joined(separator: ",")
         let crosslistString = includeCrossListed ? "true" : "false"
         return "GROUP_FEED|authors:\(authorsString)|categories:\(categoriesString)|crosslist:\(crosslistString)"
@@ -800,18 +908,64 @@ public struct GroupArXivFeedFormView: View {
             return (authors, categories)
         }
 
-        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        let parts = query.dropFirst("GROUP_FEED|".count)
+            .components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
         for part in parts {
-            if part.hasPrefix("authors:") {
-                let authorsString = String(part.dropFirst("authors:".count))
-                authors = authorsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            } else if part.hasPrefix("categories:") {
-                let categoriesString = String(part.dropFirst("categories:".count))
-                categories = Set(categoriesString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+            if let raw = Self.stripPrefix(part, prefixes: ["authors:", "au:"]) {
+                authors = Self.splitAuthorList(raw)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            } else if let raw = Self.stripPrefix(part, prefixes: ["categories:", "cat:"]) {
+                categories = Set(
+                    raw.components(separatedBy: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                )
             }
         }
 
         return (authors, categories)
+    }
+
+    private static func stripPrefix(_ s: String, prefixes: [String]) -> String? {
+        for p in prefixes where s.hasPrefix(p) {
+            return String(s.dropFirst(p.count))
+        }
+        return nil
+    }
+
+    private static func splitAuthorList(_ s: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == ";" {
+                result.append(current)
+                current = ""
+                i += 1
+                continue
+            }
+            if c == "," {
+                let next = i + 1 < chars.count ? chars[i + 1] : nil
+                if let n = next, n.isWhitespace {
+                    current.append(c)
+                    i += 1
+                } else {
+                    result.append(current)
+                    current = ""
+                    i += 1
+                }
+                continue
+            }
+            current.append(c)
+            i += 1
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 
     private func exitEditMode() {

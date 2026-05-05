@@ -20,6 +20,16 @@ public enum PublicationSource: Hashable, Sendable {
     case tag(String)
     case inbox(UUID)
     case dismissed
+    /// Pseudo smart-library — every publication that appears in at
+    /// least one `citation-usage@1.0.0` record (i.e. is cited by any
+    /// imprint manuscript). Resolved at query time from the
+    /// `CitedInManuscriptsSnapshot` singleton.
+    case citedInManuscripts
+
+    /// Union of multiple sources — papers from all child sources, deduped
+    /// by paper UUID. Used by Cmd-click multi-selection of libraries / collections.
+    /// The list query, count, and viewID derive from the contained array.
+    case combined([PublicationSource])
 
     /// Deterministic UUID for SwiftUI `.id()` — ensures view recreation on source change.
     public var viewID: UUID {
@@ -59,6 +69,21 @@ public enum PublicationSource: Hashable, Sendable {
             return UUID(uuidString: String(format: "00000000-0000-0000-BBBB-%012x", hash & 0xFFFF_FFFF_FFFF))!
         case .dismissed:
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000003")!
+        case .citedInManuscripts:
+            return UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!
+        case .combined(let sources):
+            // Order-independent deterministic id: sort child viewIDs and
+            // FNV-hash their bytes. Two `.combined` sources with the same
+            // set of children produce the same viewID, regardless of order.
+            let sortedIDs = sources.map { $0.viewID.uuidString }.sorted()
+            var hash: UInt64 = 14695981039346656037
+            for s in sortedIDs {
+                for byte in s.utf8 {
+                    hash ^= UInt64(byte)
+                    hash &*= 1099511628211
+                }
+            }
+            return UUID(uuidString: String(format: "00000000-0000-0000-CCCC-%012x", hash & 0xFFFF_FFFF_FFFF))!
         }
     }
 }

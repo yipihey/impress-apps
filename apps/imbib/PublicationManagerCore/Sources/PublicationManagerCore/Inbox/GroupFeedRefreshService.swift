@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressStoreKit
 import OSLog
 
 // MARK: - Group Feed Refresh Service
@@ -44,6 +45,13 @@ public actor GroupFeedRefreshService {
     private var _isRefreshing = false
     private var currentProgress: GroupFeedProgress?
 
+    /// Set of feed IDs currently being refreshed. Used to prevent concurrent
+    /// refreshes of the same feed (which can happen when the user triggers a
+    /// manual refresh while a scheduled refresh is in flight, or when the
+    /// actor's isolation is released during `Task.sleep` inside the per-author
+    /// stagger loop).
+    private var activelyRefreshing: Set<UUID> = []
+
     // MARK: - Initialization
 
     public init(
@@ -72,9 +80,70 @@ public actor GroupFeedRefreshService {
 
     // MARK: - Refresh Group Feed
 
-    /// Refresh a group feed by ID.
+    /// Refresh a group feed by ID. Routes through the shared
+    /// `BackgroundOperationQueue` so concurrent refresh requests for the
+    /// same feed (or any work competing for the store) are globally
+    /// deduped and visible in the operation overlay.
+    ///
+    /// Priority is `.userInitiated` — manual refreshes should bypass
+    /// the startup grace period so the user always sees fresh data when
+    /// they explicitly ask for it. Scheduled refreshes from
+    /// `FeedScheduler` submit at `.background` priority (see
+    /// `refreshGroupFeedByIDScheduled`).
     @discardableResult
     public func refreshGroupFeedByID(_ smartSearchID: UUID) async throws -> Int {
+        try await refreshGroupFeedByID(smartSearchID, priority: .userInitiated)
+    }
+
+    /// Internal priority-controlled variant — user-initiated manual
+    /// refreshes use `.userInitiated`; scheduled refreshes use
+    /// `.background` so the startup grace applies.
+    @discardableResult
+    public func refreshGroupFeedByID(
+        _ smartSearchID: UUID,
+        priority: OperationPriority
+    ) async throws -> Int {
+        let dedupeKey = "group-feed-refresh-\(smartSearchID.uuidString)"
+
+        let result: AwaitResult<Int> = try await BackgroundOperationQueue.shared.submitAndAwait(
+            kind: .network,
+            priority: priority,
+            dedupeKey: dedupeKey,
+            label: "GroupFeedRefresh[\(smartSearchID)]"
+        ) { _ in
+            try await self.runRefreshLocked(smartSearchID)
+        }
+
+        switch result {
+        case .completed(let count):
+            return count
+        case .deduped:
+            Logger.inbox.infoCapture(
+                "Group feed \(smartSearchID) already refreshing — operation queue deduped",
+                category: "group-feed"
+            )
+            return 0
+        case .refusedStartupGrace:
+            Logger.inbox.debugCapture(
+                "Group feed \(smartSearchID) refresh refused: startup grace",
+                category: "group-feed"
+            )
+            return 0
+        }
+    }
+
+    /// Runs the actual refresh. Called only from inside the operation
+    /// queue's work closure, so the queue's dedupe key guarantees only
+    /// one invocation per feed ID at a time.
+    private func runRefreshLocked(_ smartSearchID: UUID) async throws -> Int {
+        // Keep the legacy activelyRefreshing set as belt-and-suspenders
+        // for anything that still calls refreshGroupFeedInternal directly.
+        if activelyRefreshing.contains(smartSearchID) {
+            return 0
+        }
+        activelyRefreshing.insert(smartSearchID)
+        defer { activelyRefreshing.remove(smartSearchID) }
+
         // Extract all needed data on main actor
         let feedData: GroupFeedData? = await withStore { store -> GroupFeedData? in
             guard let ss = store.getSmartSearch(id: smartSearchID) else { return nil }
@@ -298,10 +367,11 @@ public actor GroupFeedRefreshService {
             }
         }
 
-        // Add filtered existing publications to inbox
+        // Add filtered existing publications to inbox and link to feed
         if !existingPubIDsToAdd.isEmpty {
             await MainActor.run {
                 _ = inboxManager.addToInboxBatch(existingPubIDsToAdd)
+                RustStoreAdapter.shared.addToCollection(publicationIds: existingPubIDsToAdd, collectionId: smartSearchID)
             }
         }
 
@@ -323,12 +393,15 @@ public actor GroupFeedRefreshService {
                 newPaperIDs.append(contentsOf: importedIDs)
             }
 
+            let capturedNewIDs = newPaperIDs
             await MainActor.run {
-                _ = inboxManager.addToInboxBatch(newPaperIDs)
+                _ = inboxManager.addToInboxBatch(capturedNewIDs)
+                RustStoreAdapter.shared.addToCollection(publicationIds: capturedNewIDs, collectionId: smartSearchID)
             }
         }
 
-        Logger.inbox.debugCapture("Created \(newPaperIDs.count) new papers", category: "group-feed")
+        let totalLinked = existingPubIDsToAdd.count + newPaperIDs.count
+        Logger.inbox.debugCapture("Created \(newPaperIDs.count) new papers, linked \(totalLinked) to feed", category: "group-feed")
 
         // Immediate ADS enrichment
         if !newPaperIDs.isEmpty {
@@ -346,29 +419,113 @@ public actor GroupFeedRefreshService {
 
     /// Parse authors from a GROUP_FEED query string.
     static func parseGroupFeedAuthors(_ query: String) -> [String] {
-        // GROUP_FEED|authors:Name1,Name2|categories:cat1,cat2|crosslisted:true
-        guard let authorsField = query.components(separatedBy: "|").first(where: { $0.hasPrefix("authors:") }) else {
-            return []
+        // Supported formats:
+        //   authors:Name1,Name2,Name3                           (current, `,` between authors)
+        //   au:Lastname, First;Lastname, First;Lastname, First  (legacy `;` between authors)
+        //   au:Lastname, First,Lastname, First                  (legacy mixed — `,` inside name, bare `,` between)
+        //
+        // Disambiguation: ", " (comma + whitespace) is treated as INTRA-name
+        // (joining "Lastname" and "Firstname"). A bare "," not followed by
+        // whitespace or a ";" is treated as BETWEEN authors.
+        let parts = query.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        for part in parts {
+            if let raw = stripPrefix(part, prefixes: ["authors:", "au:"]) {
+                return splitAuthorList(raw)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .map(lastNameOnly)
+            }
         }
-        let authorsString = String(authorsField.dropFirst("authors:".count))
-        return authorsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return []
+    }
+
+    /// Split an author list string, treating "," as separator ONLY when not
+    /// followed by whitespace. A bare "," between "Risa" and "Blandford"
+    /// separates authors; ", " between "Lastname" and "Firstname" joins them.
+    /// ";" always separates authors.
+    private static func splitAuthorList(_ s: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == ";" {
+                result.append(current)
+                current = ""
+                i += 1
+                continue
+            }
+            if c == "," {
+                // Peek next character
+                let next = i + 1 < chars.count ? chars[i + 1] : nil
+                if let n = next, n.isWhitespace {
+                    // Intra-name separator (e.g., "Lastname, Firstname")
+                    current.append(c)
+                    i += 1
+                } else {
+                    // Inter-name separator
+                    result.append(current)
+                    current = ""
+                    i += 1
+                }
+                continue
+            }
+            current.append(c)
+            i += 1
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    /// Extract the surname from a "Lastname, Firstname" or "Firstname Lastname"
+    /// string. arXiv's author search works best on surnames, so we strip
+    /// first names before building queries.
+    private static func lastNameOnly(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if let commaIdx = trimmed.firstIndex(of: ",") {
+            // "Lastname, Firstname" → "Lastname"
+            return String(trimmed[..<commaIdx]).trimmingCharacters(in: .whitespaces)
+        }
+        // "Firstname Lastname" → "Lastname" (take last token)
+        let tokens = trimmed.split(separator: " ")
+        if tokens.count > 1, let last = tokens.last {
+            return String(last)
+        }
+        return trimmed
     }
 
     /// Parse categories from a GROUP_FEED query string.
     static func parseGroupFeedCategories(_ query: String) -> Set<String> {
-        guard let catField = query.components(separatedBy: "|").first(where: { $0.hasPrefix("categories:") }) else {
-            return []
+        let parts = query.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        for part in parts {
+            if let raw = stripPrefix(part, prefixes: ["categories:", "cat:"]) {
+                return Set(
+                    raw.components(separatedBy: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                )
+            }
         }
-        let catString = String(catField.dropFirst("categories:".count))
-        return Set(catString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+        return []
     }
 
     /// Parse cross-listed flag from a GROUP_FEED query string.
     static func parseGroupFeedIncludesCrossListed(_ query: String) -> Bool {
-        guard let field = query.components(separatedBy: "|").first(where: { $0.hasPrefix("crosslisted:") }) else {
-            return true
+        let parts = query.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        for part in parts {
+            if let raw = stripPrefix(part, prefixes: ["crosslist:", "crosslisted:"]) {
+                return raw.trimmingCharacters(in: .whitespaces).lowercased() == "true"
+            }
         }
-        return String(field.dropFirst("crosslisted:".count)).lowercased() == "true"
+        return true
+    }
+
+    private static func stripPrefix(_ s: String, prefixes: [String]) -> String? {
+        for p in prefixes where s.hasPrefix(p) {
+            return String(s.dropFirst(p.count))
+        }
+        return nil
     }
 
     // MARK: - Author Matching

@@ -109,36 +109,14 @@ public extension Notification.Name {
     /// Toggle read/unread status of selected publications
     static let toggleReadStatus = Notification.Name("toggleReadStatus")
 
-    // MARK: - Store Mutation Signal
-
-    /// Posted by RustStoreAdapter.didMutate() on every write.
-    /// Use `.onReceive` instead of `.onChange(of: store.dataVersion)` to avoid
-    /// creating an @Observable tracking dependency that causes spurious body re-evaluations.
-    static let storeDidMutate = Notification.Name("storeDidMutate")
-
-    // MARK: - State Change Signals (adapter → row-level cache updates)
-    // These carry publication IDs in userInfo["publicationIDs"] for O(1) row updates.
-    // The store.dataVersion observation handles full list/sidebar refresh;
-    // these are performance optimizations for surgical row data rebuilds.
-
-    /// Read status changed on one or more publications.
-    /// userInfo: ["publicationIDs": [UUID]]
-    static let readStatusDidChange = Notification.Name("readStatusDidChange")
-
-    /// Flag state changed on one or more publications.
-    /// userInfo: ["publicationIDs": [UUID]]
-    static let flagDidChange = Notification.Name("flagDidChange")
-
-    /// Star state changed on one or more publications.
-    static let starDidChange = Notification.Name("starDidChange")
-
-    /// Tag added/removed on one or more publications.
-    /// userInfo: ["publicationIDs": [UUID]]
-    static let tagDidChange = Notification.Name("tagDidChange")
-
-    /// A field (title, year, abstract, etc.) changed on one or more publications.
-    /// userInfo: ["publicationIDs": [UUID]]
-    static let fieldDidChange = Notification.Name("fieldDidChange")
+    // Store mutation signals are no longer delivered through
+    // NotificationCenter — they flow through
+    // `ImbibImpressStore.shared.events` as typed `StoreEvent`s. See
+    // `packages/ImpressStoreKit/Sources/ImpressStoreKit/StoreEvent.swift`
+    // for the event vocabulary. The six legacy names
+    // (`.storeDidMutate`, `.readStatusDidChange`, `.flagDidChange`,
+    // `.starDidChange`, `.tagDidChange`, `.fieldDidChange`) were deleted
+    // once every consumer migrated to the gateway subscription pattern.
 
     // MARK: - Clipboard Operations
 

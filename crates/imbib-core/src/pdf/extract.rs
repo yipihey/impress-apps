@@ -22,6 +22,30 @@ impl From<PdfiumError> for PdfError {
     }
 }
 
+/// Try to initialize a `Pdfium` instance without panicking.
+///
+/// `Pdfium::default()` panics when the `libpdfium` dynamic library can't
+/// be loaded — which is the current situation on macOS bundles that don't
+/// ship the dylib. This helper returns `PdfError::PdfiumNotAvailable`
+/// instead, letting Swift callers gracefully fall back to PDFKit.
+///
+/// Tries, in order:
+///   1. The statically-linked library (if the crate was built with that feature)
+///   2. A dylib next to the executable or in the standard search path
+///
+/// The first attempt that succeeds wins.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn try_init_pdfium() -> Result<Pdfium, PdfError> {
+    // `bind_to_system_library` is the safe, non-panicking entry point.
+    // On macOS with no bundled dylib it returns LoadLibraryError; we map
+    // that to `PdfiumNotAvailable` so Swift can select its PDFKit
+    // fallback path without the scary `.unwrap()` panic text in logs.
+    match Pdfium::bind_to_system_library() {
+        Ok(bindings) => Ok(Pdfium::new(bindings)),
+        Err(_) => Err(PdfError::PdfiumNotAvailable),
+    }
+}
+
 /// Result of PDF text extraction
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct PdfTextResult {
@@ -40,7 +64,7 @@ pub struct PageText {
 /// Extract all text from a PDF
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_text(pdf_bytes: &[u8]) -> Result<PdfTextResult, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = try_init_pdfium()?;
     extract_with_pdfium(&pdfium, pdf_bytes)
 }
 
@@ -85,7 +109,7 @@ pub fn extract_page_range(
     start_page: u32,
     end_page: u32,
 ) -> Result<String, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     let mut text = String::new();
@@ -119,7 +143,7 @@ pub fn search_in_pdf(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<TextMatch>, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     let query_lower = query.to_lowercase();

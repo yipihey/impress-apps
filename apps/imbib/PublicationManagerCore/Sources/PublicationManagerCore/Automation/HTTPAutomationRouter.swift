@@ -12,6 +12,7 @@ import Foundation
 import CryptoKit
 import ImpressAutomation
 import ImpressKit
+import ImpressLogging
 import OSLog
 
 nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRouter")
@@ -65,6 +66,8 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// API Endpoints (DELETE):
 /// - `DELETE /api/papers` - Delete papers
 /// - `DELETE /api/collections/{id}` - Delete a collection
+/// - `DELETE /api/libraries/{id}` - Delete a single library (papers unlinked, undoable)
+/// - `DELETE /api/libraries` - Batch delete libraries (body: `{"identifiers":[UUID,…],"deleteFiles":false}`)
 /// - `DELETE /api/comments/{id}` - Delete a comment
 /// - `DELETE /api/annotations/{id}` - Delete a PDF annotation
 /// - `DELETE /api/assignments/{id}` - Delete an assignment
@@ -238,6 +241,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await LogEndpointHandler.handle(request)
         }
 
+        if path == "/api/store-timings" {
+            return handleStoreTimings(request)
+        }
+
+        if path == "/api/store-timings/reset" {
+            return handleResetStoreTimings()
+        }
+
         if path == "/api/commands" {
             return handleCommands()
         }
@@ -269,6 +280,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
     private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/papers/add" {
             return await handleAddPapers(request)
+        }
+
+        if path == "/api/papers/resolve" {
+            return await handleResolvePaper(request)
         }
 
         if path == "/api/libraries" {
@@ -497,6 +512,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid collection ID")
             }
             return await handleDeleteCollection(collectionID: collectionID)
+        }
+
+        // DELETE /api/libraries (batch — must precede single-id route)
+        if path == "/api/libraries" {
+            return await handleDeleteLibrariesBatch(request)
+        }
+
+        // DELETE /api/libraries/{id}
+        if path.hasPrefix("/api/libraries/") {
+            let segment = String(originalPath.dropFirst("/api/libraries/".count))
+            guard let libraryID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid library ID")
+            }
+            return await handleDeleteLibrary(libraryID: libraryID, request: request)
         }
 
         return .notFound("Unknown DELETE endpoint: \(path)")
@@ -772,6 +801,46 @@ public actor HTTPAutomationRouter: HTTPRouter {
         return .json(response)
     }
 
+    // MARK: - Store Timings (Phase 0 measurement endpoint)
+
+    /// Returns a JSON snapshot of store call counters.
+    /// Query parameter: `?top=N` limits the per-caller list (default 20).
+    private func handleStoreTimings(_ request: HTTPRequest) -> HTTPResponse {
+        let top = Int(request.queryParams["top"] ?? "20") ?? 20
+        let snap = StoreTimings.shared.snapshot(topCallerCount: top)
+
+        let callers: [[String: Any]] = snap.topCallers.map { stat in
+            [
+                "caller": stat.caller,
+                "count": stat.count,
+                "mainThreadCount": stat.mainThreadCount,
+                "meanMillis": round(stat.meanMillis * 1000) / 1000,
+                "maxMillis": round(stat.maxMillis * 1000) / 1000,
+                "totalNanos": stat.totalNanos
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "status": "ok",
+            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
+            "totalCalls": snap.totalCalls,
+            "mainThreadCalls": snap.mainThreadCalls,
+            "backgroundCalls": snap.backgroundCalls,
+            "mainThreadShare": round(snap.mainThreadShare * 10000) / 10000,
+            "totalMainThreadMillis": round(snap.totalMainThreadMillis * 1000) / 1000,
+            "slowestMainThreadCaller": snap.slowestMainThreadCaller,
+            "slowestMainThreadMillis": round(snap.slowestMainThreadMillis * 1000) / 1000,
+            "topCallers": callers
+        ]
+        return .json(payload)
+    }
+
+    /// Resets all store timing counters. Useful to measure a specific interaction in isolation.
+    private func handleResetStoreTimings() -> HTTPResponse {
+        StoreTimings.shared.reset()
+        return .json(["status": "ok", "reset": true])
+    }
+
     private func iconForCategory(_ category: ShortcutCategory) -> String {
         switch category {
         case .navigation: return "arrow.up.arrow.down"
@@ -886,6 +955,315 @@ public actor HTTPAutomationRouter: HTTPRouter {
         } catch {
             return mapError(error)
         }
+    }
+
+    /// POST /api/papers/resolve
+    /// Atomic citation resolution for agents. Two request shapes:
+    ///
+    /// **Free-text** (original):
+    /// `{"query": "...", "bibtex"?: "...", "library"?: "<uuid>", "download_pdfs"?: false}`
+    /// Cascade: extract identifier → local lookup → import → local text
+    /// search → external all-sources fan-out.
+    ///
+    /// **Structured** (new — for callers with parsed bibliographic fields):
+    /// `{"citation": {"authors": [...], "title": "...", "year": Y,
+    /// "journal": "...", "volume": "...", "pages": "...", "doi"?: "...",
+    /// "arxiv"?: "...", "bibcode"?: "...", "rawBibtex"?: "...",
+    /// "freeText"?: "...", "preferredDatabase"?: "astronomy"|"physics"|"all"},
+    /// "library"?: "<uuid>", "download_pdfs"?: false}`
+    /// Cascade: identifier → local → import → structured ADS search via
+    /// `SearchFormQueryBuilder` + relevance scoring → auto-accept if
+    /// confidence ≥ 0.85 → ranked candidates → all-sources fallback.
+    ///
+    /// Response shape (both paths): `{"status": "ok", "via": "<path>",
+    /// "paper": {...}?, "candidates": [...]?, "reason": "..."?}`. The
+    /// structured path's candidates include a `confidence` field (0.0–1.0).
+    private func handleResolvePaper(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        let query = (json["query"] as? String) ?? ""
+        let bibtex = (json["bibtex"] as? String) ?? ""
+        let libraryID = (json["library"] as? String).flatMap { UUID(uuidString: $0) }
+        let downloadPDFs = json["download_pdfs"] as? Bool ?? false
+
+        // Structured-citation path — a caller (e.g. imprint with a parsed
+        // LaTeX `\bibitem`) may pass `citation: {...}` with all the fields
+        // the classic-form query builder needs. This skips the free-text
+        // cascade below and delegates to `resolveStructuredCitation`.
+        if let citationDict = json["citation"] as? [String: Any] {
+            return await handleStructuredResolve(
+                citationDict: citationDict,
+                library: libraryID,
+                downloadPDFs: downloadPDFs
+            )
+        }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !bibtex.isEmpty else {
+            return .badRequest("Provide at least 'query', 'bibtex', or 'citation'")
+        }
+
+        // Step 1: try to extract an identifier from the inputs.
+        let identifier: PaperIdentifier? = Self.extractIdentifier(query: trimmed, bibtex: bibtex)
+
+        do {
+            // Step 2: local lookup by identifier (fast path).
+            if let id = identifier {
+                if let paper = try await automationService.getPaper(identifier: id) {
+                    return .json([
+                        "status": "ok",
+                        "via": "local-identifier",
+                        "paper": paperToDict(paper)
+                    ])
+                }
+            }
+
+            // Step 3: local text search — sometimes the query is a cite key
+            // or title and the paper is already imported.
+            if !trimmed.isEmpty {
+                let filters = SearchFilters(limit: 5)
+                let hits = try await automationService.searchLibrary(query: trimmed, filters: filters)
+                if hits.count == 1 {
+                    return .json([
+                        "status": "ok",
+                        "via": "local-search",
+                        "paper": paperToDict(hits[0])
+                    ])
+                } else if hits.count > 1 {
+                    return .json([
+                        "status": "ok",
+                        "via": "local-search-ambiguous",
+                        "candidates": hits.map { paperToDict($0) },
+                        "reason": "\(hits.count) library papers matched; caller should pick one"
+                    ])
+                }
+            }
+
+            // Step 4: if we have a strong identifier, import it.
+            if let id = identifier {
+                let result = try await automationService.addPapers(
+                    identifiers: [id],
+                    collection: nil,
+                    library: libraryID,
+                    downloadPDFs: downloadPDFs
+                )
+                if let added = result.added.first {
+                    return .json([
+                        "status": "ok",
+                        "via": "imported-identifier",
+                        "paper": paperToDict(added),
+                        "identifier": ["kind": id.typeName, "value": id.value]
+                    ])
+                }
+                if !result.duplicates.isEmpty {
+                    return .json([
+                        "status": "ok",
+                        "via": "duplicate",
+                        "duplicates": result.duplicates,
+                        "reason": "imbib reports the paper is already present"
+                    ])
+                }
+            }
+
+            // Step 5: external search for human-readable queries.
+            if !trimmed.isEmpty {
+                let external = try await automationService.searchExternal(query: trimmed, source: nil, maxResults: 10)
+                if external.isEmpty {
+                    return .json([
+                        "status": "ok",
+                        "via": "not-found",
+                        "reason": "No local or external matches for '\(trimmed)'"
+                    ])
+                }
+                let candidates: [[String: Any]] = external.map { r in
+                    var dict: [String: Any] = [
+                        "title": r.title,
+                        "authors": r.authors,
+                        "venue": r.venue,
+                        "abstract": r.abstract,
+                        "sourceID": r.sourceID,
+                        "identifier": r.bestIdentifier
+                    ]
+                    if let year = r.year { dict["year"] = year }
+                    if let doi = r.doi { dict["doi"] = doi }
+                    if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
+                    if let bib = r.bibcode { dict["bibcode"] = bib }
+                    return dict
+                }
+                return .json([
+                    "status": "ok",
+                    "via": "external-candidates",
+                    "candidates": candidates,
+                    "reason": "\(candidates.count) external match(es); caller should pick an identifier and call /api/papers/add"
+                ])
+            }
+
+            return .json([
+                "status": "ok",
+                "via": "not-found",
+                "reason": "No identifier extracted and no query provided"
+            ])
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// Serve the structured-citation branch of `/api/papers/resolve`.
+    ///
+    /// Input JSON mirrors `CitationInput` from AutomationTypes. Output is
+    /// the same shape as the rest of `handleResolvePaper`: `via`, `paper`,
+    /// `candidates`, `reason`.
+    private func handleStructuredResolve(
+        citationDict: [String: Any],
+        library: UUID?,
+        downloadPDFs: Bool
+    ) async -> HTTPResponse {
+        // Decode JSON dict → CitationInput manually so we tolerate missing /
+        // mistyped fields and return structured errors rather than crashing.
+        let authors: [String] = {
+            if let arr = citationDict["authors"] as? [String] { return arr }
+            if let s = citationDict["authors"] as? String {
+                return s.components(separatedBy: CharacterSet(charactersIn: ",;&\n"))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+            return []
+        }()
+        let input = CitationInput(
+            authors: authors,
+            title: citationDict["title"] as? String,
+            year: citationDict["year"] as? Int,
+            journal: citationDict["journal"] as? String,
+            volume: citationDict["volume"] as? String,
+            pages: citationDict["pages"] as? String,
+            doi: citationDict["doi"] as? String,
+            arxiv: citationDict["arxiv"] as? String,
+            bibcode: citationDict["bibcode"] as? String,
+            rawBibtex: citationDict["rawBibtex"] as? String ?? citationDict["bibtex"] as? String,
+            freeText: citationDict["freeText"] as? String,
+            preferredDatabase: citationDict["preferredDatabase"] as? String
+        )
+        // Tolerance: if the citation is completely empty, don't 400 —
+        // return a friendly `not-found` 200 so the client's picker can
+        // show "No candidates" instead of an HTTP error toast. Callers
+        // like imprint call this for every cited paper; a transient
+        // parse miss shouldn't look like a hard failure.
+        if input.authors.isEmpty
+            && (input.title ?? "").isEmpty
+            && !input.hasIdentifier
+            && (input.rawBibtex ?? "").isEmpty
+            && (input.freeText ?? "").isEmpty {
+            Logger.sources.warningCapture(
+                "resolveStructured: empty citation input — returning not-found 200 instead of 400",
+                category: "citations"
+            )
+            return .json([
+                "status": "ok",
+                "via": "not-found",
+                "reason": "Citation had no authors, title, identifier, rawBibtex, or freeText — nothing to search with"
+            ])
+        }
+
+        do {
+            let resolved = try await automationService.resolveStructuredCitation(
+                input,
+                library: library,
+                downloadPDFs: downloadPDFs
+            )
+
+            var response: [String: Any] = [
+                "status": "ok",
+                "via": resolved.via
+            ]
+            if let paper = resolved.paper {
+                response["paper"] = paperToDict(paper)
+            }
+            if let candidates = resolved.candidates {
+                response["candidates"] = candidates.map { candidate in
+                    Self.rankedCandidateToDict(candidate)
+                }
+            }
+            if let reason = resolved.reason {
+                response["reason"] = reason
+            }
+            return .json(response)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    private static func rankedCandidateToDict(_ candidate: RankedCandidate) -> [String: Any] {
+        let r = candidate.result
+        var dict: [String: Any] = [
+            "title": r.title,
+            "authors": r.authors,
+            "venue": r.venue,
+            "abstract": r.abstract,
+            "sourceID": r.sourceID,
+            "identifier": r.bestIdentifier,
+            "confidence": candidate.confidence
+        ]
+        if let year = r.year { dict["year"] = year }
+        if let doi = r.doi { dict["doi"] = doi }
+        if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
+        if let bib = r.bibcode { dict["bibcode"] = bib }
+        return dict
+    }
+
+    /// Extract a paper identifier (DOI / arXiv / bibcode / PMID) from a
+    /// free-form query string or a BibTeX fragment. Returns the strongest
+    /// match found, or `nil`. Consistent with imprint's `CitationResolver`.
+    private static func extractIdentifier(query: String, bibtex: String) -> PaperIdentifier? {
+        // Direct parse of the query first.
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !q.isEmpty {
+            let candidate = PaperIdentifier.fromString(q)
+            switch candidate {
+            case .doi, .arxiv, .bibcode, .pmid:
+                return candidate
+            default:
+                break
+            }
+        }
+        // Fall back to scanning the BibTeX fragment.
+        guard !bibtex.isEmpty else { return nil }
+        if let doi = firstMatch(in: bibtex, pattern: #"(?i)\bdoi\s*=\s*[{"]?\s*(?:https?://(?:dx\.)?doi\.org/)?(10\.[^\s",}]+)"#) {
+            return .doi(doi)
+        }
+        if let doi = firstMatch(in: bibtex, pattern: #"(?i)https?://(?:dx\.)?doi\.org/(10\.[^\s",}]+)"#) {
+            return .doi(doi)
+        }
+        let archiveIsArxiv = bibtex.range(of: #"(?i)archivePrefix\s*=\s*[{"]?\s*arxiv"#, options: .regularExpression) != nil
+        if let eprint = firstMatch(in: bibtex, pattern: #"(?i)\beprint\s*=\s*[{"]?\s*([^\s",}]+)"#) {
+            let looksLikeArxiv = eprint.range(of: #"^(\d{4}\.\d{4,5}|[a-z\-]+/\d{7})$"#, options: .regularExpression) != nil
+            if archiveIsArxiv || looksLikeArxiv {
+                return .arxiv(eprint)
+            }
+        }
+        if let arxiv = firstMatch(in: bibtex, pattern: #"(?i)https?://arxiv\.org/abs/([^\s",}]+)"#) {
+            return .arxiv(arxiv)
+        }
+        if let bibcode = firstMatch(in: bibtex, pattern: #"(?i)\bbibcode\s*=\s*[{"]?\s*([0-9]{4}[A-Za-z0-9.&]{14,19})"#) {
+            return .bibcode(bibcode)
+        }
+        if let pmid = firstMatch(in: bibtex, pattern: #"(?i)\bpmid\s*=\s*[{"]?\s*(\d+)"#) {
+            return .pmid(pmid)
+        }
+        return nil
+    }
+
+    private static func firstMatch(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let m = regex.firstMatch(in: text, range: range),
+              m.numberOfRanges > 1,
+              let r = Range(m.range(at: 1), in: text) else {
+            return nil
+        }
+        return String(text[r])
+            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "{}\""))
     }
 
     /// POST /api/collections
@@ -1302,6 +1680,43 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
+    /// DELETE /api/libraries/{id}
+    /// Optional query: `?deleteFiles=true` removes the library's file container
+    /// alongside the store record. Default false (safer; just unlinks).
+    private func handleDeleteLibrary(libraryID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        let deleteFiles = (request.queryParams["deleteFiles"]?.lowercased() == "true")
+        do {
+            let deleted = try await automationService.deleteLibrary(id: libraryID, deleteFiles: deleteFiles)
+            return .json(["status": "ok", "deleted": deleted])
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// DELETE /api/libraries  (batch)
+    /// Body: `{"identifiers": [UUID, …], "deleteFiles": false}`. Returns the
+    /// count of libraries deleted. Each delete is independently undoable; the
+    /// batch fires one consolidated mutation event.
+    private func handleDeleteLibrariesBatch(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let identifierStrings = json["identifiers"] as? [String] else {
+            return .badRequest("Missing or invalid 'identifiers' array (expected [UUID-string, …])")
+        }
+        let ids = identifierStrings.compactMap { UUID(uuidString: $0) }
+        guard ids.count == identifierStrings.count else {
+            return .badRequest("One or more 'identifiers' entries is not a valid UUID")
+        }
+        let deleteFiles = (json["deleteFiles"] as? Bool) ?? false
+        do {
+            let count = try await automationService.deleteLibraries(ids: ids, deleteFiles: deleteFiles)
+            return .json(["status": "ok", "deleted": count])
+        } catch {
+            return mapError(error)
+        }
+    }
+
     /// DELETE /api/collections/{id}
     private func handleDeleteCollection(collectionID: UUID) async -> HTTPResponse {
         do {
@@ -1372,7 +1787,12 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let parentCommentID = parentCommentIDStr.flatMap { UUID(uuidString: $0) }
 
         await MainActor.run {
-            RustStoreAdapter.shared.addCommentToItem(text: text, itemID: itemID, parentCommentID: parentCommentID)
+            RustStoreAdapter.shared.addCommentToItem(
+                text: text,
+                itemID: itemID,
+                authorDisplayName: CurrentDeviceAuthor.displayName,
+                parentCommentID: parentCommentID
+            )
         }
 
         // Fetch the latest comment for the response
@@ -2061,9 +2481,21 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
     /// Parse JSON body from an HTTP request.
     private nonisolated func parseJSONBody(_ request: HTTPRequest) -> [String: Any]? {
-        guard let body = request.body, !body.isEmpty,
-              let data = body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let body = request.body, !body.isEmpty else {
+            return nil
+        }
+        guard let data = body.data(using: .utf8) else {
+            Logger.sources.warningCapture(
+                "parseJSONBody: body not UTF-8 decodable (len=\(body.count))",
+                category: "http"
+            )
+            return nil
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Logger.sources.warningCapture(
+                "parseJSONBody: failed to parse as top-level object. First 200 chars: \(String(body.prefix(200)))",
+                category: "http"
+            )
             return nil
         }
         return json

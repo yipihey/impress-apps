@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressKit
 import OSLog
 
 // MARK: - Assignment List View
@@ -28,7 +29,10 @@ public struct AssignmentListView: View {
     public var body: some View {
         NavigationStack {
             List {
-                let myAssignments = RustStoreAdapter.shared.myAssignments(libraryID: libraryID)
+                let myAssignments = RustStoreAdapter.shared.myAssignments(
+                    libraryID: libraryID,
+                    currentUserName: CurrentDeviceAuthor.displayName ?? ""
+                )
                 let allAssignments = RustStoreAdapter.shared.assignments(libraryID: libraryID)
 
                 if myAssignments.isEmpty && allAssignments.isEmpty {
@@ -233,6 +237,7 @@ public struct SuggestToSheet: View {
                 publicationID: publicationID,
                 to: selectedParticipant,
                 libraryID: libraryID,
+                assignedByName: CurrentDeviceAuthor.displayName,
                 note: note.isEmpty ? nil : note,
                 dueDate: showDatePicker ? dueDate : nil
             )

@@ -23,6 +23,16 @@ public struct SmartSearch: Identifiable, Hashable, Sendable {
     public let libraryID: UUID?
     public let sortOrder: Int
 
+    // Phase 1: generalized feed settings
+    /// Target library/collection for triage save action. Nil = use global default.
+    public let saveTargetID: UUID?
+    /// Whether to show dismissed papers in this collection's results.
+    public let showDismissed: Bool
+    /// Per-collection retention in days. Nil = no retention policy; 0 = use global setting.
+    public let retentionDays: Int?
+    /// Whether to auto-remove read papers during retention cleanup.
+    public let autoRemoveRead: Bool
+
     public init(from row: SmartSearchRow) {
         self.id = UUID(uuidString: row.id) ?? UUID()
         self.name = row.name
@@ -36,6 +46,10 @@ public struct SmartSearch: Identifiable, Hashable, Sendable {
         self.lastExecuted = row.lastExecuted.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         self.libraryID = row.libraryId.flatMap { UUID(uuidString: $0) }
         self.sortOrder = Int(row.sortOrder)
+        self.saveTargetID = row.saveTargetId.flatMap { UUID(uuidString: $0) }
+        self.showDismissed = row.showDismissed
+        self.retentionDays = row.retentionDays.map { Int($0) }
+        self.autoRemoveRead = row.autoRemoveRead
     }
 
     // MARK: - Group Feed Helpers

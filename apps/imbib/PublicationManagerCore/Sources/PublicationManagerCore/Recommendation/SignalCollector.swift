@@ -88,6 +88,9 @@ public actor SignalCollector {
         let enabled = await RecommendationSettingsStore.shared.isEnabled()
         guard enabled else { return }
 
+        // Deduplicate rapid-fire signals (e.g., double-clicks)
+        guard !isDuplicateAction(action, publicationID: publicationID) else { return }
+
         // Extract publication data from the store
         guard let pub = await withStore({ $0.getPublicationDetail(id: publicationID) }) else { return }
 

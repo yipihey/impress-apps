@@ -10,12 +10,13 @@ import OSLog
 
 // MARK: - Inbox Coordinator
 
-/// Coordinates Inbox services: scheduling, fetching, and management.
+/// Coordinates Inbox and feed services: scheduling, fetching, and management.
 ///
-/// This is the main entry point for Inbox functionality. It creates and manages:
+/// This is the main entry point for feed functionality. It creates and manages:
 /// - InboxManager: Inbox library and mute management
+/// - MuteService: Global mute filtering (extracted from InboxManager)
 /// - PaperFetchService: Unified fetch pipeline
-/// - InboxScheduler: Automatic feed refresh
+/// - FeedScheduler: Unified feed refresh (all autoRefreshEnabled feeds, inbox and library)
 @MainActor
 public final class InboxCoordinator {
 
@@ -28,11 +29,19 @@ public final class InboxCoordinator {
     /// The inbox manager (created on first access)
     public var inboxManager: InboxManager { InboxManager.shared }
 
+    /// The global mute service
+    public var muteService: MuteService { MuteService.shared }
+
     /// The paper fetch service
     public private(set) var paperFetchService: PaperFetchService?
 
-    /// The inbox scheduler
+    /// The legacy inbox scheduler — deprecated, kept for API compatibility.
+    /// FeedScheduler now handles all feeds including inbox feeds.
+    @available(*, deprecated, message: "Use feedScheduler instead. FeedScheduler handles all auto-refresh feeds.")
     public private(set) var scheduler: InboxScheduler?
+
+    /// The unified feed scheduler (all autoRefreshEnabled feeds)
+    public private(set) var feedScheduler: FeedScheduler?
 
     // MARK: - State
 
@@ -69,27 +78,27 @@ public final class InboxCoordinator {
         self.paperFetchService = fetchService
         Logger.inbox.debugCapture("PaperFetchService created", category: "coordinator")
 
-        // Create and start scheduler
-        let inboxScheduler = InboxScheduler(
+        // Create and start unified feed scheduler (all autoRefreshEnabled feeds)
+        let unifiedScheduler = FeedScheduler(
             paperFetchService: fetchService
         )
-        self.scheduler = inboxScheduler
+        self.feedScheduler = unifiedScheduler
 
-        await inboxScheduler.start()
-        Logger.inbox.infoCapture("InboxScheduler started", category: "coordinator")
+        await unifiedScheduler.start()
+        Logger.inbox.infoCapture("FeedScheduler started (unified: handles all auto-refresh feeds)", category: "coordinator")
 
         isStarted = true
         Logger.inbox.infoCapture("InboxCoordinator started successfully", category: "coordinator")
     }
 
-    /// Stop Inbox services.
+    /// Stop Inbox and feed services.
     public func stop() async {
         guard isStarted else { return }
 
         Logger.inbox.infoCapture("Stopping InboxCoordinator...", category: "coordinator")
 
-        await scheduler?.stop()
-        scheduler = nil
+        await feedScheduler?.stop()
+        feedScheduler = nil
         paperFetchService = nil
 
         isStarted = false
@@ -101,11 +110,11 @@ public final class InboxCoordinator {
     /// Trigger an immediate refresh of all due feeds.
     @discardableResult
     public func refreshAllFeeds() async -> Int {
-        guard let scheduler = scheduler else {
-            Logger.inbox.warning("InboxCoordinator: scheduler not started")
+        guard let feedScheduler = feedScheduler else {
+            Logger.inbox.warning("InboxCoordinator: no scheduler running")
             return 0
         }
-        return await scheduler.triggerImmediateCheck()
+        return await feedScheduler.triggerImmediateCheck()
     }
 
     /// Send search results to the Inbox.
@@ -118,8 +127,14 @@ public final class InboxCoordinator {
         return await fetchService.sendToInbox(results: results)
     }
 
-    /// Get scheduler statistics.
+    /// Get feed scheduler statistics.
+    public func feedSchedulerStatistics() async -> FeedSchedulerStatistics? {
+        await feedScheduler?.statistics
+    }
+
+    /// Get inbox scheduler statistics (deprecated — use feedSchedulerStatistics).
+    @available(*, deprecated, message: "Use feedSchedulerStatistics instead")
     public func schedulerStatistics() async -> InboxSchedulerStatistics? {
-        await scheduler?.statistics
+        nil
     }
 }

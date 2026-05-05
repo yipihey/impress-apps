@@ -34,6 +34,16 @@ final class ImbibSidebarViewModel {
     }
     var selectedTab: ImbibTab? = .inbox
 
+    /// Resolved sources for the current multi-selection — derived from NSOutlineView's
+    /// `selectedRowIndexes` via `SidebarOutlineConfiguration.onMultipleSelectionChanged`.
+    /// Empty when 0 or 1 rows are selected (downstream uses the single-source path).
+    /// Only includes nodes that map cleanly to a `PublicationSource` (libraries,
+    /// regular collections); other kinds are silently dropped from the union.
+    var selectedSourcesForCombinedView: [PublicationSource] = []
+
+    /// IDs of all selected nodes (for code that needs identity, not source semantics).
+    var selectedNodeIDs: Set<UUID> = []
+
     // MARK: - Expansion & Editing
 
     var expansionState = TreeExpansionState()
@@ -62,6 +72,16 @@ final class ImbibSidebarViewModel {
 
     var libraryToDelete: (id: UUID, name: String)?
     var showDeleteConfirmation = false
+
+    /// Bulk-delete state. Populated by the multi-selection context-menu path
+    /// (`buildMultiSelectionContextMenu` → `ContextMenuActions.deleteMultipleLibraries`).
+    /// Mirrors `libraryToDelete` / `showDeleteConfirmation` for the single-library case.
+    var librariesPendingBulkDelete: [(id: UUID, name: String)] = []
+    var showDeleteMultipleLibrariesConfirmation = false
+
+    /// Bulk-delete state for regular collections (`.libraryCollection`).
+    var collectionsPendingBulkDelete: [(id: UUID, name: String)] = []
+    var showDeleteMultipleCollectionsConfirmation = false
 
     // MARK: - SciX Library Sheets (triggered by context menu → observed by SectionContentView)
 
@@ -121,12 +141,50 @@ final class ImbibSidebarViewModel {
         rebuildTabMap()
     }
 
+    /// Lightweight version bump: refreshes counts via outline reload but skips
+    /// the tab-map rebuild. Use for non-structural mutations (read/star/flag)
+    /// where the tree structure is unchanged.
+    func bumpDataVersionLight() {
+        dataVersion += 1
+    }
+
     /// Called when `RustStoreAdapter.shared.dataVersion` changes.
     /// Refreshes sidebar counts and triggers NSOutlineView reload.
     func refreshFromStore() {
         libraryManager?.loadLibraries()
         refreshFlagCounts()
+        // Pull the latest citation-usage records from the shared
+        // store. Imprint writes through a separate Swift handle, so
+        // imbib's in-process StoreEvent stream never sees those
+        // mutations — we refresh on every data-version bump to stay
+        // roughly current. The read is cheap (bounded by the number
+        // of records, typically a few hundred).
+        Task { [weak self] in
+            await CitedInManuscriptsSnapshot.shared.refresh()
+            await MainActor.run { self?.bumpDataVersion() }
+        }
         bumpDataVersion()
+    }
+
+    /// Map a sidebar node to a list-content source when one applies.
+    /// Used by the multi-selection handler to build `.combined(...)` from
+    /// the selected nodes. Returns nil for kinds we don't union (sections,
+    /// search forms, scix libraries, smart searches, pseudo-sources).
+    private static func publicationSource(for node: ImbibSidebarNode) -> PublicationSource? {
+        switch node.nodeType {
+        case .library(let id):
+            return .library(id)
+        case .libraryCollection(let id, _):
+            return .collection(id)
+        case .inboxCollection(let id):
+            return .collection(id)
+        case .sharedLibrary(let id):
+            return .library(id)
+        default:
+            // Sections, allInbox header, feeds, scix libraries, smart searches,
+            // exploration nodes, pseudo-sources — not unionable in v1.
+            return nil
+        }
     }
 
     // MARK: - Outline Configuration
@@ -157,6 +215,9 @@ final class ImbibSidebarViewModel {
             contextMenu: { [weak self] node in
                 self?.buildContextMenu(for: node)
             },
+            contextMenuForMultiple: { [weak self] nodes in
+                self?.buildMultiSelectionContextMenu(for: nodes)
+            },
             canAcceptDrop: { [weak self] dragged, target in
                 self?.canAcceptDrop(dragged, target: target) ?? false
             },
@@ -171,6 +232,27 @@ final class ImbibSidebarViewModel {
             },
             sectionMenu: { [weak self] node in
                 self?.buildSectionHeaderMenu(for: node)
+            },
+            onMultipleSelectionChanged: { [weak self] nodes in
+                // Mirror NSOutlineView's `selectedRowIndexes` into the view
+                // model. Single-selection writes still go through
+                // `selectedNodeID` (preserved exactly), so this is purely
+                // additive — only consulted by `SectionContentView.currentSource`
+                // when count > 1.
+                guard let self else { return }
+                self.selectedNodeIDs = Set(nodes.map { $0.id })
+                if nodes.count > 1 {
+                    self.selectedSourcesForCombinedView = nodes.compactMap(Self.publicationSource(for:))
+                } else {
+                    self.selectedSourcesForCombinedView = []
+                }
+            },
+            onDeleteKeyPressed: { [weak self] nodes in
+                // Route to the same flow as right-click → Delete. Single-node
+                // delete uses the existing single-confirmation alert; multi-node
+                // delete uses the bulk-confirmation alert. Mixed kinds drop
+                // (no menu shown when right-clicking either, so be consistent).
+                self?.handleDeleteKey(for: nodes)
             }
         )
     }
@@ -243,6 +325,11 @@ final class ImbibSidebarViewModel {
         case .dismissed:
             guard let lib = libraryManager?.dismissedLibrary else { return false }
             return lib.publicationCount > 0
+        case .citedInManuscripts:
+            // Only show the section when imprint has written at least
+            // one resolved citation-usage record. Keeps the sidebar
+            // quiet for users who don't use imprint.
+            return !CitedInManuscriptsSnapshot.shared.citedPaperIDs.isEmpty
         }
     }
 
@@ -295,7 +382,28 @@ final class ImbibSidebarViewModel {
             return artifactsChildren()
         case .dismissed:
             return dismissedChildren()
+        case .citedInManuscripts:
+            return citedInManuscriptsChildren()
         }
+    }
+
+    // MARK: Cited in Manuscripts
+
+    /// One pseudo-row that represents the full "cited in manuscripts"
+    /// smart library. Selecting it loads the list of publications that
+    /// appear in any imprint manuscript's citation-usage records.
+    private func citedInManuscriptsChildren() -> [ImbibSidebarNode] {
+        let count = CitedInManuscriptsSnapshot.shared.citedPaperIDs.count
+        guard count > 0 else { return [] }
+        return [
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.citedInManuscripts,
+                nodeType: .citedInManuscripts,
+                displayName: "All Cited Papers",
+                iconName: "text.book.closed.fill",
+                displayCount: count
+            )
+        ]
     }
 
     // MARK: Inbox
@@ -376,9 +484,11 @@ final class ImbibSidebarViewModel {
         return manager.libraries
             .filter { !$0.isInbox && $0.id != explorationID && $0.id != dismissedID }
             .map { library in
-                // Check via Rust store for collections
+                // Check via Rust store for collections and library feeds
                 let collections = store.listCollections(libraryId: library.id)
-                let hasCollections = !collections.isEmpty
+                let feeds = store.listSmartSearches(libraryId: library.id)
+                    .filter { $0.autoRefreshEnabled && !$0.feedsToInbox }
+                let hasCollections = !collections.isEmpty || !feeds.isEmpty
                 let count = library.publicationCount
                 let starred = store.countStarred(parentId: library.id)
                 return ImbibSidebarNode(
@@ -394,11 +504,36 @@ final class ImbibSidebarViewModel {
     }
 
     private func libraryCollectionChildren(libraryID: UUID) -> [ImbibSidebarNode] {
+        var nodes: [ImbibSidebarNode] = []
+
+        // Library feeds (auto-refresh smart searches in this library, not inbox-bound)
+        let feeds = store.listSmartSearches(libraryId: libraryID)
+            .filter { $0.autoRefreshEnabled && !$0.feedsToInbox }
+        for feed in feeds {
+            nodes.append(makeLibraryFeedNode(feed, libraryID: libraryID))
+        }
+
+        // Collections
         let collections = store.listCollections(libraryId: libraryID)
-        return collections
+        let collectionNodes = collections
             .filter { $0.parentID == nil }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
             .map { makeLibraryCollectionNode($0, libraryID: libraryID, allCollections: collections, depth: 1) }
+
+        nodes.append(contentsOf: collectionNodes)
+        return nodes
+    }
+
+    private func makeLibraryFeedNode(_ feed: SmartSearch, libraryID: UUID) -> ImbibSidebarNode {
+        let unread = unreadCountForFeed(feed)
+        return ImbibSidebarNode(
+            id: feed.id,
+            nodeType: .libraryFeed(feedID: feed.id, libraryID: libraryID),
+            displayName: feed.name,
+            iconName: feed.isGroupFeed ? "person.3.fill" : "antenna.radiowaves.left.and.right",
+            displayCount: unread > 0 ? unread : nil,
+            treeDepth: 1
+        )
     }
 
     private func collectionSubchildren(collectionID: UUID, libraryID: UUID) -> [ImbibSidebarNode] {
@@ -624,6 +759,8 @@ final class ImbibSidebarViewModel {
         case .libraryCollection:
             return [.draggable, .droppable, .renamable, .deletable]
         case .inboxFeed:
+            return [.renamable, .deletable]
+        case .libraryFeed:
             return [.renamable, .deletable]
         case .inboxCollection:
             return [.renamable, .deletable]
@@ -1118,7 +1255,7 @@ final class ImbibSidebarViewModel {
             store.updateField(id: colID, field: "name", value: trimmed)
             bumpDataVersion()
 
-        case .inboxFeed(let feedID):
+        case .inboxFeed(let feedID), .libraryFeed(let feedID, _):
             store.updateField(id: feedID, field: "name", value: trimmed)
             bumpDataVersion()
 
@@ -1145,6 +1282,9 @@ final class ImbibSidebarViewModel {
         case .inboxFeed(let feedID):
             buildInboxFeedContextMenu(menu, feedID: feedID)
 
+        case .libraryFeed(let feedID, _):
+            buildLibraryFeedContextMenu(menu, feedID: feedID)
+
         case .inboxCollection(let colID):
             buildInboxCollectionContextMenu(menu, collectionID: colID)
 
@@ -1165,6 +1305,78 @@ final class ImbibSidebarViewModel {
         }
 
         return menu.items.isEmpty ? nil : menu
+    }
+
+    private func buildMultiSelectionContextMenu(for nodes: [ImbibSidebarNode]) -> NSMenu? {
+        // Same-kind branches only — mixed-kind multi-selection falls through to nil
+        // (which lets NSOutlineView fall back to the single-item menu for the
+        // right-clicked node). Each branch returns its own menu.
+
+        // 1. All-libraries multi-selection.
+        let libraryIDs = nodes.compactMap { node -> UUID? in
+            if case .library(let libID) = node.nodeType { return libID }
+            return nil
+        }
+        if libraryIDs.count == nodes.count, libraryIDs.count >= 2 {
+            let menu = NSMenu()
+            let item = NSMenuItem(
+                title: "Delete \(libraryIDs.count) Libraries…",
+                action: #selector(ContextMenuActions.deleteMultipleLibraries(_:)),
+                keyEquivalent: ""
+            )
+            item.target = ContextMenuActions.shared
+            item.representedObject = libraryIDs
+            menu.addItem(item)
+            return menu
+        }
+
+        // 2. All-regular-collections multi-selection (`.libraryCollection`).
+        let regularCollectionIDs = nodes.compactMap { node -> UUID? in
+            if case .libraryCollection(let colID, _) = node.nodeType { return colID }
+            return nil
+        }
+        if regularCollectionIDs.count == nodes.count, regularCollectionIDs.count >= 2 {
+            let menu = NSMenu()
+            let item = NSMenuItem(
+                title: "Delete \(regularCollectionIDs.count) Collections…",
+                action: #selector(ContextMenuActions.deleteMultipleCollections(_:)),
+                keyEquivalent: ""
+            )
+            item.target = ContextMenuActions.shared
+            item.representedObject = regularCollectionIDs
+            menu.addItem(item)
+            return menu
+        }
+
+        // 3. All-exploration-collections (existing behavior, unchanged).
+        let explorationIDs = nodes.compactMap { node -> UUID? in
+            if case .explorationCollection(let colID) = node.nodeType { return colID }
+            return nil
+        }
+        guard explorationIDs.count == nodes.count, !explorationIDs.isEmpty else { return nil }
+
+        let menu = NSMenu()
+        let count = explorationIDs.count
+        let deleteItem = NSMenuItem(
+            title: "Delete \(count) Collections",
+            action: #selector(ContextMenuActions.deleteMultipleExplorationCollections(_:)),
+            keyEquivalent: ""
+        )
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = explorationIDs
+        menu.addItem(deleteItem)
+        return menu
+    }
+
+    func deleteExplorationCollections(_ collectionIDs: [UUID]) {
+        for colID in collectionIDs {
+            if case .explorationCollection(let id) = selectedTab, id == colID {
+                selectedNodeID = nil
+            }
+            libraryManager?.deleteExplorationCollection(id: colID)
+        }
+        explorationRefreshTrigger = UUID()
+        bumpDataVersion()
     }
 
     private func buildSectionContextMenu(_ menu: NSMenu, section: SidebarSectionType) {
@@ -1218,6 +1430,11 @@ final class ImbibSidebarViewModel {
         newColItem.target = ContextMenuActions.shared
         newColItem.representedObject = libraryID
         menu.addItem(newColItem)
+
+        let addFeedItem = NSMenuItem(title: "Add Feed...", action: #selector(ContextMenuActions.addLibraryFeed(_:)), keyEquivalent: "")
+        addFeedItem.target = ContextMenuActions.shared
+        addFeedItem.representedObject = libraryID
+        menu.addItem(addFeedItem)
 
         menu.addItem(.separator())
 
@@ -1320,6 +1537,40 @@ final class ImbibSidebarViewModel {
         refreshItem.target = ContextMenuActions.shared
         refreshItem.representedObject = feedID
         menu.addItem(refreshItem)
+
+        let settingsItem = NSMenuItem(title: "Feed Settings...", action: #selector(ContextMenuActions.showFeedSettings(_:)), keyEquivalent: "")
+        settingsItem.target = ContextMenuActions.shared
+        settingsItem.representedObject = feedID
+        menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteFeed(_:)), keyEquivalent: "")
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = feedID
+        menu.addItem(deleteItem)
+    }
+
+    private func buildLibraryFeedContextMenu(_ menu: NSMenu, feedID: UUID) {
+        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
+        renameItem.target = ContextMenuActions.shared
+        renameItem.representedObject = feedID
+        menu.addItem(renameItem)
+
+        let editItem = NSMenuItem(title: "Edit Feed...", action: #selector(ContextMenuActions.editFeed(_:)), keyEquivalent: "")
+        editItem.target = ContextMenuActions.shared
+        editItem.representedObject = feedID
+        menu.addItem(editItem)
+
+        let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(ContextMenuActions.refreshFeed(_:)), keyEquivalent: "")
+        refreshItem.target = ContextMenuActions.shared
+        refreshItem.representedObject = feedID
+        menu.addItem(refreshItem)
+
+        let settingsItem = NSMenuItem(title: "Feed Settings...", action: #selector(ContextMenuActions.showFeedSettings(_:)), keyEquivalent: "")
+        settingsItem.target = ContextMenuActions.shared
+        settingsItem.representedObject = feedID
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
@@ -1469,11 +1720,17 @@ final class ImbibSidebarViewModel {
     }
 
     private func unreadCountForFeed(_ feed: SmartSearch) -> Int {
-        // Query publications linked to this specific feed via Contains edges
-        // and count only the unread ones. Each feed stores its results via
-        // addToCollection(collectionId: feed.id), so we query by feed ID.
-        let pubs = store.queryPublications(for: .smartSearch(feed.id))
-        return pubs.filter { !$0.isRead }.count
+        // Phase 3: read from the SidebarSnapshot cache. The cache is
+        // populated off the main thread by SidebarSnapshotMaintainer in
+        // response to StoreEvents — the sidebar rebuild does zero store
+        // I/O during its traversal.
+        //
+        // If the snapshot hasn't refreshed yet (first build on launch),
+        // this returns 0 and the user sees an empty badge for ~50ms
+        // until the background refresh publishes fresh values and
+        // triggers another rebuild via the storeDidMutate → bumpDataVersion
+        // chain. Non-blocking staleness is acceptable; beachballs are not.
+        return SidebarSnapshot.shared.unreadCountForFeed(feed.id)
     }
 
     // MARK: - Feed Management
@@ -1488,7 +1745,11 @@ final class ImbibSidebarViewModel {
 
     func refreshFeed(_ feedID: UUID) {
         Task {
-            await SmartSearchRefreshService.shared.queueRefreshByID(feedID, priority: .high)
+            do {
+                try await InboxCoordinator.shared.feedScheduler?.refreshFeed(feedID)
+            } catch {
+                Self.logger.error("Failed to refresh feed \(feedID): \(error)")
+            }
         }
     }
 
@@ -1496,9 +1757,25 @@ final class ImbibSidebarViewModel {
         // Clear selection if this feed is selected
         if case .inboxFeed(let id) = selectedTab, id == feedID {
             selectedNodeID = ImbibSidebarNodeID.section(.inbox)
+        } else if case .libraryFeed(let id) = selectedTab, id == feedID {
+            // Navigate back to parent library
+            if let ss = store.getSmartSearch(id: feedID), let libID = ss.libraryID {
+                selectedTab = .library(libID)
+            }
         }
         store.deleteItem(id: feedID)
         bumpDataVersion()
+    }
+
+    func addLibraryFeed(_ libraryID: UUID) {
+        selectedTab = .addLibraryFeed(libraryID)
+    }
+
+    /// Published state for the feed settings sheet
+    var feedSettingsID: UUID?
+
+    func showFeedSettings(_ feedID: UUID) {
+        feedSettingsID = feedID
     }
 
     // MARK: - Section Header Menus
@@ -1646,6 +1923,118 @@ final class ImbibSidebarViewModel {
         showDeleteConfirmation = true
     }
 
+    /// Routes a Delete-key press from the sidebar to the same flow that the
+    /// right-click context menu uses. Same-kind selections (≥2) trigger the
+    /// matching bulk delete; a single library or collection routes to the
+    /// existing single-delete confirmation. Mixed kinds and other node
+    /// types are silently ignored (matches the "no multi-context-menu" v1 rule).
+    func handleDeleteKey(for nodes: [ImbibSidebarNode]) {
+        guard !nodes.isEmpty else { return }
+
+        // Single-node case → existing single-delete flow.
+        if nodes.count == 1 {
+            switch nodes[0].nodeType {
+            case .library(let id):
+                deleteLibrary(id)
+            case .libraryCollection(let id, _):
+                deleteCollection(id)
+            case .explorationCollection(let id):
+                deleteExplorationCollection(id)
+            default:
+                break  // Unsupported node kind — no Delete action in v1.
+            }
+            return
+        }
+
+        // Multi-node case → all-libraries or all-(regular)-collections only.
+        let libraryIDs = nodes.compactMap { node -> UUID? in
+            if case .library(let id) = node.nodeType { return id }
+            return nil
+        }
+        if libraryIDs.count == nodes.count {
+            deleteLibraries(libraryIDs)
+            return
+        }
+        let collectionIDs = nodes.compactMap { node -> UUID? in
+            if case .libraryCollection(let id, _) = node.nodeType { return id }
+            return nil
+        }
+        if collectionIDs.count == nodes.count {
+            deleteCollections(collectionIDs)
+            return
+        }
+        let explorationIDs = nodes.compactMap { node -> UUID? in
+            if case .explorationCollection(let id) = node.nodeType { return id }
+            return nil
+        }
+        if explorationIDs.count == nodes.count {
+            deleteExplorationCollections(explorationIDs)
+        }
+        // Mixed kinds → no-op (consistent with right-click behavior).
+    }
+
+    /// Begin the bulk-delete-libraries flow. Resolves names and pops the
+    /// confirmation alert in TabContentView. Mirrors `deleteLibrary(_:)` for
+    /// the single-library case. Silently drops IDs that no longer resolve.
+    func deleteLibraries(_ libraryIDs: [UUID]) {
+        guard !libraryIDs.isEmpty, let manager = libraryManager else { return }
+        let entries = libraryIDs.compactMap { id -> (id: UUID, name: String)? in
+            guard let lib = manager.libraries.first(where: { $0.id == id }) else { return nil }
+            return (id: lib.id, name: lib.name)
+        }
+        guard entries.count >= 2 else { return }
+        librariesPendingBulkDelete = entries
+        showDeleteMultipleLibrariesConfirmation = true
+    }
+
+    /// Begin the bulk-delete-collections flow (regular `.libraryCollection`
+    /// nodes). Names aren't shown in the confirmation (mirroring the
+    /// single-collection delete which has no confirmation at all) — the
+    /// count is sufficient.
+    func deleteCollections(_ collectionIDs: [UUID]) {
+        guard collectionIDs.count >= 2 else { return }
+        // Store as (id, "") tuples to keep the same shape as the libraries case.
+        // The alert formatter uses count, not names, for collections.
+        collectionsPendingBulkDelete = collectionIDs.map { (id: $0, name: "") }
+        showDeleteMultipleCollectionsConfirmation = true
+    }
+
+    /// Commit a bulk library delete after confirmation.
+    /// Calls `LibraryManager.deleteLibraries(ids:)` (a single batched mutation)
+    /// and clears the active selection if it pointed into the deleted set.
+    func performBulkDeleteLibraries() {
+        let ids = librariesPendingBulkDelete.map { $0.id }
+        guard !ids.isEmpty else { return }
+        // Clear sidebar selection if it points at one of the doomed libraries —
+        // didSet on selectedNodeID re-resolves the active tab.
+        if let current = selectedTab,
+           case .library(let libID) = current,
+           ids.contains(libID) {
+            selectedNodeID = nil
+        }
+        libraryManager?.deleteLibraries(ids: ids)
+        librariesPendingBulkDelete = []
+        bumpDataVersion()
+    }
+
+    /// Commit a bulk regular-collection delete after confirmation.
+    func performBulkDeleteCollections() {
+        let ids = collectionsPendingBulkDelete.map { $0.id }
+        guard !ids.isEmpty else { return }
+        // Clear selection if it points at any doomed collection.
+        if let current = selectedTab,
+           case .collection(let colID) = current,
+           ids.contains(colID) {
+            selectedNodeID = nil
+        }
+        store.beginBatchMutation()
+        for id in ids { store.deleteItem(id: id) }
+        store.endBatchMutation()
+        libraryManager?.loadLibraries()
+        collectionsPendingBulkDelete = []
+        bumpDataVersion()
+    }
+
     // MARK: - SciX Library Context Menu Actions
 
     func refreshSciXLibrary(_ libraryID: UUID) {
@@ -1767,6 +2156,21 @@ final class ContextMenuActions: NSObject {
         viewModel?.deleteExplorationCollection(collectionID)
     }
 
+    @objc func deleteMultipleExplorationCollections(_ sender: NSMenuItem) {
+        guard let collectionIDs = sender.representedObject as? [UUID] else { return }
+        viewModel?.deleteExplorationCollections(collectionIDs)
+    }
+
+    @objc func deleteMultipleLibraries(_ sender: NSMenuItem) {
+        guard let libraryIDs = sender.representedObject as? [UUID] else { return }
+        viewModel?.deleteLibraries(libraryIDs)
+    }
+
+    @objc func deleteMultipleCollections(_ sender: NSMenuItem) {
+        guard let collectionIDs = sender.representedObject as? [UUID] else { return }
+        viewModel?.deleteCollections(collectionIDs)
+    }
+
     @objc func exportLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
         viewModel?.exportLibrary(libraryID)
@@ -1809,6 +2213,10 @@ final class ContextMenuActions: NSObject {
         viewModel?.showAllSearchForms()
     }
 
+    @objc func createTopLevelInboxCollection(_ sender: NSMenuItem) {
+        viewModel?.createInboxCollection()
+    }
+
     // MARK: - Inbox Feed Actions
 
     @objc func editFeed(_ sender: NSMenuItem) {
@@ -1830,8 +2238,14 @@ final class ContextMenuActions: NSObject {
         viewModel?.addInboxFeed()
     }
 
-    @objc func createTopLevelInboxCollection(_ sender: NSMenuItem) {
-        viewModel?.createInboxCollection()
+    @objc func addLibraryFeed(_ sender: NSMenuItem) {
+        guard let libraryID = sender.representedObject as? UUID else { return }
+        viewModel?.addLibraryFeed(libraryID)
+    }
+
+    @objc func showFeedSettings(_ sender: NSMenuItem) {
+        guard let feedID = sender.representedObject as? UUID else { return }
+        viewModel?.showFeedSettings(feedID)
     }
 
     // MARK: - Retention Settings

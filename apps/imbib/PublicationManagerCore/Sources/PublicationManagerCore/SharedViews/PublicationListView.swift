@@ -8,6 +8,7 @@
 import SwiftUI
 import OSLog
 import ImpressFTUI
+import ImpressStoreKit
 
 // MARK: - Filter Scope
 
@@ -121,6 +122,10 @@ public struct PublicationListView: View {
     /// Whether to show the sort menu
     public var showSortMenu: Bool = true
 
+    /// Whether recommendation training is enabled.
+    /// When false, the "Recommended" sort option is hidden from the sort menu.
+    public var recommendationsEnabled: Bool = true
+
     /// Custom empty state message
     public var emptyStateMessage: String = "No publications found."
 
@@ -192,8 +197,13 @@ public struct PublicationListView: View {
     /// Prevents list order from changing while user is browsing
     private static let recommendationUpdateInterval: TimeInterval = 30 * 60
 
-    /// Cached row data - rebuilt when publications change
-    @State private var rowDataCache: [UUID: PublicationRowData] = [:]
+    /// Ordered row cache + O(1) id lookup. Replaces the former dual
+    /// state (a `[UUID: PublicationRowData]` dict alongside this
+    /// snapshot). `apply(rows:)` fires for full refreshes driven by
+    /// `.onChange(of: publications)` and `.structural` store events;
+    /// `patch(updated:)` fires for O(1) per-row updates from
+    /// `.itemsMutated` events.
+    @State private var listSnapshot: ListSnapshot<PublicationRowData> = ListSnapshot()
 
     /// Cached publication lookup - O(1) instead of O(n) linear scans
     /// (Only row data is cached — no managed object storage)
@@ -240,6 +250,13 @@ public struct PublicationListView: View {
 
     // MARK: - Computed Properties
 
+    /// Sort options filtered by whether recommendations are enabled.
+    private var availableSortOrders: [LibrarySortOrder] {
+        recommendationsEnabled
+            ? LibrarySortOrder.allCases
+            : LibrarySortOrder.allCases.filter { $0 != .recommended }
+    }
+
     // staticCollections removed: collections handled at parent level via UUID-based callbacks
     // Collection-related context menus pass through UUID-based callbacks to parent
 
@@ -251,9 +268,10 @@ public struct PublicationListView: View {
         let start = CFAbsoluteTimeGetCurrent()
 
         // Use publications directly — they arrive pre-sorted by SQL.
-        // Apply single-row updates from rowDataCache where available.
+        // Overlay per-row updates from `listSnapshot` when a mutation
+        // refreshed a single row without a full publications reload.
         var result: [PublicationRowData] = publications.map { pub in
-            rowDataCache[pub.id] ?? pub
+            listSnapshot.row(withID: pub.id) ?? pub
         }
 
         // Filter by unread (skip for Inbox where disableUnreadFilter is true)
@@ -405,6 +423,7 @@ public struct PublicationListView: View {
         allScixLibraries: [(id: UUID, name: String)] = [],
         showImportButton: Bool = true,
         showSortMenu: Bool = true,
+        recommendationsEnabled: Bool = true,
         emptyStateMessage: String = "No publications found.",
         emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications.",
         listID: ListViewID? = nil,
@@ -430,6 +449,7 @@ public struct PublicationListView: View {
         self.allScixLibraries = allScixLibraries
         self.showImportButton = showImportButton
         self.showSortMenu = showSortMenu
+        self.recommendationsEnabled = recommendationsEnabled
         self.emptyStateMessage = emptyStateMessage
         self.emptyStateDescription = emptyStateDescription
         self.listID = listID
@@ -509,7 +529,7 @@ public struct PublicationListView: View {
                 // Sort menu
                 if showSortMenu {
                     Menu {
-                        ForEach(LibrarySortOrder.allCases, id: \.self) { order in
+                        ForEach(availableSortOrders, id: \.self) { order in
                             Button {
                                 if sortOrder == order {
                                     sortAscending.toggle()
@@ -549,48 +569,24 @@ public struct PublicationListView: View {
             // Rebuild row data when publications change (add/delete/source switch)
             rebuildRowData()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { notification in
-            // Smart update: only rebuild changed rows (O(k) instead of O(n))
-            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
-                for id in ids { updateSingleRowData(for: id) }
-            } else if let changedID = notification.object as? UUID {
-                updateSingleRowData(for: changedID)
-            } else {
-                rebuildRowData()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
-            // Rebuild changed rows to pick up new flag state (O(k))
-            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
-                for id in ids { updateSingleRowData(for: id) }
-            } else if let changedID = notification.object as? UUID {
-                updateSingleRowData(for: changedID)
-            } else {
-                rebuildRowData()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .starDidChange)) { notification in
-            // Rebuild changed rows to pick up new star state (O(k))
-            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
-                for id in ids { updateSingleRowData(for: id) }
-            } else {
-                rebuildRowData()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
-            // Rebuild changed rows to pick up new tag state (O(k))
-            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
-                for id in ids { updateSingleRowData(for: id) }
-            } else {
-                rebuildRowData()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .fieldDidChange)) { notification in
-            // Rebuild changed rows to pick up new field values (O(k))
-            if let ids = notification.userInfo?["publicationIDs"] as? [UUID] {
-                for id in ids { updateSingleRowData(for: id) }
-            } else {
-                rebuildRowData()
+        .task {
+            // Single subscription replaces the five legacy .onReceive
+            // handlers (readStatus/flag/star/tag/field). The event stream
+            // carries the affected ids directly, so we call the same
+            // O(k) updateSingleRowData helper per id.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                switch event {
+                case .structural:
+                    rebuildRowData()
+                case .itemsMutated(_, let ids):
+                    if ids.isEmpty {
+                        rebuildRowData()
+                    } else {
+                        for id in ids { updateSingleRowData(for: id) }
+                    }
+                case .collectionMembershipChanged:
+                    break
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
@@ -612,7 +608,7 @@ public struct PublicationListView: View {
 
             // Update selection synchronously - the detail view defers its own update
             if let firstID = newValue.first,
-               rowDataCache[firstID] != nil {
+               listSnapshot.contains(id: firstID) {
                 // Update the UUID-based selection binding
                 selectedPublicationID = firstID
 
@@ -620,7 +616,7 @@ public struct PublicationListView: View {
                 // First check if the item would be filtered out - if so, clear filters
                 let isInFilteredList = filteredRowData.contains { $0.id == firstID }
 
-                if !isInFilteredList && rowDataCache[firstID] != nil {
+                if !isInFilteredList {
                     // Item exists but is filtered out - clear filters to make it visible
                     // This handles navigation from global search to a read paper when unread filter is on
                     if showUnreadOnly {
@@ -632,6 +628,14 @@ public struct PublicationListView: View {
 
                 // Mark that we need to scroll to this ID - the actual scroll will happen
                 // via scrollToSelectionWithRetry which handles timing issues
+                pendingScrollTarget = firstID
+            } else if let firstID = newValue.first {
+                // Selection set but paper not in the snapshot yet — the paper may still be loading.
+                // This happens during cross-library navigation from global search when
+                // UnifiedPublicationListWrapper loads additional pages.
+                selectedPublicationID = firstID
+                // Start retry loop — rebuildRowData (triggered by publications array change)
+                // will populate the snapshot shortly.
                 pendingScrollTarget = firstID
             } else if newValue.isEmpty {
                 // Only clear selection when user explicitly deselects (empty selection)
@@ -657,6 +661,12 @@ public struct PublicationListView: View {
             recomputeFilteredRowData()
             if hasLoadedState {
                 debouncedSaveState()
+            }
+        }
+        .onChange(of: recommendationsEnabled) { _, enabled in
+            if !enabled && sortOrder == .recommended {
+                sortOrder = .dateAdded
+                sortAscending = LibrarySortOrder.dateAdded.defaultAscending
             }
         }
         .onChange(of: showUnreadOnly) { _, _ in
@@ -699,9 +709,11 @@ public struct PublicationListView: View {
 
     // MARK: - Row Data Management
 
-    /// Rebuild row data cache from current publications.
-    /// Data arrives pre-shaped as [PublicationRowData] — no Core Data conversion needed.
-    /// - rowDataCache: [UUID: PublicationRowData] for display and O(1) lookup
+    /// Rebuild the snapshot from the current publications array.
+    /// Data arrives pre-shaped as `[PublicationRowData]` — no Core Data
+    /// conversion needed. The publications array is already sorted by
+    /// SQL, so we apply it directly; `listSnapshot` preserves insertion
+    /// order for deterministic iteration.
     private func rebuildRowData() {
         let start = CFAbsoluteTimeGetCurrent()
         defer {
@@ -709,41 +721,26 @@ public struct PublicationListView: View {
             Logger.performance.info("⏱ rebuildRowData: \(elapsed, format: .fixed(precision: 1))ms (\(publications.count) items)")
         }
 
-        var newRowCache: [UUID: PublicationRowData] = [:]
-
-        for data in publications {
-            // Use library name from mapping if available (for grouped search display),
-            // otherwise keep the libraryName already set on the row data
-            if let mappedName = libraryNameMapping[data.id], data.libraryName != mappedName {
-                // Create a copy with updated library name
-                // PublicationRowData is a value type so we'd need a new init or just store the original
-                // For now, store as-is — the mapping is applied at the parent level
-                newRowCache[data.id] = data
-            } else {
-                newRowCache[data.id] = data
-            }
-        }
-
-        rowDataCache = newRowCache
+        listSnapshot.apply(rows: publications)
 
         // Log tag summary for debugging
-        let taggedCount = newRowCache.values.filter { !$0.tagDisplays.isEmpty }.count
-        let flaggedCount = newRowCache.values.filter { $0.flag != nil }.count
+        let taggedCount = publications.filter { !$0.tagDisplays.isEmpty }.count
+        let flaggedCount = publications.filter { $0.flag != nil }.count
         if taggedCount > 0 || flaggedCount > 0 {
             Logger.library.infoCapture(
-                "rebuildRowData: \(newRowCache.count) rows, \(taggedCount) tagged, \(flaggedCount) flagged",
+                "rebuildRowData: \(publications.count) rows, \(taggedCount) tagged, \(flaggedCount) flagged",
                 category: "tags"
             )
         }
 
-        // Recompute filtered/sorted list from new row data
+        // Recompute filtered/sorted list from the refreshed snapshot.
         recomputeFilteredRowData()
 
         // After rebuilding, check if we need to scroll to selection (for global search navigation)
         // This handles the case where selection was set before the row data was available
-        if let firstID = selection.first, newRowCache[firstID] != nil {
+        if let firstID = selection.first, let selectedRow = listSnapshot.row(withID: firstID) {
             // Check if item would be filtered out and clear filters if needed
-            let wouldBeFiltered = showUnreadOnly && !disableUnreadFilter && (newRowCache[firstID]?.isRead ?? false)
+            let wouldBeFiltered = showUnreadOnly && !disableUnreadFilter && selectedRow.isRead
 
             if wouldBeFiltered {
                 showUnreadOnly = false
@@ -770,9 +767,10 @@ public struct PublicationListView: View {
         }
 
         // Skip if data is already current (e.g., full rebuild just ran)
-        if rowDataCache[publicationID] == updatedData { return }
+        if listSnapshot.row(withID: publicationID) == updatedData { return }
 
-        rowDataCache[publicationID] = updatedData
+        // O(1) row patch via the snapshot's indexed storage.
+        listSnapshot.patch(updated: [updatedData])
 
         // Update filteredRowData in-place if possible (avoids full re-sort).
         // If unread filter is active, the change might affect filter membership,
@@ -804,9 +802,9 @@ public struct PublicationListView: View {
             // On iOS, don't restore selection - it would trigger navigation via navigationDestination
             // On macOS, restore selection for the detail column display
             #if os(macOS)
-            // Restore selection if publication still exists in row data cache
+            // Restore selection if publication still exists in the snapshot
             if let selectedID = state.selectedPublicationID,
-               rowDataCache[selectedID] != nil {
+               listSnapshot.contains(id: selectedID) {
                 selection = [selectedID]
                 // Also update selectedPublicationID directly for macOS detail column
                 selectedPublicationID = selectedID
@@ -905,7 +903,7 @@ public struct PublicationListView: View {
             // Sort menu - click same option again to toggle ascending/descending
             if showSortMenu {
                 Menu {
-                    ForEach(LibrarySortOrder.allCases, id: \.self) { order in
+                    ForEach(availableSortOrders, id: \.self) { order in
                         Button {
                             if sortOrder == order {
                                 // Same order selected - toggle direction
@@ -943,17 +941,20 @@ public struct PublicationListView: View {
     }
 
     /// Display of filtered/total count.
-    /// Shows "X of Y" when paginated or filtered, "X papers" otherwise.
+    /// Shows "X of Y" only when a user-initiated filter is reducing the
+    /// visible set (Mail-style). Pagination — where displayedCount < total
+    /// because subsequent pages haven't been requested yet — is invisible
+    /// to the user; we just show the total as if everything were available.
     private var countDisplay: some View {
-        let displayedCount = filteredRowData.count
-        let sourceTotal = totalCount ?? publications.count
-        let isFiltered = showUnreadOnly || displayedCount < sourceTotal
+        let total = totalCount ?? publications.count
+        let displayed = filteredRowData.count
+        let filterActive = showUnreadOnly && displayed != total
 
         return Group {
-            if isFiltered && displayedCount != sourceTotal {
-                Text("\(displayedCount) of \(sourceTotal)")
+            if filterActive {
+                Text("\(displayed) of \(total)")
             } else {
-                Text("\(displayedCount) papers")
+                Text("\(total) papers")
             }
         }
         .font(.caption)
@@ -969,8 +970,8 @@ public struct PublicationListView: View {
                     // Grouped display: show collapsible sections by library
                     ForEach(groupedFilteredRowData) { group in
                         Section(isExpanded: expandedSectionBinding(for: group.name)) {
-                            ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, rowData in
-                                makePublicationRow(data: rowData, index: index)
+                            ForEach(group.rows) { rowData in
+                                makePublicationRow(data: rowData)
                                     .tag(rowData.id)
                                     .id(rowData.id)
                             }
@@ -1000,9 +1001,12 @@ public struct PublicationListView: View {
                         }
                     }
                 } else {
-                    // Flat display: no grouping
-                    ForEach(Array(filteredRowData.enumerated()), id: \.element.id) { index, rowData in
-                        makePublicationRow(data: rowData, index: index)
+                    // Flat display: no grouping. ForEach over an Identifiable
+                    // collection — SwiftUI can diff by id directly without
+                    // an explicit `enumerated()` wrapper, avoiding O(n) tuple
+                    // allocations on every body re-evaluation.
+                    ForEach(filteredRowData) { rowData in
+                        makePublicationRow(data: rowData)
                             .tag(rowData.id)
                             .id(rowData.id)  // For ScrollViewReader
                             .onAppear {
@@ -1129,8 +1133,8 @@ public struct PublicationListView: View {
     /// - The list is still laying out after data changes
     /// - SwiftUI needs time to render the target row
     private func scrollToTargetWithRetry(_ targetID: UUID, attempts: Int) {
-        let maxAttempts = 5
-        let delays: [UInt64] = [50_000_000, 100_000_000, 150_000_000, 200_000_000, 300_000_000] // nanoseconds
+        let maxAttempts = 8
+        let delays: [UInt64] = [50_000_000, 100_000_000, 150_000_000, 200_000_000, 300_000_000, 400_000_000, 500_000_000, 600_000_000] // nanoseconds
 
         // Check if this is still the pending target (might have changed)
         guard pendingScrollTarget == targetID else { return }
@@ -1139,10 +1143,18 @@ public struct PublicationListView: View {
         let isInList = filteredRowData.contains { $0.id == targetID }
 
         guard isInList else {
-            // Target not in filtered list - might need filter clearing (handled elsewhere)
-            // Or the target doesn't exist in current view
-            Logger.performance.debug("Scroll target \(targetID) not in filtered list")
-            pendingScrollTarget = nil
+            // Target not in filtered list yet — may still be loading after a source change
+            // or the parent is loading additional pages to include it.
+            // Retry with backoff; give up after max attempts.
+            if attempts < maxAttempts {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: delays[min(attempts, delays.count - 1)])
+                    scrollToTargetWithRetry(targetID, attempts: attempts + 1)
+                }
+            } else {
+                Logger.performance.debug("Scroll target \(targetID) not in filtered list after \(maxAttempts) attempts")
+                pendingScrollTarget = nil
+            }
             return
         }
 
@@ -1287,7 +1299,7 @@ public struct PublicationListView: View {
     /// Open selected paper (show PDF tab)
     private func openSelectedPaper() {
         guard let firstID = selection.first,
-              rowDataCache[firstID] != nil,
+              listSnapshot.contains(id: firstID),
               let onOpenPDF = actions.onOpenPDF else { return }
 
         onOpenPDF(firstID)
@@ -1321,45 +1333,67 @@ public struct PublicationListView: View {
 
     @ViewBuilder
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
+        // MARK: PDF & Browser Actions
+
         // Open PDF
         if let onOpenPDF = actions.onOpenPDF {
-            Button("Open PDF") {
-                if let first = ids.first {
-                    onOpenPDF(first)
-                }
-            }
-
-            Divider()
-        }
-
-        // Copy/Cut
-        if let onCopy = actions.onCopy {
-            Button("Copy") {
-                Task { await onCopy(ids) }
+            Button {
+                if let first = ids.first { onOpenPDF(first) }
+            } label: {
+                Label("Open PDF", systemImage: "doc.text")
             }
         }
 
-        if let onCut = actions.onCut {
-            Button("Cut") {
-                Task { await onCut(ids) }
+        // Download PDF (single item without PDF)
+        if ids.count == 1, let first = ids.first,
+           let rowData = listSnapshot.row(withID: first), !rowData.hasDownloadedPDF,
+           let onDownloadPDF = actions.onDownloadPDF {
+            Button {
+                onDownloadPDF(first)
+            } label: {
+                Label("Download PDF", systemImage: "arrow.down.doc")
             }
         }
 
-        // Copy Cite Key
-        Button("Copy Cite Key") {
-            if let first = ids.first,
-               let rowData = rowDataCache[first] {
-                copyToClipboard(rowData.citeKey)
-            }
-        }
-
-        // Download PDFs (only shown when multiple papers selected)
+        // Download PDFs (multiple papers)
         if let onDownloadPDFs = actions.onDownloadPDFs, ids.count > 1 {
-            Divider()
             Button {
                 onDownloadPDFs(ids)
             } label: {
                 Label("Download PDFs", systemImage: "arrow.down.doc")
+            }
+        }
+
+        // Open in Browser submenu
+        if let onOpenInBrowser = actions.onOpenInBrowser, let first = ids.first,
+           let rowData = listSnapshot.row(withID: first) {
+            let hasLinks = rowData.arxivID != nil || rowData.bibcode != nil || rowData.doi != nil
+            if hasLinks {
+                Menu {
+                    if rowData.arxivID != nil {
+                        Button {
+                            onOpenInBrowser(first, .arxiv)
+                        } label: {
+                            Label(BrowserDestination.arxiv.displayName, systemImage: BrowserDestination.arxiv.systemImage)
+                        }
+                    }
+                    if rowData.bibcode != nil {
+                        Button {
+                            onOpenInBrowser(first, .ads)
+                        } label: {
+                            Label(BrowserDestination.ads.displayName, systemImage: BrowserDestination.ads.systemImage)
+                        }
+                    }
+                    if rowData.doi != nil {
+                        Button {
+                            onOpenInBrowser(first, .doi)
+                        } label: {
+                            Label(BrowserDestination.doi.displayName, systemImage: BrowserDestination.doi.systemImage)
+                        }
+                    }
+                } label: {
+                    Label("Open in Browser", systemImage: "safari")
+                }
             }
         }
 
@@ -1374,7 +1408,131 @@ public struct PublicationListView: View {
 
         Divider()
 
-        // Add to Library submenu (publications can belong to multiple libraries)
+        // MARK: Copy & Share
+
+        if let onCopy = actions.onCopy {
+            Button("Copy") {
+                Task { await onCopy(ids) }
+            }
+        }
+
+        if let onCut = actions.onCut {
+            Button("Cut") {
+                Task { await onCut(ids) }
+            }
+        }
+
+        Button("Copy Cite Key") {
+            if let first = ids.first,
+               let rowData = listSnapshot.row(withID: first) {
+                copyToClipboard(rowData.citeKey)
+            }
+        }
+
+        // View/Edit BibTeX
+        if let onViewEditBibTeX = actions.onViewEditBibTeX, let first = ids.first {
+            Button {
+                onViewEditBibTeX(first)
+            } label: {
+                Label("View/Edit BibTeX", systemImage: "doc.plaintext")
+            }
+        }
+
+        // Share
+        if actions.onShare != nil || actions.onShareByEmail != nil {
+            if let first = ids.first {
+                Menu {
+                    if let onShare = actions.onShare {
+                        Button {
+                            onShare(first)
+                        } label: {
+                            Label("Share Paper", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    if let onShareByEmail = actions.onShareByEmail {
+                        Button {
+                            onShareByEmail(first)
+                        } label: {
+                            Label("Share by Email", systemImage: "envelope")
+                        }
+                    }
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+
+        Divider()
+
+        // MARK: Read Status, Star, Flag, Tag
+
+        // Toggle Read
+        if let onToggleRead = actions.onToggleRead {
+            if let first = ids.first, let rowData = listSnapshot.row(withID: first) {
+                Button {
+                    for id in ids {
+                        Task { await onToggleRead(id) }
+                    }
+                } label: {
+                    Label(
+                        rowData.isRead ? "Mark as Unread" : "Mark as Read",
+                        systemImage: rowData.isRead ? "envelope.badge" : "envelope.open"
+                    )
+                }
+            }
+        }
+
+        // Toggle Star
+        if let onToggleStar = actions.onToggleStar {
+            if let first = ids.first, let rowData = listSnapshot.row(withID: first) {
+                Button {
+                    Task { await onToggleStar(ids) }
+                } label: {
+                    Label(
+                        rowData.isStarred ? "Unstar" : "Star",
+                        systemImage: rowData.isStarred ? "star.slash" : "star"
+                    )
+                }
+            }
+        }
+
+        // Flag submenu
+        if actions.onSetFlag != nil || actions.onClearFlag != nil {
+            Menu {
+                if let onSetFlag = actions.onSetFlag {
+                    ForEach(FlagColor.allCases, id: \.self) { color in
+                        Button {
+                            Task { await onSetFlag(ids, color) }
+                        } label: {
+                            Label(color.displayName, systemImage: "flag.fill")
+                        }
+                    }
+                }
+                if let onClearFlag = actions.onClearFlag {
+                    Divider()
+                    Button("Clear Flag") {
+                        Task { await onClearFlag(ids) }
+                    }
+                }
+            } label: {
+                Label("Flag", systemImage: "flag")
+            }
+        }
+
+        // Add Tag
+        if let onAddTag = actions.onAddTag {
+            Button {
+                onAddTag(ids)
+            } label: {
+                Label("Add Tag", systemImage: "tag")
+            }
+        }
+
+        Divider()
+
+        // MARK: Organization
+
+        // Add to Library submenu
         if let onAddToLibrary = actions.onAddToLibrary, !allLibraries.isEmpty {
             let otherLibraries = allLibraries.filter { $0.id != libraryID }
             if !otherLibraries.isEmpty {
@@ -1414,10 +1572,8 @@ public struct PublicationListView: View {
 
         // MARK: Move/Triage Actions
 
-        // Move to Library (adds to target library AND removes from current library)
-        // Available for all views, not just Inbox
+        // Move to Library
         if let onSaveToLibrary = actions.onSaveToLibrary, !allLibraries.isEmpty {
-            // Filter out current library only (same logic as Add to Library)
             let moveLibraries = allLibraries.filter { $0.id != libraryID }
             if !moveLibraries.isEmpty {
                 Menu("Move to Library") {
@@ -1439,14 +1595,45 @@ public struct PublicationListView: View {
             }
         }
 
+        // Explore submenu
+        if actions.onExploreReferences != nil || actions.onExploreCitations != nil || actions.onExploreSimilar != nil {
+            if let first = ids.first {
+                Divider()
+                Menu {
+                    if let onExploreReferences = actions.onExploreReferences {
+                        Button {
+                            onExploreReferences(first)
+                        } label: {
+                            Label("Find References", systemImage: "doc.text.magnifyingglass")
+                        }
+                    }
+                    if let onExploreCitations = actions.onExploreCitations {
+                        Button {
+                            onExploreCitations(first)
+                        } label: {
+                            Label("Find Citations", systemImage: "quote.bubble")
+                        }
+                    }
+                    if let onExploreSimilar = actions.onExploreSimilar {
+                        Button {
+                            onExploreSimilar(first)
+                        } label: {
+                            Label("Find Similar Papers", systemImage: "rectangle.stack")
+                        }
+                    }
+                } label: {
+                    Label("Explore", systemImage: "sparkle.magnifyingglass")
+                }
+            }
+        }
+
         // Mute options
         if actions.onMuteAuthor != nil || actions.onMutePaper != nil {
             Divider()
 
             if let onMuteAuthor = actions.onMuteAuthor {
-                // Get first author from row data
                 if let first = ids.first,
-                   let rowData = rowDataCache[first] {
+                   let rowData = listSnapshot.row(withID: first) {
                     let firstName = rowData.authorString.split(separator: ",").first.map(String.init) ?? rowData.authorString
                     Button("Mute Author: \(firstName)") {
                         onMuteAuthor(firstName)
@@ -1463,15 +1650,11 @@ public struct PublicationListView: View {
             }
         }
 
-        // Suggest to... functionality requires managed object access
-        // and is now handled by the parent view via callbacks
-
         Divider()
 
         // Delete
         if let onDelete = actions.onDelete {
             Button("Delete", role: .destructive) {
-                // Clear selection immediately before deletion
                 selection.removeAll()
                 selectedPublicationID = nil
                 Task {
@@ -1503,11 +1686,11 @@ public struct PublicationListView: View {
     /// Build a publication row with all callbacks wired up.
     /// This is extracted to a helper method to avoid "expression too complex" compiler errors.
     @ViewBuilder
-    private func makePublicationRow(data rowData: PublicationRowData, index: Int) -> some View {
+    private func makePublicationRow(data rowData: PublicationRowData) -> some View {
         #if os(iOS)
         // On iOS, List selection doesn't work without edit mode.
         // Use simultaneousGesture to allow both tap (selection) and swipe actions to coexist.
-        rowContent(data: rowData, index: index)
+        rowContent(data: rowData)
             .contentShape(Rectangle())  // Make entire row tappable
             .simultaneousGesture(
                 TapGesture()
@@ -1516,7 +1699,7 @@ public struct PublicationListView: View {
                     }
             )
         #else
-        rowContent(data: rowData, index: index)
+        rowContent(data: rowData)
             .background(
                 // macOS SwiftUI List draws the system accent color (blue) for selection
                 // at the NSTableRowView level. There's no API to customize it.
@@ -1536,7 +1719,7 @@ public struct PublicationListView: View {
     }
 
     @ViewBuilder
-    private func rowContent(data rowData: PublicationRowData, index: Int) -> some View {
+    private func rowContent(data rowData: PublicationRowData) -> some View {
         let deleteHandler: (() -> Void)? = actions.onDelete != nil ? {
             Task { await actions.onDelete?([rowData.id]) }
         } : nil
@@ -1733,7 +1916,7 @@ public struct PublicationListView: View {
     private func validateSelectionAgainstFilter() {
         // Don't validate if publications haven't loaded yet - this would incorrectly
         // clear selection when switching sections before the list loads
-        guard !rowDataCache.isEmpty else { return }
+        guard !listSnapshot.isEmpty else { return }
 
         let validIDs = Set(filteredRowData.map { $0.id })
         let orphanedIDs = selection.subtracting(validIDs)
@@ -1745,7 +1928,7 @@ public struct PublicationListView: View {
     /// Handle file drop on a publication row
     private func handleFileDrop(providers: [NSItemProvider], for publicationID: UUID) -> Bool {
         guard let onFileDrop = actions.onFileDrop,
-              rowDataCache[publicationID] != nil else {
+              listSnapshot.contains(id: publicationID) else {
             return false
         }
 

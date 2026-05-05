@@ -36,7 +36,6 @@ public actor RecommendationEngine {
     // MARK: - Initialization
 
     private init() {
-        // Observe training events to invalidate cache
         Task {
             await setupNotificationObservers()
         }
@@ -73,46 +72,38 @@ public actor RecommendationEngine {
             return cached
         }
 
-        // Compute fresh score
         let profile = await getRecommendationProfile()
-        let settings = await settingsStore.settings()
         let weights = await settingsStore.allWeights()
-        let engineType = settings.engineType
 
-        // Get publication detail for feature extraction
         guard let pubDetail = await withStore({ $0.getPublicationDetail(id: publicationID) }) else {
             return RecommendationScore(total: 0, breakdown: [:], explanation: "Publication not found")
         }
 
-        // Get default library publications for context
         let libraryPubs = await getDefaultLibraryPublications()
 
         var rawFeatures = await MainActor.run {
             FeatureExtractor.extract(from: pubDetail, profile: profile, libraryPublications: libraryPubs)
         }
 
-        // Add semantic similarity if engine type requires it
-        if engineType.requiresEmbeddings {
+        // Add semantic similarity if weight > 0 and index exists
+        let aiWeight = weights[.aiSimilarity] ?? FeatureType.aiSimilarity.defaultWeight
+        if aiWeight > 0 {
             let hasIndex = await embeddingService.hasIndex
             if hasIndex {
                 let similarityScore = await embeddingService.similarityScore(for: publicationID)
-                rawFeatures[.librarySimilarity] = similarityScore
+                rawFeatures[.aiSimilarity] = similarityScore
             }
         }
 
-        let score = computeScore(rawFeatures: rawFeatures, weights: weights, settings: settings, engineType: engineType)
+        let score = computeScore(rawFeatures: rawFeatures, weights: weights, publication: pubDetail)
 
-        // Cache result
         cachedRanking[publicationID] = score
-
         return score
     }
 
     /// Get detailed score breakdown for UI display.
     public func scoreBreakdown(_ publicationID: UUID) async -> ScoreBreakdown {
         let profile = await getRecommendationProfile()
-        let settings = await settingsStore.settings()
-        let engineType = settings.engineType
 
         guard let pubDetail = await withStore({ $0.getPublicationDetail(id: publicationID) }) else {
             return ScoreBreakdown(total: 0, components: [])
@@ -123,50 +114,35 @@ public actor RecommendationEngine {
             FeatureExtractor.extract(from: pubDetail, profile: profile, libraryPublications: libraryPubs)
         }
 
-        // Add semantic similarity if engine type requires it
-        if engineType.requiresEmbeddings {
-            let hasIndex = await embeddingService.hasIndex
-            if hasIndex {
-                let similarityScore = await embeddingService.similarityScore(for: publicationID)
-                rawFeatures[.librarySimilarity] = similarityScore
-            }
+        // Add semantic similarity if available
+        let hasIndex = await embeddingService.hasIndex
+        if hasIndex {
+            let similarityScore = await embeddingService.similarityScore(for: publicationID)
+            rawFeatures[.aiSimilarity] = similarityScore
         }
+
+        let weights = await settingsStore.allWeights()
 
         var components: [ScoreComponent] = []
         var total = 0.0
 
         for feature in FeatureType.allCases {
             let rawValue = rawFeatures[feature] ?? 0.0
-            var weight = settings.weight(for: feature)
-
-            // Adjust weight display based on engine type (matching computeScore)
-            switch engineType {
-            case .classic:
-                if feature == .librarySimilarity { weight = 0.0 }
-            case .semantic:
-                if feature == .librarySimilarity {
-                    weight = weight * 2.0
-                } else if !feature.isNegativeFeature {
-                    weight = weight * 0.5
-                }
-            case .hybrid:
-                break
-            }
-
+            let weight = weights[feature] ?? feature.defaultWeight
             let contribution = rawValue * weight
             total += contribution
 
-            // Only include non-zero contributions
             if abs(contribution) > 0.001 {
+                let detail = contextDetail(for: feature, publication: pubDetail, profile: profile, libraryPublications: libraryPubs)
                 components.append(ScoreComponent(
                     feature: feature,
                     rawValue: rawValue,
-                    weight: weight
+                    weight: weight,
+                    detail: detail
                 ))
             }
         }
 
-        // Sort by absolute contribution (most impactful first)
         components.sort { abs($0.contribution) > abs($1.contribution) }
 
         return ScoreBreakdown(total: total, components: components)
@@ -175,12 +151,9 @@ public actor RecommendationEngine {
     // MARK: - Batch Ranking
 
     /// Rank publications for Inbox display.
-    ///
-    /// Returns publications sorted by score, with serendipity slots inserted.
     public func rank(_ publicationIDs: [UUID]) async -> [RankedPublication] {
         let enabled = await settingsStore.isEnabled()
         guard enabled else {
-            // If disabled, return in original order
             return publicationIDs.map { id in
                 RankedPublication(
                     publicationID: id,
@@ -190,31 +163,31 @@ public actor RecommendationEngine {
             }
         }
 
-        // Score all publications
         var scoredPubs: [(UUID, RecommendationScore)] = []
         for pubID in publicationIDs {
             let pubScore = await score(pubID)
             scoredPubs.append((pubID, pubScore))
         }
 
-        // Sort by score (descending)
         scoredPubs.sort { $0.1.total > $1.1.total }
 
-        // Insert serendipity slots
         let serendipityFrequency = await settingsStore.serendipityFrequency()
         var result: [RankedPublication] = []
         var serendipityPool = findSerendipityCandidatesFromIDs(from: scoredPubs)
+        var serendipityUsed: Set<UUID> = []
         var nextSerendipityIndex = serendipityFrequency
 
         for (index, (pubID, pubScore)) in scoredPubs.enumerated() {
             // Insert serendipity slot at regular intervals
             if index == nextSerendipityIndex && !serendipityPool.isEmpty {
                 let serendipityItem = serendipityPool.removeFirst()
+                serendipityUsed.insert(serendipityItem.0)
                 let serendipityScore = RecommendationScore(
                     total: serendipityItem.1.total,
                     breakdown: serendipityItem.1.breakdown,
-                    explanation: "Serendipity: High potential discovery",
-                    isSerendipitySlot: true
+                    explanation: "Discovery: new area for you",
+                    isSerendipitySlot: true,
+                    topReasons: ["Discovery: outside your usual reading"]
                 )
                 result.append(RankedPublication(
                     publicationID: serendipityItem.0,
@@ -225,9 +198,7 @@ public actor RecommendationEngine {
             }
 
             // Skip if this pub was used as serendipity
-            if serendipityPool.contains(where: { $0.0 == pubID }) {
-                continue
-            }
+            if serendipityUsed.contains(pubID) { continue }
 
             result.append(RankedPublication(
                 publicationID: pubID,
@@ -236,105 +207,116 @@ public actor RecommendationEngine {
             ))
         }
 
-        // Update cache timestamp
         lastRankDate = Date()
-
         Logger.recommendation.debug("Ranked \(publicationIDs.count) publications")
 
         return result
     }
 
-    /// Find serendipity candidates: high citation velocity but low topic match.
+    /// Find serendipity candidates using raw feature values for novelty.
+    /// Select papers that are unfamiliar but recent — true discovery, not just trending.
     private func findSerendipityCandidatesFromIDs(
         from scoredPubs: [(UUID, RecommendationScore)]
     ) -> [(UUID, RecommendationScore)] {
         return scoredPubs.filter { _, score in
-            let citationVelocity = score.breakdown[.fieldCitationVelocity] ?? 0
-            let authorStarred = score.breakdown[.authorStarred] ?? 0
-            let topicMatch = score.breakdown[.readingTimeTopic] ?? 0
+            // Use raw contributions (not weighted) to find truly unfamiliar papers
+            let authorAffinity = score.breakdown[.authorAffinity] ?? 0
+            let topicMatch = score.breakdown[.topicMatch] ?? 0
+            let recency = score.breakdown[.recency] ?? 0
 
-            return citationVelocity > 0.3 && authorStarred < 0.2 && topicMatch < 0.2
+            // Unfamiliar but recent
+            return authorAffinity < 0.1 && topicMatch < 0.1 && recency > 0.1
         }
         .shuffled()
         .prefix(10)
         .map { ($0, $1) }
     }
 
-    // MARK: - Score Computation
+    // MARK: - Score Computation (shared by score() and scoreBreakdown())
 
     private func computeScore(
         rawFeatures: [FeatureType: Double],
         weights: [FeatureType: Double],
-        settings: RecommendationSettingsStore.Settings,
-        engineType: RecommendationEngineType = .classic
+        publication: PublicationModel? = nil
     ) -> RecommendationScore {
         var breakdown: [FeatureType: Double] = [:]
         var total = 0.0
 
         for feature in FeatureType.allCases {
             let rawValue = rawFeatures[feature] ?? 0.0
-            var weight = weights[feature] ?? feature.defaultWeight
-
-            switch engineType {
-            case .classic:
-                if feature == .librarySimilarity {
-                    weight = 0.0
-                }
-            case .semantic:
-                if feature == .librarySimilarity {
-                    weight = weight * 2.0
-                } else if !feature.isNegativeFeature {
-                    weight = weight * 0.5
-                }
-            case .hybrid:
-                break
-            }
-
+            let weight = weights[feature] ?? feature.defaultWeight
             let contribution = rawValue * weight
             breakdown[feature] = contribution
             total += contribution
         }
 
-        let explanation = generateExplanation(breakdown: breakdown, engineType: engineType)
+        let topReasons = generateTopReasons(breakdown: breakdown)
+        let explanation = topReasons.isEmpty ? "No strong signals" : topReasons.prefix(2).joined(separator: " · ")
 
         return RecommendationScore(
             total: total,
             breakdown: breakdown,
-            explanation: explanation
+            explanation: explanation,
+            topReasons: topReasons
         )
     }
 
-    private func generateExplanation(breakdown: [FeatureType: Double], engineType: RecommendationEngineType = .classic) -> String {
-        let topPositive = breakdown
-            .filter { $0.value > 0.1 }
+    /// Generate human-readable top reasons from score breakdown.
+    private func generateTopReasons(breakdown: [FeatureType: Double]) -> [String] {
+        let significant = breakdown
+            .filter { !$0.key.isMuteFilter && $0.value > 0.05 }
             .sorted { $0.value > $1.value }
-            .prefix(2)
 
-        if topPositive.isEmpty {
-            return "No strong signals"
+        return significant.prefix(3).map { feature, _ in
+            feature.displayName.lowercased()
         }
+    }
 
-        var reasons = topPositive.map { $0.key.displayName }
+    /// Generate context-specific detail for a feature in the breakdown view.
+    private func contextDetail(
+        for feature: FeatureType,
+        publication: PublicationModel,
+        profile: RecommendationProfile?,
+        libraryPublications: [PublicationRowData]
+    ) -> String? {
+        switch feature {
+        case .authorAffinity:
+            guard let profile = profile else { return nil }
+            let matchingAuthors = publication.authors.filter {
+                abs(profile.authorAffinity(for: $0.familyName)) > 0.1
+            }
+            if matchingAuthors.isEmpty { return nil }
+            return matchingAuthors.prefix(3).map(\.familyName).joined(separator: ", ")
 
-        switch engineType {
-        case .semantic:
-            if breakdown[.librarySimilarity] ?? 0 > 0.1 {
-                reasons = ["AI: " + reasons.joined(separator: ", ")]
-            }
-        case .hybrid:
-            if breakdown[.librarySimilarity] ?? 0 > 0.3 {
-                reasons.insert("AI-enhanced", at: 0)
-            }
-        case .classic:
-            break
+        case .topicMatch:
+            guard let profile = profile else { return nil }
+            let keywords = FeatureExtractor.extractKeywords(from: publication.title)
+            let matchingTopics = keywords.filter { profile.topicAffinity(for: $0) > 0.1 }
+            if matchingTopics.isEmpty { return nil }
+            return matchingTopics.prefix(3).joined(separator: ", ")
+
+        case .venueAffinity:
+            return publication.journal
+
+        case .coauthorNetwork:
+            return nil // Would need co-author lookup
+
+        case .recency:
+            if let year = publication.year { return "Published \(year)" }
+            return nil
+
+        case .citationVelocity:
+            let count = publication.citationCount
+            if count > 0 { return "\(count) citations" }
+            return nil
+
+        default:
+            return nil
         }
-
-        return reasons.joined(separator: ", ")
     }
 
     // MARK: - Embedding Index Management
 
-    /// Build the embedding index for semantic/hybrid recommendation modes.
     @discardableResult
     public func buildEmbeddingIndex(from libraryID: UUID) async -> Int {
         let count = await embeddingService.buildIndex(from: libraryID)
@@ -343,7 +325,6 @@ public actor RecommendationEngine {
         return count
     }
 
-    /// Build the embedding index from multiple libraries.
     @discardableResult
     public func buildEmbeddingIndex(from libraryIDs: [UUID]) async -> Int {
         let count = await embeddingService.buildIndex(from: libraryIDs)
@@ -352,22 +333,14 @@ public actor RecommendationEngine {
         return count
     }
 
-    /// Check if the embedding index is ready.
     public var isEmbeddingIndexReady: Bool {
         get async {
             await embeddingService.hasIndex
         }
     }
 
-    /// Get the current engine type.
-    public func currentEngineType() async -> RecommendationEngineType {
-        let settings = await settingsStore.settings()
-        return settings.engineType
-    }
-
     // MARK: - "For You" Recommendations
 
-    /// Generate personalized "For You" recommendations.
     public func forYouRecommendations(
         candidateIDs: [UUID],
         recentlyReadIDs: Set<UUID>,
@@ -375,25 +348,18 @@ public actor RecommendationEngine {
     ) async -> [ForYouRecommendation] {
         guard !candidateIDs.isEmpty else { return [] }
 
-        let settings = await settingsStore.settings()
-        let engineType = settings.engineType
         var recommendations: [ForYouRecommendation] = []
-
-        // Score each candidate
         var scored: [(UUID, Double, String)] = []
 
         for candidateID in candidateIDs {
-            // Skip papers already in recently read
             if recentlyReadIDs.contains(candidateID) { continue }
 
-            // Compute base score
             let baseScore = await score(candidateID)
 
-            // Compute similarity to recently read papers (if semantic mode)
             var similarityBoost = 0.0
             var reason = baseScore.explanation
 
-            if engineType.requiresEmbeddings && !recentlyReadIDs.isEmpty {
+            if !recentlyReadIDs.isEmpty {
                 let hasIndex = await embeddingService.hasIndex
                 if hasIndex {
                     let simScore = await embeddingService.similarityScore(for: candidateID)
@@ -408,13 +374,10 @@ public actor RecommendationEngine {
             scored.append((candidateID, finalScore, reason))
         }
 
-        // Sort by score descending
         scored.sort { $0.1 > $1.1 }
 
-        // Take top recommendations
         for (candidateID, candidateScore, reason) in scored {
             guard recommendations.count < limit else { break }
-
             recommendations.append(ForYouRecommendation(
                 publicationID: candidateID,
                 score: candidateScore,
@@ -423,25 +386,20 @@ public actor RecommendationEngine {
         }
 
         Logger.recommendation.infoCapture("Generated \(recommendations.count) 'For You' recommendations", category: "recommendation")
-
         return recommendations
     }
 
-    /// Get "For You" recommendations based on the user's library.
     public func forYouFromLibrary(
         _ libraryID: UUID,
         limit: Int = 10
     ) async -> [ForYouRecommendation] {
-        // Get all publications in the library
         let allPubs = await withStore({ $0.queryPublications(parentId: libraryID) })
 
-        // Recently read: read in last 30 days
         let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 3600)
         let recentlyReadIDs = Set(allPubs
             .filter { $0.isRead && $0.dateModified > thirtyDaysAgo }
             .map(\.id))
 
-        // Unread papers
         let unreadIDs = allPubs.filter { !$0.isRead }.map(\.id)
 
         return await forYouRecommendations(
@@ -453,21 +411,13 @@ public actor RecommendationEngine {
 
     // MARK: - Inbox Scoring Rationale (Apple Intelligence)
 
-    /// Generate a natural-language rationale for why a paper was recommended.
-    ///
-    /// Uses `@Generable` constrained decoding (Apple Intelligence only).
-    /// Returns `nil` when Apple Intelligence is unavailable — callers should
-    /// hide the "Why recommended?" UI affordance in that case.
-    /// Results are cached for 5 minutes alongside the recommendation score.
     @available(macOS 26, iOS 26, *)
     public func rationale(for publicationID: UUID) async -> InboxScoringRationale? {
-        // Check cache (5-min TTL matches score cache)
         if let (cached, ts) = cachedRationale[publicationID],
            Date().timeIntervalSince(ts) < 300 {
             return cached
         }
 
-        // Get score breakdown for the top features
         let breakdown = await scoreBreakdown(publicationID)
         let topFeatures = breakdown.components
             .filter { $0.isPositiveContribution }
@@ -476,7 +426,6 @@ public actor RecommendationEngine {
 
         guard !topFeatures.isEmpty else { return nil }
 
-        // Derive brief topic context from the profile
         let profile = await getRecommendationProfile()
         let topTopics = profile?.topicAffinities
             .sorted { $0.value > $1.value }

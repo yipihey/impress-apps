@@ -275,7 +275,7 @@ struct ContentView: View {
             }
             .overlay {
                 if showNLSearch {
-                    NLSearchOverlayView(isPresented: $showNLSearch)
+                    SmartSearchOverlayView(isPresented: $showNLSearch)
                 }
             }
             .background {
@@ -568,8 +568,7 @@ struct ContentView: View {
 
 enum SidebarSection: Hashable {
     case inbox                         // Inbox - all papers waiting for triage
-    case inboxFeed(UUID)               // Inbox feed (smart search ID with feedsToInbox)
-    case inboxCollection(UUID)         // Collection within Inbox (for organizing feeds)
+    case inboxCollection(UUID)         // Collection within Inbox
     case library(UUID)                 // All publications for specific library (library ID)
     case search                        // Global search (legacy, kept for compatibility)
     case searchForm(SearchFormType)   // Specific search form (ADS Modern, Classic, Paper)

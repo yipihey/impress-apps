@@ -28,6 +28,9 @@ public final class RecommendationSortProvider {
     /// Cached ranking results (publication ID to score)
     public private(set) var cachedRanking: [UUID: Double] = [:]
 
+    /// Cached top reasons per publication (for inline display)
+    public private(set) var cachedReasons: [UUID: [String]] = [:]
+
     /// Whether a ranking computation is in progress
     public private(set) var isRanking = false
 
@@ -108,9 +111,25 @@ public final class RecommendationSortProvider {
 
     // MARK: - Cache Management
 
+    /// Get the top reasons for a publication's recommendation.
+    public func topReasons(for publicationID: UUID) -> [String] {
+        cachedReasons[publicationID] ?? []
+    }
+
+    /// Get a one-line recommendation reason for display in list rows.
+    public func inlineReason(for publicationID: UUID) -> String? {
+        let reasons = cachedReasons[publicationID] ?? []
+        guard !reasons.isEmpty else { return nil }
+        if serendipitySlotIDs.contains(publicationID) {
+            return "Discovery: new area for you"
+        }
+        return reasons.prefix(2).joined(separator: " · ")
+    }
+
     /// Invalidate the cached ranking.
     public func invalidateCache() {
         cachedRanking.removeAll()
+        cachedReasons.removeAll()
         serendipitySlotIDs.removeAll()
         lastRankingDate = nil
         rankingTask?.cancel()
@@ -145,16 +164,19 @@ public final class RecommendationSortProvider {
 
         // Update cache
         var newRanking: [UUID: Double] = [:]
+        var newReasons: [UUID: [String]] = [:]
         var newSerendipitySlots: Set<UUID> = []
 
         for rankedPub in ranked {
             newRanking[rankedPub.publicationID] = rankedPub.score.total
+            newReasons[rankedPub.publicationID] = rankedPub.score.topReasons
             if rankedPub.isSerendipitySlot {
                 newSerendipitySlots.insert(rankedPub.publicationID)
             }
         }
 
         cachedRanking = newRanking
+        cachedReasons = newReasons
         serendipitySlotIDs = newSerendipitySlots
         lastRankingDate = Date()
 
@@ -175,5 +197,10 @@ extension PublicationRowData {
     /// Whether this is a serendipity slot.
     public var isSerendipitySlot: Bool {
         RecommendationSortProvider.shared.isSerendipitySlot(id)
+    }
+
+    /// One-line reason for the recommendation (for display in list rows).
+    public var inlineRecommendationReason: String? {
+        RecommendationSortProvider.shared.inlineReason(for: id)
     }
 }

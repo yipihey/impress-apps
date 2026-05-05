@@ -37,11 +37,14 @@ public final class InboxManager {
     /// Number of unread papers in the Inbox
     public private(set) var unreadCount: Int = 0
 
-    /// All muted items
-    public private(set) var mutedItems: [MutedItem] = []
+    /// All muted items (delegated to MuteService)
+    public var mutedItems: [MutedItem] { muteService.mutedItems }
 
     /// Shared feed new result counts, keyed by feed name
     public private(set) var sharedFeedCounts: [String: Int] = [:]
+
+    /// The global mute service (extracted for use by generalized feed collections)
+    private let muteService = MuteService.shared
 
     /// Total count of new papers from shared feeds
     public var sharedFeedTotalCount: Int {
@@ -62,7 +65,7 @@ public final class InboxManager {
 
     public init() {
         loadInbox()
-        loadMutedItems()
+        // Mute items are now managed by MuteService.shared
         setupObservers()
     }
 
@@ -110,7 +113,7 @@ public final class InboxManager {
     public func invalidateCaches() {
         Logger.inbox.infoCapture("Invalidating InboxManager caches", category: "manager")
         inboxLibrary = nil
-        mutedItems = []
+        muteService.reload()
         unreadCount = 0
         sharedFeedCounts = [:]
     }
@@ -247,63 +250,30 @@ public final class InboxManager {
         }
     }
 
-    // MARK: - Mute Management
+    // MARK: - Mute Management (delegated to MuteService)
 
-    /// Load all muted items from the store
-    private func loadMutedItems() {
-        mutedItems = store.listMutedItems()
-        Logger.inbox.debugCapture("Loaded \(mutedItems.count) muted items", category: "mute")
-    }
-
-    /// Mute an item (author, paper, venue, category)
+    /// Mute an item (author, paper, venue, category). Delegates to MuteService.
     @discardableResult
     public func mute(type: MuteType, value: String) -> MutedItem? {
-        Logger.inbox.infoCapture("Muting \(type.rawValue): \(value)", category: "mute")
-
-        // Check if already muted
-        if let existing = mutedItems.first(where: { $0.muteType == type.rawValue && $0.value == value }) {
-            return existing
-        }
-
-        guard let item = store.createMutedItem(muteType: type.rawValue, value: value) else {
-            Logger.inbox.errorCapture("Failed to create muted item", category: "mute")
-            return nil
-        }
-
-        mutedItems.insert(item, at: 0)
-        return item
+        muteService.mute(type: type, value: value)
     }
 
-    /// Unmute an item
+    /// Unmute an item. Delegates to MuteService.
     public func unmute(_ item: MutedItem) {
-        Logger.inbox.infoCapture("Unmuting \(item.muteType): \(item.value)", category: "mute")
-        store.deleteItem(id: item.id)
-        mutedItems.removeAll { $0.id == item.id }
+        muteService.unmute(item)
     }
 
-    /// Check if a paper should be filtered out based on mute rules
+    /// Check if a paper should be filtered out based on mute rules. Delegates to MuteService.
     public func shouldFilter(paper: any PaperRepresentable) -> Bool {
-        shouldFilter(
-            id: paper.id,
-            authors: paper.authors,
-            doi: paper.doi,
-            venue: paper.venue,
-            arxivID: paper.arxivID
-        )
+        muteService.shouldFilter(paper: paper)
     }
 
-    /// Check if a search result should be filtered out based on mute rules
+    /// Check if a search result should be filtered out based on mute rules. Delegates to MuteService.
     public func shouldFilter(result: SearchResult) -> Bool {
-        shouldFilter(
-            id: result.id,
-            authors: result.authors,
-            doi: result.doi,
-            venue: result.venue,
-            arxivID: result.arxivID
-        )
+        muteService.shouldFilter(result: result)
     }
 
-    /// Core mute check with explicit parameters
+    /// Core mute check with explicit parameters. Delegates to MuteService.
     public func shouldFilter(
         id: String,
         authors: [String],
@@ -311,54 +281,17 @@ public final class InboxManager {
         venue: String?,
         arxivID: String?
     ) -> Bool {
-        for item in mutedItems {
-            guard let muteType = MuteType(rawValue: item.muteType) else { continue }
-
-            switch muteType {
-            case .author:
-                if authors.contains(where: { $0.lowercased().contains(item.value.lowercased()) }) {
-                    return true
-                }
-
-            case .doi:
-                if doi?.lowercased() == item.value.lowercased() {
-                    return true
-                }
-
-            case .bibcode:
-                if id.lowercased() == item.value.lowercased() {
-                    return true
-                }
-
-            case .venue:
-                if let venue = venue?.lowercased(), venue.contains(item.value.lowercased()) {
-                    return true
-                }
-
-            case .arxivCategory:
-                if let arxiv = arxivID, arxiv.lowercased().hasPrefix(item.value.lowercased()) {
-                    return true
-                }
-            }
-        }
-
-        return false
+        muteService.shouldFilter(id: id, authors: authors, doi: doi, venue: venue, arxivID: arxivID)
     }
 
-    /// Get muted items by type
+    /// Get muted items by type. Delegates to MuteService.
     public func mutedItems(ofType type: MuteType) -> [MutedItem] {
-        mutedItems.filter { $0.muteType == type.rawValue }
+        muteService.mutedItems(ofType: type)
     }
 
-    /// Clear all muted items
+    /// Clear all muted items. Delegates to MuteService.
     public func clearAllMutedItems() {
-        Logger.inbox.warningCapture("Clearing all \(mutedItems.count) muted items", category: "mute")
-
-        for item in mutedItems {
-            store.deleteItem(id: item.id)
-        }
-
-        mutedItems = []
+        muteService.clearAllMutedItems()
     }
 
     // MARK: - Paper Operations

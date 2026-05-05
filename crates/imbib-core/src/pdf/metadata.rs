@@ -12,7 +12,7 @@ pub struct PdfMetadata {
 /// Extract metadata from a PDF
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_metadata(pdf_bytes: &[u8]) -> Result<PdfMetadata, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = super::extract::try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     Ok(PdfMetadata {
@@ -29,7 +29,7 @@ pub struct PageDimensions {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_page_dimensions(pdf_bytes: &[u8], page_number: u32) -> Result<PageDimensions, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = super::extract::try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
 
     let page = document
@@ -46,7 +46,7 @@ pub fn get_page_dimensions(pdf_bytes: &[u8], page_number: u32) -> Result<PageDim
 /// Get the number of pages in a PDF
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_page_count(pdf_bytes: &[u8]) -> Result<u32, PdfError> {
-    let pdfium = Pdfium::default();
+    let pdfium = super::extract::try_init_pdfium()?;
     let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
     Ok(document.pages().len() as u32)
 }

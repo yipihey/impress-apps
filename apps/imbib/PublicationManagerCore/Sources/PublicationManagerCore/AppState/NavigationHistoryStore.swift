@@ -163,7 +163,7 @@ public final class NavigationHistoryStore: @unchecked Sendable {
             switch state {
             case .inbox, .search, .flagged:
                 return true
-            case .inboxFeed(let id), .inboxCollection(let id), .library(let id), .smartSearch(let id), .collection(let id), .scixLibrary(let id):
+            case .inboxCollection(let id), .library(let id), .smartSearch(let id), .collection(let id), .scixLibrary(let id):
                 return !invalidIDs.contains(id)
             case .searchForm:
                 return true

@@ -159,6 +159,11 @@ pub fn smart_search_schema() -> Schema {
             optional_int("last_fetch_count"),
             optional_int("last_executed"),
             optional_int("sort_order"),
+            // Phase 1: generalized feed settings
+            optional_string("save_target_id"),
+            field("show_dismissed", FieldType::Bool, false),
+            optional_int("retention_days"),
+            field("auto_remove_read", FieldType::Bool, false),
         ],
         expected_edges: vec![EdgeType::Contains],
         inherits: None,

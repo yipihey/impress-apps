@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressTheme
 
 // MARK: - RAG Chat Panel
 
@@ -78,7 +79,7 @@ public struct RAGChatPanel: View {
             inputArea
         }
         .frame(width: 320)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color.platformControlBackground)
     }
 
     // MARK: - Header
@@ -178,7 +179,7 @@ public struct RAGChatPanel: View {
                     .background(
                         message.role == .user
                             ? Color.blue.opacity(0.15)
-                            : Color(nsColor: .controlBackgroundColor),
+                            : Color.platformControlBackground,
                         in: RoundedRectangle(cornerRadius: 12)
                     )
                     .overlay(
@@ -280,7 +281,7 @@ public struct RAGChatPanel: View {
                     .lineLimit(3)
             }
             .padding(8)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.platformControlBackground, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
@@ -308,7 +309,7 @@ public struct RAGChatPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.platformControlBackground, in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Input Area

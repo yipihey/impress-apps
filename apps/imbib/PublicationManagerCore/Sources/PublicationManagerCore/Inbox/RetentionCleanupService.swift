@@ -26,6 +26,7 @@ public final class RetentionCleanupService {
     public func performCleanup() {
         cleanupInbox()
         cleanupExplorations()
+        cleanupFeedCollections()
     }
 
     // MARK: - Inbox Cleanup
@@ -64,6 +65,49 @@ public final class RetentionCleanupService {
 
         if removedCount > 0 {
             logger.info("Inbox retention: removed \(removedCount) papers (cutoff: \(retentionDays) days)")
+        }
+    }
+
+    // MARK: - Feed Collection Cleanup
+
+    /// Clean up papers in smart search collections that have per-collection retention settings.
+    private func cleanupFeedCollections() {
+        let allSearches = store.listSmartSearches()
+
+        for search in allSearches {
+            // Only process feeds with per-collection retention configured
+            guard let retentionDays = search.retentionDays, retentionDays > 0 else { continue }
+
+            let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: Date()) ?? Date()
+            guard let libraryID = search.libraryID else { continue }
+
+            let publications = store.queryPublications(
+                parentId: libraryID,
+                sort: "created",
+                ascending: true,
+                limit: nil,
+                offset: nil
+            )
+
+            var removedCount = 0
+            for pub in publications {
+                // Never remove starred papers
+                if pub.isStarred { continue }
+
+                let created = pub.dateAdded
+                let isOld = created < cutoff
+                let shouldRemoveAsRead = search.autoRemoveRead && pub.isRead
+
+                if isOld || shouldRemoveAsRead {
+                    InboxManager.shared.trackDismissal(pub.id)
+                    store.deleteItem(id: pub.id)
+                    removedCount += 1
+                }
+            }
+
+            if removedCount > 0 {
+                logger.info("Feed '\(search.name)' retention: removed \(removedCount) papers (cutoff: \(retentionDays) days)")
+            }
         }
     }
 

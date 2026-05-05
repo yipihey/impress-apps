@@ -8,6 +8,7 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressKeyboard
+import ImpressStoreKit
 import OSLog
 #if os(macOS)
 import AppKit
@@ -166,15 +167,17 @@ struct DetailView: View {
             guard let id = newID else { cachedPublication = nil; return }
             cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .flagDidChange)) { notification in
-            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
-                  let pubID = publicationID, ids.contains(pubID) else { return }
-            cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .tagDidChange)) { notification in
-            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
-                  let pubID = publicationID, ids.contains(pubID) else { return }
-            cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
+        .task {
+            // One subscription replaces the legacy flag/tag observers.
+            // Refresh cachedPublication only when the focused pub id
+            // is among the affected set.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                guard case .itemsMutated(_, let ids) = event,
+                      let pubID = publicationID,
+                      ids.contains(pubID)
+                else { continue }
+                cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
+            }
         }
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
         .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in

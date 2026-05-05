@@ -55,7 +55,7 @@ public final class PaginatedDataSource {
 
     public init(
         source: PublicationSource,
-        pageSize: Int = 200,
+        pageSize: Int = 10_000,
         store: RustStoreAdapter = .shared
     ) {
         self.source = source
@@ -134,6 +134,44 @@ public final class PaginatedDataSource {
     public func removeRow(id: UUID) {
         rows.removeAll { $0.id == id }
         totalCount = max(totalCount - 1, 0)
+    }
+
+    /// Load pages until the given publication ID is in `rows`.
+    /// Returns `true` if found, `false` if all pages exhausted without finding it.
+    /// Used by global search navigation to ensure the target paper is loaded
+    /// before attempting to scroll to it.
+    @discardableResult
+    public func loadUntilFound(id targetID: UUID) -> Bool {
+        // Already loaded?
+        if rows.contains(where: { $0.id == targetID }) { return true }
+
+        // Load pages until found or exhausted
+        while hasMore {
+            let nextRows = store.queryPublications(
+                for: source,
+                sort: sortField,
+                ascending: ascending,
+                limit: UInt32(pageSize),
+                offset: UInt32(currentOffset)
+            )
+            rows.append(contentsOf: nextRows)
+            currentOffset += nextRows.count
+
+            if nextRows.contains(where: { $0.id == targetID }) {
+                Logger.performance.info(
+                    "PaginatedDataSource: found target after loading to \(self.rows.count)/\(self.totalCount)"
+                )
+                return true
+            }
+
+            // Empty page means no more data
+            if nextRows.isEmpty { break }
+        }
+
+        Logger.performance.info(
+            "PaginatedDataSource: target not found after loading all \(self.rows.count) rows"
+        )
+        return false
     }
 
     /// Check if a row is near the end of loaded data (for prefetch trigger).
