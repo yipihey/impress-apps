@@ -145,6 +145,72 @@ jobs:
             ${{ runner.temp }}/TestResults-macOS.xcresult
             apps/imbib/imbib/test-output-macos.txt
 
+  # Rule 1 of the iOS/macOS parity protocol (ADR-023):
+  # every commit that touches PublicationManagerCore must also
+  # compile the iOS target. Without this job, cross-platform
+  # regressions in the shared package go unnoticed until someone
+  # manually builds the iOS scheme.
+  build-imbib-ios:
+    name: Build imbib iOS
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Rust xcframework
+        working-directory: crates/imbib-core
+        run: ./build-xcframework.sh
+
+      - name: Generate Xcode project
+        working-directory: apps/imbib/imbib
+        run: xcodegen generate
+
+      - name: Build imbib iOS (Simulator)
+        working-directory: apps/imbib/imbib
+        run: |
+          xcodebuild build \
+            -scheme imbib-iOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -resultBundlePath ${{ runner.temp }}/BuildResults-iOS.xcresult \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build-output-ios.txt
+
+      - name: Upload iOS build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-results-ios
+          path: |
+            ${{ runner.temp }}/BuildResults-iOS.xcresult
+            apps/imbib/imbib/build-output-ios.txt
+
   lint:
     name: SwiftLint
     runs-on: macos-15

@@ -340,6 +340,9 @@ pub fn scix_list_libraries(token: String) -> Result<Vec<ScixLibrary>, ScixFfiErr
 }
 
 /// Get a library's details including its bibcodes.
+///
+/// Paginates through the ADS `/biblib/libraries/{id}` endpoint to fetch all
+/// bibcodes, since the API defaults to returning only 20 per page.
 #[cfg(feature = "native")]
 #[uniffi::export]
 pub fn scix_get_library(
@@ -347,19 +350,87 @@ pub fn scix_get_library(
     library_id: String,
 ) -> Result<ScixLibraryDetail, ScixFfiError> {
     make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .get_library(&library_id)
-            .await
-            .map(|detail| ScixLibraryDetail {
-                id: detail.metadata.id,
-                name: detail.metadata.name,
-                description: detail.metadata.description,
-                num_documents: detail.metadata.num_documents as i32,
-                is_public: detail.metadata.public,
-                owner: detail.metadata.owner,
-                bibcodes: detail.documents,
-            })
-            .map_err(ScixFfiError::from)
+        let base_url = "https://api.adsabs.harvard.edu/v1";
+        let client = reqwest::Client::new();
+        let page_size = 500;
+        let mut start = 0;
+        let mut all_bibcodes: Vec<String> = Vec::new();
+        let mut metadata: Option<(String, String, i32, bool, String)> = None;
+
+        loop {
+            let url = format!("{}/biblib/libraries/{}", base_url, library_id);
+            let resp = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("User-Agent", "scix-client-ffi/0.3.1")
+                .query(&[
+                    ("rows", page_size.to_string()),
+                    ("start", start.to_string()),
+                ])
+                .send()
+                .await
+                .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let body = resp.text().await.unwrap_or_default();
+                if status == 404 {
+                    return Err(ScixFfiError::NotFound);
+                }
+                return Err(ScixFfiError::ApiError {
+                    message: format!("HTTP {}: {}", status, body),
+                });
+            }
+
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+            let parsed: serde_json::Value = serde_json::from_str(&body)
+                .map_err(|e| ScixFfiError::Internal { message: format!("Invalid library response: {}", e) })?;
+
+            // Extract metadata from first page
+            if metadata.is_none() {
+                let m = &parsed["metadata"];
+                metadata = Some((
+                    m["name"].as_str().unwrap_or("").to_string(),
+                    m["description"].as_str().unwrap_or("").to_string(),
+                    m["num_documents"].as_u64().unwrap_or(0) as i32,
+                    m["public"].as_bool().unwrap_or(false),
+                    m["owner"].as_str().unwrap_or("").to_string(),
+                ));
+            }
+
+            // Extract bibcodes from this page
+            let docs: Vec<String> = parsed["documents"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|d| d.as_str().map(String::from))
+                .collect();
+
+            let page_count = docs.len();
+            all_bibcodes.extend(docs);
+            start += page_size;
+
+            // Stop when we got fewer than page_size (last page) or reached num_documents
+            if page_count < page_size as usize {
+                break;
+            }
+        }
+
+        let (name, description, num_documents, is_public, owner) =
+            metadata.unwrap_or_default();
+
+        Ok(ScixLibraryDetail {
+            id: library_id,
+            name,
+            description,
+            num_documents,
+            is_public,
+            owner,
+            bibcodes: all_bibcodes,
+        })
     })
 }
 

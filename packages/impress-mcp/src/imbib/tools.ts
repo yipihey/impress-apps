@@ -1041,6 +1041,32 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["artifactID", "citeKey"],
     },
   },
+  {
+    name: "imbib_resolve_identifier",
+    description:
+      "Atomic citation resolution. One call cascades: local library → extract DOI/arXiv/bibcode from a BibTeX fragment → import if identifier found → external search (ADS / arXiv / Crossref) if nothing matches. Returns one of: 'local-identifier', 'local-search', 'local-search-ambiguous', 'imported-identifier', 'duplicate', 'external-candidates', or 'not-found'. Use this BEFORE imprint_insert_citation_in_section when starting from a query, DOI, arXiv id, or stub BibTeX — it gives you the cite key + BibTeX in one round-trip.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Free-form query — a title, author+year, DOI, arXiv id, or cite key. Optional if 'bibtex' is provided.",
+        },
+        bibtex: {
+          type: "string",
+          description: "BibTeX fragment. The server extracts DOI / arXiv / bibcode / PMID from it and uses that for the cascade.",
+        },
+        library: {
+          type: "string",
+          description: "Library UUID to add the paper to when it's imported. Optional — defaults to imbib's default library.",
+        },
+        downloadPDFs: {
+          type: "boolean",
+          description: "If true, imbib will also try to fetch the PDF after importing.",
+        },
+      },
+    },
+  },
 ];
 
 export class ImbibTools {
@@ -1166,6 +1192,9 @@ export class ImbibTools {
         return this.tagArtifact(args);
       case "imbib_link_artifact_to_paper":
         return this.linkArtifactToPaper(args);
+
+      case "imbib_resolve_identifier":
+        return this.resolveIdentifier(args);
 
       default:
         return {
@@ -2811,5 +2840,22 @@ export class ImbibTools {
     return {
       content: [{ type: "text", text: `${action} for ${citeKey}` }],
     };
+  }
+
+  private async resolveIdentifier(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const query = (args?.query as string | undefined) ?? "";
+    const bibtex = (args?.bibtex as string | undefined) ?? "";
+    if (!query.trim() && !bibtex.trim()) {
+      return { content: [{ type: "text", text: "Error: provide at least 'query' or 'bibtex'" }] };
+    }
+    const result = await this.client.resolveIdentifier({
+      query,
+      bibtex,
+      library: args?.library as string | undefined,
+      downloadPDFs: args?.downloadPDFs as boolean | undefined,
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 }

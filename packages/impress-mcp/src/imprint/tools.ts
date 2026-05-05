@@ -449,6 +449,251 @@ export const IMPRINT_TOOLS: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "imprint_list_manuscripts",
+    description:
+      "List every manuscript document known to imprint's shared store, sorted by most-recently-modified first. Includes every manuscript — not just the ones currently open in an editor window. Returns id, title, sectionCount, lastModified, and wordCount for each.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "imprint_get_manuscript_sections",
+    description:
+      "List every stored section of a manuscript, sorted by order_index. Returns section id, title, body (inline), sectionType, orderIndex, wordCount, and createdAt. Large content-addressed bodies are not rehydrated here — call imprint_get_section for those.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: {
+          type: "string",
+          description: "The UUID of the manuscript document",
+        },
+      },
+      required: ["manuscriptId"],
+    },
+  },
+  {
+    name: "imprint_get_section",
+    description:
+      "Fetch a single manuscript section by its UUID. Body is rehydrated from content-addressed storage when needed. Use this after imprint_get_manuscript_sections to load the full body of a specific section.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sectionId: {
+          type: "string",
+          description: "The UUID of the section",
+        },
+      },
+      required: ["sectionId"],
+    },
+  },
+  {
+    name: "imprint_cross_document_search",
+    description:
+      "Full-text search across every stored manuscript section. Multi-term queries use AND semantics — each term must appear in the same section. Returns ranked hits with title, excerpt, score, and the owning document id. Use for 'where did I write about X?' queries across the whole writing corpus.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query (may contain multiple whitespace-separated terms)",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of hits to return (default: 50)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  // MARK: - Section-scoped v2 tools (token-efficient)
+  {
+    name: "imprint_get_outline_v2",
+    description:
+      "Get a document's outline with stable section UUIDs, levels, byte ranges, and word counts. Agents should call this FIRST when working with a document so they can then fetch individual sections by ID instead of shuttling the entire source. Much more token-efficient than imprint_get_content.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "imprint_get_section_body",
+    description:
+      "Fetch a single section's body from an open document (just that section, not the whole document). sectionKey may be a stable UUID from imprint_get_outline_v2 OR a zero-based integer index. Returns the body text plus the section's metadata and byte range within the source. This is the token-efficient way to read a section; for stored-manuscript sections (not necessarily open in the editor) use imprint_get_section.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+        sectionKey: { type: "string", description: "Section UUID (from outline v2) or integer index" },
+      },
+      required: ["documentId", "sectionKey"],
+    },
+  },
+  {
+    name: "imprint_patch_section",
+    description:
+      "Replace a section's body and/or rename its heading. Queues an operation; poll imprint_get_operation with the returned operationId (or use imprint_wait_for_operation) to confirm it was applied.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+        sectionKey: { type: "string", description: "Section UUID or integer index" },
+        body: { type: "string", description: "New section body (heading is preserved)" },
+        title: { type: "string", description: "New heading text (level is preserved)" },
+      },
+      required: ["documentId", "sectionKey"],
+    },
+  },
+  {
+    name: "imprint_delete_section",
+    description:
+      "Remove a section (heading + body) from the document. Queues an operation; returns operationId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+        sectionKey: { type: "string", description: "Section UUID or integer index" },
+      },
+      required: ["documentId", "sectionKey"],
+    },
+  },
+  {
+    name: "imprint_create_section",
+    description:
+      "Create a new section in a document. 'position' controls placement: 'end' (default), 'before:{sectionKey}', or 'after:{sectionKey}'. Level defaults to 1 (top-level heading).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+        title: { type: "string", description: "Heading text for the new section" },
+        body: { type: "string", description: "Section body content (optional)" },
+        level: { type: "number", description: "Heading level 1–6 (default 1)" },
+        position: { type: "string", description: "'end', 'before:{key}', or 'after:{key}'" },
+      },
+      required: ["documentId", "title"],
+    },
+  },
+  {
+    name: "imprint_insert_citation_in_section",
+    description:
+      "Atomically (a) add a BibTeX entry to the document bibliography and (b) insert `@citeKey` inside a specific section. The most agent-friendly way to cite a paper without hunting for byte offsets. Pair with imbib_resolve_identifier to fetch the paper first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Document UUID" },
+        sectionKey: { type: "string", description: "Section UUID or integer index" },
+        citeKey: { type: "string", description: "Cite key (e.g., 'vaswani2017attention')" },
+        bibtex: { type: "string", description: "BibTeX entry for the bibliography (optional if already added)" },
+        position: { type: "number", description: "Character offset WITHIN the section body (0 = right after heading). Omit to append." },
+      },
+      required: ["documentId", "sectionKey", "citeKey"],
+    },
+  },
+  {
+    name: "imprint_get_operation",
+    description:
+      "Look up the status of an edit operation that was queued via the HTTP API. Returns state (pending / completed / failed) and timing. Use this to confirm a mutation was actually applied before reading the document back.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string", description: "Operation UUID returned by a mutation tool" },
+      },
+      required: ["operationId"],
+    },
+  },
+  {
+    name: "imprint_wait_for_operation",
+    description:
+      "Poll an operation until it completes (or times out). Preferred over imprint_get_operation when you want a synchronous 'did it actually apply?' confirmation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string", description: "Operation UUID" },
+        timeoutMs: { type: "number", description: "Max wait time in ms (default 5000)" },
+      },
+      required: ["operationId"],
+    },
+  },
+  // MARK: - Comments / suggestions
+  {
+    name: "imprint_list_comments",
+    description:
+      "List comments on a document. Filter with 'unresolved', 'resolved', 'suggestions', or 'all' (default). Pass authorAgentId to see only your own comments.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string" },
+        filter: { type: "string", description: "'all' | 'unresolved' | 'resolved' | 'suggestions'" },
+        authorAgentId: { type: "string", description: "If set, return only comments from this agent" },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "imprint_create_comment",
+    description:
+      "Leave a comment on a document. To propose a text edit (rather than just a note), pass 'proposedText' — the human reviewer can then Accept to apply it. Agents should ALWAYS set 'authorAgentId' so their suggestions are badged distinctly in imprint's CommentsSidebarView.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string" },
+        content: { type: "string", description: "Comment text (shown in the sidebar)" },
+        start: { type: "number", description: "Character offset where the comment range begins" },
+        end: { type: "number", description: "Character offset where the comment range ends" },
+        proposedText: { type: "string", description: "If set, turns this into a suggestion. User can Accept to apply it." },
+        authorAgentId: { type: "string", description: "Stable agent identifier (e.g., 'claude-desktop:opus-4.7')" },
+        authorName: { type: "string", description: "Display name for the comment author" },
+        parentId: { type: "string", description: "For replies: parent comment UUID" },
+      },
+      required: ["documentId", "content", "start", "end"],
+    },
+  },
+  {
+    name: "imprint_update_comment",
+    description: "Edit a comment's content, change its proposed text, or resolve/unresolve it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        commentId: { type: "string" },
+        content: { type: "string" },
+        proposedText: { type: "string" },
+        isResolved: { type: "boolean" },
+      },
+      required: ["commentId"],
+    },
+  },
+  {
+    name: "imprint_delete_comment",
+    description: "Delete a comment (and any replies).",
+    inputSchema: {
+      type: "object",
+      properties: { commentId: { type: "string" } },
+      required: ["commentId"],
+    },
+  },
+  {
+    name: "imprint_accept_suggestion",
+    description:
+      "Apply a suggestion comment's proposedText to the document and resolve the comment. Errors if the comment isn't a suggestion.",
+    inputSchema: {
+      type: "object",
+      properties: { commentId: { type: "string" } },
+      required: ["commentId"],
+    },
+  },
+  {
+    name: "imprint_reject_suggestion",
+    description: "Resolve a suggestion without applying its proposedText.",
+    inputSchema: {
+      type: "object",
+      properties: { commentId: { type: "string" } },
+      required: ["commentId"],
+    },
+  },
 ];
 
 export class ImprintTools {
@@ -505,11 +750,211 @@ export class ImprintTools {
         return this.getLogs(args);
       case "imprint_status":
         return this.getStatus();
+      case "imprint_list_manuscripts":
+        return this.listManuscripts();
+      case "imprint_get_manuscript_sections":
+        return this.getManuscriptSections(args);
+      case "imprint_get_section":
+        return this.getSection(args);
+      case "imprint_cross_document_search":
+        return this.crossDocumentSearch(args);
+      case "imprint_get_outline_v2":
+        return this.getOutlineV2(args);
+      case "imprint_get_section_body":
+        return this.getSectionBody(args);
+      case "imprint_patch_section":
+        return this.patchSection(args);
+      case "imprint_delete_section":
+        return this.deleteSection(args);
+      case "imprint_create_section":
+        return this.createSection(args);
+      case "imprint_insert_citation_in_section":
+        return this.insertCitationInSection(args);
+      case "imprint_get_operation":
+        return this.getOperation(args);
+      case "imprint_wait_for_operation":
+        return this.waitForOperation(args);
+      case "imprint_list_comments":
+        return this.listComments(args);
+      case "imprint_create_comment":
+        return this.createComment(args);
+      case "imprint_update_comment":
+        return this.updateComment(args);
+      case "imprint_delete_comment":
+        return this.deleteComment(args);
+      case "imprint_accept_suggestion":
+        return this.acceptSuggestion(args);
+      case "imprint_reject_suggestion":
+        return this.rejectSuggestion(args);
       default:
         return {
           content: [{ type: "text", text: `Unknown imprint tool: ${name}` }],
         };
     }
+  }
+
+  // MARK: - v2 handlers
+
+  private async getOutlineV2(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    if (!documentId) return errText("documentId is required");
+    const r = await this.client.getOutlineV2(documentId);
+    if (r.count === 0) {
+      return textContent(`No sections detected in document ${documentId} (outline is empty).`);
+    }
+    const lines = r.sections.map((s) => {
+      const type = s.sectionType ? ` [${s.sectionType}]` : "";
+      return `- ${"#".repeat(s.level)} ${s.title}${type} · ${s.wordCount}w · range ${s.start}–${s.end}\n  id: ${s.id} · index: ${s.orderIndex}`;
+    });
+    return textContent(`# Outline for ${documentId} (${r.count} sections)\n\n${lines.join("\n")}`);
+  }
+
+  private async getSectionBody(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const sectionKey = String(args?.sectionKey || "");
+    if (!documentId || !sectionKey) return errText("documentId and sectionKey are required");
+    const r = await this.client.getSectionInDocument(documentId, sectionKey);
+    return textContent(
+      `# ${r.title}\n\nid: ${r.id}\nlevel: ${r.level} · type: ${r.sectionType || "-"} · index: ${r.orderIndex} · words: ${r.wordCount}\nrange: ${r.start}-${r.end} · bodyStart: ${r.bodyStart}\n\n${r.body}`
+    );
+  }
+
+  private async patchSection(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const sectionKey = String(args?.sectionKey || "");
+    const body = args?.body as string | undefined;
+    const title = args?.title as string | undefined;
+    if (!documentId || !sectionKey) return errText("documentId and sectionKey are required");
+    if (body === undefined && title === undefined) return errText("provide at least one of 'body' or 'title'");
+    const r = await this.client.patchSection(documentId, sectionKey, { body, title });
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async deleteSection(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const sectionKey = String(args?.sectionKey || "");
+    if (!documentId || !sectionKey) return errText("documentId and sectionKey are required");
+    const r = await this.client.deleteSection(documentId, sectionKey);
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async createSection(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const title = String(args?.title || "");
+    if (!documentId || !title) return errText("documentId and title are required");
+    const r = await this.client.createSection(documentId, {
+      title,
+      body: args?.body as string | undefined,
+      level: args?.level as number | undefined,
+      position: args?.position as string | undefined,
+    });
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async insertCitationInSection(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const sectionKey = String(args?.sectionKey || "");
+    const citeKey = String(args?.citeKey || "");
+    if (!documentId || !sectionKey || !citeKey) {
+      return errText("documentId, sectionKey, and citeKey are required");
+    }
+    const r = await this.client.insertCitationInSection(documentId, sectionKey, {
+      citeKey,
+      bibtex: args?.bibtex as string | undefined,
+      position: args?.position as number | undefined,
+    });
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async getOperation(args: Record<string, unknown> | undefined) {
+    const operationId = String(args?.operationId || "");
+    if (!operationId) return errText("operationId is required");
+    const r = await this.client.getOperation(operationId);
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async waitForOperation(args: Record<string, unknown> | undefined) {
+    const operationId = String(args?.operationId || "");
+    if (!operationId) return errText("operationId is required");
+    const timeoutMs = (args?.timeoutMs as number | undefined) ?? 5000;
+    const r = await this.client.waitForOperation(operationId, timeoutMs);
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  // MARK: - Comment handlers
+
+  private async listComments(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    if (!documentId) return errText("documentId is required");
+    const r = await this.client.listComments(documentId, {
+      filter: args?.filter as string | undefined,
+      authorAgentId: args?.authorAgentId as string | undefined,
+    });
+    if (r.count === 0) {
+      return textContent(`No comments on document ${documentId}.`);
+    }
+    const lines = r.comments.map((c) => {
+      const flags: string[] = [];
+      if (c.isSuggestion) flags.push("SUGGESTION");
+      if (c.isResolved) flags.push("resolved");
+      if (c.authorAgentId) flags.push(`agent:${c.authorAgentId}`);
+      const flagStr = flags.length ? ` [${flags.join(", ")}]` : "";
+      const proposal = c.proposedText ? `\n  proposed: ${c.proposedText.slice(0, 120)}${c.proposedText.length > 120 ? "…" : ""}` : "";
+      return `- ${c.author}${flagStr} @ ${c.range.start}-${c.range.end}\n  ${c.content}${proposal}\n  id: ${c.id}`;
+    });
+    return textContent(`# Comments on ${documentId} (${r.count})\n\n${lines.join("\n\n")}`);
+  }
+
+  private async createComment(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const content = String(args?.content || "");
+    const start = args?.start as number | undefined;
+    const end = args?.end as number | undefined;
+    if (!documentId || !content || start === undefined || end === undefined) {
+      return errText("documentId, content, start, and end are required");
+    }
+    const r = await this.client.createComment(documentId, {
+      content,
+      start,
+      end,
+      parentId: args?.parentId as string | undefined,
+      proposedText: args?.proposedText as string | undefined,
+      authorAgentId: args?.authorAgentId as string | undefined,
+      authorName: args?.authorName as string | undefined,
+    });
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async updateComment(args: Record<string, unknown> | undefined) {
+    const commentId = String(args?.commentId || "");
+    if (!commentId) return errText("commentId is required");
+    const r = await this.client.patchComment(commentId, {
+      content: args?.content as string | undefined,
+      proposedText: args?.proposedText as string | undefined,
+      isResolved: args?.isResolved as boolean | undefined,
+    });
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async deleteComment(args: Record<string, unknown> | undefined) {
+    const commentId = String(args?.commentId || "");
+    if (!commentId) return errText("commentId is required");
+    const r = await this.client.deleteComment(commentId);
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async acceptSuggestion(args: Record<string, unknown> | undefined) {
+    const commentId = String(args?.commentId || "");
+    if (!commentId) return errText("commentId is required");
+    const r = await this.client.acceptComment(commentId);
+    return textContent(JSON.stringify(r, null, 2));
+  }
+
+  private async rejectSuggestion(args: Record<string, unknown> | undefined) {
+    const commentId = String(args?.commentId || "");
+    if (!commentId) return errText("commentId is required");
+    const r = await this.client.rejectComment(commentId);
+    return textContent(JSON.stringify(r, null, 2));
   }
 
   private async listDocuments(): Promise<{
@@ -1276,4 +1721,138 @@ export class ImprintTools {
       ],
     };
   }
+
+  // MARK: - Store-backed manuscript/section handlers
+
+  private async listManuscripts(): Promise<{
+    content: Array<{ type: string; text: string }>;
+  }> {
+    const result = await this.client.listManuscripts();
+    if (result.manuscripts.length === 0) {
+      return {
+        content: [{ type: "text", text: "No manuscripts found in the store." }],
+      };
+    }
+    const lines = result.manuscripts
+      .map((m) => {
+        const sections = m.sectionCount === 1 ? "section" : "sections";
+        return `- **${m.title}** (${m.id})\n  ${m.sectionCount} ${sections} · ${m.totalWordCount} words · last modified ${m.lastModified}`;
+      })
+      .join("\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# Manuscripts (${result.count})\n\n${lines}`,
+        },
+      ],
+    };
+  }
+
+  private async getManuscriptSections(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const manuscriptId = String(args?.manuscriptId || "");
+    if (!manuscriptId) {
+      return {
+        content: [{ type: "text", text: "Error: manuscriptId is required" }],
+      };
+    }
+    const result = await this.client.listManuscriptSections(manuscriptId);
+    if (!result) {
+      return {
+        content: [{ type: "text", text: `Manuscript not found: ${manuscriptId}` }],
+      };
+    }
+    if (result.sections.length === 0) {
+      return {
+        content: [
+          { type: "text", text: `Manuscript ${manuscriptId} has no stored sections.` },
+        ],
+      };
+    }
+    const lines = result.sections
+      .map((s) => {
+        const type = s.sectionType ? ` [${s.sectionType}]` : "";
+        const preview = s.body.length > 120 ? s.body.slice(0, 120) + "…" : s.body;
+        return `## ${s.orderIndex}. ${s.title}${type}\n${s.wordCount} words · id: ${s.id}\n\n${preview}`;
+      })
+      .join("\n\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# Sections for ${manuscriptId} (${result.count})\n\n${lines}`,
+        },
+      ],
+    };
+  }
+
+  private async getSection(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const sectionId = String(args?.sectionId || "");
+    if (!sectionId) {
+      return {
+        content: [{ type: "text", text: "Error: sectionId is required" }],
+      };
+    }
+    const section = await this.client.getSection(sectionId);
+    if (!section) {
+      return {
+        content: [{ type: "text", text: `Section not found: ${sectionId}` }],
+      };
+    }
+    const type = section.sectionType ? ` [${section.sectionType}]` : "";
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# ${section.title}${type}\n\n**Document:** ${section.documentID}\n**Order:** ${section.orderIndex}\n**Word count:** ${section.wordCount}\n\n---\n\n${section.body}`,
+        },
+      ],
+    };
+  }
+
+  private async crossDocumentSearch(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const query = String(args?.query || "").trim();
+    if (!query) {
+      return {
+        content: [{ type: "text", text: "Error: query is required" }],
+      };
+    }
+    const limit = (args?.limit as number | undefined) ?? 50;
+    const result = await this.client.crossDocumentSearch(query, limit);
+    if (result.results.length === 0) {
+      return {
+        content: [{ type: "text", text: `No matches for '${query}'.` }],
+      };
+    }
+    const lines = result.results
+      .map((hit) => {
+        const type = hit.sectionType ? ` [${hit.sectionType}]` : "";
+        return `- **${hit.title}**${type} (score ${hit.score.toFixed(1)})\n  section: ${hit.sectionID} · doc: ${hit.documentID}\n  ${hit.excerpt}`;
+      })
+      .join("\n\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# Cross-Document Search: "${query}" (${result.count} hits)\n\n${lines}`,
+        },
+      ],
+    };
+  }
+}
+
+// MARK: - Small helpers for the v2 tool handlers.
+
+function textContent(text: string): { content: Array<{ type: string; text: string }> } {
+  return { content: [{ type: "text", text }] };
+}
+
+function errText(msg: string): { content: Array<{ type: string; text: string }> } {
+  return { content: [{ type: "text", text: `Error: ${msg}` }] };
 }

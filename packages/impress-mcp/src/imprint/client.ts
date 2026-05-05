@@ -115,6 +115,62 @@ export interface LogsQueryOptions {
   after?: string;
 }
 
+// Store-backed manuscript/section endpoints (shipped with the
+// ImprintImpressStore gateway). These read directly from the shared
+// SQLite store and see every document the store knows about, not just
+// the ones currently open in an editor window.
+
+export interface ManuscriptEntry {
+  id: string;
+  title: string;
+  sectionCount: number;
+  lastModified: string;
+  firstSectionTitle: string;
+  totalWordCount: number;
+}
+
+export interface ManuscriptsListResponse {
+  status: string;
+  count: number;
+  manuscripts: ManuscriptEntry[];
+}
+
+export interface ManuscriptSection {
+  id: string;
+  documentID: string;
+  title: string;
+  body: string;
+  sectionType: string;
+  orderIndex: number;
+  wordCount: number;
+  contentHash: string;
+  createdAt: string;
+}
+
+export interface ManuscriptSectionsResponse {
+  status: string;
+  manuscriptID: string;
+  count: number;
+  sections: ManuscriptSection[];
+}
+
+export interface CrossDocumentSearchHit {
+  sectionID: string;
+  documentID: string;
+  title: string;
+  sectionType: string;
+  excerpt: string;
+  score: number;
+  matchedTerms: string[];
+}
+
+export interface CrossDocumentSearchResponse {
+  status: string;
+  query: string;
+  count: number;
+  results: CrossDocumentSearchHit[];
+}
+
 export class ImprintClient {
   constructor(private baseURL: string) {}
 
@@ -498,4 +554,307 @@ export class ImprintClient {
     }
     return (await response.json()) as LogsResponse;
   }
+
+  /**
+   * List every manuscript document known to the store, sorted by
+   * most-recently-modified first. Reads from the same snapshot that
+   * drives the imprint project sidebar.
+   */
+  async listManuscripts(): Promise<ManuscriptsListResponse> {
+    const response = await fetch(`${this.baseURL}/api/manuscripts`);
+    if (!response.ok) {
+      throw new Error(`List manuscripts failed: ${response.statusText}`);
+    }
+    return (await response.json()) as ManuscriptsListResponse;
+  }
+
+  /**
+   * List every stored section for a manuscript, sorted by order_index.
+   * Bodies are inline; large content-addressed bodies are not
+   * rehydrated here — call `getSection` to fetch those.
+   */
+  async listManuscriptSections(
+    manuscriptId: string
+  ): Promise<ManuscriptSectionsResponse | null> {
+    const response = await fetch(
+      `${this.baseURL}/api/manuscripts/${manuscriptId}/sections`
+    );
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error(`List manuscript sections failed: ${response.statusText}`);
+    }
+    return (await response.json()) as ManuscriptSectionsResponse;
+  }
+
+  /**
+   * Fetch a single section with its body rehydrated from the
+   * content-addressed store when needed.
+   */
+  async getSection(sectionId: string): Promise<ManuscriptSection | null> {
+    const response = await fetch(
+      `${this.baseURL}/api/sections/${sectionId}`
+    );
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error(`Get section failed: ${response.statusText}`);
+    }
+    return (await response.json()) as ManuscriptSection;
+  }
+
+  /**
+   * Full-text search across every stored manuscript section.
+   * Multi-term queries use AND semantics (each term must match the
+   * same section).
+   */
+  async crossDocumentSearch(
+    query: string,
+    limit = 50
+  ): Promise<CrossDocumentSearchResponse> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit),
+    });
+    const response = await fetch(
+      `${this.baseURL}/api/search?${params.toString()}`
+    );
+    if (!response.ok) {
+      throw new Error(`Cross-document search failed: ${response.statusText}`);
+    }
+    return (await response.json()) as CrossDocumentSearchResponse;
+  }
+
+  // MARK: - v2 section-scoped endpoints (for token-efficient agent work)
+
+  async getOutlineV2(documentID: string): Promise<OutlineV2Response> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/outline/v2`);
+    if (!res.ok) throw new Error(`Outline v2 failed: ${res.statusText}`);
+    return (await res.json()) as OutlineV2Response;
+  }
+
+  async getSectionInDocument(documentID: string, sectionKey: string): Promise<SectionBodyResponse> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/sections/${encodeURIComponent(sectionKey)}`);
+    if (!res.ok) throw new Error(`Get section failed: ${res.statusText}`);
+    return (await res.json()) as SectionBodyResponse;
+  }
+
+  async patchSection(
+    documentID: string,
+    sectionKey: string,
+    updates: { body?: string; title?: string }
+  ): Promise<OperationQueuedResponse> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/sections/${encodeURIComponent(sectionKey)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error(`Patch section failed: ${res.statusText}`);
+    return (await res.json()) as OperationQueuedResponse;
+  }
+
+  async deleteSection(documentID: string, sectionKey: string): Promise<OperationQueuedResponse> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/sections/${encodeURIComponent(sectionKey)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(`Delete section failed: ${res.statusText}`);
+    return (await res.json()) as OperationQueuedResponse;
+  }
+
+  async createSection(
+    documentID: string,
+    options: { title: string; body?: string; level?: number; position?: string }
+  ): Promise<OperationQueuedResponse & { predictedSectionId?: string }> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/sections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) throw new Error(`Create section failed: ${res.statusText}`);
+    return (await res.json()) as OperationQueuedResponse & { predictedSectionId?: string };
+  }
+
+  async insertCitationInSection(
+    documentID: string,
+    sectionKey: string,
+    options: { citeKey: string; bibtex?: string; position?: number }
+  ): Promise<OperationQueuedResponse> {
+    const res = await fetch(
+      `${this.baseURL}/api/documents/${documentID}/sections/${encodeURIComponent(sectionKey)}/citations`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options),
+      }
+    );
+    if (!res.ok) throw new Error(`Insert citation in section failed: ${res.statusText}`);
+    return (await res.json()) as OperationQueuedResponse;
+  }
+
+  async getOperation(operationID: string): Promise<OperationStatusResponse> {
+    const res = await fetch(`${this.baseURL}/api/operations/${operationID}`);
+    if (!res.ok) throw new Error(`Operation status failed: ${res.statusText}`);
+    return (await res.json()) as OperationStatusResponse;
+  }
+
+  /**
+   * Poll an operation until it completes (or `timeoutMs` elapses).
+   * Returns the final status. Useful after enqueuing a mutation to
+   * confirm it was applied before returning to the agent.
+   */
+  async waitForOperation(operationID: string, timeoutMs = 5000, intervalMs = 75): Promise<OperationStatusResponse> {
+    const deadline = Date.now() + timeoutMs;
+    let last: OperationStatusResponse | null = null;
+    while (Date.now() < deadline) {
+      last = await this.getOperation(operationID);
+      if (last.state !== "pending") return last;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return last ?? { status: "ok", operationId: operationID, documentId: "", kind: "", state: "pending", queuedAt: "" };
+  }
+
+  // MARK: - Comment endpoints
+
+  async listComments(
+    documentID: string,
+    options: { filter?: string; authorAgentId?: string } = {}
+  ): Promise<CommentListResponse> {
+    const params = new URLSearchParams();
+    if (options.filter) params.set("filter", options.filter);
+    if (options.authorAgentId) params.set("authorAgentId", options.authorAgentId);
+    const qs = params.toString();
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/comments${qs ? `?${qs}` : ""}`);
+    if (!res.ok) throw new Error(`List comments failed: ${res.statusText}`);
+    return (await res.json()) as CommentListResponse;
+  }
+
+  async createComment(documentID: string, input: CreateCommentInput): Promise<CommentResponse> {
+    const res = await fetch(`${this.baseURL}/api/documents/${documentID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) throw new Error(`Create comment failed: ${res.statusText}`);
+    return (await res.json()) as CommentResponse;
+  }
+
+  async patchComment(commentID: string, updates: PatchCommentInput): Promise<CommentResponse> {
+    const res = await fetch(`${this.baseURL}/api/comments/${commentID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error(`Patch comment failed: ${res.statusText}`);
+    return (await res.json()) as CommentResponse;
+  }
+
+  async deleteComment(commentID: string): Promise<{ status: string; commentId: string; deleted: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/comments/${commentID}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`Delete comment failed: ${res.statusText}`);
+    return (await res.json()) as { status: string; commentId: string; deleted: boolean };
+  }
+
+  async acceptComment(commentID: string): Promise<OperationQueuedResponse & { accepted: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/comments/${commentID}/accept`, { method: "POST" });
+    if (!res.ok) throw new Error(`Accept comment failed: ${res.statusText}`);
+    return (await res.json()) as OperationQueuedResponse & { accepted: boolean };
+  }
+
+  async rejectComment(commentID: string): Promise<{ status: string; commentId: string; rejected: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/comments/${commentID}/reject`, { method: "POST" });
+    if (!res.ok) throw new Error(`Reject comment failed: ${res.statusText}`);
+    return (await res.json()) as { status: string; commentId: string; rejected: boolean };
+  }
+}
+
+// MARK: - v2 / comment response types
+
+export interface OutlineV2Section {
+  id: string;
+  title: string;
+  level: number;
+  sectionType: string;
+  orderIndex: number;
+  start: number;
+  end: number;
+  bodyStart: number;
+  wordCount: number;
+}
+
+export interface OutlineV2Response {
+  status: string;
+  documentId: string;
+  count: number;
+  sections: OutlineV2Section[];
+}
+
+export interface SectionBodyResponse extends OutlineV2Section {
+  body: string;
+  documentId: string;
+}
+
+export interface OperationQueuedResponse {
+  status: string;
+  message?: string;
+  documentId: string;
+  operationId: string;
+  [key: string]: unknown;
+}
+
+export interface OperationStatusResponse {
+  status: string;
+  operationId: string;
+  documentId: string;
+  kind: string;
+  state: "pending" | "completed" | "failed";
+  queuedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface CommentRange {
+  start: number;
+  end: number;
+}
+
+export interface CommentRecord {
+  id: string;
+  author: string;
+  authorId: string;
+  content: string;
+  range: CommentRange;
+  createdAt: string;
+  modifiedAt: string;
+  isResolved: boolean;
+  isSuggestion: boolean;
+  parentId?: string;
+  proposedText?: string;
+  authorAgentId?: string;
+}
+
+export interface CommentListResponse {
+  status: string;
+  documentId: string;
+  count: number;
+  comments: CommentRecord[];
+}
+
+export interface CommentResponse {
+  status: string;
+  documentId: string;
+  comment: CommentRecord;
+}
+
+export interface CreateCommentInput {
+  content: string;
+  start: number;
+  end: number;
+  parentId?: string;
+  proposedText?: string;
+  authorAgentId?: string;
+  authorName?: string;
+}
+
+export interface PatchCommentInput {
+  content?: string;
+  proposedText?: string;
+  isResolved?: boolean;
 }

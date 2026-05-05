@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{TimeZone, Utc};
@@ -18,6 +18,88 @@ use crate::query::ItemQuery;
 use crate::reference::{EdgeType, TypedReference};
 use crate::sql_query::compile_query;
 use crate::store::{FieldMutation, ItemStore, StoreError};
+
+/// Number of reader connections in the pool for file-backed stores.
+/// In-memory stores fall back to using the writer connection directly
+/// because `:memory:` databases are private to a single connection.
+const READER_POOL_SIZE: usize = 4;
+
+/// Pool of read-only SQLite connections.
+///
+/// WAL-mode SQLite supports concurrent readers alongside a single writer.
+/// Serving read-only queries out of a separate connection pool — instead of
+/// contending on the writer mutex — lets slow background reads (full table
+/// scans, N-count-query loops) run in parallel with fast UI reads like
+/// sidebar badge counts. This is the structural fix for the main-thread
+/// beachballs documented in the impress-suite architecture rework.
+///
+/// Readers are opened with `PRAGMA query_only = ON` as a hard guard against
+/// any accidental mutation via a reader connection.
+struct ReaderPool {
+    /// Available readers, guarded by the mutex. Callers pop when entering
+    /// `with_reader` and push when returning.
+    available: Mutex<Vec<Connection>>,
+    /// Signalled when a reader is returned to the pool. Callers block on
+    /// this when the pool is temporarily empty.
+    cond: Condvar,
+}
+
+impl ReaderPool {
+    fn open(path: &Path, capacity: usize) -> Result<Self, StoreError> {
+        let mut conns = Vec::with_capacity(capacity);
+        for i in 0..capacity {
+            let conn = Connection::open(path)
+                .map_err(|e| StoreError::Storage(format!("reader open [{}]: {}", i, e)))?;
+            // Match writer pragmas so readers see the same database view.
+            // We deliberately do NOT call `PRAGMA journal_mode = WAL` here —
+            // that would be a write and would fail under `query_only`.
+            // WAL mode is already set by the writer before the pool opens.
+            conn.pragma_update(None, "foreign_keys", "ON").map_err(|e| {
+                StoreError::Storage(format!("reader pragma foreign_keys: {}", e))
+            })?;
+            conn.pragma_update(None, "query_only", "ON")
+                .map_err(|e| StoreError::Storage(format!("reader pragma query_only: {}", e)))?;
+            conn.set_prepared_statement_cache_capacity(64);
+            conns.push(conn);
+        }
+        Ok(Self {
+            available: Mutex::new(conns),
+            cond: Condvar::new(),
+        })
+    }
+
+    /// Acquire a reader, run `f`, and return the reader to the pool.
+    /// Blocks if all readers are in use.
+    fn with_reader<T, F>(&self, f: F) -> Result<T, StoreError>
+    where
+        F: FnOnce(&Connection) -> Result<T, StoreError>,
+    {
+        let conn = {
+            let mut guard = self
+                .available
+                .lock()
+                .map_err(|e| StoreError::Storage(format!("reader pool lock: {}", e)))?;
+            while guard.is_empty() {
+                guard = self
+                    .cond
+                    .wait(guard)
+                    .map_err(|e| StoreError::Storage(format!("reader pool wait: {}", e)))?;
+            }
+            guard.pop().expect("pool non-empty after wait")
+        };
+
+        let result = f(&conn);
+
+        // Return the connection to the pool even if `f` returned Err,
+        // so the pool is not permanently drained by failed reads.
+        if let Ok(mut guard) = self.available.lock() {
+            guard.push(conn);
+            self.cond.notify_one();
+        }
+
+        result
+    }
+}
 
 /// Configuration for opening a store with specific author/origin/namespace settings.
 #[derive(Debug, Clone)]
@@ -40,8 +122,17 @@ impl Default for StoreConfig {
 /// SQLite-backed implementation of the ItemStore trait.
 ///
 /// Supports operation-based mutations with materialized state for O(1) reads.
+///
+/// ## Concurrency model
+/// - Writes go through the single `conn` (writer) mutex — strictly serialized.
+/// - Reads go through the `readers` pool when the store is file-backed,
+///   allowing up to `READER_POOL_SIZE` concurrent reads that do not contend
+///   with the writer or with each other. In-memory stores set `readers` to
+///   `None` and fall back to the writer connection for reads (since
+///   `:memory:` databases are private to one connection).
 pub struct SqliteItemStore {
     conn: Mutex<Connection>,
+    readers: Option<ReaderPool>,
     event_tx: Sender<ItemEvent>,
     event_rx: Mutex<Option<Receiver<ItemEvent>>>,
     default_author: String,
@@ -67,7 +158,14 @@ impl SqliteItemStore {
     pub fn open_with_config(path: &Path, config: StoreConfig) -> Result<Self, StoreError> {
         let conn =
             Connection::open(path).map_err(|e| StoreError::Storage(format!("open: {}", e)))?;
-        Self::init_with_connection(conn, config)
+        let mut store = Self::init_with_connection(conn, config)?;
+
+        // File-backed stores get a reader pool. The writer has already set
+        // WAL mode during init_schema, so these reader connections will
+        // inherit that journal mode from the shared database file.
+        store.readers = Some(ReaderPool::open(path, READER_POOL_SIZE)?);
+
+        Ok(store)
     }
 
     /// Create an in-memory database (for testing).
@@ -76,6 +174,10 @@ impl SqliteItemStore {
     }
 
     /// Create an in-memory database with explicit config.
+    ///
+    /// In-memory databases fall back to using the single writer connection
+    /// for reads — `:memory:` databases are private to one connection, so
+    /// a reader pool would each see an empty separate database.
     pub fn open_in_memory_with_config(config: StoreConfig) -> Result<Self, StoreError> {
         let conn = Connection::open_in_memory()
             .map_err(|e| StoreError::Storage(format!("open_in_memory: {}", e)))?;
@@ -97,6 +199,7 @@ impl SqliteItemStore {
         let (tx, rx) = mpsc::channel();
         Ok(Self {
             conn: Mutex::new(conn),
+            readers: None,
             event_tx: tx,
             event_rx: Mutex::new(Some(rx)),
             default_author: config.author,
@@ -106,8 +209,34 @@ impl SqliteItemStore {
         })
     }
 
+    /// Run a read-only closure with a connection.
+    ///
+    /// When the store has a reader pool (file-backed), the closure runs on
+    /// a pooled reader connection that does not contend with the writer.
+    /// When there is no pool (in-memory), the closure runs on the writer,
+    /// serializing against other writes and reads.
+    ///
+    /// Writers must NOT go through this path — the reader pool sets
+    /// `PRAGMA query_only = ON`, which makes any write raise an error.
+    fn with_read<T, F>(&self, f: F) -> Result<T, StoreError>
+    where
+        F: FnOnce(&Connection) -> Result<T, StoreError>,
+    {
+        if let Some(pool) = &self.readers {
+            pool.with_reader(f)
+        } else {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+            f(&conn)
+        }
+    }
+
     /// Execute a raw read-only SQL query and collect results via a mapping function.
     /// Used by higher layers for specialized aggregation queries that don't fit the ItemQuery model.
+    ///
+    /// Routed through the reader pool — do NOT use this for statements that mutate.
     pub fn query_raw<T, F>(
         &self,
         sql: &str,
@@ -117,18 +246,17 @@ impl SqliteItemStore {
     where
         F: FnMut(&rusqlite::Row<'_>) -> Result<T, rusqlite::Error>,
     {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let mut stmt = conn
-            .prepare(sql)
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let rows = stmt
-            .query_map(params, f)
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        rows.collect::<Result<Vec<T>, _>>()
-            .map_err(|e| StoreError::Storage(e.to_string()))
+        self.with_read(|conn| {
+            let mut stmt = conn
+                .prepare(sql)
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+            let mut mapper = f;
+            let rows = stmt
+                .query_map(params, |row| mapper(row))
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+            rows.collect::<Result<Vec<T>, _>>()
+                .map_err(|e| StoreError::Storage(e.to_string()))
+        })
     }
 
     fn init_schema(conn: &Connection) -> Result<(), StoreError> {
@@ -2377,29 +2505,25 @@ impl ItemStore for SqliteItemStore {
     }
 
     fn get(&self, id: ItemId) -> Result<Option<Item>, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let mut stmt = conn
-            .prepare_cached(&format!(
-                "SELECT {} FROM items WHERE id = ?1",
-                ITEM_COLUMNS
-            ))
-            .map_err(|e| StoreError::Storage(format!("prepare get: {}", e)))?;
+        self.with_read(|conn| {
+            let mut stmt = conn
+                .prepare_cached(&format!(
+                    "SELECT {} FROM items WHERE id = ?1",
+                    ITEM_COLUMNS
+                ))
+                .map_err(|e| StoreError::Storage(format!("prepare get: {}", e)))?;
 
-        let item = stmt
-            .query_row(params![id.to_string()], |row| {
-                Ok(Self::row_to_item(&conn, row))
-            })
-            .optional()
-            .map_err(|e| StoreError::Storage(format!("query get: {}", e)))?;
+            let item = stmt
+                .query_row(params![id.to_string()], |row| Ok(Self::row_to_item(conn, row)))
+                .optional()
+                .map_err(|e| StoreError::Storage(format!("query get: {}", e)))?;
 
-        match item {
-            Some(Ok(item)) => Ok(Some(item)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
+            match item {
+                Some(Ok(item)) => Ok(Some(item)),
+                Some(Err(e)) => Err(e),
+                None => Ok(None),
+            }
+        })
     }
 
     fn update(&self, id: ItemId, mutations: Vec<FieldMutation>) -> Result<(), StoreError> {
@@ -2458,88 +2582,87 @@ impl ItemStore for SqliteItemStore {
     }
 
     fn query(&self, q: &ItemQuery) -> Result<Vec<Item>, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let compiled = compile_query(q);
+        self.with_read(|conn| {
+            let compiled = compile_query(q);
 
-        let sql = format!(
-            "SELECT {} FROM items {} {} {}",
-            ITEM_COLUMNS, compiled.where_clause, compiled.order_clause, compiled.limit_offset
-        );
+            let sql = format!(
+                "SELECT {} FROM items {} {} {}",
+                ITEM_COLUMNS,
+                compiled.where_clause,
+                compiled.order_clause,
+                compiled.limit_offset
+            );
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = compiled
-            .params
-            .iter()
-            .map(|p| p as &dyn rusqlite::types::ToSql)
-            .collect();
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> = compiled
+                .params
+                .iter()
+                .map(|p| p as &dyn rusqlite::types::ToSql)
+                .collect();
 
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|e| StoreError::Storage(format!("prepare query: {} (sql: {})", e, sql)))?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| StoreError::Storage(format!("prepare query: {} (sql: {})", e, sql)))?;
 
-        // Phase 1: Collect items with empty tags/references (no per-row sub-queries)
-        let rows = stmt
-            .query_map(params_ref.as_slice(), |row| {
-                Ok(Self::row_to_item_partial(row))
-            })
-            .map_err(|e| StoreError::Storage(format!("query: {}", e)))?;
+            // Phase 1: Collect items with empty tags/references (no per-row sub-queries)
+            let rows = stmt
+                .query_map(params_ref.as_slice(), |row| {
+                    Ok(Self::row_to_item_partial(row))
+                })
+                .map_err(|e| StoreError::Storage(format!("query: {}", e)))?;
 
-        let mut items = Vec::new();
-        for row_result in rows {
-            let item_result =
-                row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))?;
-            items.push(item_result?);
-        }
+            let mut items = Vec::new();
+            for row_result in rows {
+                let item_result =
+                    row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))?;
+                items.push(item_result?);
+            }
 
-        if items.is_empty() {
-            return Ok(items);
-        }
+            if items.is_empty() {
+                return Ok(items);
+            }
 
-        // Phase 2: Batch-load tags and references (gated by query flags)
-        let id_strings: Vec<String> = items.iter().map(|item| item.id.to_string()).collect();
+            // Phase 2: Batch-load tags and references (gated by query flags)
+            let id_strings: Vec<String> = items.iter().map(|item| item.id.to_string()).collect();
 
-        if q.include_tags {
-            let mut tags_map = Self::batch_load_tags(&conn, &id_strings)?;
-            for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
-                if let Some(tags) = tags_map.remove(id_str) {
-                    item.tags = tags;
+            if q.include_tags {
+                let mut tags_map = Self::batch_load_tags(conn, &id_strings)?;
+                for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
+                    if let Some(tags) = tags_map.remove(id_str) {
+                        item.tags = tags;
+                    }
                 }
             }
-        }
 
-        if q.include_references {
-            let mut refs_map = Self::batch_load_references(&conn, &id_strings)?;
-            for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
-                if let Some(refs) = refs_map.remove(id_str) {
-                    item.references = refs;
+            if q.include_references {
+                let mut refs_map = Self::batch_load_references(conn, &id_strings)?;
+                for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
+                    if let Some(refs) = refs_map.remove(id_str) {
+                        item.references = refs;
+                    }
                 }
             }
-        }
 
-        Ok(items)
+            Ok(items)
+        })
     }
 
     fn count(&self, q: &ItemQuery) -> Result<usize, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let compiled = compile_query(q);
+        self.with_read(|conn| {
+            let compiled = compile_query(q);
 
-        let sql = format!("SELECT COUNT(*) FROM items {}", compiled.where_clause);
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = compiled
-            .params
-            .iter()
-            .map(|p| p as &dyn rusqlite::types::ToSql)
-            .collect();
+            let sql = format!("SELECT COUNT(*) FROM items {}", compiled.where_clause);
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> = compiled
+                .params
+                .iter()
+                .map(|p| p as &dyn rusqlite::types::ToSql)
+                .collect();
 
-        let count: i64 = conn
-            .query_row(&sql, params_ref.as_slice(), |row| row.get(0))
-            .map_err(|e| StoreError::Storage(format!("count: {}", e)))?;
+            let count: i64 = conn
+                .query_row(&sql, params_ref.as_slice(), |row| row.get(0))
+                .map_err(|e| StoreError::Storage(format!("count: {}", e)))?;
 
-        Ok(count as usize)
+            Ok(count as usize)
+        })
     }
 
     fn neighbors(
@@ -2552,10 +2675,29 @@ impl ItemStore for SqliteItemStore {
             return Ok(Vec::new());
         }
 
-        let conn = self
-            .conn
+        self.with_read(|conn| Self::neighbors_on(conn, id, edge_types, depth))
+    }
+
+    fn subscribe(&self, _q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError> {
+        let rx = self
+            .event_rx
             .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
+            .map_err(|e| StoreError::Storage(e.to_string()))?
+            .take()
+            .ok_or_else(|| {
+                StoreError::Storage("subscribe: receiver already taken".to_string())
+            })?;
+        Ok(rx)
+    }
+}
+
+impl SqliteItemStore {
+    fn neighbors_on(
+        conn: &Connection,
+        id: ItemId,
+        edge_types: &[EdgeType],
+        depth: u32,
+    ) -> Result<Vec<Item>, StoreError> {
         let mut visited = std::collections::HashSet::new();
         let mut frontier = vec![id];
         let mut result = Vec::new();
@@ -2645,7 +2787,7 @@ impl ItemStore for SqliteItemStore {
                     .map_err(|e| StoreError::Storage(e.to_string()))?;
                 if let Some(item) = stmt
                     .query_row(params![&neighbor_str], |row| {
-                        Ok(Self::row_to_item(&conn, row))
+                        Ok(Self::row_to_item(conn, row))
                     })
                     .optional()
                     .map_err(|e| StoreError::Storage(e.to_string()))?
@@ -2661,18 +2803,6 @@ impl ItemStore for SqliteItemStore {
         }
 
         Ok(result)
-    }
-
-    fn subscribe(&self, _q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError> {
-        let rx = self
-            .event_rx
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?
-            .take()
-            .ok_or_else(|| {
-                StoreError::Storage("subscribe: receiver already taken".to_string())
-            })?;
-        Ok(rx)
     }
 }
 
@@ -3931,5 +4061,117 @@ mod tests {
         for item in &results {
             assert_eq!(item.tags.len(), 1, "Item {} should have 1 tag", item.id);
         }
+    }
+
+    /// Build a tempfile path under the OS temp dir that we delete at end of test.
+    fn tmp_db_path(name: &str) -> std::path::PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!(
+            "impress-core-reader-pool-{}-{}.sqlite",
+            name,
+            uuid::Uuid::new_v4()
+        ));
+        p
+    }
+
+    /// File-backed stores must get a reader pool that is distinct from the
+    /// writer connection, so a slow read does not contend with fast reads
+    /// or with writes.
+    #[test]
+    fn file_backed_store_has_reader_pool() {
+        let path = tmp_db_path("has_pool");
+        let store = SqliteItemStore::open(&path).unwrap();
+        assert!(
+            store.readers.is_some(),
+            "file-backed store should have a reader pool"
+        );
+        let pool = store.readers.as_ref().unwrap();
+        let available = pool.available.lock().unwrap().len();
+        assert_eq!(
+            available, READER_POOL_SIZE,
+            "pool should start with READER_POOL_SIZE connections"
+        );
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Concurrent reads on a file-backed store must all succeed. This is the
+    /// structural regression test for the reader-pool refactor: if the pool
+    /// were a single mutex, N threads hammering `count` and `query` would
+    /// serialize; with the pool they interleave. The important thing is that
+    /// every thread eventually sees the full set of items the writer inserted.
+    #[test]
+    fn concurrent_readers_on_file_backed_store() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let path = tmp_db_path("concurrent");
+        let store = Arc::new(SqliteItemStore::open(&path).unwrap());
+
+        // Writer inserts 200 items, then readers hammer them.
+        let count = 200;
+        for i in 0..count {
+            let item = make_item("bibliography-entry", &format!("Paper {}", i));
+            store.insert(item).unwrap();
+        }
+
+        let thread_count = 8; // more than READER_POOL_SIZE on purpose
+        let iterations_per_thread = 40;
+
+        let mut handles = Vec::new();
+        for _ in 0..thread_count {
+            let store = Arc::clone(&store);
+            handles.push(thread::spawn(move || {
+                for _ in 0..iterations_per_thread {
+                    let q = ItemQuery {
+                        schema: Some("bibliography-entry".into()),
+                        ..Default::default()
+                    };
+                    let n = store.count(&q).expect("count should not fail");
+                    assert_eq!(n, count);
+                    let items = store.query(&q).expect("query should not fail");
+                    assert_eq!(items.len(), count);
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("reader thread panicked");
+        }
+
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A reader connection must refuse writes. This catches a class of
+    /// regression where a "read" method accidentally issues an UPDATE and
+    /// silently succeeds on the writer; with `query_only = ON` on readers
+    /// the attempted write returns an error.
+    #[test]
+    fn reader_pool_rejects_writes() {
+        let path = tmp_db_path("reader_readonly");
+        let store = SqliteItemStore::open(&path).unwrap();
+
+        // Seed one row through the writer so there's something to attempt to write to.
+        let item = make_item("bibliography-entry", "Readonly Test");
+        store.insert(item).unwrap();
+
+        // Acquire a reader and try to mutate the store_metadata table.
+        let pool = store.readers.as_ref().expect("file-backed has pool");
+        let write_result = pool.with_reader(|conn| {
+            conn.execute(
+                "UPDATE store_metadata SET value = ?1 WHERE key = 'origin_id'",
+                params!["tampered"],
+            )
+            .map_err(|e| StoreError::Storage(e.to_string()))
+        });
+        assert!(
+            write_result.is_err(),
+            "reader pool must refuse writes, got: {:?}",
+            write_result
+        );
+
+        drop(store);
+        let _ = std::fs::remove_file(&path);
     }
 }

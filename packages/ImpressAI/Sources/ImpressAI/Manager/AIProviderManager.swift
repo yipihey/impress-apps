@@ -94,12 +94,6 @@ public actor AIProviderManager {
         register(GoogleProvider(credentialManager: credentialManager))
         register(OllamaProvider())
         register(OpenRouterProvider(credentialManager: credentialManager))
-
-        if #available(macOS 26, iOS 26, *) {
-            if AppleFoundationModelsProvider.isAppleIntelligenceAvailable {
-                register(AppleFoundationModelsProvider())
-            }
-        }
     }
 
     /// Registers extended providers backed by the Rust LLM library.

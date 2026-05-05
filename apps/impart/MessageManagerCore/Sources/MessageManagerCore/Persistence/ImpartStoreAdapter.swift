@@ -126,8 +126,12 @@ public final class ImpartStoreAdapter {
     // MARK: - Mutation signalling
 
     /// Increment `dataVersion` to notify observers of a store change.
+    /// Also fans out a `.structural` event on the `ImpartImpressStore`
+    /// publisher so future snapshot maintainers can subscribe via the
+    /// `ImpressStoreKit` stream without going through `NotificationCenter`.
     public func didMutate() {
         dataVersion += 1
+        ImpartImpressStore.shared.postMutation(structural: true)
     }
 
     // MARK: - Email messages

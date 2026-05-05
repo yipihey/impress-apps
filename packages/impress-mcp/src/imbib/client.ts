@@ -1218,4 +1218,51 @@ export class ImbibClient {
     const data = (await response.json()) as { status: string; linked: boolean };
     return { linked: data.linked };
   }
+
+  /**
+   * Atomic citation resolution: cascades local → identifier add → external
+   * search. See `/api/papers/resolve` in imbib's HTTPAutomationRouter.
+   */
+  async resolveIdentifier(input: {
+    query?: string;
+    bibtex?: string;
+    library?: string;
+    downloadPDFs?: boolean;
+  }): Promise<ResolvedPaperResponse> {
+    const res = await fetch(`${this.baseURL}/api/papers/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: input.query ?? "",
+        bibtex: input.bibtex ?? "",
+        library: input.library,
+        download_pdfs: input.downloadPDFs ?? false,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Resolve identifier failed: ${res.statusText}`);
+    }
+    return (await res.json()) as ResolvedPaperResponse;
+  }
+}
+
+/**
+ * Response from `POST /api/papers/resolve`. One of `paper` or `candidates`
+ * will be populated depending on which cascade step succeeded.
+ */
+export interface ResolvedPaperResponse {
+  status: string;
+  via:
+    | "local-identifier"
+    | "local-search"
+    | "local-search-ambiguous"
+    | "imported-identifier"
+    | "duplicate"
+    | "external-candidates"
+    | "not-found";
+  paper?: Record<string, unknown>;
+  candidates?: Array<Record<string, unknown>>;
+  duplicates?: string[];
+  identifier?: { kind: string; value: string };
+  reason?: string;
 }

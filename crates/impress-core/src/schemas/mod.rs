@@ -1,5 +1,6 @@
 pub mod artifact;
 pub mod bibliography;
+pub mod citation_usage;
 pub mod communication;
 pub mod document;
 pub mod git_project;
@@ -10,6 +11,7 @@ pub mod task;
 
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
+pub use citation_usage::register_citation_usage_schema;
 pub use communication::register_communication_schemas;
 pub use document::register_document_schemas;
 pub use git_project::register_git_project_schemas;
@@ -33,6 +35,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_operation_schema(registry);
     register_implore_schemas(registry);
     register_imprint_schemas(registry);
+    register_citation_usage_schema(registry);
 }
 
 #[cfg(test)]

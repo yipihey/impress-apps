@@ -29,12 +29,18 @@ export {
   FigureBridge,
 } from "./figure-bridge.js";
 
+export {
+  SECTION_CITATION_TOOLS,
+  SectionCitationBridge,
+} from "./section-citation-bridge.js";
+
 // Aggregate all bridge tools
 import { CITATION_BRIDGE_TOOLS } from "./citation-bridge.js";
 import { CONVERSATION_MANUSCRIPT_TOOLS } from "./conversation-to-manuscript.js";
 import { ARTIFACT_RESOLVER_TOOLS } from "./artifact-resolver.js";
 import { EMAIL_TO_PAPER_TOOLS } from "./email-to-paper.js";
 import { FIGURE_BRIDGE_TOOLS } from "./figure-bridge.js";
+import { SECTION_CITATION_TOOLS } from "./section-citation-bridge.js";
 
 export const ALL_BRIDGE_TOOLS = [
   ...CITATION_BRIDGE_TOOLS,
@@ -42,4 +48,5 @@ export const ALL_BRIDGE_TOOLS = [
   ...ARTIFACT_RESOLVER_TOOLS,
   ...EMAIL_TO_PAPER_TOOLS,
   ...FIGURE_BRIDGE_TOOLS,
+  ...SECTION_CITATION_TOOLS,
 ];

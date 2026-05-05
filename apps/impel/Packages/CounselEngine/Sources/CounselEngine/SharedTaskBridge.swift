@@ -1,5 +1,6 @@
 import Foundation
 import ImpressKit
+import ImpressStoreKit
 import OSLog
 #if canImport(ImpressRustCore)
 import ImpressRustCore
@@ -38,6 +39,16 @@ public actor SharedTaskBridge {
     // MARK: - Singleton
 
     public static let shared = SharedTaskBridge()
+
+    // MARK: - Event publisher
+
+    /// Fan-out point for mutation notifications. Every task / agent-run
+    /// write emits a `StoreEvent` on this publisher so subscribers in
+    /// other impress apps (or this one) can react via the shared
+    /// `ImpressStoreKit` stream instead of polling.
+    ///
+    /// `nonisolated` so call sites can subscribe from any actor.
+    public nonisolated let events = StoreEventPublisher()
 
     // MARK: - State
 
@@ -127,6 +138,8 @@ public actor SharedTaskBridge {
         do {
             try store?.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
             logger.info("SharedTaskBridge: task created \(taskID) '\(title)' state=\(state)")
+            // A new task is a structural change to the item graph.
+            events.emit(.structural)
         } catch {
             logger.error("SharedTaskBridge: taskCreated upsert failed for \(taskID) — \(error.localizedDescription)")
         }
@@ -151,7 +164,7 @@ public actor SharedTaskBridge {
             guard let store = store else { return }
             // Merge newState into the existing payload to avoid overwriting other fields.
             var updatedPayload: [String: Any] = ["state": newState, "external_id": taskID]
-            if let existing = store.getItem(id: taskID),
+            if let existing = try? store.getItem(id: taskID),
                let parsed = try? JSONSerialization.jsonObject(with: Data(existing.payloadJson.utf8)) as? [String: Any] {
                 var merged = parsed
                 merged["state"] = newState
@@ -162,6 +175,12 @@ public actor SharedTaskBridge {
                 try store.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
             }
             logger.info("SharedTaskBridge: task \(taskID) state → \(newState)")
+            // A state transition is a field change on an existing item.
+            if let uuid = UUID(uuidString: taskID) {
+                events.emit(.itemsMutated(kind: .otherField, ids: [uuid]))
+            } else {
+                events.emit(.structural)
+            }
         } catch {
             logger.error("SharedTaskBridge: taskStateChanged failed for \(taskID) — \(error.localizedDescription)")
         }
@@ -231,6 +250,8 @@ public actor SharedTaskBridge {
             logger.info(
                 "SharedTaskBridge: agent-run \(runID) for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)]"
             )
+            // A new agent-run is a structural change.
+            events.emit(.structural)
         } catch {
             logger.error("SharedTaskBridge: agentRoundCompleted upsert failed for \(runID) — \(error.localizedDescription)")
         }

@@ -21,6 +21,8 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
@@ -32,8 +34,11 @@ import { ImprintClient } from "./imprint/client.js";
 import { ImprintTools, IMPRINT_TOOLS } from "./imprint/tools.js";
 import { ImpelClient } from "./impel/client.js";
 import { ImpelTools, IMPEL_TOOLS } from "./impel/tools.js";
+import { ImploreClient } from "./implore/client.js";
+import { ImploreToolHandler, IMPLORE_TOOLS } from "./implore/tools.js";
 import { PaperResources } from "./resources/papers.js";
 import { DocumentResources } from "./resources/documents.js";
+import { IMPRESS_PROMPTS, renderPrompt } from "./prompts/index.js";
 
 // Cross-app bridges
 import {
@@ -41,6 +46,7 @@ import {
   CitationBridge,
   ConversationManuscriptBridge,
   ArtifactResolverBridge,
+  SectionCitationBridge,
 } from "./bridges/index.js";
 
 // Shared store (direct SQLite access)
@@ -54,6 +60,7 @@ const IMBIB_PORT = Number(process.env.IMBIB_PORT) || 23120;
 const IMPRINT_PORT = Number(process.env.IMPRINT_PORT) || 23121;
 const IMPART_PORT = Number(process.env.IMPART_PORT) || 23122;
 const IMPEL_PORT = Number(process.env.IMPEL_PORT) || 23123;
+const IMPLORE_PORT = Number(process.env.IMPLORE_PORT) || 23124;
 
 // scix-client MCP proxy state
 let scixMcpClient: Client | null = null;
@@ -315,12 +322,14 @@ const imbibClient = new ImbibClient(`http://127.0.0.1:${IMBIB_PORT}`);
 const impartClient = new ImpartClient(`http://127.0.0.1:${IMPART_PORT}`);
 const imprintClient = new ImprintClient(`http://127.0.0.1:${IMPRINT_PORT}`);
 const impelClient = new ImpelClient(`http://127.0.0.1:${IMPEL_PORT}`);
+const imploreClient = new ImploreClient(`http://127.0.0.1:${IMPLORE_PORT}`);
 
 // Initialize tool handlers
 const imbibTools = new ImbibTools(imbibClient);
 const impartTools = new ImpartTools(impartClient);
 const imprintTools = new ImprintTools(imprintClient);
 const impelTools = new ImpelTools(impelClient);
+const imploreTools = new ImploreToolHandler(imploreClient);
 // Initialize bridge handlers
 const citationBridge = new CitationBridge(imbibClient, imprintClient);
 const conversationManuscriptBridge = new ConversationManuscriptBridge(
@@ -332,6 +341,7 @@ const artifactResolverBridge = new ArtifactResolverBridge(
   imprintClient,
   impartClient
 );
+const sectionCitationBridge = new SectionCitationBridge(imbibClient, imprintClient);
 
 // Initialize resource handlers
 const paperResources = new PaperResources(imbibClient);
@@ -347,6 +357,7 @@ const server = new Server(
     capabilities: {
       tools: {},
       resources: {},
+      prompts: {},
     },
   }
 );
@@ -359,6 +370,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       ...IMPART_TOOLS,
       ...IMPRINT_TOOLS,
       ...IMPEL_TOOLS,
+      ...IMPLORE_TOOLS,
       ...ALL_BRIDGE_TOOLS,
       ...SHARED_STORE_TOOLS,
       ...scixMcpTools,
@@ -391,6 +403,11 @@ async function dispatchTool(
     return await impelTools.handleTool(name, args);
   }
 
+  // implore tools
+  if (name.startsWith("implore_")) {
+    return await imploreTools.handleTool(name, args);
+  }
+
   // ADS / SciX tools — proxied to scix serve subprocess
   if (name.startsWith("scix_")) {
     if (!scixMcpClient) {
@@ -417,6 +434,9 @@ async function dispatchTool(
   }
   if (name.startsWith("impress_resolve") || name === "impress_list_artifacts") {
     return await artifactResolverBridge.handleTool(name, args);
+  }
+  if (name === "impress_cite_in_section") {
+    return await sectionCitationBridge.handleTool(name, args);
   }
 
   // Shared store tools (direct SQLite access)
@@ -479,6 +499,16 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
   };
 });
 
+// List available prompts
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: IMPRESS_PROMPTS,
+}));
+
+// Render a prompt with its arguments
+server.setRequestHandler(GetPromptRequestSchema, async (request) => ({
+  messages: renderPrompt(request.params.name, request.params.arguments as Record<string, string> | undefined),
+}));
+
 // Read resource
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
@@ -529,7 +559,7 @@ async function main() {
   // Handle --help flag
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-impress-mcp - MCP Server for imbib, impart, imprint, and impel
+impress-mcp - MCP Server for imbib, impart, imprint, impel, and implore
 
 Usage:
   npx impress-mcp          Run the MCP server (stdio transport)
@@ -541,6 +571,7 @@ Environment Variables:
   IMPRINT_PORT   imprint HTTP API port (default: 23121)
   IMPART_PORT    impart HTTP API port (default: 23122)
   IMPEL_PORT     impel HTTP API port (default: 23123)
+  IMPLORE_PORT   implore HTTP API port (default: 23124)
 
 For setup instructions, see:
   https://imbib.com/docs/MCP-Setup-Guide
@@ -583,6 +614,15 @@ For setup instructions, see:
     );
   } else {
     console.error("Note: impel is not running (optional for agent orchestration)");
+  }
+
+  const imploreStatus = await imploreClient.checkStatus();
+  if (imploreStatus) {
+    console.error(
+      `Connected to implore (${imploreStatus.figureCount ?? 0} figures)`
+    );
+  } else {
+    console.error("Note: implore is not running (optional for data visualization)");
   }
 
   // Connect scix serve proxy (non-fatal)

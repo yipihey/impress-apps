@@ -16,6 +16,30 @@ import UniformTypeIdentifiers
 
 /// Minimal NSOutlineView subclass for sidebar trees.
 final class SidebarNSOutlineView: NSOutlineView {
+
+    /// Invoked when the user presses Delete or Backspace with at least one
+    /// row selected. The coordinator wires this to the configuration's
+    /// `onDeleteKeyPressed`. When nil, keypresses fall through to super.
+    var onDeleteKeyPressed: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // Match Apple convention: Delete (forward delete) and Backspace
+        // (rubout / NSDeleteCharacter) both trigger the configured action,
+        // but only when at least one row is selected.
+        let isDelete: Bool = {
+            // 0x33 = Backspace, 0x75 = Forward Delete on macOS hardware.
+            // Use specialKey if present (covers external keyboards) else keyCode.
+            if let specialKey = event.specialKey {
+                return specialKey == .delete || specialKey == .deleteForward || specialKey == .backspace
+            }
+            return event.keyCode == 51 || event.keyCode == 117
+        }()
+        if isDelete, !selectedRowIndexes.isEmpty, let action = onDeleteKeyPressed {
+            action()
+            return
+        }
+        super.keyDown(with: event)
+    }
 }
 
 // MARK: - SidebarOutlineView
@@ -96,6 +120,7 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         outlineView.floatsGroupRows = false
         outlineView.indentationPerLevel = 0 // We handle indentation via tree lines
         outlineView.autoresizesOutlineColumn = true
+        outlineView.allowsMultipleSelection = true
 
         let column = NSTableColumn(identifier: .init("main"))
         column.isEditable = false
@@ -104,6 +129,21 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         outlineView.dataSource = context.coordinator
         outlineView.delegate = context.coordinator
+
+        // Wire the Delete-key handler if the configuration supplied one.
+        // The closure resolves the current selection lazily so it always
+        // sees the latest `selectedRowIndexes`.
+        if let onDeleteKeyPressed = configuration.onDeleteKeyPressed {
+            outlineView.onDeleteKeyPressed = { [weak outlineView, weak coordinator = context.coordinator] in
+                guard let outlineView, let coordinator else { return }
+                let nodes: [Node] = outlineView.selectedRowIndexes.compactMap { idx in
+                    guard let wrapper = outlineView.item(atRow: idx) as? SidebarOutlineNodeWrapper else { return nil }
+                    return coordinator.nodeLookup[wrapper.id]
+                }
+                guard !nodes.isEmpty else { return }
+                onDeleteKeyPressed(nodes)
+            }
+        }
 
         // Register for drag-drop
         let pasteboardType = configuration.pasteboardType
@@ -465,6 +505,9 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         public func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically else { return }
             guard let outlineView = outlineView else { return }
+
+            // Single-selection binding (existing behavior — preserved exactly).
+            // `selectedRow` is NSOutlineView's "primary" selection (most recent).
             let row = outlineView.selectedRow
             if row >= 0, let wrapper = outlineView.item(atRow: row) as? SidebarOutlineNodeWrapper {
                 selectedNodeID = wrapper.id
@@ -472,6 +515,18 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             } else {
                 selectedNodeID = nil
                 selectionBinding.wrappedValue = nil
+            }
+
+            // Multi-selection callback (new, additive). Only fires when the
+            // configuration supplied a closure; default nil leaves other
+            // ImpressSidebar consumers untouched. Resolution uses the
+            // coordinator's `nodeLookup` (already maintained for the data source).
+            if let onMulti = configuration.onMultipleSelectionChanged {
+                let resolved: [Node] = outlineView.selectedRowIndexes.compactMap { idx in
+                    guard let wrapper = outlineView.item(atRow: idx) as? SidebarOutlineNodeWrapper else { return nil }
+                    return nodeLookup[wrapper.id]
+                }
+                onMulti(resolved)
             }
         }
 
@@ -695,8 +750,27 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                   let wrapper = outlineView.item(atRow: row) as? SidebarOutlineNodeWrapper,
                   let node = nodeLookup[wrapper.id] else { return }
 
-            // Select the row on right-click (unless it's a group item)
             let isGroup = configuration.isGroupItem?(node) ?? false
+
+            // If the clicked row is already in the selection, preserve multi-selection
+            let currentSelection = outlineView.selectedRowIndexes
+            if currentSelection.contains(row) && currentSelection.count > 1 {
+                // Multi-selection: gather all selected nodes
+                let selectedNodes: [Node] = currentSelection.compactMap { selectedRow in
+                    guard let w = outlineView.item(atRow: selectedRow) as? SidebarOutlineNodeWrapper else { return nil }
+                    return nodeLookup[w.id]
+                }
+                if let sourceMenu = configuration.contextMenuForMultiple?(selectedNodes) {
+                    for item in sourceMenu.items {
+                        sourceMenu.removeItem(item)
+                        menu.addItem(item)
+                    }
+                    return
+                }
+                // Fall through to single-node menu if no multi handler
+            }
+
+            // Select the row on right-click (unless it's a group item)
             if !isGroup {
                 outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             }

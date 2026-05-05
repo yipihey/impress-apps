@@ -1,0 +1,4 @@
+module TreeSitterLaTeX {
+    header "tree_sitter_latex.h"
+    export *
+}

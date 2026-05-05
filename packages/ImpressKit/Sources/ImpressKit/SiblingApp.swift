@@ -11,7 +11,7 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
     /// The macOS bundle identifier for this app.
     public var bundleID: String {
         switch self {
-        case .imbib: return "com.imbib.app.ios"
+        case .imbib: return "com.impress.imbib"
         case .imprint: return "com.imbib.imprint"
         case .implore: return "com.impress.implore"
         case .impel: return "com.impress.impel"

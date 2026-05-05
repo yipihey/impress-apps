@@ -1689,6 +1689,9 @@ public func scixFetchSimilar(token: String, bibcode: String, maxResults: UInt32)
 }
 /**
  * Get a library's details including its bibcodes.
+ *
+ * Paginates through the ADS `/biblib/libraries/{id}` endpoint to fetch all
+ * bibcodes, since the API defaults to returning only 20 per page.
  */
 public func scixGetLibrary(token: String, libraryId: String)throws  -> ScixLibraryDetail {
     return try  FfiConverterTypeScixLibraryDetail.lift(try rustCallWithError(FfiConverterTypeScixFfiError.lift) {
@@ -1837,7 +1840,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scix_client_ffi_checksum_func_scix_fetch_similar() != 13925) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scix_client_ffi_checksum_func_scix_get_library() != 43236) {
+    if (uniffi_scix_client_ffi_checksum_func_scix_get_library() != 27833) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scix_client_ffi_checksum_func_scix_get_permissions() != 57959) {

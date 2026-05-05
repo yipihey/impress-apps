@@ -63,3 +63,6 @@ apps/*/*.xcodeproj/
 # Temp files
 *.txt.tmp
 apps/t.txt
+
+# Non-standard in-tree DerivedData (use Xcode's global DerivedData instead)
+DerivedData/

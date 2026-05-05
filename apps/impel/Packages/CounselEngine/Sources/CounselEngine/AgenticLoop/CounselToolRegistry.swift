@@ -178,39 +178,33 @@ public actor CounselToolRegistry {
             case "imbib_search_library":
                 let query = stringParam(input, "query") ?? ""
                 let limit = intParam(input, "limit") ?? 20
-                let papers: [PaperSearchResult] = try await bridge.get(
-                    "/api/search", from: .imbib,
-                    query: ["query": query, "limit": String(limit)]
-                )
+                let papers = try await ImbibBridge.searchLibrary(query: query, limit: limit)
                 result = try jsonEncode(papers)
 
             case "imbib_search_sources":
                 let query = stringParam(input, "query") ?? ""
-                let sources = stringParam(input, "sources") ?? "arxiv,ads,crossref"
+                let source = stringParam(input, "sources")
                 let limit = intParam(input, "limit") ?? 10
-                let data = try await bridge.getRaw(
-                    "/api/search/sources", from: .imbib,
-                    query: ["query": query, "sources": sources, "limit": String(limit)]
-                )
-                result = String(data: data, encoding: .utf8) ?? "[]"
+                let candidates = try await ImbibBridge.searchExternal(query: query, source: source, limit: limit)
+                result = try jsonEncode(candidates)
 
             case "imbib_add_papers":
                 let identifiers = arrayParam(input, "identifiers") ?? []
-                let library = stringParam(input, "library")
-                let body = AddPapersRequest(identifiers: identifiers, library: library)
-                let addResult: AddPapersResult = try await bridge.post("/api/papers/add", to: .imbib, body: body)
+                let library = stringParam(input, "library").flatMap { UUID(uuidString: $0) }
+                let addResult = try await ImbibBridge.addPapers(identifiers: identifiers, library: library)
                 result = try jsonEncode(addResult)
 
             case "imbib_get_paper":
                 let citeKey = stringParam(input, "citeKey") ?? ""
-                let data = try await bridge.getRaw("/api/publications/\(citeKey)", from: .imbib)
-                result = String(data: data, encoding: .utf8) ?? "{}"
+                if let paper = try await ImbibBridge.getPaper(citeKey: citeKey) {
+                    result = try jsonEncode(paper)
+                } else {
+                    result = "{}"
+                }
 
             case "imbib_export_bibtex":
                 let citeKeys = arrayParam(input, "citeKeys") ?? []
-                let keysParam = citeKeys.joined(separator: ",")
-                let data = try await bridge.getRaw("/api/export/bibtex", from: .imbib, query: ["keys": keysParam])
-                result = String(data: data, encoding: .utf8) ?? ""
+                result = try await ImbibBridge.exportBibTeX(citeKeys: citeKeys)
 
             case "imbib_create_artifact":
                 let artifactType = stringParam(input, "type") ?? "general"

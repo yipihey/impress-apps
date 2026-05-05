@@ -1,0 +1,4 @@
+module TreeSitterTypst {
+    header "tree_sitter_typst.h"
+    export *
+}

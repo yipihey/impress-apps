@@ -52,6 +52,22 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     /// Returns a context menu for a node, or nil for no menu.
     public var contextMenu: ((Node) -> NSMenu?)?
 
+    /// Returns a context menu for multiple selected nodes, or nil for no menu.
+    /// Called when the user right-clicks with multiple items selected.
+    public var contextMenuForMultiple: (([Node]) -> NSMenu?)?
+
+    /// Called when the multi-selection changes (NSOutlineView's `selectedRowIndexes`).
+    /// Fires alongside the existing single-selection binding write — pass an empty
+    /// array when there is no selection. Default nil makes this opt-in; consumers
+    /// that don't supply it see no change in behavior.
+    public var onMultipleSelectionChanged: (([Node]) -> Void)?
+
+    /// Called when the user presses Delete or Backspace with one or more rows
+    /// selected. Receives the currently-selected nodes. Default nil leaves
+    /// keypresses to the standard NSOutlineView responder chain, so consumers
+    /// that don't want a delete shortcut see no change in behavior.
+    public var onDeleteKeyPressed: (([Node]) -> Void)?
+
     /// Returns whether a dragged node can be dropped onto a target.
     /// Parameters: dragged node, target parent (nil = root).
     public var canAcceptDrop: ((Node, Node?) -> Bool)?
@@ -80,10 +96,13 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         onExternalDrop: ((NSPasteboard, Node?) -> Bool)? = nil,
         onRename: ((Node, String) -> Void)? = nil,
         contextMenu: ((Node) -> NSMenu?)? = nil,
+        contextMenuForMultiple: (([Node]) -> NSMenu?)? = nil,
         canAcceptDrop: ((Node, Node?) -> Bool)? = nil,
         isGroupItem: ((Node) -> Bool)? = nil,
         shouldSelectItem: ((Node) -> Bool)? = nil,
-        sectionMenu: ((Node) -> NSMenu?)? = nil
+        sectionMenu: ((Node) -> NSMenu?)? = nil,
+        onMultipleSelectionChanged: (([Node]) -> Void)? = nil,
+        onDeleteKeyPressed: (([Node]) -> Void)? = nil
     ) {
         self.rootNodes = rootNodes
         self.childrenOf = childrenOf
@@ -95,10 +114,13 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         self.onExternalDrop = onExternalDrop
         self.onRename = onRename
         self.contextMenu = contextMenu
+        self.contextMenuForMultiple = contextMenuForMultiple
         self.canAcceptDrop = canAcceptDrop
         self.isGroupItem = isGroupItem
         self.shouldSelectItem = shouldSelectItem
         self.sectionMenu = sectionMenu
+        self.onMultipleSelectionChanged = onMultipleSelectionChanged
+        self.onDeleteKeyPressed = onDeleteKeyPressed
     }
 }
 #endif
