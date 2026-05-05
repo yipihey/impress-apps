@@ -129,6 +129,15 @@ if [ -f "$FRAMEWORK_DIR/generated/implore_core.swift" ]; then
     fi
 fi
 
+# Copy XCFramework to the app's Frameworks directory (used by Package.swift)
+APP_FRAMEWORK_DIR="$WORKSPACE_ROOT/apps/implore/Frameworks"
+if [ -d "$APP_FRAMEWORK_DIR" ]; then
+    echo ""
+    echo "Copying XCFramework to app Frameworks directory..."
+    rm -rf "$APP_FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
+    cp -R "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORK_DIR/"
+fi
+
 echo ""
 echo "=== Build complete! ==="
 echo ""

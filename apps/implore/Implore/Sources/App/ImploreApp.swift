@@ -1,8 +1,9 @@
 import CoreSpotlight
+import ImploreRustCore
 import ImpressKit
 import ImpressKeyboard
+import ImpressLogging
 import ImpressSpotlight
-import OSLog
 import SwiftUI
 
 /// implore - Scientific Data Visualization
@@ -89,8 +90,7 @@ struct ImploreApp: App {
                         // implore uses a JSON-file library with no mutation notifications;
                         // rely on manual rebuild via Settings for now.
                         await SpotlightBridge.shared.setCoordinator(coordinator)
-                        Logger(subsystem: "com.impress.implore", category: "spotlight")
-                            .info("SpotlightSyncCoordinator started for implore")
+                        logInfo("SpotlightSyncCoordinator started for implore", category: "spotlight")
                     }
                 }
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
@@ -224,10 +224,22 @@ struct ImploreApp: App {
 /// Global application state
 @MainActor @Observable
 class AppState {
+    /// Shared reference for HTTP router access.
+    static var shared: AppState?
+
     var currentSession: VisualizationSession?
     var renderMode: RenderMode = .science2D
     var isLoading: Bool = false
     var errorMessage: String?
+
+    /// RG volume viewer state (set when an .npz file is loaded)
+    var rgViewerState: RgViewerState?
+
+    /// 1D plot viewer state (created alongside rgViewerState when data series exist)
+    var plotViewerState: PlotViewerState?
+
+    /// Whether the plot view is shown instead of the slice view
+    var showingPlotView: Bool = false
 
     // UI state
     var showingOpenPanel: Bool = false
@@ -235,6 +247,8 @@ class AppState {
     var showingSelectionGrammar: Bool = false
 
     init() {
+        Self.shared = self
+
         // Load sample dataset for testing if requested
         if CommandLine.arguments.contains("--sample-dataset") {
             currentSession = VisualizationSession.sampleSession()
@@ -286,12 +300,33 @@ class AppState {
         isLoading = true
         defer { isLoading = false }
 
-        do {
-            // Load dataset using Rust core
+        let ext = url.pathExtension.lowercased()
+
+        if ext == "npz" {
+            // RG turbulence volume data
+            do {
+                let started = url.startAccessingSecurityScopedResource()
+                defer { if started { url.stopAccessingSecurityScopedResource() } }
+
+                let handle = try RgDatasetHandle.load(path: url.path)
+                rgViewerState = RgViewerState(dataset: handle)
+                currentSession = nil // clear any previous session
+                // Create plot viewer if data series are available
+                let dsInfo = handle.info()
+                if !dsInfo.dataSeriesNames.isEmpty {
+                    plotViewerState = PlotViewerState(dataset: handle)
+                } else {
+                    plotViewerState = nil
+                }
+                showingPlotView = false
+            } catch {
+                errorMessage = "Failed to load .npz: \(error.localizedDescription)"
+            }
+        } else {
+            // Tabular data (CSV, HDF5, FITS, Parquet)
             let session = VisualizationSession(name: url.lastPathComponent)
             currentSession = session
-        } catch {
-            errorMessage = error.localizedDescription
+            rgViewerState = nil
         }
     }
 }

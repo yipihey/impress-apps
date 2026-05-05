@@ -8,9 +8,7 @@
 
 import Foundation
 import ImpressAutomation
-import OSLog
-
-private let httpLogger = Logger(subsystem: "com.implore.app", category: "httpServer")
+import ImpressLogging
 
 // MARK: - HTTP Automation Server
 
@@ -59,12 +57,12 @@ public actor HTTPAutomationServer {
     public func start() async {
         let alreadyRunning = await server.running
         guard !alreadyRunning else {
-            httpLogger.info("HTTP server already running")
+            logInfo("HTTP server already running", category: "http-server")
             return
         }
 
         guard isEnabled else {
-            httpLogger.info("HTTP server is disabled")
+            logInfo("HTTP server is disabled", category: "http-server")
             return
         }
 
@@ -76,13 +74,13 @@ public actor HTTPAutomationServer {
         )
 
         await server.start(configuration: configuration)
-        httpLogger.info("HTTP server started on port \(Self.defaultPort)")
+        logInfo("HTTP server started on port \(Self.defaultPort)", category: "http-server")
     }
 
     /// Stop the HTTP server.
     public func stop() async {
         await server.stop()
-        httpLogger.info("HTTP server stopped")
+        logInfo("HTTP server stopped", category: "http-server")
     }
 
     /// Restart the server.
@@ -95,7 +93,7 @@ public actor HTTPAutomationServer {
         )
 
         await server.restart(configuration: configuration)
-        httpLogger.info("HTTP server restarted")
+        logInfo("HTTP server restarted", category: "http-server")
     }
 
     /// Check if the server is currently running.

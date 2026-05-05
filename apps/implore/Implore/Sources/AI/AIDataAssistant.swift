@@ -7,6 +7,7 @@
 
 import Foundation
 import ImpressAI
+import ImpressLogging
 import OSLog
 
 private let logger = Logger(subsystem: "com.implore.app", category: "aiDataAssistant")
@@ -106,7 +107,7 @@ public final class AIDataAssistant {
             }
 
             let formula = try parseFormulaResult(text, description: description)
-            logger.debug("Generated formula for: \(description)")
+            logger.debugCapture("Generated formula for: \(description)", category: "ai-assistant")
             return formula
         } catch {
             errorMessage = error.localizedDescription
@@ -177,7 +178,7 @@ public final class AIDataAssistant {
             }
 
             let interpretation = try parseDataInterpretation(text)
-            logger.debug("Interpreted data successfully")
+            logger.debugCapture("Interpreted data successfully", category: "ai-assistant")
             return interpretation
         } catch {
             errorMessage = error.localizedDescription
@@ -240,7 +241,7 @@ public final class AIDataAssistant {
             }
 
             let explanation = try parseCalculationExplanation(text, expression: expression)
-            logger.debug("Explained calculation: \(expression)")
+            logger.debugCapture("Explained calculation: \(expression)", category: "ai-assistant")
             return explanation
         } catch {
             errorMessage = error.localizedDescription
@@ -306,7 +307,7 @@ public final class AIDataAssistant {
             }
 
             let conversion = try parseUnitConversion(text, originalValue: value, originalUnit: fromUnit)
-            logger.debug("Converted \(value) \(fromUnit)")
+            logger.debugCapture("Converted \(value) \(fromUnit)", category: "ai-assistant")
             return conversion
         } catch {
             errorMessage = error.localizedDescription

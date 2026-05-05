@@ -13,6 +13,7 @@ hdf5 = ["dep:hdf5", "dep:ndarray"]
 fits = ["dep:fitsio"]
 parquet = ["dep:parquet"]
 csv = ["dep:csv"]
+npz = ["dep:npyz", "dep:zip", "dep:ndarray"]
 
 [dependencies]
 # Serialization and error handling
@@ -25,8 +26,12 @@ fitsio = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }
 csv = { workspace = true, optional = true }
 
-# N-dimensional array support for HDF5
-ndarray = { version = "0.15", optional = true }
+# N-dimensional array support for HDF5 and NPZ
+ndarray = { workspace = true, optional = true }
+
+# NPZ/NPY reading
+npyz = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }

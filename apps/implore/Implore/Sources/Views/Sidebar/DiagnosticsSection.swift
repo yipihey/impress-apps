@@ -26,6 +26,8 @@ struct DiagnosticsSection: View {
                 switch selectedDiagnostic {
                 case .statistics:
                     StatisticsView()
+                case .plots:
+                    DataSeriesPlotSection()
                 case .powerSpectrum:
                     PowerSpectrumView()
                 case .histogram:
@@ -40,12 +42,14 @@ struct DiagnosticsSection: View {
 /// Types of diagnostics available
 enum DiagnosticType: String, CaseIterable {
     case statistics
+    case plots
     case powerSpectrum
     case histogram
 
     var title: String {
         switch self {
         case .statistics: return "Stats"
+        case .plots: return "Plots"
         case .powerSpectrum: return "Spectrum"
         case .histogram: return "Histogram"
         }
@@ -156,16 +160,52 @@ struct PowerSpectrumView: View {
     }
 }
 
-/// Histogram view for distribution analysis
+/// Histogram view for distribution analysis — supports both generated data and RG volumes
 struct HistogramView: View {
+    @Environment(AppState.self) var appState
     @Environment(GeneratorViewModel.self) var generatorViewModel
     @State private var selectedColumn: String?
     @State private var binCount: Int = 50
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // RG volume histogram (real data)
+            if let plotState = appState.plotViewerState, appState.rgViewerState?.info.hasVolumeData == true {
+                Section {
+                    Picker("Quantity", selection: Binding(
+                        get: { plotState.histogramField },
+                        set: { plotState.histogramField = $0 }
+                    )) {
+                        ForEach(plotState.info.availableQuantities, id: \.self) { q in
+                            Text(q).tag(q)
+                        }
+                    }
+
+                    Stepper(
+                        "Bins: \(plotState.histogramBins == 0 ? "auto" : "\(plotState.histogramBins)")",
+                        value: Binding(
+                            get: { plotState.histogramBins },
+                            set: { plotState.histogramBins = $0 }
+                        ),
+                        in: 0...200,
+                        step: 10
+                    )
+                } header: {
+                    SectionHeader(title: "Field Histogram", icon: "slider.horizontal.3")
+                }
+
+                Button {
+                    plotState.renderHistogram()
+                    appState.showingPlotView = true
+                } label: {
+                    Label("Compute Histogram", systemImage: "chart.bar")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            // Generated data histogram (placeholder)
             if let summary = generatorViewModel.dataSummary {
-                // Column selector
                 Section {
                     Picker("Column", selection: $selectedColumn) {
                         Text("Select...").tag(nil as String?)
@@ -176,10 +216,9 @@ struct HistogramView: View {
 
                     Stepper("Bins: \(binCount)", value: $binCount, in: 10...200, step: 10)
                 } header: {
-                    SectionHeader(title: "Settings", icon: "slider.horizontal.3")
+                    SectionHeader(title: "Generated Data", icon: "slider.horizontal.3")
                 }
 
-                // Histogram plot
                 Section {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(.quaternary)
@@ -202,24 +241,100 @@ struct HistogramView: View {
                 } header: {
                     SectionHeader(title: "Distribution", icon: "chart.bar")
                 }
+            }
 
-                // Stats for selected column
-                if selectedColumn != nil {
+            if appState.plotViewerState == nil && generatorViewModel.dataSummary == nil {
+                ContentUnavailableView(
+                    "No Data",
+                    systemImage: "chart.bar.xaxis",
+                    description: Text("Load data to view histograms")
+                )
+            }
+        }
+        .padding(12)
+    }
+}
+
+// MARK: - Data Series Plot Section
+
+/// Sidebar section for selecting and plotting 1D data series from loaded NPZ files.
+struct DataSeriesPlotSection: View {
+    @Environment(AppState.self) var appState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let plotState = appState.plotViewerState {
+                // Cascade stats shortcut
+                if appState.rgViewerState?.info.hasCascadeStats == true {
                     Section {
-                        StatRow(label: "Min", value: "--")
-                        StatRow(label: "Max", value: "--")
-                        StatRow(label: "Mean", value: "--")
-                        StatRow(label: "Std Dev", value: "--")
-                        StatRow(label: "Median", value: "--")
+                        Button {
+                            plotState.renderCascadePlot()
+                            appState.showingPlotView = true
+                        } label: {
+                            Label("mu vs Level", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                        .buttonStyle(.link)
                     } header: {
-                        SectionHeader(title: "Statistics", icon: "sum")
+                        SectionHeader(title: "Cascade", icon: "waveform.path.ecg")
+                    }
+                }
+
+                // Series picker
+                Section {
+                    ForEach(plotState.info.dataSeriesNames, id: \.self) { name in
+                        Toggle(isOn: Binding(
+                            get: { plotState.selectedSeriesNames.contains(name) },
+                            set: { _ in plotState.toggleSeries(name) }
+                        )) {
+                            Text(name)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                } header: {
+                    HStack {
+                        SectionHeader(title: "Data Series", icon: "chart.xyaxis.line")
+                        Spacer()
+                        Button("All") { plotState.selectAll() }
+                            .font(.caption2)
+                            .buttonStyle(.link)
+                        Text("/")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Button("None") { plotState.selectNone() }
+                            .font(.caption2)
+                            .buttonStyle(.link)
+                    }
+                }
+
+                // Plot button
+                HStack {
+                    Button {
+                        plotState.renderPlot()
+                        appState.showingPlotView = true
+                    } label: {
+                        Label("Plot Selected", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(plotState.selectedSeriesNames.isEmpty)
+
+                    if appState.showingPlotView {
+                        Button {
+                            appState.showingPlotView = false
+                        } label: {
+                            Label("Show Slice", systemImage: "square.grid.3x3")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                 }
             } else {
                 ContentUnavailableView(
-                    "No Data",
-                    systemImage: "chart.bar.xaxis",
-                    description: Text("Generate data to view histograms")
+                    "No Data Series",
+                    systemImage: "chart.line.downtrend.xyaxis",
+                    description: Text("Load an .npz file with 1D data series to plot")
                 )
             }
         }

@@ -1,4 +1,5 @@
 import Foundation
+import ImpressLogging
 import SwiftUI
 
 /// Service for managing figure links between implore and imprint.
@@ -55,7 +56,7 @@ public final class FigureLinkService {
         }
 
         // TODO: Implement unlink in library manager
-        print("Unlink figure \(figureId) from document \(documentId)")
+        logInfo("Unlink figure \(figureId) from document \(documentId)", category: "figure-link")
         return true
     }
 
@@ -67,7 +68,7 @@ public final class FigureLinkService {
         }
 
         // TODO: Regenerate and sync figure
-        print("Update requested for figure \(figureId)")
+        logInfo("Update requested for figure \(figureId)", category: "figure-link")
         return true
     }
 

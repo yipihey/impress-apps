@@ -1,5 +1,7 @@
 import Foundation
 import ImploreCore
+import ImploreRustCore
+import ImpressLogging
 import SwiftUI
 
 /// Manages the figure library persistence and operations.
@@ -51,7 +53,7 @@ public final class LibraryManager {
         loadLibrary()
     }
 
-    /// Load the library from disk
+    /// Load the library from disk via Rust serde.
     public func loadLibrary() {
         isLoading = true
         defer { isLoading = false }
@@ -61,29 +63,20 @@ public final class LibraryManager {
         }
 
         do {
-            let data = try Data(contentsOf: libraryURL)
-            let decoder = JSONDecoder()
-            library = try decoder.decode(FigureLibrary.self, from: data)
+            library = try loadLibraryJson(path: libraryURL.path)
         } catch {
             lastError = error
-            print("Failed to load library: \(error)")
+            logError("Failed to load library: \(error)", category: "library")
         }
     }
 
-    /// Save the library to disk
+    /// Save the library to disk via Rust serde.
     public func saveLibrary() {
         do {
-            // Ensure directory exists
-            let directory = libraryURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(library)
-            try data.write(to: libraryURL)
+            try saveLibraryJson(library: library, path: libraryURL.path)
         } catch {
             lastError = error
-            print("Failed to save library: \(error)")
+            logError("Failed to save library: \(error)", category: "library")
         }
     }
 
@@ -243,192 +236,3 @@ public final class LibraryManager {
     }
 }
 
-// MARK: - Codable Support for FigureLibrary
-
-extension FigureLibrary: Codable {
-    enum CodingKeys: String, CodingKey {
-        case id, name, figures, folders, createdAt, modifiedAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            id: try container.decode(String.self, forKey: .id),
-            name: try container.decode(String.self, forKey: .name),
-            figures: try container.decode([LibraryFigure].self, forKey: .figures),
-            folders: try container.decode([FigureFolder].self, forKey: .folders),
-            createdAt: try container.decode(String.self, forKey: .createdAt),
-            modifiedAt: try container.decode(String.self, forKey: .modifiedAt)
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(name, forKey: .name)
-        try container.encode(figures, forKey: .figures)
-        try container.encode(folders, forKey: .folders)
-        try container.encode(createdAt, forKey: .createdAt)
-        try container.encode(modifiedAt, forKey: .modifiedAt)
-    }
-}
-
-extension LibraryFigure: Codable {
-    enum CodingKeys: String, CodingKey {
-        case id, title, thumbnail, sessionId, viewStateSnapshot
-        case datasetSource, imprintLinks, tags, folderId, createdAt, modifiedAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            id: try container.decode(String.self, forKey: .id),
-            title: try container.decode(String.self, forKey: .title),
-            thumbnail: try container.decodeIfPresent(Data.self, forKey: .thumbnail),
-            sessionId: try container.decode(String.self, forKey: .sessionId),
-            viewStateSnapshot: try container.decode(String.self, forKey: .viewStateSnapshot),
-            datasetSource: try container.decode(DatasetSource.self, forKey: .datasetSource),
-            imprintLinks: try container.decode([ImprintLink].self, forKey: .imprintLinks),
-            tags: try container.decode([String].self, forKey: .tags),
-            folderId: try container.decodeIfPresent(String.self, forKey: .folderId),
-            createdAt: try container.decode(String.self, forKey: .createdAt),
-            modifiedAt: try container.decode(String.self, forKey: .modifiedAt)
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(title, forKey: .title)
-        try container.encodeIfPresent(thumbnail, forKey: .thumbnail)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(viewStateSnapshot, forKey: .viewStateSnapshot)
-        try container.encode(datasetSource, forKey: .datasetSource)
-        try container.encode(imprintLinks, forKey: .imprintLinks)
-        try container.encode(tags, forKey: .tags)
-        try container.encodeIfPresent(folderId, forKey: .folderId)
-        try container.encode(createdAt, forKey: .createdAt)
-        try container.encode(modifiedAt, forKey: .modifiedAt)
-    }
-}
-
-extension FigureFolder: Codable {
-    enum CodingKeys: String, CodingKey {
-        case id, name, figureIds, collapsed, sortOrder
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            id: try container.decode(String.self, forKey: .id),
-            name: try container.decode(String.self, forKey: .name),
-            figureIds: try container.decode([String].self, forKey: .figureIds),
-            collapsed: try container.decode(Bool.self, forKey: .collapsed),
-            sortOrder: try container.decode(Int32.self, forKey: .sortOrder)
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(name, forKey: .name)
-        try container.encode(figureIds, forKey: .figureIds)
-        try container.encode(collapsed, forKey: .collapsed)
-        try container.encode(sortOrder, forKey: .sortOrder)
-    }
-}
-
-extension ImprintLink: Codable {
-    enum CodingKeys: String, CodingKey {
-        case documentId, documentTitle, figureLabel, autoUpdate, lastSynced
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            documentId: try container.decode(String.self, forKey: .documentId),
-            documentTitle: try container.decode(String.self, forKey: .documentTitle),
-            figureLabel: try container.decode(String.self, forKey: .figureLabel),
-            autoUpdate: try container.decode(Bool.self, forKey: .autoUpdate),
-            lastSynced: try container.decodeIfPresent(String.self, forKey: .lastSynced)
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(documentId, forKey: .documentId)
-        try container.encode(documentTitle, forKey: .documentTitle)
-        try container.encode(figureLabel, forKey: .figureLabel)
-        try container.encode(autoUpdate, forKey: .autoUpdate)
-        try container.encodeIfPresent(lastSynced, forKey: .lastSynced)
-    }
-}
-
-extension DatasetSource: Codable {
-    enum CodingKeys: String, CodingKey {
-        case type, path, datasetPath, `extension`, delimiter, format, generatorId, paramsJson, generatedAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-
-        switch type {
-        case "hdf5":
-            let path = try container.decode(String.self, forKey: .path)
-            let datasetPath = try container.decode(String.self, forKey: .datasetPath)
-            self = .hdf5(path: path, datasetPath: datasetPath)
-        case "fits":
-            let path = try container.decode(String.self, forKey: .path)
-            let ext = try container.decode(UInt32.self, forKey: .extension)
-            self = .fits(path: path, extension: ext)
-        case "csv":
-            let path = try container.decode(String.self, forKey: .path)
-            let delimiter = try container.decodeIfPresent(String.self, forKey: .delimiter)
-            self = .csv(path: path, delimiter: delimiter)
-        case "parquet":
-            let path = try container.decode(String.self, forKey: .path)
-            self = .parquet(path: path)
-        case "inMemory":
-            let format = try container.decode(String.self, forKey: .format)
-            self = .inMemory(format: format)
-        case "generated":
-            let generatorId = try container.decode(String.self, forKey: .generatorId)
-            let paramsJson = try container.decode(String.self, forKey: .paramsJson)
-            let generatedAt = try container.decode(String.self, forKey: .generatedAt)
-            self = .generated(generatorId: generatorId, paramsJson: paramsJson, generatedAt: generatedAt)
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown DatasetSource type: \(type)")
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-
-        switch self {
-        case .hdf5(let path, let datasetPath):
-            try container.encode("hdf5", forKey: .type)
-            try container.encode(path, forKey: .path)
-            try container.encode(datasetPath, forKey: .datasetPath)
-        case .fits(let path, let ext):
-            try container.encode("fits", forKey: .type)
-            try container.encode(path, forKey: .path)
-            try container.encode(ext, forKey: .extension)
-        case .csv(let path, let delimiter):
-            try container.encode("csv", forKey: .type)
-            try container.encode(path, forKey: .path)
-            try container.encodeIfPresent(delimiter, forKey: .delimiter)
-        case .parquet(let path):
-            try container.encode("parquet", forKey: .type)
-            try container.encode(path, forKey: .path)
-        case .inMemory(let format):
-            try container.encode("inMemory", forKey: .type)
-            try container.encode(format, forKey: .format)
-        case .generated(let generatorId, let paramsJson, let generatedAt):
-            try container.encode("generated", forKey: .type)
-            try container.encode(generatorId, forKey: .generatorId)
-            try container.encode(paramsJson, forKey: .paramsJson)
-            try container.encode(generatedAt, forKey: .generatedAt)
-        }
-    }
-}

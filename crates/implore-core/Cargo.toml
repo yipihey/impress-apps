@@ -13,12 +13,23 @@ crate-type = ["lib", "staticlib", "cdylib"]
 default = []
 uniffi = ["dep:uniffi"]
 parallel = ["dep:rayon"]
+kuva = ["dep:kuva"]
+lilaq = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
 
 [dependencies]
 # Workspace crates
 impress-domain = { workspace = true }
 impress-collab = { workspace = true }
 impress-core = { workspace = true }
+
+# Data I/O
+implore-io = { workspace = true, features = ["npz"] }
+
+# N-dimensional arrays
+ndarray = { workspace = true }
+
+# Linear algebra (3x3 matrix ops for RG computations)
+nalgebra = { workspace = true }
 
 # Serialization and error handling
 serde = { workspace = true }
@@ -36,6 +47,19 @@ uniffi = { workspace = true, optional = true, features = ["bindgen"] }
 
 # Parallel processing (optional)
 rayon = { workspace = true, optional = true }
+
+# kuva plotting library (optional)
+kuva = { workspace = true, optional = true }
+
+# Typst rendering for lilaq backend (optional)
+typst = { workspace = true, optional = true }
+typst-pdf = { workspace = true, optional = true }
+typst-svg = { workspace = true, optional = true }
+typst-as-lib = { workspace = true, optional = true }
+comemo = { workspace = true, optional = true }
+
+# Statistics (for histogram computation)
+implore-stats = { workspace = true }
 
 [[bin]]
 name = "uniffi-bindgen"

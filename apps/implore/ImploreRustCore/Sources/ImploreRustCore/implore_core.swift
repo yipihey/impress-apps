@@ -857,6 +857,383 @@ public func FfiConverterTypeGeneratorRegistryHandle_lower(_ value: GeneratorRegi
 }
 
 
+
+
+/**
+ * Opaque handle to an RG dataset, exposed to Swift.
+ */
+public protocol RgDatasetHandleProtocol : AnyObject {
+    
+    /**
+     * Get pre-computed cascade statistics, if present in the file.
+     */
+    func getCascadeStats()  -> RgCascadeStatsFfi?
+    
+    /**
+     * Get a specific named data series by name.
+     */
+    func getDataSeries(name: String)  -> [Float]?
+    
+    /**
+     * Get statistics for an entire 3D field volume.
+     */
+    func getFieldStatistics(quantity: String) throws  -> FieldStatistics
+    
+    /**
+     * Get a raw 2D slice as f32 values with summary statistics.
+     */
+    func getRawSlice(quantity: String, axis: String, position: UInt32) throws  -> RawSliceData
+    
+    /**
+     * Get a colormapped 2D slice.
+     *
+     * - `quantity`: one of the names from `info().available_quantities`
+     * - `axis`: "x", "y", or "z"
+     * - `position`: slice index along the axis (0 to grid_size-1)
+     * - `colormap`: colormap name (e.g., "coolwarm", "viridis")
+     */
+    func getSlice(quantity: String, axis: String, position: UInt32, colormap: String) throws  -> SliceData
+    
+    /**
+     * Whether this file has volume data (velocity fields).
+     */
+    func hasVolumeData()  -> Bool
+    
+    /**
+     * Get dataset metadata.
+     */
+    func info()  -> RgDatasetInfo
+    
+    /**
+     * List all arrays in the source .npz file with their shapes.
+     */
+    func listArrays()  -> [RgArrayInfoFfi]
+    
+    /**
+     * List all data series available in the file.
+     */
+    func listDataSeries()  -> [RgDataSeriesFfi]
+    
+    /**
+     * Number of velocity snapshots loaded.
+     */
+    func numSnapshots()  -> UInt32
+    
+    /**
+     * Plot cascade statistics (mu per level), returning SVG.
+     *
+     * Returns `None` if no cascade stats are available.
+     */
+    func plotCascadeStats()  -> String?
+    
+    /**
+     * Plot one or more named data series overlaid as a line chart, returning SVG.
+     *
+     * - `names`: series names to include (from `list_data_series()`).
+     * - `title`: plot title.
+     */
+    func plotDataSeries(names: [String], title: String) throws  -> String
+    
+    /**
+     * Plot a histogram of a 3D field's values, returning SVG.
+     *
+     * - `quantity`: derived quantity name
+     * - `num_bins`: number of bins (0 = auto)
+     */
+    func plotFieldHistogram(quantity: String, numBins: UInt32) throws  -> String
+    
+    /**
+     * Set the active cascade level.
+     */
+    func setLevel(level: Int32) throws 
+    
+}
+
+/**
+ * Opaque handle to an RG dataset, exposed to Swift.
+ */
+open class RgDatasetHandle:
+    RgDatasetHandleProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_implore_core_fn_clone_rgdatasethandle(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_implore_core_fn_free_rgdatasethandle(pointer, $0) }
+    }
+
+    
+    /**
+     * Load an RG dataset from an `.npz` file path.
+     */
+public static func load(path: String)throws  -> RgDatasetHandle {
+    return try  FfiConverterTypeRgDatasetHandle.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_constructor_rgdatasethandle_load(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Get pre-computed cascade statistics, if present in the file.
+     */
+open func getCascadeStats() -> RgCascadeStatsFfi? {
+    return try!  FfiConverterOptionTypeRgCascadeStatsFfi.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_get_cascade_stats(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Get a specific named data series by name.
+     */
+open func getDataSeries(name: String) -> [Float]? {
+    return try!  FfiConverterOptionSequenceFloat.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_get_data_series(self.uniffiClonePointer(),
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+    
+    /**
+     * Get statistics for an entire 3D field volume.
+     */
+open func getFieldStatistics(quantity: String)throws  -> FieldStatistics {
+    return try  FfiConverterTypeFieldStatistics.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_get_field_statistics(self.uniffiClonePointer(),
+        FfiConverterString.lower(quantity),$0
+    )
+})
+}
+    
+    /**
+     * Get a raw 2D slice as f32 values with summary statistics.
+     */
+open func getRawSlice(quantity: String, axis: String, position: UInt32)throws  -> RawSliceData {
+    return try  FfiConverterTypeRawSliceData.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_get_raw_slice(self.uniffiClonePointer(),
+        FfiConverterString.lower(quantity),
+        FfiConverterString.lower(axis),
+        FfiConverterUInt32.lower(position),$0
+    )
+})
+}
+    
+    /**
+     * Get a colormapped 2D slice.
+     *
+     * - `quantity`: one of the names from `info().available_quantities`
+     * - `axis`: "x", "y", or "z"
+     * - `position`: slice index along the axis (0 to grid_size-1)
+     * - `colormap`: colormap name (e.g., "coolwarm", "viridis")
+     */
+open func getSlice(quantity: String, axis: String, position: UInt32, colormap: String)throws  -> SliceData {
+    return try  FfiConverterTypeSliceData.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_get_slice(self.uniffiClonePointer(),
+        FfiConverterString.lower(quantity),
+        FfiConverterString.lower(axis),
+        FfiConverterUInt32.lower(position),
+        FfiConverterString.lower(colormap),$0
+    )
+})
+}
+    
+    /**
+     * Whether this file has volume data (velocity fields).
+     */
+open func hasVolumeData() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_has_volume_data(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Get dataset metadata.
+     */
+open func info() -> RgDatasetInfo {
+    return try!  FfiConverterTypeRgDatasetInfo.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_info(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * List all arrays in the source .npz file with their shapes.
+     */
+open func listArrays() -> [RgArrayInfoFfi] {
+    return try!  FfiConverterSequenceTypeRgArrayInfoFfi.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_list_arrays(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * List all data series available in the file.
+     */
+open func listDataSeries() -> [RgDataSeriesFfi] {
+    return try!  FfiConverterSequenceTypeRgDataSeriesFfi.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_list_data_series(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Number of velocity snapshots loaded.
+     */
+open func numSnapshots() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_num_snapshots(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Plot cascade statistics (mu per level), returning SVG.
+     *
+     * Returns `None` if no cascade stats are available.
+     */
+open func plotCascadeStats() -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_implore_core_fn_method_rgdatasethandle_plot_cascade_stats(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Plot one or more named data series overlaid as a line chart, returning SVG.
+     *
+     * - `names`: series names to include (from `list_data_series()`).
+     * - `title`: plot title.
+     */
+open func plotDataSeries(names: [String], title: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_plot_data_series(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(names),
+        FfiConverterString.lower(title),$0
+    )
+})
+}
+    
+    /**
+     * Plot a histogram of a 3D field's values, returning SVG.
+     *
+     * - `quantity`: derived quantity name
+     * - `num_bins`: number of bins (0 = auto)
+     */
+open func plotFieldHistogram(quantity: String, numBins: UInt32)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_plot_field_histogram(self.uniffiClonePointer(),
+        FfiConverterString.lower(quantity),
+        FfiConverterUInt32.lower(numBins),$0
+    )
+})
+}
+    
+    /**
+     * Set the active cascade level.
+     */
+open func setLevel(level: Int32)throws  {try rustCallWithError(FfiConverterTypeRgError.lift) {
+    uniffi_implore_core_fn_method_rgdatasethandle_set_level(self.uniffiClonePointer(),
+        FfiConverterInt32.lower(level),$0
+    )
+}
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgDatasetHandle: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = RgDatasetHandle
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> RgDatasetHandle {
+        return RgDatasetHandle(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: RgDatasetHandle) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgDatasetHandle {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: RgDatasetHandle, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDatasetHandle_lift(_ pointer: UnsafeMutableRawPointer) throws -> RgDatasetHandle {
+    return try FfiConverterTypeRgDatasetHandle.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDatasetHandle_lower(_ value: RgDatasetHandle) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeRgDatasetHandle.lower(value)
+}
+
+
 /**
  * Configuration for art shader mode
  */
@@ -2054,6 +2431,171 @@ public func FfiConverterTypeFieldDescriptor_lift(_ buf: RustBuffer) throws -> Fi
 #endif
 public func FfiConverterTypeFieldDescriptor_lower(_ value: FieldDescriptor) -> RustBuffer {
     return FfiConverterTypeFieldDescriptor.lower(value)
+}
+
+
+/**
+ * Statistics for an entire 3D field volume.
+ */
+public struct FieldStatistics {
+    /**
+     * Quantity name.
+     */
+    public var quantity: String
+    /**
+     * Minimum finite value across the volume.
+     */
+    public var minValue: Float
+    /**
+     * Maximum finite value across the volume.
+     */
+    public var maxValue: Float
+    /**
+     * Mean of finite values.
+     */
+    public var meanValue: Float
+    /**
+     * Standard deviation of finite values.
+     */
+    public var stdValue: Float
+    /**
+     * Number of NaN values.
+     */
+    public var nanCount: UInt64
+    /**
+     * Number of Inf values.
+     */
+    public var infCount: UInt64
+    /**
+     * Total number of values.
+     */
+    public var totalCount: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Quantity name.
+         */quantity: String, 
+        /**
+         * Minimum finite value across the volume.
+         */minValue: Float, 
+        /**
+         * Maximum finite value across the volume.
+         */maxValue: Float, 
+        /**
+         * Mean of finite values.
+         */meanValue: Float, 
+        /**
+         * Standard deviation of finite values.
+         */stdValue: Float, 
+        /**
+         * Number of NaN values.
+         */nanCount: UInt64, 
+        /**
+         * Number of Inf values.
+         */infCount: UInt64, 
+        /**
+         * Total number of values.
+         */totalCount: UInt64) {
+        self.quantity = quantity
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.meanValue = meanValue
+        self.stdValue = stdValue
+        self.nanCount = nanCount
+        self.infCount = infCount
+        self.totalCount = totalCount
+    }
+}
+
+
+
+extension FieldStatistics: Equatable, Hashable {
+    public static func ==(lhs: FieldStatistics, rhs: FieldStatistics) -> Bool {
+        if lhs.quantity != rhs.quantity {
+            return false
+        }
+        if lhs.minValue != rhs.minValue {
+            return false
+        }
+        if lhs.maxValue != rhs.maxValue {
+            return false
+        }
+        if lhs.meanValue != rhs.meanValue {
+            return false
+        }
+        if lhs.stdValue != rhs.stdValue {
+            return false
+        }
+        if lhs.nanCount != rhs.nanCount {
+            return false
+        }
+        if lhs.infCount != rhs.infCount {
+            return false
+        }
+        if lhs.totalCount != rhs.totalCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(quantity)
+        hasher.combine(minValue)
+        hasher.combine(maxValue)
+        hasher.combine(meanValue)
+        hasher.combine(stdValue)
+        hasher.combine(nanCount)
+        hasher.combine(infCount)
+        hasher.combine(totalCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFieldStatistics: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FieldStatistics {
+        return
+            try FieldStatistics(
+                quantity: FfiConverterString.read(from: &buf), 
+                minValue: FfiConverterFloat.read(from: &buf), 
+                maxValue: FfiConverterFloat.read(from: &buf), 
+                meanValue: FfiConverterFloat.read(from: &buf), 
+                stdValue: FfiConverterFloat.read(from: &buf), 
+                nanCount: FfiConverterUInt64.read(from: &buf), 
+                infCount: FfiConverterUInt64.read(from: &buf), 
+                totalCount: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FieldStatistics, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.quantity, into: &buf)
+        FfiConverterFloat.write(value.minValue, into: &buf)
+        FfiConverterFloat.write(value.maxValue, into: &buf)
+        FfiConverterFloat.write(value.meanValue, into: &buf)
+        FfiConverterFloat.write(value.stdValue, into: &buf)
+        FfiConverterUInt64.write(value.nanCount, into: &buf)
+        FfiConverterUInt64.write(value.infCount, into: &buf)
+        FfiConverterUInt64.write(value.totalCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFieldStatistics_lift(_ buf: RustBuffer) throws -> FieldStatistics {
+    return try FfiConverterTypeFieldStatistics.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFieldStatistics_lower(_ value: FieldStatistics) -> RustBuffer {
+    return FfiConverterTypeFieldStatistics.lower(value)
 }
 
 
@@ -3433,6 +3975,775 @@ public func FfiConverterTypeParameterSpec_lower(_ value: ParameterSpec) -> RustB
 
 
 /**
+ * A raw 2D slice with f32 values and summary statistics.
+ */
+public struct RawSliceData {
+    /**
+     * Row-major f32 values.
+     */
+    public var values: [Float]
+    /**
+     * Width of the slice in pixels.
+     */
+    public var width: UInt32
+    /**
+     * Height of the slice in pixels.
+     */
+    public var height: UInt32
+    /**
+     * Minimum finite value in the slice.
+     */
+    public var minValue: Float
+    /**
+     * Maximum finite value in the slice.
+     */
+    public var maxValue: Float
+    /**
+     * Mean of finite values.
+     */
+    public var meanValue: Float
+    /**
+     * Standard deviation of finite values.
+     */
+    public var stdValue: Float
+    /**
+     * Quantity name.
+     */
+    public var quantity: String
+    /**
+     * Slice axis ("x", "y", or "z").
+     */
+    public var axis: String
+    /**
+     * Slice position along the axis.
+     */
+    public var position: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Row-major f32 values.
+         */values: [Float], 
+        /**
+         * Width of the slice in pixels.
+         */width: UInt32, 
+        /**
+         * Height of the slice in pixels.
+         */height: UInt32, 
+        /**
+         * Minimum finite value in the slice.
+         */minValue: Float, 
+        /**
+         * Maximum finite value in the slice.
+         */maxValue: Float, 
+        /**
+         * Mean of finite values.
+         */meanValue: Float, 
+        /**
+         * Standard deviation of finite values.
+         */stdValue: Float, 
+        /**
+         * Quantity name.
+         */quantity: String, 
+        /**
+         * Slice axis ("x", "y", or "z").
+         */axis: String, 
+        /**
+         * Slice position along the axis.
+         */position: UInt32) {
+        self.values = values
+        self.width = width
+        self.height = height
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.meanValue = meanValue
+        self.stdValue = stdValue
+        self.quantity = quantity
+        self.axis = axis
+        self.position = position
+    }
+}
+
+
+
+extension RawSliceData: Equatable, Hashable {
+    public static func ==(lhs: RawSliceData, rhs: RawSliceData) -> Bool {
+        if lhs.values != rhs.values {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        if lhs.minValue != rhs.minValue {
+            return false
+        }
+        if lhs.maxValue != rhs.maxValue {
+            return false
+        }
+        if lhs.meanValue != rhs.meanValue {
+            return false
+        }
+        if lhs.stdValue != rhs.stdValue {
+            return false
+        }
+        if lhs.quantity != rhs.quantity {
+            return false
+        }
+        if lhs.axis != rhs.axis {
+            return false
+        }
+        if lhs.position != rhs.position {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(values)
+        hasher.combine(width)
+        hasher.combine(height)
+        hasher.combine(minValue)
+        hasher.combine(maxValue)
+        hasher.combine(meanValue)
+        hasher.combine(stdValue)
+        hasher.combine(quantity)
+        hasher.combine(axis)
+        hasher.combine(position)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRawSliceData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RawSliceData {
+        return
+            try RawSliceData(
+                values: FfiConverterSequenceFloat.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                minValue: FfiConverterFloat.read(from: &buf), 
+                maxValue: FfiConverterFloat.read(from: &buf), 
+                meanValue: FfiConverterFloat.read(from: &buf), 
+                stdValue: FfiConverterFloat.read(from: &buf), 
+                quantity: FfiConverterString.read(from: &buf), 
+                axis: FfiConverterString.read(from: &buf), 
+                position: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RawSliceData, into buf: inout [UInt8]) {
+        FfiConverterSequenceFloat.write(value.values, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterFloat.write(value.minValue, into: &buf)
+        FfiConverterFloat.write(value.maxValue, into: &buf)
+        FfiConverterFloat.write(value.meanValue, into: &buf)
+        FfiConverterFloat.write(value.stdValue, into: &buf)
+        FfiConverterString.write(value.quantity, into: &buf)
+        FfiConverterString.write(value.axis, into: &buf)
+        FfiConverterUInt32.write(value.position, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRawSliceData_lift(_ buf: RustBuffer) throws -> RawSliceData {
+    return try FfiConverterTypeRawSliceData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRawSliceData_lower(_ value: RawSliceData) -> RustBuffer {
+    return FfiConverterTypeRawSliceData.lower(value)
+}
+
+
+/**
+ * Info about a named array in the .npz file.
+ */
+public struct RgArrayInfoFfi {
+    /**
+     * Array name.
+     */
+    public var name: String
+    /**
+     * Shape dimensions.
+     */
+    public var shape: [UInt32]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Array name.
+         */name: String, 
+        /**
+         * Shape dimensions.
+         */shape: [UInt32]) {
+        self.name = name
+        self.shape = shape
+    }
+}
+
+
+
+extension RgArrayInfoFfi: Equatable, Hashable {
+    public static func ==(lhs: RgArrayInfoFfi, rhs: RgArrayInfoFfi) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.shape != rhs.shape {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(shape)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgArrayInfoFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgArrayInfoFfi {
+        return
+            try RgArrayInfoFfi(
+                name: FfiConverterString.read(from: &buf), 
+                shape: FfiConverterSequenceUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RgArrayInfoFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceUInt32.write(value.shape, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgArrayInfoFfi_lift(_ buf: RustBuffer) throws -> RgArrayInfoFfi {
+    return try FfiConverterTypeRgArrayInfoFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgArrayInfoFfi_lower(_ value: RgArrayInfoFfi) -> RustBuffer {
+    return FfiConverterTypeRgArrayInfoFfi.lower(value)
+}
+
+
+/**
+ * RG cascade statistics exposed to Swift.
+ */
+public struct RgCascadeStatsFfi {
+    /**
+     * Intermittency parameter mu = Var(ln f)/ln(2) per cascade level.
+     */
+    public var muPerLevel: [Float]
+    /**
+     * Mean log gain factor per level.
+     */
+    public var lnFMeanPerLevel: [Float]
+    /**
+     * Variance of log gain factor per level.
+     */
+    public var lnFVarPerLevel: [Float]
+    /**
+     * Ratio of <ln f> between adjacent levels.
+     */
+    public var lnFRatios: [Float]
+    /**
+     * Structure function exponents zeta_p for p=1..8.
+     */
+    public var zetaP: [Float]
+    /**
+     * Number of cascade levels.
+     */
+    public var numLevels: UInt32
+    /**
+     * Number of statistical samples.
+     */
+    public var numSamples: UInt32
+    /**
+     * Spectral radius rho(DT). NaN if not available.
+     */
+    public var sigmaMax: Float
+    /**
+     * Whether power iteration converged.
+     */
+    public var powerConverged: Bool
+    /**
+     * Per-sample energy values.
+     */
+    public var sampleEnergy: [Float]
+    /**
+     * Per-sample skewness values.
+     */
+    public var sampleSkewness: [Float]
+    /**
+     * Per-sample flatness values.
+     */
+    public var sampleFlatness: [Float]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Intermittency parameter mu = Var(ln f)/ln(2) per cascade level.
+         */muPerLevel: [Float], 
+        /**
+         * Mean log gain factor per level.
+         */lnFMeanPerLevel: [Float], 
+        /**
+         * Variance of log gain factor per level.
+         */lnFVarPerLevel: [Float], 
+        /**
+         * Ratio of <ln f> between adjacent levels.
+         */lnFRatios: [Float], 
+        /**
+         * Structure function exponents zeta_p for p=1..8.
+         */zetaP: [Float], 
+        /**
+         * Number of cascade levels.
+         */numLevels: UInt32, 
+        /**
+         * Number of statistical samples.
+         */numSamples: UInt32, 
+        /**
+         * Spectral radius rho(DT). NaN if not available.
+         */sigmaMax: Float, 
+        /**
+         * Whether power iteration converged.
+         */powerConverged: Bool, 
+        /**
+         * Per-sample energy values.
+         */sampleEnergy: [Float], 
+        /**
+         * Per-sample skewness values.
+         */sampleSkewness: [Float], 
+        /**
+         * Per-sample flatness values.
+         */sampleFlatness: [Float]) {
+        self.muPerLevel = muPerLevel
+        self.lnFMeanPerLevel = lnFMeanPerLevel
+        self.lnFVarPerLevel = lnFVarPerLevel
+        self.lnFRatios = lnFRatios
+        self.zetaP = zetaP
+        self.numLevels = numLevels
+        self.numSamples = numSamples
+        self.sigmaMax = sigmaMax
+        self.powerConverged = powerConverged
+        self.sampleEnergy = sampleEnergy
+        self.sampleSkewness = sampleSkewness
+        self.sampleFlatness = sampleFlatness
+    }
+}
+
+
+
+extension RgCascadeStatsFfi: Equatable, Hashable {
+    public static func ==(lhs: RgCascadeStatsFfi, rhs: RgCascadeStatsFfi) -> Bool {
+        if lhs.muPerLevel != rhs.muPerLevel {
+            return false
+        }
+        if lhs.lnFMeanPerLevel != rhs.lnFMeanPerLevel {
+            return false
+        }
+        if lhs.lnFVarPerLevel != rhs.lnFVarPerLevel {
+            return false
+        }
+        if lhs.lnFRatios != rhs.lnFRatios {
+            return false
+        }
+        if lhs.zetaP != rhs.zetaP {
+            return false
+        }
+        if lhs.numLevels != rhs.numLevels {
+            return false
+        }
+        if lhs.numSamples != rhs.numSamples {
+            return false
+        }
+        if lhs.sigmaMax != rhs.sigmaMax {
+            return false
+        }
+        if lhs.powerConverged != rhs.powerConverged {
+            return false
+        }
+        if lhs.sampleEnergy != rhs.sampleEnergy {
+            return false
+        }
+        if lhs.sampleSkewness != rhs.sampleSkewness {
+            return false
+        }
+        if lhs.sampleFlatness != rhs.sampleFlatness {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(muPerLevel)
+        hasher.combine(lnFMeanPerLevel)
+        hasher.combine(lnFVarPerLevel)
+        hasher.combine(lnFRatios)
+        hasher.combine(zetaP)
+        hasher.combine(numLevels)
+        hasher.combine(numSamples)
+        hasher.combine(sigmaMax)
+        hasher.combine(powerConverged)
+        hasher.combine(sampleEnergy)
+        hasher.combine(sampleSkewness)
+        hasher.combine(sampleFlatness)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgCascadeStatsFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgCascadeStatsFfi {
+        return
+            try RgCascadeStatsFfi(
+                muPerLevel: FfiConverterSequenceFloat.read(from: &buf), 
+                lnFMeanPerLevel: FfiConverterSequenceFloat.read(from: &buf), 
+                lnFVarPerLevel: FfiConverterSequenceFloat.read(from: &buf), 
+                lnFRatios: FfiConverterSequenceFloat.read(from: &buf), 
+                zetaP: FfiConverterSequenceFloat.read(from: &buf), 
+                numLevels: FfiConverterUInt32.read(from: &buf), 
+                numSamples: FfiConverterUInt32.read(from: &buf), 
+                sigmaMax: FfiConverterFloat.read(from: &buf), 
+                powerConverged: FfiConverterBool.read(from: &buf), 
+                sampleEnergy: FfiConverterSequenceFloat.read(from: &buf), 
+                sampleSkewness: FfiConverterSequenceFloat.read(from: &buf), 
+                sampleFlatness: FfiConverterSequenceFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RgCascadeStatsFfi, into buf: inout [UInt8]) {
+        FfiConverterSequenceFloat.write(value.muPerLevel, into: &buf)
+        FfiConverterSequenceFloat.write(value.lnFMeanPerLevel, into: &buf)
+        FfiConverterSequenceFloat.write(value.lnFVarPerLevel, into: &buf)
+        FfiConverterSequenceFloat.write(value.lnFRatios, into: &buf)
+        FfiConverterSequenceFloat.write(value.zetaP, into: &buf)
+        FfiConverterUInt32.write(value.numLevels, into: &buf)
+        FfiConverterUInt32.write(value.numSamples, into: &buf)
+        FfiConverterFloat.write(value.sigmaMax, into: &buf)
+        FfiConverterBool.write(value.powerConverged, into: &buf)
+        FfiConverterSequenceFloat.write(value.sampleEnergy, into: &buf)
+        FfiConverterSequenceFloat.write(value.sampleSkewness, into: &buf)
+        FfiConverterSequenceFloat.write(value.sampleFlatness, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgCascadeStatsFfi_lift(_ buf: RustBuffer) throws -> RgCascadeStatsFfi {
+    return try FfiConverterTypeRgCascadeStatsFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgCascadeStatsFfi_lower(_ value: RgCascadeStatsFfi) -> RustBuffer {
+    return FfiConverterTypeRgCascadeStatsFfi.lower(value)
+}
+
+
+/**
+ * A named 1D data series from the .npz file.
+ */
+public struct RgDataSeriesFfi {
+    /**
+     * Series name (e.g. "I2_mean_L0", "energy", "history").
+     */
+    public var name: String
+    /**
+     * Data values.
+     */
+    public var values: [Float]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Series name (e.g. "I2_mean_L0", "energy", "history").
+         */name: String, 
+        /**
+         * Data values.
+         */values: [Float]) {
+        self.name = name
+        self.values = values
+    }
+}
+
+
+
+extension RgDataSeriesFfi: Equatable, Hashable {
+    public static func ==(lhs: RgDataSeriesFfi, rhs: RgDataSeriesFfi) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.values != rhs.values {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(values)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgDataSeriesFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgDataSeriesFfi {
+        return
+            try RgDataSeriesFfi(
+                name: FfiConverterString.read(from: &buf), 
+                values: FfiConverterSequenceFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RgDataSeriesFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceFloat.write(value.values, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDataSeriesFfi_lift(_ buf: RustBuffer) throws -> RgDataSeriesFfi {
+    return try FfiConverterTypeRgDataSeriesFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDataSeriesFfi_lower(_ value: RgDataSeriesFfi) -> RustBuffer {
+    return FfiConverterTypeRgDataSeriesFfi.lower(value)
+}
+
+
+/**
+ * Metadata about an RG dataset.
+ */
+public struct RgDatasetInfo {
+    /**
+     * Grid dimension (n for an n x n x n cube). 0 for stats-only files.
+     */
+    public var gridSize: UInt32
+    /**
+     * Cascade level indices present.
+     */
+    public var levels: [Int32]
+    /**
+     * Simulation time.
+     */
+    public var time: Float
+    /**
+     * Domain size (L).
+     */
+    public var domainSize: Float
+    /**
+     * Viscosity (nu).
+     */
+    public var viscosity: Float
+    /**
+     * Names of available derived quantities.
+     */
+    public var availableQuantities: [String]
+    /**
+     * Whether volume data (velocity fields) is present.
+     */
+    public var hasVolumeData: Bool
+    /**
+     * Number of velocity snapshots loaded as levels.
+     */
+    public var numSnapshots: UInt32
+    /**
+     * Whether cascade statistics are available.
+     */
+    public var hasCascadeStats: Bool
+    /**
+     * Names of all data series in the file.
+     */
+    public var dataSeriesNames: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Grid dimension (n for an n x n x n cube). 0 for stats-only files.
+         */gridSize: UInt32, 
+        /**
+         * Cascade level indices present.
+         */levels: [Int32], 
+        /**
+         * Simulation time.
+         */time: Float, 
+        /**
+         * Domain size (L).
+         */domainSize: Float, 
+        /**
+         * Viscosity (nu).
+         */viscosity: Float, 
+        /**
+         * Names of available derived quantities.
+         */availableQuantities: [String], 
+        /**
+         * Whether volume data (velocity fields) is present.
+         */hasVolumeData: Bool, 
+        /**
+         * Number of velocity snapshots loaded as levels.
+         */numSnapshots: UInt32, 
+        /**
+         * Whether cascade statistics are available.
+         */hasCascadeStats: Bool, 
+        /**
+         * Names of all data series in the file.
+         */dataSeriesNames: [String]) {
+        self.gridSize = gridSize
+        self.levels = levels
+        self.time = time
+        self.domainSize = domainSize
+        self.viscosity = viscosity
+        self.availableQuantities = availableQuantities
+        self.hasVolumeData = hasVolumeData
+        self.numSnapshots = numSnapshots
+        self.hasCascadeStats = hasCascadeStats
+        self.dataSeriesNames = dataSeriesNames
+    }
+}
+
+
+
+extension RgDatasetInfo: Equatable, Hashable {
+    public static func ==(lhs: RgDatasetInfo, rhs: RgDatasetInfo) -> Bool {
+        if lhs.gridSize != rhs.gridSize {
+            return false
+        }
+        if lhs.levels != rhs.levels {
+            return false
+        }
+        if lhs.time != rhs.time {
+            return false
+        }
+        if lhs.domainSize != rhs.domainSize {
+            return false
+        }
+        if lhs.viscosity != rhs.viscosity {
+            return false
+        }
+        if lhs.availableQuantities != rhs.availableQuantities {
+            return false
+        }
+        if lhs.hasVolumeData != rhs.hasVolumeData {
+            return false
+        }
+        if lhs.numSnapshots != rhs.numSnapshots {
+            return false
+        }
+        if lhs.hasCascadeStats != rhs.hasCascadeStats {
+            return false
+        }
+        if lhs.dataSeriesNames != rhs.dataSeriesNames {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(gridSize)
+        hasher.combine(levels)
+        hasher.combine(time)
+        hasher.combine(domainSize)
+        hasher.combine(viscosity)
+        hasher.combine(availableQuantities)
+        hasher.combine(hasVolumeData)
+        hasher.combine(numSnapshots)
+        hasher.combine(hasCascadeStats)
+        hasher.combine(dataSeriesNames)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgDatasetInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgDatasetInfo {
+        return
+            try RgDatasetInfo(
+                gridSize: FfiConverterUInt32.read(from: &buf), 
+                levels: FfiConverterSequenceInt32.read(from: &buf), 
+                time: FfiConverterFloat.read(from: &buf), 
+                domainSize: FfiConverterFloat.read(from: &buf), 
+                viscosity: FfiConverterFloat.read(from: &buf), 
+                availableQuantities: FfiConverterSequenceString.read(from: &buf), 
+                hasVolumeData: FfiConverterBool.read(from: &buf), 
+                numSnapshots: FfiConverterUInt32.read(from: &buf), 
+                hasCascadeStats: FfiConverterBool.read(from: &buf), 
+                dataSeriesNames: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RgDatasetInfo, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.gridSize, into: &buf)
+        FfiConverterSequenceInt32.write(value.levels, into: &buf)
+        FfiConverterFloat.write(value.time, into: &buf)
+        FfiConverterFloat.write(value.domainSize, into: &buf)
+        FfiConverterFloat.write(value.viscosity, into: &buf)
+        FfiConverterSequenceString.write(value.availableQuantities, into: &buf)
+        FfiConverterBool.write(value.hasVolumeData, into: &buf)
+        FfiConverterUInt32.write(value.numSnapshots, into: &buf)
+        FfiConverterBool.write(value.hasCascadeStats, into: &buf)
+        FfiConverterSequenceString.write(value.dataSeriesNames, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDatasetInfo_lift(_ buf: RustBuffer) throws -> RgDatasetInfo {
+    return try FfiConverterTypeRgDatasetInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgDatasetInfo_lower(_ value: RgDatasetInfo) -> RustBuffer {
+    return FfiConverterTypeRgDatasetInfo.lower(value)
+}
+
+
+/**
  * Configuration for 2D scientific plots
  */
 public struct Science2DConfig {
@@ -3881,6 +5192,185 @@ public func FfiConverterTypeShaderParameter_lift(_ buf: RustBuffer) throws -> Sh
 #endif
 public func FfiConverterTypeShaderParameter_lower(_ value: ShaderParameter) -> RustBuffer {
     return FfiConverterTypeShaderParameter.lower(value)
+}
+
+
+/**
+ * A colormapped 2D slice ready for texture upload.
+ */
+public struct SliceData {
+    /**
+     * RGBA pixel bytes, row-major, 4 bytes per pixel.
+     */
+    public var rgbaBytes: Data
+    /**
+     * Width of the slice in pixels.
+     */
+    public var width: UInt32
+    /**
+     * Height of the slice in pixels.
+     */
+    public var height: UInt32
+    /**
+     * Minimum scalar value in this slice (before colormap).
+     */
+    public var minValue: Float
+    /**
+     * Maximum scalar value in this slice (before colormap).
+     */
+    public var maxValue: Float
+    /**
+     * Name of the quantity visualized.
+     */
+    public var quantity: String
+    /**
+     * Slice axis ("x", "y", or "z").
+     */
+    public var axis: String
+    /**
+     * Slice position along the axis.
+     */
+    public var position: UInt32
+    /**
+     * Maximum valid position (grid_size - 1).
+     */
+    public var maxPosition: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * RGBA pixel bytes, row-major, 4 bytes per pixel.
+         */rgbaBytes: Data, 
+        /**
+         * Width of the slice in pixels.
+         */width: UInt32, 
+        /**
+         * Height of the slice in pixels.
+         */height: UInt32, 
+        /**
+         * Minimum scalar value in this slice (before colormap).
+         */minValue: Float, 
+        /**
+         * Maximum scalar value in this slice (before colormap).
+         */maxValue: Float, 
+        /**
+         * Name of the quantity visualized.
+         */quantity: String, 
+        /**
+         * Slice axis ("x", "y", or "z").
+         */axis: String, 
+        /**
+         * Slice position along the axis.
+         */position: UInt32, 
+        /**
+         * Maximum valid position (grid_size - 1).
+         */maxPosition: UInt32) {
+        self.rgbaBytes = rgbaBytes
+        self.width = width
+        self.height = height
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.quantity = quantity
+        self.axis = axis
+        self.position = position
+        self.maxPosition = maxPosition
+    }
+}
+
+
+
+extension SliceData: Equatable, Hashable {
+    public static func ==(lhs: SliceData, rhs: SliceData) -> Bool {
+        if lhs.rgbaBytes != rhs.rgbaBytes {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        if lhs.minValue != rhs.minValue {
+            return false
+        }
+        if lhs.maxValue != rhs.maxValue {
+            return false
+        }
+        if lhs.quantity != rhs.quantity {
+            return false
+        }
+        if lhs.axis != rhs.axis {
+            return false
+        }
+        if lhs.position != rhs.position {
+            return false
+        }
+        if lhs.maxPosition != rhs.maxPosition {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rgbaBytes)
+        hasher.combine(width)
+        hasher.combine(height)
+        hasher.combine(minValue)
+        hasher.combine(maxValue)
+        hasher.combine(quantity)
+        hasher.combine(axis)
+        hasher.combine(position)
+        hasher.combine(maxPosition)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSliceData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SliceData {
+        return
+            try SliceData(
+                rgbaBytes: FfiConverterData.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                minValue: FfiConverterFloat.read(from: &buf), 
+                maxValue: FfiConverterFloat.read(from: &buf), 
+                quantity: FfiConverterString.read(from: &buf), 
+                axis: FfiConverterString.read(from: &buf), 
+                position: FfiConverterUInt32.read(from: &buf), 
+                maxPosition: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SliceData, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.rgbaBytes, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterFloat.write(value.minValue, into: &buf)
+        FfiConverterFloat.write(value.maxValue, into: &buf)
+        FfiConverterString.write(value.quantity, into: &buf)
+        FfiConverterString.write(value.axis, into: &buf)
+        FfiConverterUInt32.write(value.position, into: &buf)
+        FfiConverterUInt32.write(value.maxPosition, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSliceData_lift(_ buf: RustBuffer) throws -> SliceData {
+    return try FfiConverterTypeSliceData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSliceData_lower(_ value: SliceData) -> RustBuffer {
+    return FfiConverterTypeSliceData.lower(value)
 }
 
 
@@ -5090,6 +6580,80 @@ extension GeneratorErrorFfi: Foundation.LocalizedError {
     }
 }
 
+
+/**
+ * Error type for library I/O operations.
+ */
+public enum LibraryError {
+
+    
+    
+    /**
+     * Failed to read or write the library file.
+     */
+    case Io(message: String
+    )
+    /**
+     * Failed to serialize or deserialize JSON.
+     */
+    case Json(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibraryError: FfiConverterRustBuffer {
+    typealias SwiftType = LibraryError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibraryError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Io(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Json(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LibraryError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Io(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Json(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension LibraryError: Equatable, Hashable {}
+
+extension LibraryError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -5353,6 +6917,64 @@ extension ParameterValue: Equatable, Hashable {}
 
 
 
+
+/**
+ * Error type for plot FFI operations.
+ */
+public enum PlotError {
+
+    
+    
+    case InvalidSpec(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePlotError: FfiConverterRustBuffer {
+    typealias SwiftType = PlotError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PlotError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InvalidSpec(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PlotError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .InvalidSpec(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension PlotError: Equatable, Hashable {}
+
+extension PlotError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -5550,6 +7172,106 @@ public func FfiConverterTypeRenderMode_lower(_ value: RenderMode) -> RustBuffer 
 extension RenderMode: Equatable, Hashable {}
 
 
+
+
+/**
+ * Error type exposed to Swift via UniFFI.
+ */
+public enum RgError {
+
+    
+    
+    /**
+     * File could not be opened or parsed.
+     */
+    case LoadFailed(message: String
+    )
+    /**
+     * Requested quantity is not available.
+     */
+    case QuantityNotAvailable(message: String
+    )
+    /**
+     * Slice position is out of bounds.
+     */
+    case OutOfBounds(message: String
+    )
+    /**
+     * Internal computation error.
+     */
+    case ComputeFailed(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgError: FfiConverterRustBuffer {
+    typealias SwiftType = RgError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RgError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .LoadFailed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .QuantityNotAvailable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .OutOfBounds(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .ComputeFailed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RgError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .LoadFailed(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .QuantityNotAvailable(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .OutOfBounds(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .ComputeFailed(message):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension RgError: Equatable, Hashable {}
+
+extension RgError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -5811,6 +7533,30 @@ fileprivate struct FfiConverterOptionTypeParameterConstraints: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRgCascadeStatsFfi: FfiConverterRustBuffer {
+    typealias SwiftType = RgCascadeStatsFfi?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRgCascadeStatsFfi.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRgCascadeStatsFfi.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeSelectionBounds: FfiConverterRustBuffer {
     typealias SwiftType = SelectionBounds?
 
@@ -5827,6 +7573,30 @@ fileprivate struct FfiConverterOptionTypeSelectionBounds: FfiConverterRustBuffer
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeSelectionBounds.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceFloat.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -5853,6 +7623,81 @@ fileprivate struct FfiConverterOptionSequenceDouble: FfiConverterRustBuffer {
         case 1: return try FfiConverterSequenceDouble.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [Int32]
+
+    public static func write(_ value: [Int32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Int32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Int32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]
+
+    public static func write(_ value: [Float], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterFloat.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Float] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Float]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterFloat.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -6109,6 +7954,56 @@ fileprivate struct FfiConverterSequenceTypeParameterSpec: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRgArrayInfoFfi: FfiConverterRustBuffer {
+    typealias SwiftType = [RgArrayInfoFfi]
+
+    public static func write(_ value: [RgArrayInfoFfi], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRgArrayInfoFfi.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RgArrayInfoFfi] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RgArrayInfoFfi]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRgArrayInfoFfi.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRgDataSeriesFfi: FfiConverterRustBuffer {
+    typealias SwiftType = [RgDataSeriesFfi]
+
+    public static func write(_ value: [RgDataSeriesFfi], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRgDataSeriesFfi.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RgDataSeriesFfi] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RgDataSeriesFfi]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRgDataSeriesFfi.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeShaderParameter: FfiConverterRustBuffer {
     typealias SwiftType = [ShaderParameter]
 
@@ -6206,6 +8101,115 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
         return dict
     }
 }
+/**
+ * FFI-safe version of `builtin_colormap_names` returning owned Strings.
+ */
+public func availableColormaps() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_implore_core_fn_func_available_colormaps($0
+    )
+})
+}
+/**
+ * Compute histogram statistics from raw data.
+ *
+ * Returns JSON with bin_edges, counts, density, and statistics.
+ */
+public func computeHistogramStats(data: [Double], configJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePlotError.lift) {
+    uniffi_implore_core_fn_func_compute_histogram_stats(
+        FfiConverterSequenceDouble.lower(data),
+        FfiConverterString.lower(configJson),$0
+    )
+})
+}
+/**
+ * Convenience: create a simple line plot SVG directly.
+ */
+public func createLinePlot(title: String, x: [Double], y: [Double], xLabel: String, yLabel: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_implore_core_fn_func_create_line_plot(
+        FfiConverterString.lower(title),
+        FfiConverterSequenceDouble.lower(x),
+        FfiConverterSequenceDouble.lower(y),
+        FfiConverterString.lower(xLabel),
+        FfiConverterString.lower(yLabel),$0
+    )
+})
+}
+/**
+ * Load a `FigureLibrary` from a JSON file at the given path.
+ */
+public func loadLibraryJson(path: String)throws  -> FigureLibrary {
+    return try  FfiConverterTypeFigureLibrary.lift(try rustCallWithError(FfiConverterTypeLibraryError.lift) {
+    uniffi_implore_core_fn_func_load_library_json(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * Render a multi-panel PlotGrid (as JSON) to SVG.
+ */
+public func renderGridSvg(gridJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePlotError.lift) {
+    uniffi_implore_core_fn_func_render_grid_svg(
+        FfiConverterString.lower(gridJson),$0
+    )
+})
+}
+/**
+ * Compute a histogram from raw data and return SVG.
+ *
+ * - `data`: raw f64 values
+ * - `config_json`: JSON-serialized `Histogram1DConfig`
+ *
+ * Returns SVG string of the histogram plot.
+ */
+public func renderHistogramSvg(data: [Double], configJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePlotError.lift) {
+    uniffi_implore_core_fn_func_render_histogram_svg(
+        FfiConverterSequenceDouble.lower(data),
+        FfiConverterString.lower(configJson),$0
+    )
+})
+}
+/**
+ * Render a PlotSpec (as JSON) to an SVG string.
+ *
+ * Uses kuva backend if available, otherwise falls back to hand-written SVG.
+ */
+public func renderPlotSvg(specJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePlotError.lift) {
+    uniffi_implore_core_fn_func_render_plot_svg(
+        FfiConverterString.lower(specJson),$0
+    )
+})
+}
+/**
+ * Render a PlotSpec to Typst source code (lilaq markup).
+ *
+ * Always available — generates Typst source that can be compiled externally
+ * or by the lilaq backend.
+ */
+public func renderPlotTypst(specJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePlotError.lift) {
+    uniffi_implore_core_fn_func_render_plot_typst(
+        FfiConverterString.lower(specJson),$0
+    )
+})
+}
+/**
+ * Save a `FigureLibrary` to a JSON file at the given path.
+ *
+ * Creates intermediate directories if they don't exist.
+ */
+public func saveLibraryJson(library: FigureLibrary, path: String)throws  {try rustCallWithError(FfiConverterTypeLibraryError.lift) {
+    uniffi_implore_core_fn_func_save_library_json(
+        FfiConverterTypeFigureLibrary.lower(library),
+        FfiConverterString.lower(path),$0
+    )
+}
+}
 
 private enum InitializationResult {
     case ok
@@ -6221,6 +8225,33 @@ private var initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_implore_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_implore_core_checksum_func_available_colormaps() != 58167) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_compute_histogram_stats() != 62655) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_create_line_plot() != 58984) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_load_library_json() != 22992) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_render_grid_svg() != 7724) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_render_histogram_svg() != 22409) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_render_plot_svg() != 41997) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_render_plot_typst() != 47812) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_save_library_json() != 56400) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_method_generatorregistryhandle_categories() != 41569) {
         return InitializationResult.apiChecksumMismatch
@@ -6246,7 +8277,52 @@ private var initializationResult: InitializationResult = {
     if (uniffi_implore_core_checksum_method_generatorregistryhandle_search() != 41774) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_get_cascade_stats() != 49110) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_get_data_series() != 39706) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_get_field_statistics() != 4970) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_get_raw_slice() != 13011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_get_slice() != 5552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_has_volume_data() != 60376) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_info() != 20718) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_list_arrays() != 12415) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_list_data_series() != 27358) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_num_snapshots() != 3662) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_plot_cascade_stats() != 3220) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_plot_data_series() != 9814) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_plot_field_histogram() != 57551) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_method_rgdatasethandle_set_level() != 25344) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_implore_core_checksum_constructor_generatorregistryhandle_new() != 49680) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_constructor_rgdatasethandle_load() != 29678) {
         return InitializationResult.apiChecksumMismatch
     }
 

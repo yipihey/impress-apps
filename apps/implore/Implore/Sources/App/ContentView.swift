@@ -25,7 +25,13 @@ struct ContentView: View {
                     handleVimNavigation(press, appState: appState, libraryManager: libraryManager)
                 }
         } detail: {
-            if let session = appState.currentSession {
+            if let plotState = appState.plotViewerState, appState.showingPlotView {
+                PlotView(svgString: plotState.currentSVG ?? "", plotState: plotState)
+                    .accessibilityIdentifier("plot.container")
+            } else if let rgState = appState.rgViewerState {
+                RgSliceView(viewerState: rgState)
+                    .accessibilityIdentifier("rg.container")
+            } else if let session = appState.currentSession {
                 VisualizationView(session: session)
                     .accessibilityIdentifier("visualization.container")
             } else if generatorViewModel.generatedData != nil {
@@ -264,6 +270,7 @@ struct WelcomeView: View {
                     .font(.headline)
                     .padding(.bottom, 4)
 
+                FormatRow(name: "NPZ", extensions: ".npz (RG volumes)", icon: "cube")
                 FormatRow(name: "HDF5", extensions: ".h5, .hdf5", icon: "doc.zipper")
                 FormatRow(name: "FITS", extensions: ".fits", icon: "star")
                 FormatRow(name: "CSV", extensions: ".csv, .tsv", icon: "tablecells")

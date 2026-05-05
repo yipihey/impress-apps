@@ -29,8 +29,10 @@ pub mod error;
 pub mod export;
 pub mod input;
 pub mod library;
+pub mod plot;
 pub mod plugin;
 pub mod render;
+pub mod rg;
 pub mod schemas;
 pub mod session;
 pub mod spatial;
@@ -41,9 +43,15 @@ pub mod view;
 pub use automation::*;
 pub use axis::*;
 pub use camera::*;
-pub use colormap::*;
+pub use colormap::{
+    available_colormaps, builtin_colormap_names, coolwarm, get_colormap, inferno, magma, plasma,
+    viridis, Color, Colormap, ColormapConfig,
+};
 pub use dataset::*;
-pub use library::{FigureFolder, FigureLibrary, ImprintLink, LibraryFigure};
+pub use library::{
+    FigureFolder, FigureLibrary, ImprintLink, LibraryError, LibraryFigure, load_library_json,
+    save_library_json,
+};
 pub use plugin::{
     DataGenerator, GeneratedData, GeneratedDataFfi, GeneratorCategory, GeneratorError,
     GeneratorErrorFfi, GeneratorMetadata, GeneratorParams, GeneratorRegistry,

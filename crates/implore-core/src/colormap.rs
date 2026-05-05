@@ -269,6 +269,15 @@ pub fn builtin_colormap_names() -> Vec<&'static str> {
     vec!["viridis", "plasma", "inferno", "magma", "coolwarm"]
 }
 
+/// FFI-safe version of `builtin_colormap_names` returning owned Strings.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn available_colormaps() -> Vec<String> {
+    builtin_colormap_names()
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
 /// Get a built-in colormap by name
 pub fn get_colormap(name: &str) -> Option<Colormap> {
     match name.to_lowercase().as_str() {

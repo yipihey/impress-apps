@@ -27,6 +27,9 @@ pub mod fits_reader;
 #[cfg(feature = "parquet")]
 pub mod parquet_reader;
 
+#[cfg(feature = "npz")]
+pub mod npz_reader;
+
 pub use reader::*;
 pub use schema::*;
 

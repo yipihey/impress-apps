@@ -2,7 +2,7 @@ name: implore
 options:
   bundleIdPrefix: com.impress.implore
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   groupSortPosition: top
@@ -49,7 +49,6 @@ targets:
         excludes:
           - "**/.DS_Store"
           - "**/AI/**"
-          - "**/Metal/**"
     settings:
       base:
         INFOPLIST_FILE: Implore/Info.plist

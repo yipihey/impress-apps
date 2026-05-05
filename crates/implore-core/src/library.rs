@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::Path;
 
 use crate::dataset::DatasetSource;
 
@@ -338,6 +339,51 @@ impl ImprintLink {
     }
 }
 
+/// Error type for library I/O operations.
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+pub enum LibraryError {
+    /// Failed to read or write the library file.
+    #[error("IO error: {message}")]
+    Io { message: String },
+    /// Failed to serialize or deserialize JSON.
+    #[error("JSON error: {message}")]
+    Json { message: String },
+}
+
+/// Save a `FigureLibrary` to a JSON file at the given path.
+///
+/// Creates intermediate directories if they don't exist.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn save_library_json(library: &FigureLibrary, path: String) -> Result<(), LibraryError> {
+    let p = Path::new(&path);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| LibraryError::Io {
+            message: e.to_string(),
+        })?;
+    }
+    let json = serde_json::to_string_pretty(library).map_err(|e| LibraryError::Json {
+        message: e.to_string(),
+    })?;
+    std::fs::write(p, json).map_err(|e| LibraryError::Io {
+        message: e.to_string(),
+    })?;
+    Ok(())
+}
+
+/// Load a `FigureLibrary` from a JSON file at the given path.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn load_library_json(path: String) -> Result<FigureLibrary, LibraryError> {
+    let data = std::fs::read_to_string(&path).map_err(|e| LibraryError::Io {
+        message: e.to_string(),
+    })?;
+    let library: FigureLibrary =
+        serde_json::from_str(&data).map_err(|e| LibraryError::Json {
+            message: e.to_string(),
+        })?;
+    Ok(library)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,6 +496,49 @@ mod tests {
 
         let results = library.search("noise");
         assert_eq!(results.len(), 1); // Found by tag
+    }
+
+    #[test]
+    fn test_json_roundtrip() {
+        let mut library = FigureLibrary::new("Roundtrip Test");
+        let folder = library.create_folder("Plots");
+        let folder_id = folder.id.clone();
+
+        let mut fig = LibraryFigure::new(
+            "Noise Plot",
+            "session-42",
+            r#"{"zoom":2.0}"#,
+            DatasetSource::Generated {
+                generator_id: "noise-perlin-2d".to_string(),
+                params_json: "{}".to_string(),
+                generated_at: "2025-01-01T00:00:00Z".to_string(),
+            },
+        );
+        fig.add_tag("test");
+        fig.link_to_document("doc-99", "My Paper", "fig:noise", true);
+        library.add_figure(fig);
+        library.move_to_folder(&library.figures[0].id.clone(), Some(&folder_id));
+
+        let dir = std::env::temp_dir().join("implore_test_roundtrip");
+        let path = dir.join("library.json").to_string_lossy().to_string();
+
+        // Save
+        save_library_json(&library, path.clone()).expect("save should succeed");
+
+        // Load
+        let loaded = load_library_json(path.clone()).expect("load should succeed");
+
+        assert_eq!(loaded.name, "Roundtrip Test");
+        assert_eq!(loaded.figures.len(), 1);
+        assert_eq!(loaded.figures[0].title, "Noise Plot");
+        assert_eq!(loaded.figures[0].tags, vec!["test"]);
+        assert_eq!(loaded.figures[0].imprint_links.len(), 1);
+        assert_eq!(loaded.figures[0].folder_id, Some(folder_id));
+        assert_eq!(loaded.folders.len(), 1);
+        assert_eq!(loaded.folders[0].name, "Plots");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
