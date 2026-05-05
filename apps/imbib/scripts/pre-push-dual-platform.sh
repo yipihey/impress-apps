@@ -23,8 +23,7 @@ if [ "${SKIP_DUAL_PLATFORM_CHECK:-0}" = "1" ]; then
     exit 0
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 IMBIB_DIR="$REPO_ROOT/apps/imbib/imbib"
 
 # Detect changes since the upstream HEAD. If no upstream, diff against
