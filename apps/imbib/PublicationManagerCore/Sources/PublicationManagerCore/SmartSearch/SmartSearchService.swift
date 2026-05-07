@@ -772,11 +772,13 @@ public final class SmartSearchService {
             // Tell the host UI to navigate to the library where these
             // papers landed and select the first one so the user can begin
             // reading. Posted on main so observers can update SwiftUI
-            // state synchronously. Only newly-added papers carry the UUIDs
-            // we need; duplicate matches surface as identifier strings
-            // (DOI/arXiv/...) which would need a separate lookup.
-            if !addedIDs.isEmpty {
-                var userInfo: [String: Any] = ["publicationIDs": addedIDs]
+            // state synchronously. Includes both newly-added IDs and the
+            // resolved UUIDs of duplicates (already-present papers) so
+            // re-adding an existing paper still reveals it. Newly added
+            // come first so they win the "first" selection.
+            let revealIDs = addedIDs + result.duplicateIDs
+            if !revealIDs.isEmpty {
+                var userInfo: [String: Any] = ["publicationIDs": revealIDs]
                 if let target { userInfo["libraryID"] = target }
                 await MainActor.run {
                     NotificationCenter.default.post(

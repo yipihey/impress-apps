@@ -402,7 +402,12 @@ public actor AutomationService: AutomationOperations {
             }
         }
 
-        return AddPapersResult(added: added, duplicates: duplicates, failed: failed)
+        return AddPapersResult(
+            added: added,
+            duplicates: duplicates,
+            duplicateIDs: existingToAssignIDs,
+            failed: failed
+        )
     }
 
     // MARK: - Add to Library / Collection

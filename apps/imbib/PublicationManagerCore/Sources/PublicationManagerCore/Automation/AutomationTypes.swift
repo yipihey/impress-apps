@@ -414,15 +414,21 @@ public struct AddToContainerResult: Codable, Sendable {
 public struct AddPapersResult: Codable, Sendable {
     public let added: [PaperResult]
     public let duplicates: [String]  // Identifiers that matched existing papers
+    /// Resolved UUIDs of the existing publications matched by `duplicates`,
+    /// in the same order. Lets callers reveal/select an already-present
+    /// paper without doing a second identifier lookup.
+    public let duplicateIDs: [UUID]
     public let failed: [String: String]  // Identifier → error message
 
     public init(
         added: [PaperResult] = [],
         duplicates: [String] = [],
+        duplicateIDs: [UUID] = [],
         failed: [String: String] = [:]
     ) {
         self.added = added
         self.duplicates = duplicates
+        self.duplicateIDs = duplicateIDs
         self.failed = failed
     }
 
