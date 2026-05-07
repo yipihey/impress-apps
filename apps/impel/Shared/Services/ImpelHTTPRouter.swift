@@ -143,6 +143,21 @@ public actor ImpelHTTPRouter: HTTPRouter {
                 return await handleCreateTask(request)
             }
 
+            // Journal pipeline submission (per ADR-0011 D6)
+            if pathLower == "/api/journal/submissions" {
+                return await handleJournalSubmission(request)
+            }
+
+            // Journal pipeline review request (per ADR-0011 D7 + ADR-0012)
+            if pathLower == "/api/journal/reviews" {
+                return await handleJournalReviewRequest(request)
+            }
+
+            // Journal pipeline revision-note request (per ADR-0011 D7 + ADR-0012)
+            if pathLower == "/api/journal/revision-notes" {
+                return await handleJournalRevisionRequest(request)
+            }
+
             if pathLower == "/threads" {
                 return await handleCreateThread(request)
             }
@@ -784,7 +799,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
             conversationID = json["conversation_id"] as? String
         }
 
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -810,7 +825,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
     /// GET /api/tasks — List tasks with optional filters.
     private func handleListTasks(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -838,7 +853,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
     /// GET /api/tasks/{id} — Get task status.
     private func handleGetTask(id: String) async -> HTTPResponse {
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -857,7 +872,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
     /// GET /api/tasks/{id}/result — Get full task result with tool executions.
     private func handleGetTaskResult(id: String) async -> HTTPResponse {
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -882,7 +897,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
     /// (persistent connections). This polling approach provides equivalent
     /// functionality with the existing request/response model.
     private func handleTaskStream(id: String, request: HTTPRequest) async -> HTTPResponse {
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -943,7 +958,7 @@ public actor ImpelHTTPRouter: HTTPRouter {
 
     /// DELETE /api/tasks/{id} — Cancel a task.
     private func handleCancelTask(id: String) async -> HTTPResponse {
-        guard let orchestrator = getOrchestrator() else {
+        guard let orchestrator = await getOrchestrator() else {
             return .serverError("Task orchestrator not available")
         }
 
@@ -1250,6 +1265,121 @@ public actor ImpelHTTPRouter: HTTPRouter {
             dict["options"] = options
         }
         return dict
+    }
+
+    // MARK: - Journal Submission Handler
+
+    /// POST /api/journal/submissions — Submit a manuscript to the journal pipeline.
+    ///
+    /// Body: a `ManuscriptSubmission` JSON object (see `JournalSubmission.swift`).
+    /// On success, returns `{status, task_id, task_status, content_hash}` where
+    /// `task_id` is the stable UUID of the stored `manuscript-submission` item
+    /// and `task_status` is its lifecycle state ("pending" immediately after submit).
+    ///
+    /// Per ADR-0011 D6 / plan-journal-pipeline.md §3.6, this route is a thin
+    /// wrapper over `JournalSubmissionService.shared.submit(_:)`. Scout picks
+    /// up pending submissions in a subsequent pass.
+    private func handleJournalSubmission(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body, !body.isEmpty,
+              let bodyData = body.data(using: .utf8) else {
+            return .badRequest("Request body is empty or not valid UTF-8")
+        }
+
+        let submission: ManuscriptSubmission
+        do {
+            submission = try JSONDecoder().decode(ManuscriptSubmission.self, from: bodyData)
+        } catch {
+            return .badRequest("Invalid manuscript-submission JSON: \(error.localizedDescription)")
+        }
+
+        do {
+            let result = try await JournalSubmissionService.shared.submit(submission)
+            return .json([
+                "status": "ok",
+                "task_id": result.taskID,
+                "task_status": result.status,
+                "content_hash": result.contentHash
+            ])
+        } catch let JournalSubmissionError.invalidPayload(msg) {
+            return .badRequest("Invalid submission: \(msg)")
+        } catch JournalSubmissionError.storeUnavailable {
+            return .serverError("Journal store unavailable")
+        } catch {
+            return .serverError("Submission failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Journal Review / Revision-Note Handlers (Phase 4)
+
+    /// POST /api/journal/reviews
+    /// Body: `{ "manuscript_id": "...", "revision_id": "..." }`
+    /// Triggers `CounselReviewService.shared.reviewRevision(...)`. Synchronous
+    /// — returns the review's stable ID.
+    private func handleJournalReviewRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSON(request),
+              let manuscriptID = json["manuscript_id"] as? String,
+              let revisionID = json["revision_id"] as? String
+        else {
+            return .badRequest("manuscript_id and revision_id are required")
+        }
+        let modelOverride = json["model_override"] as? String
+        do {
+            let reviewID = try await CounselReviewService.shared.reviewRevision(
+                manuscriptID: manuscriptID,
+                revisionID: revisionID,
+                modelOverride: modelOverride
+            )
+            return .json([
+                "status": "ok",
+                "review_id": reviewID,
+            ])
+        } catch JournalReviewError.modelDidNotCallTool {
+            return .badRequest("Counsel returned text instead of calling the structured-output tool. Try again or check the model.")
+        } catch let JournalReviewError.invalidToolPayload(msg) {
+            return .badRequest("Counsel produced an invalid review payload: \(msg)")
+        } catch let JournalReviewError.revisionNotFound(id) {
+            return .notFound("Revision not found: \(id)")
+        } catch JournalReviewError.storeUnavailable {
+            return .serverError("Journal store unavailable")
+        } catch {
+            return .serverError("Review failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// POST /api/journal/revision-notes
+    /// Body: `{ "manuscript_id": "...", "revision_id": "...", "review_id"?: "..." }`
+    /// Triggers `ArtificerRevisionService.shared.proposeRevision(...)`.
+    private func handleJournalRevisionRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSON(request),
+              let manuscriptID = json["manuscript_id"] as? String,
+              let revisionID = json["revision_id"] as? String
+        else {
+            return .badRequest("manuscript_id and revision_id are required")
+        }
+        let reviewID = json["review_id"] as? String
+        let modelOverride = json["model_override"] as? String
+        do {
+            let noteID = try await ArtificerRevisionService.shared.proposeRevision(
+                manuscriptID: manuscriptID,
+                revisionID: revisionID,
+                reviewID: reviewID,
+                modelOverride: modelOverride
+            )
+            return .json([
+                "status": "ok",
+                "revision_note_id": noteID,
+            ])
+        } catch JournalReviewError.modelDidNotCallTool {
+            return .badRequest("Artificer returned text instead of calling the structured-output tool. Try again or check the model.")
+        } catch let JournalReviewError.invalidToolPayload(msg) {
+            return .badRequest("Artificer produced an invalid revision-note payload: \(msg)")
+        } catch let JournalReviewError.revisionNotFound(id) {
+            return .notFound("Revision not found: \(id)")
+        } catch JournalReviewError.storeUnavailable {
+            return .serverError("Journal store unavailable")
+        } catch {
+            return .serverError("Revision proposal failed: \(error.localizedDescription)")
+        }
     }
 }
 

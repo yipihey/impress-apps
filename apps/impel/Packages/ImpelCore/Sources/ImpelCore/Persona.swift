@@ -500,7 +500,7 @@ extension Persona {
                     methodologies: ["literature search", "summarization"],
                     dataSources: ["web", "arxiv", "semantic scholar"]
                 ),
-                model: PersonaModelConfig(provider: "claude-cli", model: "sonnet"),
+                model: PersonaModelConfig(provider: "anthropic", model: "claude-opus-4-7"),
                 tools: ToolPolicySet(
                     policies: [
                         ToolPolicy(tool: "WebSearch", access: .full),

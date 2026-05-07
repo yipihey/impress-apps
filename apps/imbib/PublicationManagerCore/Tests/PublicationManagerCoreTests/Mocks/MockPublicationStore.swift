@@ -200,6 +200,11 @@ final class MockPublicationStore: PublicationStoreProtocol {
         return publications.values.filter { !$0.isRead }.count
     }
 
+    func countUnreadInCollection(collectionId: UUID) -> Int {
+        let ids = collectionMembers[collectionId] ?? []
+        return ids.compactMap { publications[$0] }.filter { !$0.isRead }.count
+    }
+
     func countStarred(parentId: UUID?) -> Int {
         if let parentId = parentId {
             let ids = libraryPublications[parentId] ?? []

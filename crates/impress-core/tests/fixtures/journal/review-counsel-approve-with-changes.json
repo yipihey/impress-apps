@@ -1,0 +1,21 @@
+{
+  "schema": "review",
+  "payload": {
+    "subject_ref": "33333333-3333-3333-3333-333333333333",
+    "verdict": "approve-with-changes",
+    "summary": "The derivation in Section 3 is sound but the introduction underspecifies the boundary conditions. Two missing references in the related-work section.",
+    "body": "## Overall\n\nThis paper presents a clear derivation of the two-point function under the T3FT cosmological model. The mathematical content is correct as far as I can verify, and the result extends prior work in a natural way.\n\n## Concerns\n\n1. **Section 1 (Introduction):** the boundary conditions on the inflaton field are not stated until Section 3. State them in the introduction so the reader knows the regime.\n2. **Section 2.4 (Related Work):** missing citations to Bardeen et al. 1986 and Bond & Szalay 1983.\n3. **Section 3 (Methods):** the regularization choice in eq. (12) deserves a sentence of justification.\n\n## Recommendation\n\nApprove with the three changes above.",
+    "sections": {
+      "introduction": "Boundary conditions need to be stated up front.",
+      "methods": "Justify the regularization choice in eq. (12)."
+    },
+    "confidence": 0.85,
+    "evidence_refs": [
+      "33333333-3333-3333-3333-333333333333",
+      "00000000-0000-0000-0000-bardeen1986",
+      "00000000-0000-0000-0000-bond1983"
+    ],
+    "agent_id": "counsel",
+    "agent_run_ref": "88888888-8888-8888-8888-888888888888"
+  }
+}

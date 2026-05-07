@@ -25,7 +25,7 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [018](018-dual-monitor-support.md) | Dual Monitor Support | Proposed | 2026-01-19 |
 | [019](019-remarkable-integration.md) | reMarkable Tablet Integration | Proposed | 2026-01-28 |
 | [020](020-recommendation-engine.md) | Transparent Recommendation Engine | Proposed | 2026-01-19 |
-| [021](021-manuscript-tracking.md) | Manuscript Tracking | Proposed | 2026-01-19 |
+| [021](021-manuscript-tracking.md) | Manuscript Tracking | Superseded by impress ADR-0011 | 2026-01-19 |
 | [022](022-embedding-index-sync-strategy.md) | Embedding Index Sync Strategy | Accepted | 2026-01-21 |
 
 ## What is an ADR?

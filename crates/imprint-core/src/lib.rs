@@ -34,6 +34,7 @@ pub mod latex;
 pub mod migration;
 pub mod note_import;
 pub mod render;
+pub mod render_project;
 pub mod selection;
 pub mod sourcemap;
 pub mod templates;
@@ -680,6 +681,87 @@ pub fn source_to_render_lookup(
 pub fn compile_typst_to_pdf_default(source: String) -> CompileResult {
     compile_typst_to_pdf(source, CompileOptions::default())
 }
+
+// ============================================================================
+// UniFFI Exports for Project (multi-file) Compilation — Phase 8.7
+// ============================================================================
+
+/// Result of compiling a project (Typst or LaTeX) to PDF. Mirrors
+/// `CompileResult` but does not include source-map entries (project compiles
+/// don't surface a per-source-byte map yet).
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ProjectCompileResult {
+    /// PDF bytes if compilation succeeded.
+    pub pdf_data: Option<Vec<u8>>,
+    /// Error message if compilation failed.
+    pub error: Option<String>,
+    /// Warning messages from compilation.
+    pub warnings: Vec<String>,
+    /// Number of pages in the output.
+    pub page_count: u32,
+    /// Time spent in the compiler in milliseconds.
+    pub compile_ms: u64,
+}
+
+/// Compile a Typst project to PDF.
+///
+/// `project_dir` is an absolute path to the project root on disk.
+/// `main_file` is relative to `project_dir` (e.g. `"paper.typ"`).
+///
+/// Multi-file Typst projects work transparently — `image()`, `include`,
+/// and `import` all resolve relative to `project_dir`.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn compile_typst_project_to_pdf(
+    project_dir: String,
+    main_file: String,
+) -> ProjectCompileResult {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let path = std::path::PathBuf::from(&project_dir);
+        let opts = crate::render::RenderOptions::default();
+        crate::render_project::compile_typst_project_to_pdf(&path, &main_file, &opts)
+    }));
+    match result {
+        Ok(Ok(out)) => ProjectCompileResult {
+            pdf_data: Some(out.pdf_bytes),
+            error: None,
+            warnings: out.warnings,
+            page_count: out.page_count,
+            compile_ms: out.compile_ms,
+        },
+        Ok(Err(e)) => ProjectCompileResult {
+            pdf_data: None,
+            error: Some(e.to_string()),
+            warnings: Vec::new(),
+            page_count: 0,
+            compile_ms: 0,
+        },
+        Err(panic_info) => {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic during Typst project compilation".to_string()
+            };
+            ProjectCompileResult {
+                pdf_data: None,
+                error: Some(format!("Internal error: {}", panic_msg)),
+                warnings: Vec::new(),
+                page_count: 0,
+                compile_ms: 0,
+            }
+        }
+    }
+}
+
+// Note: there is no `compile_tex_project_to_pdf` UniFFI export here.
+// LaTeX project compilation is owned by imprint's Swift
+// `LaTeXCompilationService`. The journal pipeline's bundle compile
+// route dispatches `.tex` bundles to that service directly. Keeping a
+// single source of truth for compilation prevents drift between the
+// Swift and Rust paths.
 
 /// Result of compiling a Typst document to SVG (one SVG string per page)
 #[cfg(feature = "uniffi")]

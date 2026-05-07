@@ -173,6 +173,11 @@ struct SectionContentView: View {
             return .citedInManuscripts
         case .allArtifacts, .artifactType:
             return nil
+        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
+            // Journal pipeline tabs are NOT publication sources. They route
+            // to ManuscriptDetailView / SubmissionsInboxView via a separate
+            // dispatch path (added in Track 5/6 of Phase 2).
+            return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
         }
@@ -201,6 +206,8 @@ struct SectionContentView: View {
             // Cross-library pseudo source — no owning library.
             return nil
         case .allArtifacts, .artifactType:
+            return nil
+        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -274,11 +281,34 @@ struct SectionContentView: View {
     // MARK: - Body
 
     var body: some View {
-        if let content = resolvedContent {
+        // Journal pipeline tabs (per ADR-0011 D8) bypass the publication
+        // HSplitView and render full-bleed in the content area.
+        if let journalView = journalDispatch {
+            journalView
+        } else if let content = resolvedContent {
             contentBody(content)
         } else {
             placeholderView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Dispatch journal-pipeline sidebar selections to the right detail view.
+    /// Returns nil for non-journal tabs so the existing publication dispatch
+    /// stays unchanged.
+    @ViewBuilder
+    private var journalDispatch: (some View)? {
+        switch viewModel.selectedTab {
+        case .journalSubmissions:
+            SubmissionsInboxView()
+        case .journalAll:
+            JournalManuscriptsListView(statusFilter: nil)
+        case .journalByStatus(let status):
+            JournalManuscriptsListView(statusFilter: status)
+        case .manuscript(let id):
+            ManuscriptDetailView(manuscriptID: id)
+        default:
+            nil as EmptyView?
         }
     }
 

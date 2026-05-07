@@ -11,6 +11,14 @@ let package = Package(
             name: "CounselEngine",
             targets: ["CounselEngine"]
         ),
+        .executable(
+            name: "journal-submit",
+            targets: ["journal-submit"]
+        ),
+        .executable(
+            name: "journal-backfill",
+            targets: ["journal-backfill"]
+        ),
     ],
     dependencies: [
         .package(path: "../ImpelMail"),
@@ -34,6 +42,18 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/CounselEngine",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "journal-submit",
+            dependencies: ["CounselEngine"],
+            path: "Sources/journal-submit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "journal-backfill",
+            dependencies: ["CounselEngine"],
+            path: "Sources/journal-backfill",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

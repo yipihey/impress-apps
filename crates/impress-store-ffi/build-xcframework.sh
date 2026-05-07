@@ -102,16 +102,16 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
 done
 
 # Copy static libs (keep .a extension so xcodebuild can detect library type)
-cp "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$MACOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
-cp "$BUILD_DIR/$IOS_TARGET/release/lib${LIB_NAME}.a" "$IOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
-cp "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$IOS_SIM_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a"
+cp "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$MACOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+cp "$BUILD_DIR/$IOS_TARGET/release/lib${LIB_NAME}.a" "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+cp "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
 
 xcodebuild -create-xcframework \
-    -library "$MACOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a" \
+    -library "$MACOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
     -headers "$MACOS_FRAMEWORK_DIR/Headers" \
-    -library "$IOS_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a" \
+    -library "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
     -headers "$IOS_FRAMEWORK_DIR/Headers" \
-    -library "$IOS_SIM_FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.a" \
+    -library "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
     -headers "$IOS_SIM_FRAMEWORK_DIR/Headers" \
     -output "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework"
 

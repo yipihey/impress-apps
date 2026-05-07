@@ -29,6 +29,19 @@ public struct ImpressNotification: Sendable {
     /// impel: structured task completed (Task API)
     public static let taskCompleted = "task-completed"
 
+    // MARK: - Journal Pipeline Events (per ADR-0011 D9)
+
+    /// impel: a new manuscript-submission item arrived (pre-Scout triage)
+    public static let manuscriptSubmissionReceived = "manuscript-submission-received"
+    /// impel: Scout finished triaging a submission and posted its proposed outcome
+    public static let manuscriptSubmissionProposed = "manuscript-submission-proposed"
+    /// impel: Archivist created a new manuscript-revision snapshot (Phase 3)
+    public static let manuscriptSnapshotCreated   = "manuscript-snapshot-created"
+    /// impel: Counsel attached a new review/v1 knowledge object (Phase 4)
+    public static let manuscriptReviewCompleted   = "manuscript-review-completed"
+    /// imbib | impel: a manuscript's lifecycle status changed (created, status set, accept/reject)
+    public static let manuscriptStatusChanged     = "manuscript-status-changed"
+
     // MARK: - Posting
 
     /// Posts a Darwin notification from the specified app.

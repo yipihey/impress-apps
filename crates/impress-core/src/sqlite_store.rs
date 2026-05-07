@@ -692,6 +692,31 @@ impl SqliteItemStore {
             return Err(StoreError::NotFound(spec.target_id));
         }
 
+        // Enforce manuscript-revision immutability (per ADR-0011 D2):
+        // payload-mutating operations on revision items are rejected.
+        // Envelope-level operations (tags, flags, references) remain permitted.
+        let target_schema: String = conn
+            .query_row(
+                "SELECT schema_ref FROM items WHERE id = ?1",
+                params![&target_str],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| StoreError::Storage(format!("read schema_ref: {}", e)))?;
+        if target_schema == "manuscript-revision" {
+            match &spec.op_type {
+                OperationType::SetPayload(_, _)
+                | OperationType::RemovePayload(_)
+                | OperationType::PatchPayload(_) => {
+                    return Err(StoreError::Validation(format!(
+                        "manuscript-revision items are immutable: \
+                         payload-mutating operation on item {} rejected",
+                        spec.target_id
+                    )));
+                }
+                _ => {}
+            }
+        }
+
         // Capture previous value before materializing change
         let prev = Self::capture_previous_value(&conn, &target_str, &spec.op_type)?;
 
@@ -3472,6 +3497,135 @@ mod tests {
         // Target should have the tag materialized
         let target = store.get(id).unwrap().unwrap();
         assert!(target.tags.contains(&"methods/sims".to_string()));
+    }
+
+    #[test]
+    fn revision_items_reject_payload_mutations() {
+        // Per ADR-0011 D2 + plan-journal-pipeline.md §2.2:
+        // manuscript-revision items are immutable. SetPayload, RemovePayload,
+        // and PatchPayload operations against them must be rejected.
+        // Envelope-level operations (AddTag, SetStarred, etc.) remain permitted.
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let revision = make_item("manuscript-revision", "v1 of paper");
+        let revision_id = store.insert(revision.clone()).unwrap();
+
+        // SetPayload should fail
+        let err = store
+            .apply_operation(OperationSpec {
+                target_id: revision_id,
+                op_type: OperationType::SetPayload(
+                    "title".into(),
+                    Value::String("mutated".into()),
+                ),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test-user".into(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            })
+            .unwrap_err();
+        match err {
+            StoreError::Validation(msg) => {
+                assert!(
+                    msg.contains("manuscript-revision") && msg.contains("immutable"),
+                    "unexpected validation message: {msg}"
+                );
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+
+        // Payload should be unchanged
+        let unchanged = store.get(revision_id).unwrap().unwrap();
+        assert_eq!(
+            unchanged.payload.get("title"),
+            Some(&Value::String("v1 of paper".into()))
+        );
+
+        // PatchPayload should also fail
+        let mut patch = BTreeMap::new();
+        patch.insert("title".into(), Value::String("mutated".into()));
+        assert!(matches!(
+            store
+                .apply_operation(OperationSpec {
+                    target_id: revision_id,
+                    op_type: OperationType::PatchPayload(patch),
+                    intent: OperationIntent::Routine,
+                    reason: None,
+                    batch_id: None,
+                    author: "test-user".into(),
+                    author_kind: ActorKind::Human,
+                    retention: RetentionTier::Durable,
+                })
+                .unwrap_err(),
+            StoreError::Validation(_)
+        ));
+
+        // RemovePayload should also fail
+        assert!(matches!(
+            store
+                .apply_operation(OperationSpec {
+                    target_id: revision_id,
+                    op_type: OperationType::RemovePayload("title".into()),
+                    intent: OperationIntent::Routine,
+                    reason: None,
+                    batch_id: None,
+                    author: "test-user".into(),
+                    author_kind: ActorKind::Human,
+                    retention: RetentionTier::Durable,
+                })
+                .unwrap_err(),
+            StoreError::Validation(_)
+        ));
+
+        // AddTag (envelope-level) MUST succeed: revisions can be tagged for filing.
+        store
+            .apply_operation(OperationSpec {
+                target_id: revision_id,
+                op_type: OperationType::AddTag("filed".into()),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test-user".into(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            })
+            .expect("AddTag must succeed on revision items");
+        let tagged = store.get(revision_id).unwrap().unwrap();
+        assert!(tagged.tags.contains(&"filed".to_string()));
+
+        // SetStarred (envelope-level) MUST also succeed.
+        store
+            .apply_operation(OperationSpec {
+                target_id: revision_id,
+                op_type: OperationType::SetStarred(true),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test-user".into(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            })
+            .expect("SetStarred must succeed on revision items");
+
+        // Sanity: a non-revision item with SetPayload should still work.
+        let regular = make_item("bibliography-entry", "Some Paper");
+        let regular_id = store.insert(regular).unwrap();
+        store
+            .apply_operation(OperationSpec {
+                target_id: regular_id,
+                op_type: OperationType::SetPayload(
+                    "title".into(),
+                    Value::String("Updated Title".into()),
+                ),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test-user".into(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            })
+            .expect("SetPayload on non-revision must succeed");
     }
 
     #[test]

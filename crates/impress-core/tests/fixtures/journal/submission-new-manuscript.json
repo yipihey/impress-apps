@@ -1,0 +1,9 @@
+{
+  "submission_kind": "new-manuscript",
+  "title": "Regularity of Solutions to the Navier-Stokes Equations under Periodic BC",
+  "source_format": "tex",
+  "source_payload": "\\documentclass{article}\n\\title{Regularity of Solutions to NS}\n\\author{Tom Abel}\n\\begin{document}\n\\maketitle\n\\section{Introduction}\nWe study weak solutions...\n\\end{document}\n",
+  "submitter_persona_id": "scout",
+  "origin_conversation_ref": "/Users/tabel/.claude/projects/-Users-tabel-Projects-impress-apps/a899a2d1-a61f-4065-9842-d89280a44452.jsonl",
+  "metadata_json": "{\"intended_journal\":\"Annals of Mathematics\",\"topic\":\"PDE\"}"
+}

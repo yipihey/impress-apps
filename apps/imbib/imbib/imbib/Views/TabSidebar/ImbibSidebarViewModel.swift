@@ -330,6 +330,12 @@ final class ImbibSidebarViewModel {
             // one resolved citation-usage record. Keeps the sidebar
             // quiet for users who don't use imprint.
             return !CitedInManuscriptsSnapshot.shared.citedPaperIDs.isEmpty
+        case .journal:
+            // Journal section is always visible once the pipeline is
+            // wired (per ADR-0011 D8). Phase 2 leaves the section open
+            // so users can discover the "New Manuscript" command + the
+            // Submissions inbox even before any manuscript exists.
+            return true
         }
     }
 
@@ -384,7 +390,60 @@ final class ImbibSidebarViewModel {
             return dismissedChildren()
         case .citedInManuscripts:
             return citedInManuscriptsChildren()
+        case .journal:
+            return journalChildren()
         }
+    }
+
+    // MARK: Journal (per ADR-0011 D8)
+
+    /// Top-level children of the Journal sidebar section. Five fixed nodes:
+    /// All Manuscripts, Drafts, Submitted, Published, Archive, plus the
+    /// Submissions inbox.
+    ///
+    /// Counts are intentionally omitted in Phase 2 — the sidebar build is
+    /// synchronous and `ManuscriptBridge` is an actor. A snapshot pattern
+    /// (mirroring `CitedInManuscriptsSnapshot`) can layer counts on later
+    /// without changing this structure.
+    private func journalChildren() -> [ImbibSidebarNode] {
+        [
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalAll,
+                nodeType: .journalAll,
+                displayName: "All Manuscripts",
+                iconName: "doc.text.image"
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalByStatus(.draft),
+                nodeType: .journalByStatus(.draft),
+                displayName: "Drafts",
+                iconName: "pencil"
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalByStatus(.submitted),
+                nodeType: .journalByStatus(.submitted),
+                displayName: "Submitted",
+                iconName: "paperplane"
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalByStatus(.published),
+                nodeType: .journalByStatus(.published),
+                displayName: "Published",
+                iconName: "checkmark.seal"
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalByStatus(.archived),
+                nodeType: .journalByStatus(.archived),
+                displayName: "Archive",
+                iconName: "archivebox"
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalSubmissions,
+                nodeType: .journalSubmissions,
+                displayName: "Submissions",
+                iconName: "tray.and.arrow.down"
+            ),
+        ]
     }
 
     // MARK: Cited in Manuscripts

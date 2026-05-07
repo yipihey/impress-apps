@@ -3027,6 +3027,131 @@ public func FfiConverterTypeParseResult_lower(_ value: ParseResult) -> RustBuffe
 
 
 /**
+ * Result of compiling a project (Typst or LaTeX) to PDF. Mirrors
+ * `CompileResult` but does not include source-map entries (project compiles
+ * don't surface a per-source-byte map yet).
+ */
+public struct ProjectCompileResult {
+    /**
+     * PDF bytes if compilation succeeded.
+     */
+    public var pdfData: Data?
+    /**
+     * Error message if compilation failed.
+     */
+    public var error: String?
+    /**
+     * Warning messages from compilation.
+     */
+    public var warnings: [String]
+    /**
+     * Number of pages in the output.
+     */
+    public var pageCount: UInt32
+    /**
+     * Time spent in the compiler in milliseconds.
+     */
+    public var compileMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * PDF bytes if compilation succeeded.
+         */pdfData: Data?, 
+        /**
+         * Error message if compilation failed.
+         */error: String?, 
+        /**
+         * Warning messages from compilation.
+         */warnings: [String], 
+        /**
+         * Number of pages in the output.
+         */pageCount: UInt32, 
+        /**
+         * Time spent in the compiler in milliseconds.
+         */compileMs: UInt64) {
+        self.pdfData = pdfData
+        self.error = error
+        self.warnings = warnings
+        self.pageCount = pageCount
+        self.compileMs = compileMs
+    }
+}
+
+
+
+extension ProjectCompileResult: Equatable, Hashable {
+    public static func ==(lhs: ProjectCompileResult, rhs: ProjectCompileResult) -> Bool {
+        if lhs.pdfData != rhs.pdfData {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        if lhs.warnings != rhs.warnings {
+            return false
+        }
+        if lhs.pageCount != rhs.pageCount {
+            return false
+        }
+        if lhs.compileMs != rhs.compileMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(pdfData)
+        hasher.combine(error)
+        hasher.combine(warnings)
+        hasher.combine(pageCount)
+        hasher.combine(compileMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectCompileResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectCompileResult {
+        return
+            try ProjectCompileResult(
+                pdfData: FfiConverterOptionData.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf), 
+                pageCount: FfiConverterUInt32.read(from: &buf), 
+                compileMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectCompileResult, into buf: inout [UInt8]) {
+        FfiConverterOptionData.write(value.pdfData, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+        FfiConverterUInt32.write(value.pageCount, into: &buf)
+        FfiConverterUInt64.write(value.compileMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectCompileResult_lift(_ buf: RustBuffer) throws -> ProjectCompileResult {
+    return try FfiConverterTypeProjectCompileResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectCompileResult_lower(_ value: ProjectCompileResult) -> RustBuffer {
+    return FfiConverterTypeProjectCompileResult.lower(value)
+}
+
+
+/**
  * Set the edit mode
  */
 public struct SetEditModeCommand {
@@ -4781,6 +4906,23 @@ public func checkDocumentVersion(rawVersion: UInt32?) -> FfiVersionCheckResult {
 })
 }
 /**
+ * Compile a Typst project to PDF.
+ *
+ * `project_dir` is an absolute path to the project root on disk.
+ * `main_file` is relative to `project_dir` (e.g. `"paper.typ"`).
+ *
+ * Multi-file Typst projects work transparently — `image()`, `include`,
+ * and `import` all resolve relative to `project_dir`.
+ */
+public func compileTypstProjectToPdf(projectDir: String, mainFile: String) -> ProjectCompileResult {
+    return try!  FfiConverterTypeProjectCompileResult.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_compile_typst_project_to_pdf(
+        FfiConverterString.lower(projectDir),
+        FfiConverterString.lower(mainFile),$0
+    )
+})
+}
+/**
  * Compile Typst source code to PDF
  *
  * This is the main entry point for Swift to compile documents.
@@ -5026,6 +5168,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_check_document_version() != 55361) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_compile_typst_project_to_pdf() != 8151) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_compile_typst_to_pdf() != 7126) {

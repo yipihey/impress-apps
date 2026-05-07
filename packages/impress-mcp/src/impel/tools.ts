@@ -14,6 +14,75 @@ import { ImpelClient } from "./client.js";
 
 export const IMPEL_TOOLS: Tool[] = [
   // --------------------------------------------------------------------------
+  // Journal Pipeline (per ADR-0011 D6)
+  // --------------------------------------------------------------------------
+  {
+    name: "impel_journal_submit",
+    description:
+      "Submit a manuscript to the impress journal pipeline. Use this when an agent has authored a .tex / .typ document that should enter the researcher's journal as a new manuscript, a new revision of an existing manuscript, or a fragment to be attached. The submission is stored as a 'manuscript-submission' item; Scout triages it asynchronously. Returns the stable task_id for status polling.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        submission_kind: {
+          type: "string",
+          enum: ["new-manuscript", "new-revision", "fragment"],
+          description:
+            "How to triage this submission. 'new-manuscript' creates a fresh manuscript identity; 'new-revision' adds a revision to an existing one (parent_manuscript_ref required); 'fragment' attaches partial content to an existing manuscript (parent_manuscript_ref required).",
+        },
+        title: {
+          type: "string",
+          description: "Working title of the manuscript or revision.",
+        },
+        source_format: {
+          type: "string",
+          enum: ["tex", "typst"],
+          description: "Source format. Defaults to 'tex' if omitted.",
+        },
+        source_payload: {
+          type: "string",
+          description:
+            "Either the inline source text, or a reference of the form 'blob:sha256:<hex>' pointing to a blob already stored by BlobStore. Inline content is hashed by the receiver.",
+        },
+        parent_manuscript_ref: {
+          type: "string",
+          description:
+            "UUID of the parent manuscript. REQUIRED when submission_kind is 'new-revision' or 'fragment'.",
+        },
+        parent_revision_ref: {
+          type: "string",
+          description:
+            "UUID of the predecessor revision. Optional; for 'new-revision' submissions the receiver infers the predecessor if omitted.",
+        },
+        submitter_persona_id: {
+          type: "string",
+          description:
+            "Persona ID of the agent authoring this submission, e.g. 'scout', 'artificer'. See ADR-0013.",
+        },
+        origin_conversation_ref: {
+          type: "string",
+          description:
+            "Reference to the conversation or transcript that produced this content. Either an item ID or an opaque path string.",
+        },
+        metadata_json: {
+          type: "string",
+          description:
+            "Free-form JSON object with submitter-provided structure (intended journal, topic, reviewer hints, etc.) — encoded as a string.",
+        },
+        bibliography_payload: {
+          type: "string",
+          description: "Optional .bib content to attach.",
+        },
+        similarity_hint: {
+          type: "string",
+          description:
+            "UUID of a manuscript the submitter believes this resembles. Scout cross-checks this hint against its own dedup result.",
+        },
+      },
+      required: ["submission_kind", "title", "source_payload"],
+    },
+  },
+
+  // --------------------------------------------------------------------------
   // Status & System
   // --------------------------------------------------------------------------
   {
@@ -576,14 +645,70 @@ export const IMPEL_TOOLS: Tool[] = [
 // Tool Handler
 // ============================================================================
 
+import type { JournalSubmissionParams } from "./client.js";
+
 export class ImpelTools {
   constructor(private client: ImpelClient) {}
+
+  // --------------------------------------------------------------------------
+  // Journal pipeline
+  // --------------------------------------------------------------------------
+
+  private async submitJournalManuscript(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    if (!args || typeof args !== "object") {
+      throw new Error("impel_journal_submit: missing arguments");
+    }
+    const a = args as Record<string, unknown>;
+    const required = ["submission_kind", "title", "source_payload"] as const;
+    for (const k of required) {
+      if (typeof a[k] !== "string" || (a[k] as string).length === 0) {
+        throw new Error(`impel_journal_submit: missing or empty required field '${k}'`);
+      }
+    }
+    const params: JournalSubmissionParams = {
+      submission_kind: a.submission_kind as JournalSubmissionParams["submission_kind"],
+      title: a.title as string,
+      source_format: (a.source_format as JournalSubmissionParams["source_format"]) ?? "tex",
+      source_payload: a.source_payload as string,
+      parent_manuscript_ref: a.parent_manuscript_ref as string | undefined,
+      parent_revision_ref: a.parent_revision_ref as string | undefined,
+      submitter_persona_id: a.submitter_persona_id as string | undefined,
+      origin_conversation_ref: a.origin_conversation_ref as string | undefined,
+      metadata_json: a.metadata_json as string | undefined,
+      bibliography_payload: a.bibliography_payload as string | undefined,
+      similarity_hint: a.similarity_hint as string | undefined,
+    };
+
+    const result = await this.client.submitJournalManuscript(params);
+    return {
+      content: [
+        {
+          type: "text",
+          text: [
+            "# Journal Submission Accepted",
+            "",
+            `**Task ID:** ${result.task_id}`,
+            `**Status:** ${result.task_status}`,
+            `**Content Hash:** ${result.content_hash}`,
+            "",
+            "Scout will triage this submission asynchronously. Poll the task ID for outcome.",
+          ].join("\n"),
+        },
+      ],
+    };
+  }
 
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }> }> {
     switch (name) {
+      // Journal pipeline
+      case "impel_journal_submit":
+        return this.submitJournalManuscript(args);
+
       // Status
       case "impel_status":
         return this.getStatus();

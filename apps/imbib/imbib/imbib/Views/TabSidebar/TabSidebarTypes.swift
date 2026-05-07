@@ -39,6 +39,12 @@ enum ImbibTab: Hashable {
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
     case citedInManuscripts   // pseudo smart library — papers cited in any imprint manuscript
+
+    // Journal pipeline (per ADR-0011 D8)
+    case journalAll                                  // root: all manuscripts in any status
+    case journalByStatus(JournalManuscriptStatus)    // smart-collection-style filter
+    case journalSubmissions                          // pending submissions inbox
+    case manuscript(String)                          // detail view for a manuscript by ID
     case addFeed                 // Navigate to search form picker for feed creation
     case addLibraryFeed(UUID)    // Navigate to feed creation for a specific library
     case editFeed(UUID)          // Navigate to search form to edit an existing feed

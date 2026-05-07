@@ -35,6 +35,12 @@ enum ImbibSidebarNodeType: Hashable {
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
     case citedInManuscripts
+
+    // Journal pipeline (per ADR-0011 D8)
+    case journalAll
+    case journalByStatus(JournalManuscriptStatus)
+    case journalSubmissions
+    case manuscript(String)   // detail node — child of one of the journal sections
 }
 
 // MARK: - Sidebar Node
@@ -106,6 +112,14 @@ extension ImbibSidebarNode {
             return .dismissed
         case .citedInManuscripts:
             return .citedInManuscripts
+        case .journalAll:
+            return .journalAll
+        case .journalByStatus(let status):
+            return .journalByStatus(status)
+        case .journalSubmissions:
+            return .journalSubmissions
+        case .manuscript(let id):
+            return .manuscript(id)
         }
     }
 }
@@ -164,5 +178,17 @@ enum ImbibSidebarNodeID {
 
     static func artifactType(_ rawValue: String) -> UUID {
         stable("artifactType.\(rawValue)")
+    }
+
+    // Journal pipeline IDs (per ADR-0011 D8)
+    static let journalAll = stable("journal.all")
+    static let journalSubmissions = stable("journal.submissions")
+
+    static func journalByStatus(_ status: JournalManuscriptStatus) -> UUID {
+        stable("journal.status.\(status.rawValue)")
+    }
+
+    static func manuscript(_ manuscriptID: String) -> UUID {
+        stable("journal.manuscript.\(manuscriptID)")
     }
 }

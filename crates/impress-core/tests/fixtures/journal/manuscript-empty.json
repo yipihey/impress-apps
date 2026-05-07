@@ -1,0 +1,10 @@
+{
+  "schema": "manuscript",
+  "payload": {
+    "title": "Untitled Draft",
+    "status": "draft",
+    "current_revision_ref": "00000000-0000-0000-0000-000000000000",
+    "topic_tags": ["topic/cosmology"],
+    "notes": "Brand-new manuscript stub; no revisions yet."
+  }
+}

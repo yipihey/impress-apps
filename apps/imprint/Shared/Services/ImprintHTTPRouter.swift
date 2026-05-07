@@ -13,6 +13,7 @@ import ImpressAutomation
 import ImpressLogging
 import ImpressOperationQueue
 import ImprintCore
+import ImprintRustCore
 import OSLog
 #if os(macOS)
 import AppKit
@@ -56,6 +57,8 @@ import AppKit
 /// - `GET /api/citation-usages` - List citation-usage records
 /// - `GET /api/documents/{id}/diagnostics` - Structured compilation diagnostics
 /// - `GET /api/documents/{id}/synctex` - SyncTeX bidirectional lookup
+/// - `POST /api/compile/typst` - Stateless: compile source bytes → PDF (journal pipeline)
+/// - `POST /api/compile/bundle` - Compile a manuscript bundle (typst or LaTeX) → PDF
 /// - `OPTIONS /*` - CORS preflight
 public actor ImprintHTTPRouter: HTTPRouter {
 
@@ -230,6 +233,22 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         // POST endpoints
         if request.method == "POST" {
+            // Stateless compile route — accepts source bytes, returns PDF.
+            // No document lifecycle side effects. Used by the journal pipeline
+            // (Archivist) to compile manuscript-revision source content into
+            // PDF artifacts without polluting the editor's document registry.
+            // Per docs/plan-imprint-compile.md.
+            if pathLower == "/api/compile/typst" {
+                return await handleStatelessCompile(request)
+            }
+
+            // Bundle compile route (Phase 8.9 / docs/plan-journal-pipeline.md).
+            // Accepts a content-addressed bundle SHA + manifest hint, dispatches
+            // to imprint-core (typst) or LaTeXCompilationService (LaTeX engines).
+            if pathLower == "/api/compile/bundle" {
+                return await handleBundleCompile(request)
+            }
+
             if pathLower == "/api/documents/create" {
                 return await handleCreateDocument(request)
             }
@@ -759,6 +778,397 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "message": "Compilation triggered",
             "documentId": id
         ])
+    }
+
+    /// POST /api/compile/typst
+    /// Stateless compile route — input is source bytes, output is PDF bytes.
+    /// Per docs/plan-imprint-compile.md: this is the canonical cross-app
+    /// compile authority. The journal pipeline's Archivist routes through
+    /// this endpoint to produce real PDF artifacts. No document lifecycle
+    /// side effects (unlike POST /api/documents/{id}/compile).
+    ///
+    /// Request body (JSON):
+    ///   { "source": "= Hello\n\nBody.",
+    ///     "page_size": "a4" | "letter" | "a5",          (optional, default a4)
+    ///     "font_size": 11.0,                            (optional, default 11)
+    ///     "margins": { "top": 72, "right": 72,
+    ///                  "bottom": 72, "left": 72 } }     (optional, default 72pt all)
+    ///
+    /// Success: 200 OK, Content-Type: application/pdf, body = raw PDF bytes.
+    /// Custom headers: X-Imprint-Compile-Status, X-Imprint-Page-Count,
+    /// X-Imprint-Compile-Ms, X-Imprint-Warnings.
+    ///
+    /// Failure: 422 (compile error in source) or 500 (compiler crash) with
+    /// JSON body { status, error, warnings, compile_ms }.
+    private func handleStatelessCompile(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return .badRequest("Body must be JSON: { source: \"...\", ... }")
+        }
+
+        guard let source = json["source"] as? String, !source.isEmpty else {
+            return .badRequest("Missing or empty 'source' field")
+        }
+
+        // Map optional knobs to ImprintRustCore.CompileOptions. Defaults
+        // mirror the editor preview defaults (A4, 11pt, 72pt margins).
+        let pageSize: ImprintRustCore.FfiPageSize = {
+            switch (json["page_size"] as? String)?.lowercased() {
+            case "letter": return .letter
+            case "a5":     return .a5
+            default:       return .a4
+            }
+        }()
+        let fontSize: Double = (json["font_size"] as? Double)
+            ?? (json["font_size"] as? Int).map(Double.init)
+            ?? 11.0
+
+        let margins = (json["margins"] as? [String: Any]) ?? [:]
+        func marginValue(_ key: String) -> Double {
+            (margins[key] as? Double)
+                ?? (margins[key] as? Int).map(Double.init)
+                ?? 72.0
+        }
+        let options = ImprintRustCore.CompileOptions(
+            pageSize: pageSize,
+            fontSize: fontSize,
+            marginTop: marginValue("top"),
+            marginRight: marginValue("right"),
+            marginBottom: marginValue("bottom"),
+            marginLeft: marginValue("left")
+        )
+
+        // Run the synchronous Rust compile call on a background thread so it
+        // doesn't block the HTTP server's actor.
+        let start = Date()
+        let result: ImprintRustCore.CompileResult = await Task.detached(priority: .userInitiated) {
+            ImprintRustCore.compileTypstToPdf(source: source, options: options)
+        }.value
+        let compileMs = Int(Date().timeIntervalSince(start) * 1000)
+
+        // Compiler error in source → 422.
+        if let err = result.error {
+            let payload: [String: Any] = [
+                "status":     "error",
+                "error":      err,
+                "warnings":   result.warnings,
+                "compile_ms": compileMs,
+            ]
+            return .json(payload, status: 422)
+        }
+
+        // Empty PDF → treat as 500 (compile said success but gave nothing).
+        guard let pdfData = result.pdfData, !pdfData.isEmpty else {
+            return .json([
+                "status":     "error",
+                "error":      "Compile succeeded but returned empty PDF",
+                "warnings":   result.warnings,
+                "compile_ms": compileMs,
+            ] as [String: Any], status: 500)
+        }
+
+        var headers: [String: String] = [
+            "Content-Type":             "application/pdf",
+            "Content-Disposition":      "inline",
+            "X-Imprint-Compile-Status": "ok",
+            "X-Imprint-Page-Count":     "\(result.pageCount)",
+            "X-Imprint-Compile-Ms":     "\(compileMs)",
+        ]
+        if !result.warnings.isEmpty {
+            headers["X-Imprint-Warnings"] = result.warnings.joined(separator: "; ")
+        }
+        return HTTPResponse(
+            status: 200,
+            statusText: "OK",
+            headers: headers,
+            body: Data(pdfData)
+        )
+    }
+
+    /// POST /api/compile/bundle
+    /// Compile a manuscript bundle (`.tar.zst` directory tree) to PDF. The
+    /// archive is identified by its SHA-256 in the local content-addressed
+    /// blob root (`~/.local/share/impress/content/{prefix}/{prefix}/{sha}.tar.zst`)
+    /// — imprint and impel share the filesystem, so the journal pipeline
+    /// passes a SHA reference rather than re-uploading binary bytes.
+    ///
+    /// Per `docs/plan-journal-pipeline.md` §Phase 8: imprint owns ALL
+    /// compilation. Typst projects route through imprint-core's
+    /// `compileTypstProjectToPdf`; LaTeX projects route through imprint's
+    /// existing `LaTeXCompilationService` (pdflatex/xelatex/lualatex/latexmk).
+    /// There is no parallel compile path in any other process.
+    ///
+    /// Request body (JSON):
+    ///   { "bundle_sha256": "abc123…",
+    ///     "main": "paper.typ",
+    ///     "engine": "typst" | "pdflatex" | "xelatex" | "lualatex" | "latexmk" }
+    ///
+    /// Success: 200 OK, Content-Type: application/pdf, body = raw PDF bytes.
+    /// Custom headers: X-Imprint-Compile-Status, X-Imprint-Page-Count,
+    /// X-Imprint-Compile-Ms, X-Imprint-Warnings.
+    ///
+    /// Failure: 422 (compile error in source) or 500 (internal error) with
+    /// JSON body { status, error, warnings, compile_ms }.
+    private func handleBundleCompile(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return .badRequest(
+                "Body must be JSON: { bundle_sha256: \"...\", main: \"...\", engine: \"...\" }"
+            )
+        }
+
+        guard let sha = json["bundle_sha256"] as? String, sha.count == 64,
+              sha.allSatisfy(\.isHexDigit)
+        else {
+            return .badRequest("Missing or malformed 'bundle_sha256' field (expected 64 hex chars)")
+        }
+        guard let main = json["main"] as? String, !main.isEmpty else {
+            return .badRequest("Missing or empty 'main' field (relative path of the entry source)")
+        }
+        guard let engineStr = json["engine"] as? String else {
+            return .badRequest("Missing 'engine' field")
+        }
+
+        let blobURL = bundleArchiveURL(sha256: sha)
+        guard FileManager.default.fileExists(atPath: blobURL.path) else {
+            return .json([
+                "status": "error",
+                "error": "bundle archive not found in blob store: \(sha.prefix(12))…",
+            ] as [String: Any], status: 404)
+        }
+
+        // Extract to a per-request temp dir.
+        let extractDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "imprint-bundle-compile-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: extractDir) }
+        do {
+            try FileManager.default.createDirectory(
+                at: extractDir, withIntermediateDirectories: true
+            )
+        } catch {
+            return .json([
+                "status": "error",
+                "error": "failed to create temp dir: \(error.localizedDescription)",
+            ] as [String: Any], status: 500)
+        }
+        let extractStatus = await runTarExtract(archiveURL: blobURL, intoDir: extractDir)
+        if let stderr = extractStatus {
+            return .json([
+                "status": "error",
+                "error": "tar extraction failed: \(stderr)",
+            ] as [String: Any], status: 500)
+        }
+
+        // Resolve main file inside the extracted dir.
+        let mainURL = extractDir.appendingPathComponent(main)
+        guard FileManager.default.fileExists(atPath: mainURL.path) else {
+            return .json([
+                "status": "error",
+                "error": "main file \(main) not present in bundle",
+            ] as [String: Any], status: 422)
+        }
+
+        let start = Date()
+        switch engineStr.lowercased() {
+        case "typst":
+            return await dispatchBundleTypst(
+                projectDir: extractDir,
+                mainFile: main,
+                start: start
+            )
+        case "pdflatex", "xelatex", "lualatex", "latexmk":
+            #if os(macOS)
+            return await dispatchBundleLaTeX(
+                mainURL: mainURL,
+                engine: engineStr.lowercased(),
+                start: start
+            )
+            #else
+            return .json([
+                "status": "error",
+                "error": "LaTeX compilation requires macOS (LaTeXCompilationService is macOS-only)",
+            ] as [String: Any], status: 500)
+            #endif
+        case "none":
+            return .json([
+                "status": "error",
+                "error": "engine=none means store-only; nothing to compile",
+            ] as [String: Any], status: 422)
+        default:
+            return .badRequest(
+                "Unknown engine \"\(engineStr)\"; expected typst|pdflatex|xelatex|lualatex|latexmk"
+            )
+        }
+    }
+
+    /// Dispatch a Typst bundle compile to imprint-core.
+    private func dispatchBundleTypst(
+        projectDir: URL,
+        mainFile: String,
+        start: Date
+    ) async -> HTTPResponse {
+        let projectPath = projectDir.path
+        let result: ImprintRustCore.ProjectCompileResult = await Task.detached(priority: .userInitiated) {
+            ImprintRustCore.compileTypstProjectToPdf(
+                projectDir: projectPath,
+                mainFile: mainFile
+            )
+        }.value
+        let compileMs = Int(Date().timeIntervalSince(start) * 1000)
+
+        if let err = result.error {
+            return .json([
+                "status": "error",
+                "error": err,
+                "warnings": result.warnings,
+                "compile_ms": compileMs,
+            ] as [String: Any], status: 422)
+        }
+        guard let pdfData = result.pdfData, !pdfData.isEmpty else {
+            return .json([
+                "status": "error",
+                "error": "Compile succeeded but returned empty PDF",
+                "warnings": result.warnings,
+                "compile_ms": compileMs,
+            ] as [String: Any], status: 500)
+        }
+        var headers: [String: String] = [
+            "Content-Type": "application/pdf",
+            "Content-Disposition": "inline",
+            "X-Imprint-Compile-Status": "ok",
+            "X-Imprint-Page-Count": "\(result.pageCount)",
+            "X-Imprint-Compile-Ms": "\(compileMs)",
+        ]
+        if !result.warnings.isEmpty {
+            headers["X-Imprint-Warnings"] = result.warnings.joined(separator: "; ")
+        }
+        return HTTPResponse(
+            status: 200, statusText: "OK", headers: headers, body: Data(pdfData)
+        )
+    }
+
+    #if os(macOS)
+    /// Dispatch a LaTeX bundle compile to imprint's LaTeXCompilationService.
+    private func dispatchBundleLaTeX(
+        mainURL: URL,
+        engine engineStr: String,
+        start: Date
+    ) async -> HTTPResponse {
+        let engine: LaTeXEngine = {
+            switch engineStr {
+            case "xelatex": return .xelatex
+            case "lualatex": return .lualatex
+            case "latexmk": return .latexmk
+            default: return .pdflatex
+            }
+        }()
+        let options = LaTeXCompileOptions(engine: engine)
+        do {
+            let result = try await LaTeXCompilationService.shared.compile(
+                sourceURL: mainURL,
+                engine: engine,
+                options: options
+            )
+            let compileMs = result.compilationTimeMs
+            if !result.isSuccess {
+                let firstError = result.errors.first?.message ?? "LaTeX compile failed (exit \(result.exitCode))"
+                return .json([
+                    "status": "error",
+                    "error": firstError,
+                    "warnings": result.warnings.map(\.message),
+                    "compile_ms": compileMs,
+                    "exit_code": result.exitCode,
+                ] as [String: Any], status: 422)
+            }
+            guard let pdfData = result.pdfData, !pdfData.isEmpty else {
+                return .json([
+                    "status": "error",
+                    "error": "LaTeX compile succeeded but returned empty PDF",
+                    "warnings": result.warnings.map(\.message),
+                    "compile_ms": compileMs,
+                ] as [String: Any], status: 500)
+            }
+            var headers: [String: String] = [
+                "Content-Type": "application/pdf",
+                "Content-Disposition": "inline",
+                "X-Imprint-Compile-Status": "ok",
+                // Page count is not surfaced by LaTeXCompilationService; emit 0.
+                "X-Imprint-Page-Count": "0",
+                "X-Imprint-Compile-Ms": "\(compileMs)",
+            ]
+            if !result.warnings.isEmpty {
+                headers["X-Imprint-Warnings"] = result.warnings.map(\.message).joined(separator: "; ")
+            }
+            return HTTPResponse(
+                status: 200, statusText: "OK", headers: headers, body: pdfData
+            )
+        } catch {
+            // LaTeXCompilationError.engineNotFound → engine-unavailable.
+            let isEngineNotFound = String(describing: error).contains("engineNotFound")
+            return .json([
+                "status": "error",
+                "error": isEngineNotFound
+                    ? "LaTeX engine \(engineStr) not installed (no TeX distribution detected)"
+                    : "LaTeX compile failed: \(error.localizedDescription)",
+                "warnings": [String](),
+                "compile_ms": Int(Date().timeIntervalSince(start) * 1000),
+            ] as [String: Any], status: isEngineNotFound ? 503 : 500)
+        }
+    }
+    #endif
+
+    /// Resolve the on-disk URL of a bundle archive by SHA-256, matching
+    /// imbib's BlobStore convention.
+    private func bundleArchiveURL(sha256 sha: String) -> URL {
+        let prefix1 = String(sha.prefix(2))
+        let prefix2 = String(sha.dropFirst(2).prefix(2))
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local", isDirectory: true)
+            .appendingPathComponent("share", isDirectory: true)
+            .appendingPathComponent("impress", isDirectory: true)
+            .appendingPathComponent("content", isDirectory: true)
+            .appendingPathComponent(prefix1, isDirectory: true)
+            .appendingPathComponent(prefix2, isDirectory: true)
+            .appendingPathComponent("\(sha).tar.zst")
+    }
+
+    /// Shell to `/usr/bin/tar --zstd -xf` to extract a bundle archive.
+    /// Returns nil on success; stderr text on failure.
+    private func runTarExtract(archiveURL: URL, intoDir: URL) async -> String? {
+        return await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = [
+                "--zstd",
+                "-x",
+                "-f", archiveURL.path,
+                "-C", intoDir.path,
+            ]
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+            process.standardOutput = Pipe()
+            do {
+                try process.run()
+            } catch {
+                return "tar launch failed: \(error)"
+            }
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                return nil
+            }
+            let stderr = String(
+                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? "(unreadable)"
+            return "tar exit \(process.terminationStatus): \(stderr)"
+        }.value
     }
 
     /// POST /api/documents/{id}/insert-citation

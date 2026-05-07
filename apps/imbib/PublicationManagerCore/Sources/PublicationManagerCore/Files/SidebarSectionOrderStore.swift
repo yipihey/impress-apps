@@ -21,6 +21,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     case flagged
     case citedInManuscripts
     case artifacts
+    case journal
     case dismissed
 
     public var id: String { rawValue }
@@ -36,6 +37,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .flagged: return "Flagged"
         case .citedInManuscripts: return "Cited in Manuscripts"
         case .artifacts: return "Artifacts"
+        case .journal: return "Journal"
         case .dismissed: return "Dismissed"
         }
     }
@@ -51,6 +53,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .flagged: return "flag.fill"
         case .citedInManuscripts: return "text.book.closed.fill"
         case .artifacts: return "archivebox"
+        case .journal: return "doc.text.image"
         case .dismissed: return "trash"
         }
     }
@@ -76,6 +79,7 @@ public final class SidebarSectionOrderStoreWrapper: Sendable {
         .flagged,
         .citedInManuscripts,
         .artifacts,
+        .journal,
         .dismissed
     ]
 

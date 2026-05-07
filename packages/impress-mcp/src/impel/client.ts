@@ -232,6 +232,35 @@ export interface CreateThreadParams {
   priority?: number;
 }
 
+/**
+ * Parameters for `submitJournalManuscript`. Matches the on-the-wire schema
+ * of `manuscript-submission@1.0.0` (per ADR-0011 D6 / ADR-0007 / the
+ * Swift `ManuscriptSubmission` struct in CounselEngine).
+ */
+export interface JournalSubmissionParams {
+  submission_kind: "new-manuscript" | "new-revision" | "fragment";
+  title: string;
+  source_format: "tex" | "typst";
+  source_payload: string;  // inline source, or "blob:sha256:<hex>"
+  parent_manuscript_ref?: string;
+  parent_revision_ref?: string;
+  submitter_persona_id?: string;
+  origin_conversation_ref?: string;
+  metadata_json?: string;
+  bibliography_payload?: string;
+  similarity_hint?: string;
+}
+
+/**
+ * Result returned by `POST /api/journal/submissions`.
+ */
+export interface JournalSubmissionResult {
+  status: string;        // "ok"
+  task_id: string;       // UUID of the stored manuscript-submission item
+  task_status: string;   // "pending" immediately after submit
+  content_hash: string;  // SHA-256 of the resolved source
+}
+
 export interface CreateEscalationParams {
   category: string;
   title: string;
@@ -321,6 +350,28 @@ export class ImpelClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Submit a manuscript to the impress journal pipeline.
+   *
+   * POSTs to `/api/journal/submissions`, the route added by ADR-0011 D6.
+   * On success the impel app stores a `manuscript-submission@1.0.0` item
+   * in the unified impress-core store and returns its ID.
+   */
+  async submitJournalManuscript(
+    params: JournalSubmissionParams
+  ): Promise<JournalSubmissionResult> {
+    const response = await fetch(`${this.baseURL}/api/journal/submissions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Journal submission failed: ${error}`);
+    }
+    return (await response.json()) as JournalSubmissionResult;
   }
 
   /**

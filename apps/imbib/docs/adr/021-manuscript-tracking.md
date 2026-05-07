@@ -1,8 +1,16 @@
 # ADR-021: Manuscript Tracking and Citation Management
 
-**Status:** Proposed
+**Status:** Superseded by impress ADR-0011 (The impress Journal, 2026-05-05)
 **Date:** 2026-01-19
 **Authors:** Tom Abel, Claude
+
+## Supersession Notice (2026-05-05)
+
+This ADR was superseded by `docs/ADR-0011-impress-journal.md` (the cross-app impress Journal Pipeline) before any of its model code reached production view consumers. The model defined here — manuscripts as `CDPublication` entries with `rawFields` metadata — was incompatible with the cross-app workflow that ADR-0011 was designed to enable. The 2300 lines of scaffolding under `apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Manuscript/` were deleted as part of the reconciliation. See ADR-0011's *Reconciliation with imbib ADR-021* section for the full rationale.
+
+The text below is preserved verbatim as historical context.
+
+---
 
 ## Context
 

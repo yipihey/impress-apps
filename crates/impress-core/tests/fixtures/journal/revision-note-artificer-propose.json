@@ -1,0 +1,17 @@
+{
+  "schema": "revision-note",
+  "payload": {
+    "subject_ref": "33333333-3333-3333-3333-333333333333",
+    "verdict": "propose",
+    "body": "Addressing reviewer comments 1 and 2: state boundary conditions in the introduction and add the two missing citations.",
+    "diff": "--- a/sections/intro.tex\n+++ b/sections/intro.tex\n@@ -3,6 +3,9 @@\n In this paper we study the two-point function of the inflaton field\n in T3FT cosmology.\n+\n+We assume periodic boundary conditions on the spatial three-torus and\n+impose the standard Bunch-Davies vacuum on the inflaton mode functions.\n \n--- a/sections/related.tex\n+++ b/sections/related.tex\n@@ -12,4 +12,6 @@\n Several authors have considered analogous quantities in the FRW setting.\n+\\cite{bardeen1986cosmological}\n+\\cite{bond1983large}\n",
+    "target_section": null,
+    "review_ref": "99999999-9999-9999-9999-999999999999",
+    "evidence_refs": [
+      "99999999-9999-9999-9999-999999999999",
+      "33333333-3333-3333-3333-333333333333"
+    ],
+    "agent_id": "artificer",
+    "agent_run_ref": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+  }
+}
