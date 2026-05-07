@@ -418,6 +418,16 @@ struct SectionContentView: View {
             guard let publicationID = notification.userInfo?["publicationID"] as? UUID else { return }
             navigateToPublication(publicationID)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .smartSearchAddDidComplete)) { notification in
+            // After Cmd+S → "Add Selected" lands papers, navigate to the
+            // library where they went and select the first one so the user
+            // can begin reading immediately. `navigateToPublication` does
+            // the library lookup + selection in one shot.
+            guard let ids = notification.userInfo?["publicationIDs"] as? [UUID],
+                  let first = ids.first
+            else { return }
+            navigateToPublication(first)
+        }
         #if os(macOS)
         // Window management: open detail tabs in separate windows (Shift+P/N/I/B)
         .onReceive(NotificationCenter.default.publisher(for: .detachPDFTab)) { _ in

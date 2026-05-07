@@ -101,6 +101,14 @@ public extension Notification.Name {
     /// Show the NL Smart Search overlay (⌘S)
     static let showNLSearch = Notification.Name("showNLSearch")
 
+    /// Posted after a Cmd+S "Add Selected" completes successfully so the
+    /// host UI can navigate to the library where papers landed and select
+    /// the first newly-added paper for the user to begin reading.
+    /// userInfo:
+    ///   - "libraryID": UUID? — target library (nil = default library)
+    ///   - "publicationIDs": [UUID] — newly added paper IDs (in add order)
+    static let smartSearchAddDidComplete = Notification.Name("smartSearchAddDidComplete")
+
     /// Switch to a specific search form type (object: SearchFormType)
     static let switchToSearchForm = Notification.Name("switchToSearchForm")
 

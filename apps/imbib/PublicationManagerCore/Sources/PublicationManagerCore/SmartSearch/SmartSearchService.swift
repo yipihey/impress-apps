@@ -768,6 +768,24 @@ public final class SmartSearchService {
                     )
                 }
             }
+
+            // Tell the host UI to navigate to the library where these
+            // papers landed and select the first one so the user can begin
+            // reading. Posted on main so observers can update SwiftUI
+            // state synchronously. Only newly-added papers carry the UUIDs
+            // we need; duplicate matches surface as identifier strings
+            // (DOI/arXiv/...) which would need a separate lookup.
+            if !addedIDs.isEmpty {
+                var userInfo: [String: Any] = ["publicationIDs": addedIDs]
+                if let target { userInfo["libraryID"] = target }
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .smartSearchAddDidComplete,
+                        object: nil,
+                        userInfo: userInfo
+                    )
+                }
+            }
         } catch {
             state = .error("Add failed: \(error.localizedDescription)")
         }
