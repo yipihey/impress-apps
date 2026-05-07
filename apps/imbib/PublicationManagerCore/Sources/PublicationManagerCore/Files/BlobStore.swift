@@ -21,16 +21,31 @@ public actor BlobStore {
 
     // MARK: - Singleton
 
-    /// Default singleton rooted at `~/.local/share/impress/content/`.
-    public static let shared: BlobStore = {
+    /// Default singleton rooted at the platform's content-addressed
+    /// location: `~/.local/share/impress/content/` on macOS,
+    /// `<AppSupport>/impress/content/` on iOS (the bundle pipeline is
+    /// macOS-only, but BlobStore is part of PublicationManagerCore which
+    /// is shared between platforms).
+    public static let shared: BlobStore = BlobStore(rootURL: defaultRootURL())
+
+    /// Compute the default content-addressed root for the current platform.
+    public static func defaultRootURL() -> URL {
+        #if os(macOS)
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let root = home
+        return home
             .appendingPathComponent(".local", isDirectory: true)
             .appendingPathComponent("share", isDirectory: true)
             .appendingPathComponent("impress", isDirectory: true)
             .appendingPathComponent("content", isDirectory: true)
-        return BlobStore(rootURL: root)
-    }()
+        #else
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return appSupport
+            .appendingPathComponent("impress", isDirectory: true)
+            .appendingPathComponent("content", isDirectory: true)
+        #endif
+    }
 
     // MARK: - Properties
 
@@ -215,12 +230,7 @@ public actor BlobStore {
         guard sha256.count == 64 else { return nil }
         let prefix1 = String(sha256.prefix(2))
         let prefix2 = String(sha256.dropFirst(2).prefix(2))
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let url = home
-            .appendingPathComponent(".local", isDirectory: true)
-            .appendingPathComponent("share", isDirectory: true)
-            .appendingPathComponent("impress", isDirectory: true)
-            .appendingPathComponent("content", isDirectory: true)
+        let url = defaultRootURL()
             .appendingPathComponent(prefix1, isDirectory: true)
             .appendingPathComponent(prefix2, isDirectory: true)
             .appendingPathComponent("\(sha256).\(ext)")
