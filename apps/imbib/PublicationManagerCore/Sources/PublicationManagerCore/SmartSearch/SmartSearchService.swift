@@ -405,6 +405,37 @@ public final class SmartSearchService {
             return
         }
 
+        // Step 1b: relaxed ADS retry. The LLM-emitted query is often
+        // over-constrained (e.g. `author:"X" abs:(...) year:Y` requires
+        // every clause to match). When zero hits come back, drop the
+        // narrowest topic clause (`abs:(…)` first, then `title:(…)`) and
+        // retry against ADS before falling all the way back to arXiv +
+        // OpenAlex. Keeps known author/year/bibstem signals.
+        if Task.isCancelled { return }
+        let relaxedQuery = Self.relaxADSQuery(plan.query)
+        if let relaxed = relaxedQuery, relaxed != plan.query {
+            do {
+                let results = try await sourceManager.search(
+                    query: relaxed,
+                    sourceID: primarySourceID,
+                    maxResults: maxResultsPerSource
+                )
+                Logger.smartSearch.infoCapture(
+                    "smartsearch: \(primarySourceID) relaxed to '\(relaxed)' returned \(results.count) results",
+                    category: "smartsearch"
+                )
+                if !results.isEmpty {
+                    await renderSearchResults(results, sourceLabel: nil)
+                    return
+                }
+            } catch {
+                Logger.smartSearch.warningCapture(
+                    "smartsearch: \(primarySourceID) relaxed-retry failed: \(error.localizedDescription)",
+                    category: "smartsearch"
+                )
+            }
+        }
+
         // Step 2: fall back to arXiv + OpenAlex with the user's RAW input,
         // not the ADS Lucene rewrite (those sources can't parse ADS syntax).
         if Task.isCancelled { return }
@@ -882,6 +913,45 @@ public final class SmartSearchService {
         case "dblp": return "DBLP"
         default: return id
         }
+    }
+
+    /// Drop the narrowest topic clauses (`abs:(…)`, then `title:(…)`) from
+    /// an ADS Lucene query so it can be retried less restrictively.
+    /// Returns nil when nothing is droppable. Preserves author / year /
+    /// bibstem clauses, which carry the strongest signals for "Author Year"
+    /// style queries.
+    static func relaxADSQuery(_ query: String) -> String? {
+        // Strip clauses of the form `field:(…)` or `field:"…"` for the
+        // given field name, with surrounding whitespace.
+        func stripClause(field: String, in s: String) -> String? {
+            // Match field:(...) — allow nested parens by being non-greedy
+            // and matching up to a closing paren that's followed by
+            // space-or-end. ADS clauses don't nest in practice.
+            let parenPattern = "\\s*\\b\(field):\\([^)]*\\)\\s*"
+            let quotePattern = "\\s*\\b\(field):\"[^\"]*\"\\s*"
+            for pattern in [parenPattern, quotePattern] {
+                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                    let nsRange = NSRange(s.startIndex..., in: s)
+                    let result = regex.stringByReplacingMatches(
+                        in: s, range: nsRange, withTemplate: " "
+                    )
+                    if result != s {
+                        return result.trimmingCharacters(in: .whitespaces)
+                            .replacingOccurrences(of: "  ", with: " ")
+                    }
+                }
+            }
+            return nil
+        }
+
+        // Try stripping abs first (most often the over-constraint), then title.
+        for field in ["abs", "abstract", "title"] {
+            if let stripped = stripClause(field: field, in: query),
+               !stripped.isEmpty {
+                return stripped
+            }
+        }
+        return nil
     }
 
     private static func dedup(_ candidates: [SmartSearchCandidate]) -> [SmartSearchCandidate] {

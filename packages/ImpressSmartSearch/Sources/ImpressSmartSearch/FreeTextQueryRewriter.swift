@@ -169,7 +169,18 @@ public actor FreeTextQueryRewriter {
         // out anything we already used as an author (avoids `author:"Smith"`
         // AND `abs:(... Smith ...)`). Dedup at both whole-string and per-word
         // level (avoids "galaxy rotation curves galaxy rotation curves").
+        // Also drop bare 4-digit years — Apple Intelligence sometimes leaks
+        // the search year into topicWords despite the prompt, producing
+        // `author:"X" abs:(1970) year:1970` which over-constrains: the
+        // abstract rarely contains the literal year as a word and the
+        // result is 0 hits.
         let authorSet = Set(authors.map { $0.lowercased() })
+        let yearTokens: Set<String> = {
+            var s = Set<String>()
+            if parts.yearFrom > 0 { s.insert(String(parts.yearFrom)) }
+            if parts.yearTo > 0 { s.insert(String(parts.yearTo)) }
+            return s
+        }()
         var rawTopics: [String] = parts.topicWords
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -180,6 +191,12 @@ public actor FreeTextQueryRewriter {
             for word in phrase.split(whereSeparator: { $0.isWhitespace }) {
                 let key = word.lowercased()
                 if authorSet.contains(key) { continue }
+                if yearTokens.contains(key) { continue }
+                // Pure 4-digit year tokens that look like years (1900-2100)
+                // — drop unconditionally; abs:(1970) is almost never useful.
+                if word.count == 4, let n = Int(word), (1900...2100).contains(n) {
+                    continue
+                }
                 if !seenWords.insert(key).inserted { continue }
                 topicTokens.append(String(word))
             }
