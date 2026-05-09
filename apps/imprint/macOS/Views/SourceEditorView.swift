@@ -204,6 +204,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? TypstTextView else { return }
 
+        // Refresh the coordinator's view of the latest SwiftUI struct so
+        // that delegate callbacks (textDidChange, etc.) read current
+        // bindings. Without this, the coordinator keeps the *initial*
+        // struct — which defaults `syntaxMode` to `.typst` — even after
+        // the document loads as LaTeX. The result: on every keystroke
+        // textDidChange would dispatch to the typst highlighter, painting
+        // `\b`, `\d`, `\u` etc. as `@constant.character.escape` (red).
+        context.coordinator.parent = self
+
         // Ensure text view fills at least the visible area of the scroll view
         let contentSize = scrollView.contentSize
         textView.minSize = NSSize(width: 0, height: contentSize.height)
