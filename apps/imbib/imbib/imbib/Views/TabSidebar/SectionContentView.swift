@@ -283,8 +283,8 @@ struct SectionContentView: View {
     var body: some View {
         // Journal pipeline tabs (per ADR-0011 D8) bypass the publication
         // HSplitView and render full-bleed in the content area.
-        if let journalView = journalDispatch {
-            journalView
+        if isJournalTab {
+            journalDispatch
         } else if let content = resolvedContent {
             contentBody(content)
         } else {
@@ -293,11 +293,24 @@ struct SectionContentView: View {
         }
     }
 
+    /// True when the current sidebar selection is a journal-pipeline tab.
+    /// Kept as a separate Bool to avoid relying on `@ViewBuilder` returning
+    /// `(some View)?` — that pattern doesn't reliably evaluate to nil
+    /// (SwiftUI unifies the branches into an opaque type), which caused
+    /// non-journal tabs to render an empty view.
+    private var isJournalTab: Bool {
+        switch viewModel.selectedTab {
+        case .journalSubmissions, .journalAll, .journalByStatus, .manuscript:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Dispatch journal-pipeline sidebar selections to the right detail view.
-    /// Returns nil for non-journal tabs so the existing publication dispatch
-    /// stays unchanged.
+    /// Only invoked when `isJournalTab` is true.
     @ViewBuilder
-    private var journalDispatch: (some View)? {
+    private var journalDispatch: some View {
         switch viewModel.selectedTab {
         case .journalSubmissions:
             SubmissionsInboxView()
@@ -308,7 +321,7 @@ struct SectionContentView: View {
         case .manuscript(let id):
             ManuscriptDetailView(manuscriptID: id)
         default:
-            nil as EmptyView?
+            EmptyView()  // unreachable when isJournalTab is true
         }
     }
 
