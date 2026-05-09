@@ -103,84 +103,22 @@ struct ContentView: View {
         @Bindable var appState = appState
 
         // All three modes: sidebar on the left, mode-specific content on the right.
-        // Single HSplitView — no nesting.
+        // Single HSplitView — no nesting at top level.
+        //
+        // Layout note: HSplitView at the top level of a DocumentGroup
+        // does NOT auto-fill the window the way NavigationSplitView did.
+        // Without the `.frame(maxWidth/maxHeight: .infinity)` below, the
+        // split view collapses to children's intrinsic size and gets
+        // centered in the window — a regression introduced in b826461
+        // when the layout was rewritten away from NavigationSplitView.
         HSplitView {
             outlineSidebar
 
-            switch appState.editMode {
-            case .textOnly:
-                SourceEditorView(
-                    source: $document.source,
-                    cursorPosition: $cursorPosition,
-                    syntaxMode: appState.documentFormat,
-                    onSelectionChange: { selectedText, selectedRange in
-                        appState.selectedText = selectedText
-                        appState.selectedRange = selectedRange
-                    }
-                )
+            modeContent
 
-            case .splitView:
-                // Editor + PDF side by side. HSplitView gives native
-                // macOS drag-to-resize with correct cursor and smooth
-                // tracking. The CLAUDE.md HSplitView warning applies to
-                // HSplitView nested inside NavigationSplitView detail
-                // panes (toolbar positioning), not to standalone use.
-                HSplitView {
-                    VStack(spacing: 0) {
-                        SourceEditorView(
-                            source: $document.source,
-                            cursorPosition: $cursorPosition,
-                            syntaxMode: appState.documentFormat,
-                            onSelectionChange: { selectedText, selectedRange in
-                                appState.selectedText = selectedText
-                                appState.selectedRange = selectedRange
-                            }
-                        )
-                        .frame(maxHeight: .infinity)
-
-                        CompilationErrorView(
-                            diagnostics: latexDiagnostics,
-                            errors: compilationError,
-                            warnings: compilationWarnings,
-                            onNavigateToLine: { line in navigateToLine(line) }
-                        )
-                    }
-                    .frame(minWidth: 250, idealWidth: 500)
-
-                    PDFPreviewView(
-                        pdfData: pdfData,
-                        isCompiling: isCompiling,
-                        sourceMapEntries: sourceMapEntries,
-                        cursorPosition: cursorPosition,
-                        onInverseSync: appState.documentFormat == .latex ? { _, line, _ in
-                            navigateToLine(line)
-                        } : nil,
-                        syncTeXHighlight: syncTeXHighlight
-                    )
-                    .frame(minWidth: 250, idealWidth: 500)
-                }
-
-            case .directPdf:
-                DirectPDFView(
-                    document: $document,
-                    pdfData: pdfData,
-                    sourceMapEntries: sourceMapEntries,
-                    cursorPosition: $cursorPosition
-                )
-            }
-
-            // Right-side paper detail panel (Track E). Opens via cite-key action,
-            // floats over the detail area with a fixed width.
-            if let pubID = openPaperPublicationID {
-                PaperDetailPanel(
-                    publicationID: pubID,
-                    dataSource: ImprintPublicationService.shared,
-                    onClose: { openPaperPublicationID = nil }
-                )
-                .frame(width: 420)
-                .background(.regularMaterial)
-            }
+            paperPanel
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: appState.editMode) { _, _ in
             // When switching modes, scroll the new views to the current position.
             // Bump cursorPosition to force the editor to re-scroll, then trigger SyncTeX.
@@ -543,6 +481,96 @@ struct ContentView: View {
             Text(aiErrorMessage ?? "An unknown error occurred.")
         }
         #endif
+    }
+
+    /// The mode-specific main pane (text-only / split-view / direct-pdf).
+    /// Extracted to keep `mainContent` simple enough for the type-checker.
+    @ViewBuilder
+    private var modeContent: some View {
+        @Bindable var appState = appState
+        switch appState.editMode {
+        case .textOnly:
+            SourceEditorView(
+                source: $document.source,
+                cursorPosition: $cursorPosition,
+                syntaxMode: appState.documentFormat,
+                onSelectionChange: { selectedText, selectedRange in
+                    appState.selectedText = selectedText
+                    appState.selectedRange = selectedRange
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        case .splitView:
+            splitViewMode
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        case .directPdf:
+            DirectPDFView(
+                document: $document,
+                pdfData: pdfData,
+                sourceMapEntries: sourceMapEntries,
+                cursorPosition: $cursorPosition
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Editor + PDF preview side by side (the .splitView edit mode).
+    /// Inner HSplitView gives native macOS drag-to-resize.
+    @ViewBuilder
+    private var splitViewMode: some View {
+        @Bindable var appState = appState
+        HSplitView {
+            VStack(spacing: 0) {
+                SourceEditorView(
+                    source: $document.source,
+                    cursorPosition: $cursorPosition,
+                    syntaxMode: appState.documentFormat,
+                    onSelectionChange: { selectedText, selectedRange in
+                        appState.selectedText = selectedText
+                        appState.selectedRange = selectedRange
+                    }
+                )
+                .frame(maxHeight: .infinity)
+
+                CompilationErrorView(
+                    diagnostics: latexDiagnostics,
+                    errors: compilationError,
+                    warnings: compilationWarnings,
+                    onNavigateToLine: { line in navigateToLine(line) }
+                )
+            }
+            .frame(minWidth: 250, idealWidth: 500, maxHeight: .infinity)
+
+            PDFPreviewView(
+                pdfData: pdfData,
+                isCompiling: isCompiling,
+                sourceMapEntries: sourceMapEntries,
+                cursorPosition: cursorPosition,
+                onInverseSync: appState.documentFormat == .latex ? { _, line, _ in
+                    navigateToLine(line)
+                } : nil,
+                syncTeXHighlight: syncTeXHighlight
+            )
+            .frame(minWidth: 250, idealWidth: 500, maxHeight: .infinity)
+        }
+    }
+
+    /// Optional right-side paper detail panel (Track E). Opens via cite-key
+    /// action, floats over the detail area with a fixed width.
+    @ViewBuilder
+    private var paperPanel: some View {
+        if let pubID = openPaperPublicationID {
+            PaperDetailPanel(
+                publicationID: pubID,
+                dataSource: ImprintPublicationService.shared,
+                onClose: { openPaperPublicationID = nil }
+            )
+            .frame(width: 420)
+            .frame(maxHeight: .infinity)
+            .background(.regularMaterial)
+        }
     }
 
     /// Sidebar with outline, project files, and cited papers.
