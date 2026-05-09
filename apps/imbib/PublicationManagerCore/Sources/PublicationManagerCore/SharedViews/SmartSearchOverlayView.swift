@@ -239,25 +239,67 @@ public struct SmartSearchOverlayView: View {
 
     @ViewBuilder
     private func candidatesList(_ list: [SmartSearchCandidate]) -> some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(list) { c in
-                    candidateRow(c, highlighted: service.highlightedCandidateID == c.id)
-                        .background(
-                            service.highlightedCandidateID == c.id
-                                ? Color.accentColor.opacity(0.15)
-                                : Color.clear
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            service.highlightedCandidateID = c.id
-                            toggleSelected(c.id)
-                        }
-                    Divider()
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(list) { c in
+                        candidateRow(c, highlighted: service.highlightedCandidateID == c.id)
+                            .background(
+                                service.highlightedCandidateID == c.id
+                                    ? Color.accentColor.opacity(0.15)
+                                    : Color.clear
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                service.highlightedCandidateID = c.id
+                                toggleSelected(c.id)
+                            }
+                        Divider()
+                    }
                 }
             }
+            .frame(maxHeight: 320)
+
+            // "Still searching" footer — visible when more sources are
+            // in flight and the user already has some candidates to
+            // pick from. Lets them act on early results without
+            // wondering whether more are coming.
+            if !service.pendingSourceIDs.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Still searching \(stillSearchingLabel)…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial)
+            }
         }
-        .frame(maxHeight: 320)
+    }
+
+    /// Comma-joined display labels for sources still in flight.
+    private var stillSearchingLabel: String {
+        service.pendingSourceIDs
+            .map { Self.sourceDisplayLabel(for: $0) }
+            .sorted()
+            .joined(separator: ", ")
+    }
+
+    /// Display label mirroring `SmartSearchService.sourceLabelFor` so the
+    /// footer matches what the cascade logs use.
+    private static func sourceDisplayLabel(for id: String) -> String {
+        switch id.lowercased() {
+        case "ads": return "ADS"
+        case "arxiv": return "arXiv"
+        case "openalex": return "OpenAlex"
+        case "crossref": return "Crossref"
+        case "pubmed": return "PubMed"
+        case "semanticscholar", "semantic_scholar": return "Semantic Scholar"
+        case "dblp": return "DBLP"
+        default: return id
+        }
     }
 
     @ViewBuilder

@@ -127,6 +127,13 @@ public final class SmartSearchService {
     /// Highlighted row for arrow-key navigation. nil when nothing focused.
     public var highlightedCandidateID: String?
 
+    /// Source IDs whose searches are still in flight while
+    /// `state == .candidates([...])`. Lets the overlay render a "still
+    /// searching X, Y" footer so the user knows more results may
+    /// arrive. Drained by the streaming fallback in `runFreeText` as
+    /// each source completes; cleared when all are done or on cancel.
+    public private(set) var pendingSourceIDs: Set<String> = []
+
     // MARK: Configuration
 
     /// Primary source for `.freeText` and `.fielded`. ADS speaks our query
@@ -202,12 +209,14 @@ public final class SmartSearchService {
         selectedCandidateIDs.removeAll()
         selectedBatchCandidates.removeAll()
         highlightedCandidateID = nil
+        pendingSourceIDs.removeAll()
     }
 
     /// Cancel any running task without wiping state — used on Esc.
     public func cancel() {
         currentTask?.cancel()
         currentTask = nil
+        pendingSourceIDs.removeAll()
     }
 
     // MARK: - Live classification (no LLM, every keystroke)
@@ -405,51 +414,114 @@ public final class SmartSearchService {
             return
         }
 
-        // Step 1b: relaxed ADS retry. The LLM-emitted query is often
-        // over-constrained (e.g. `author:"X" abs:(...) year:Y` requires
-        // every clause to match). When zero hits come back, drop the
-        // narrowest topic clause (`abs:(…)` first, then `title:(…)`) and
-        // retry against ADS before falling all the way back to arXiv +
-        // OpenAlex. Keeps known author/year/bibstem signals.
+        // Step 2 (streaming): when strict ADS returns 0, fire all the
+        // remaining lookups in PARALLEL — relaxed ADS + every fallback
+        // source — and stream candidates into the overlay as each one
+        // completes. The user sees results from the first source to
+        // return without waiting for the slowest (often arXiv, which
+        // also rate-limits). Cascade order is preserved through dedup
+        // priority: ADS-shaped results win over arXiv/OpenAlex matches
+        // for the same paper.
+        await streamFallbackSearches(
+            rawQuery: query,
+            relaxedADSQuery: Self.relaxADSQuery(plan.query)
+        )
+    }
+
+    /// Run the relaxed-ADS query (if any) plus every fallback source in
+    /// parallel and update `state = .candidates(...)` incrementally as
+    /// each one returns. Maintains `pendingSourceIDs` so the UI can
+    /// render a "still searching" footer.
+    private func streamFallbackSearches(
+        rawQuery: String,
+        relaxedADSQuery: String?
+    ) async {
         if Task.isCancelled { return }
-        let relaxedQuery = Self.relaxADSQuery(plan.query)
-        if let relaxed = relaxedQuery, relaxed != plan.query {
-            do {
-                let results = try await sourceManager.search(
-                    query: relaxed,
-                    sourceID: primarySourceID,
-                    maxResults: maxResultsPerSource
-                )
-                Logger.smartSearch.infoCapture(
-                    "smartsearch: \(primarySourceID) relaxed to '\(relaxed)' returned \(results.count) results",
-                    category: "smartsearch"
-                )
-                if !results.isEmpty {
-                    await renderSearchResults(results, sourceLabel: nil)
+
+        // Build the source/query pairs to dispatch in parallel.
+        // (sourceID, query, displayLabel)
+        var dispatch: [(sourceID: String, query: String, label: String)] = []
+        if let relaxed = relaxedADSQuery {
+            dispatch.append((primarySourceID, relaxed, "ADS (relaxed)"))
+        }
+        for sourceID in fallbackSourceIDs {
+            dispatch.append((sourceID, rawQuery, Self.sourceLabelFor(sourceID)))
+        }
+        guard !dispatch.isEmpty else {
+            state = .empty(reason: "No results. Try a broader query or different keywords.")
+            return
+        }
+
+        let labels = dispatch.map(\.label).joined(separator: " · ")
+        state = .resolving(detail: "Searching \(labels)…")
+        pendingSourceIDs = Set(dispatch.map(\.sourceID))
+
+        var aggregated: [SearchResult] = []
+        let totalCap = maxResultsPerSource * (1 + fallbackSourceIDs.count)
+        let sourceManagerLocal = sourceManager
+        let perSourceMax = maxResultsPerSource
+
+        await withTaskGroup(of: (sourceID: String, results: [SearchResult]).self) { group in
+            for entry in dispatch {
+                let entryQuery = entry.query
+                let entrySourceID = entry.sourceID
+                group.addTask { @Sendable in
+                    do {
+                        let r = try await sourceManagerLocal.search(
+                            query: entryQuery,
+                            sourceID: entrySourceID,
+                            maxResults: perSourceMax
+                        )
+                        Logger.smartSearch.infoCapture(
+                            "smartsearch (stream): \(entrySourceID) returned \(r.count) for '\(entryQuery)'",
+                            category: "smartsearch"
+                        )
+                        return (entrySourceID, r)
+                    } catch {
+                        Logger.smartSearch.warningCapture(
+                            "smartsearch (stream): \(entrySourceID) failed: \(error.localizedDescription)",
+                            category: "smartsearch"
+                        )
+                        return (entrySourceID, [])
+                    }
+                }
+            }
+            for await (sourceID, results) in group {
+                if Task.isCancelled {
+                    pendingSourceIDs.removeAll()
                     return
                 }
-            } catch {
-                Logger.smartSearch.warningCapture(
-                    "smartsearch: \(primarySourceID) relaxed-retry failed: \(error.localizedDescription)",
-                    category: "smartsearch"
-                )
+                aggregated.append(contentsOf: results)
+                pendingSourceIDs.remove(sourceID)
+                renderProgressive(aggregated, totalCap: totalCap)
             }
         }
 
-        // Step 2: fall back to arXiv + OpenAlex with the user's RAW input,
-        // not the ADS Lucene rewrite (those sources can't parse ADS syntax).
-        if Task.isCancelled { return }
-        let labels = fallbackSourceIDs.map(Self.sourceLabelFor).joined(separator: " · ")
-        state = .resolving(detail: "Trying \(labels)…")
-        let options = SearchOptions(
-            maxResults: maxResultsPerSource * fallbackSourceIDs.count,
-            sourceIDs: fallbackSourceIDs
-        )
-        do {
-            let results = try await sourceManager.search(query: query, options: options)
-            await renderSearchResults(results, sourceLabel: nil)
-        } catch {
-            await handleSearchError(error, query: query)
+        pendingSourceIDs.removeAll()
+
+        // Final state: if NOTHING came back across all sources, surface
+        // the empty-result message; otherwise we already streamed
+        // candidates and the existing state is correct.
+        if case .resolving = state {
+            state = .empty(reason: "No matches in ADS, arXiv, or OpenAlex. Try rephrasing.")
+        }
+    }
+
+    /// Map raw search results to candidates, dedup, set
+    /// `state = .candidates(deduped)`. Auto-highlight first row when no
+    /// row is currently highlighted (so streaming-in results don't reset
+    /// the user's selection).
+    private func renderProgressive(
+        _ results: [SearchResult],
+        totalCap: Int
+    ) {
+        let candidates = results.prefix(totalCap)
+            .map { Self.candidate(fromSearch: $0, fallbackSourceLabel: nil) }
+        let deduped = Self.dedup(candidates)
+        guard !deduped.isEmpty else { return }
+        state = .candidates(deduped)
+        if highlightedCandidateID == nil {
+            highlightedCandidateID = deduped.first?.id
         }
     }
 
