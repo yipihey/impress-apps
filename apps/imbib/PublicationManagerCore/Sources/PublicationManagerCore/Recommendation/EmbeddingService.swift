@@ -687,11 +687,23 @@ public actor EmbeddingService {
 
 extension EmbeddingService {
 
+    /// Minimum interval between embedding-index rebuilds. The
+    /// `.rustStoreDidMutate` notification fires on every benign
+    /// mutation (tag toggles, flag changes, read-status, library
+    /// reads, …) — most of those don't change the publication SET
+    /// the index is built from. Without this guard the index
+    /// rebuilds on most Cmd+F invocations, taking 5–25 s of
+    /// blocking work each time.
+    private static let minRebuildInterval: TimeInterval = 60
+
     /// Set up notification observers for reactive index updates.
     ///
     /// Call this once on app startup. The service will then automatically:
-    /// - Mark the index stale when data changes
+    /// - Mark the index stale when the publication SET actually changes
     /// - Rebuild lazily before the next scoring operation
+    ///
+    /// Tag / flag / read-status / collection-membership mutations no
+    /// longer trigger a rebuild — only adds / removes do.
     public func setupChangeObservers() async {
         guard !observersSetUp else { return }
         observersSetUp = true
@@ -703,7 +715,7 @@ extension EmbeddingService {
                 queue: .main
             ) { [weak self] _ in
                 Task {
-                    await self?.markStale()
+                    await self?.maybeMarkStale()
                 }
             }
         }
@@ -712,7 +724,54 @@ extension EmbeddingService {
     }
 
     /// Mark the index as stale, requiring rebuild before next use.
+    /// Public so explicit callers (e.g. test code, settings "rebuild now"
+    /// affordance) can force it. Reactive paths should prefer
+    /// `maybeMarkStale()` which gates on actual publication-set change.
     public func markStale() {
+        isStale = true
+        invalidateCache()
+    }
+
+    /// Reactive `.rustStoreDidMutate` handler. Only marks the index
+    /// stale when the publication COUNT across indexed libraries
+    /// has actually changed — i.e. a paper was added or removed.
+    /// Title / abstract / author edits to existing papers are missed
+    /// by this cheap heuristic, but in practice those are rare in a
+    /// research-library workflow and the user can hit "rebuild
+    /// embedding index" in Settings if they edit at scale.
+    public func maybeMarkStale() async {
+        // No index yet — nothing to invalidate.
+        guard isIndexBuilt, !indexedLibraryIDs.isEmpty else { return }
+
+        // Min-interval guard: even when something legitimately
+        // changed, debounce rapid bursts (e.g. batch imports posting
+        // dozens of notifications) so we don't queue rebuilds.
+        if let last = lastBuildDate,
+           Date().timeIntervalSince(last) < Self.minRebuildInterval {
+            return
+        }
+
+        // Cheap check: compare CURRENT count of pubs across indexed
+        // libraries against the count we indexed last time. Same
+        // count → no add / remove since last build → don't mark.
+        // Capture actor-isolated state into a local before hopping to
+        // MainActor (the store reads are main-actor).
+        let libIDs = indexedLibraryIDs
+        let previousCount = indexedPublicationIDs.count
+        let currentCount = await MainActor.run { () -> Int in
+            var total = 0
+            for libID in libIDs {
+                total += RustStoreAdapter.shared.queryPublications(parentId: libID).count
+            }
+            return total
+        }
+        if currentCount == previousCount {
+            return
+        }
+
+        Logger.embeddingService.info(
+            "Embedding index marked stale: pub count changed \(previousCount) → \(currentCount)"
+        )
         isStale = true
         invalidateCache()
     }
