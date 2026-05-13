@@ -1,0 +1,42 @@
+# rust-analyzer configuration for the impress-apps Cargo workspace.
+#
+# The root `Cargo.toml` is a proper workspace listing all 27 crates, so
+# rust-analyzer auto-discovers them — `linkedProjects` is redundant.
+# What IS worth pinning are the settings that materially improve
+# diagnostics for this codebase: proc-macro support (UniFFI), `clippy`
+# on save for early lint feedback, and `--all-targets` so test code
+# and examples participate in the diagnostic set.
+
+# Use clippy instead of `cargo check` so we get the stricter lint pass
+# on every save. Slightly slower than `check` but catches a lot more.
+[check]
+command = "clippy"
+allTargets = true
+extraArgs = ["--workspace", "--", "-D", "warnings"]
+
+# Enable proc-macro server. UniFFI's `#[uniffi::export]`, `#[derive(uniffi::Record)]`,
+# and `#[derive(uniffi::Enum)]` are proc macros — without this rust-analyzer
+# reports them as unknown attributes and downstream symbols (e.g. the
+# generated Swift bindings module shapes) show as errors.
+[procMacro]
+enable = true
+
+# Build all targets when analyzing — keeps test crates' deps resolved
+# and surfaces test-only errors as you edit lib code.
+[cargo]
+allTargets = true
+buildScripts = { enable = true }
+
+# Inlay hints — useful for a multi-crate workspace where types cross
+# FFI boundaries. Kept conservative to avoid visual noise.
+[inlayHints]
+typeHints = { enable = true }
+parameterHints = { enable = true }
+chainingHints = { enable = false }
+closureReturnTypeHints = { enable = "never" }
+
+# Workspace-wide diagnostics: don't suppress warnings just because they
+# live in a different crate than the file you're editing.
+[diagnostics]
+enable = true
+experimental = { enable = true }
