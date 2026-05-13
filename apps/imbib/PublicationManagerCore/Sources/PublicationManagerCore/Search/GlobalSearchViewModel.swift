@@ -102,18 +102,31 @@ public final class GlobalSearchViewModel {
             try? await Task.sleep(for: debounceDelay)
             guard !Task.isCancelled else { return }
 
-            // Run fulltext, semantic, and chunk searches in parallel
+            // Phased streaming: FTS is the fastest path (Tantivy, typically
+            // < 100 ms). Publish FTS hits to the UI immediately, then merge
+            // semantic + chunks as they catch up. Pre-regression behaviour
+            // awaited all three in parallel, so a slow first-launch ANN
+            // rebuild (5–25 s) blocked even fast FTS hits from showing.
+            // Now the user sees something within a frame or two and the
+            // slower paths refine the list.
             async let ftsTask = performFulltextSearch()
             async let semanticTask = performSemanticSearch()
             async let chunkTask = performChunkSearch()
 
-            let (ftsResults, semanticResults, chunkResults) = await (ftsTask, semanticTask, chunkTask)
-
+            // Phase 1 — FTS first.
+            let ftsResults = await ftsTask
             guard !Task.isCancelled else { return }
+            results = mergeResults(fts: ftsResults, semantic: [], chunks: [])
 
-            // Merge and deduplicate results
+            // Phase 2 — semantic merges in.
+            let semanticResults = await semanticTask
+            guard !Task.isCancelled else { return }
+            results = mergeResults(fts: ftsResults, semantic: semanticResults, chunks: [])
+
+            // Phase 3 — chunks last.
+            let chunkResults = await chunkTask
+            guard !Task.isCancelled else { return }
             let merged = mergeResults(fts: ftsResults, semantic: semanticResults, chunks: chunkResults)
-
             results = merged
             isSearching = false
 
@@ -195,7 +208,7 @@ public final class GlobalSearchViewModel {
             return []
         }
         let results = await EmbeddingService.shared.searchByText(query, topK: 100)
-        logger.debug("Semantic search returned \(results.count) results")
+        logInfo("Semantic '\(query)' → \(results.count) hits", category: "search")
         return results
     }
 
