@@ -148,8 +148,15 @@ public actor FullTextSearchService {
         }
 
         do {
+            // Tantivy's default analyzer lowercases at INDEX time, so
+            // queries must be lowercased too or capitalised tokens like
+            // "Springel" in the indexed `authorString` won't match
+            // user-typed "springel". Tantivy's QueryParser does NOT
+            // apply analyzers to query terms by default, which is the
+            // root of the `'springel' → 0 hits` reports.
+            let normalizedQuery = query.lowercased()
             let hits = try await index.search(
-                query: query,
+                query: normalizedQuery,
                 limit: limit,
                 libraryId: libraryId?.uuidString
             )
