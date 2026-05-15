@@ -96,8 +96,10 @@ enum ROCrateBuilder {
                 "encodingFormat": mimeType(for: plot.exportFormat),
                 "isPartOf": ["@id": "./"]
             ]
-            // Per-figure provenance sidecar link is wired in Phase 4 (ADR-0014 D57)
-            // once VeuszPlotRef gains the provenanceRelativePath field.
+            if let provenancePath = plot.provenanceRelativePath {
+                // Link to the per-figure provenance sidecar (ADR-0014 D57).
+                fig["subjectOf"] = ["@id": provenancePath]
+            }
             figureEntities.append(fig)
         }
 

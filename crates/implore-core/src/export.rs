@@ -269,6 +269,16 @@ pub struct ExportMetadata {
 
     /// Software version
     pub software_version: String,
+
+    /// SHA-256 hex digest of the input dataset file at render time, if
+    /// caller pre-computed it. Empty means "not recorded". (ADR-0014 D57.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_hash: Option<String>,
+
+    /// Free-form keyed parameters used to produce this export — camera,
+    /// axes, colormap, generator-specific knobs. (ADR-0014 D57.)
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub parameters: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for ExportMetadata {
@@ -280,8 +290,93 @@ impl Default for ExportMetadata {
             point_count: 0,
             view_state: None,
             software_version: env!("CARGO_PKG_VERSION").to_string(),
+            dataset_hash: None,
+            parameters: std::collections::BTreeMap::new(),
         }
     }
+}
+
+/// Emit a JSON-LD provenance sidecar next to a rendered export file.
+///
+/// The sidecar is written at `<stem>.ro-crate.json` and is a minimal
+/// RO-Crate-compatible fragment with `@type: CreativeWork` plus a
+/// `wasDerivedFrom` pointing at the dataset name when known.
+///
+/// Per ADR-0014 D57: every rendered figure should ship with one of
+/// these. Exporters call this after the render artifact is on disk.
+pub fn emit_provenance_sidecar(
+    export_path: &std::path::Path,
+    metadata: &ExportMetadata,
+) -> std::io::Result<std::path::PathBuf> {
+    let sidecar = sidecar_path(export_path);
+
+    let mut graph = Vec::<serde_json::Value>::new();
+    let mut creative_work = serde_json::json!({
+        "@id": export_path.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+        "@type": "CreativeWork",
+        "dateCreated": metadata.created_at,
+        "creator": {
+            "@type": "SoftwareApplication",
+            "name": "implore",
+            "softwareVersion": metadata.software_version
+        }
+    });
+    if let Some(name) = &metadata.dataset_name {
+        creative_work["wasDerivedFrom"] = serde_json::json!({
+            "@type": "Dataset",
+            "name": name,
+        });
+    }
+    if let Some(hash) = &metadata.dataset_hash {
+        creative_work["isBasedOn"] = serde_json::json!({
+            "@type": "MediaObject",
+            "name": metadata.dataset_name.clone().unwrap_or_else(|| "dataset".into()),
+            "sha256": hash,
+        });
+    }
+    if !metadata.parameters.is_empty() {
+        // Carry parameters as a `variableMeasured` array — schema.org
+        // doesn't have an exact slot for "render parameters" but this
+        // is the closest semantically. Tools that don't understand
+        // it can still see the key/value content.
+        let vars: Vec<serde_json::Value> = metadata.parameters.iter()
+            .map(|(k, v)| serde_json::json!({
+                "@type": "PropertyValue",
+                "name": k,
+                "value": v,
+            }))
+            .collect();
+        creative_work["variableMeasured"] = serde_json::Value::Array(vars);
+    }
+    if let Some(point_count) = (metadata.point_count > 0).then_some(metadata.point_count) {
+        creative_work["size"] = serde_json::json!(point_count);
+    }
+    if let Some(session_id) = &metadata.session_id {
+        creative_work["isPartOf"] = serde_json::json!({ "@id": format!("#session-{session_id}") });
+    }
+
+    graph.push(creative_work);
+
+    let crate_doc = serde_json::json!({
+        "@context": "https://w3id.org/ro/crate/1.1/context",
+        "@graph": graph,
+    });
+
+    let json = serde_json::to_string_pretty(&crate_doc)?;
+    std::fs::write(&sidecar, json)?;
+    Ok(sidecar)
+}
+
+/// Compute the path of the provenance sidecar for an export file.
+/// `figure.png` -> `figure.ro-crate.json`. Always returns a path
+/// regardless of whether the sidecar exists.
+pub fn sidecar_path(export_path: &std::path::Path) -> std::path::PathBuf {
+    let stem = export_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
+    let parent = export_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    parent.join(format!("{}.ro-crate.json", stem))
 }
 
 /// Export data to CSV format
