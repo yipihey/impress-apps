@@ -27,6 +27,8 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [020](020-recommendation-engine.md) | Transparent Recommendation Engine | Proposed | 2026-01-19 |
 | [021](021-manuscript-tracking.md) | Manuscript Tracking | Superseded by impress ADR-0011 | 2026-01-19 |
 | [022](022-embedding-index-sync-strategy.md) | Embedding Index Sync Strategy | Accepted | 2026-01-21 |
+| [023](023-ios-migration-debt-and-parity-protocol.md) | iOS migration debt and iOS/macOS parity protocol | Accepted | 2026-04-10 |
+| [024](024-fair-alignment-typed-fields.md) | FAIR Alignment — Typed Attribution Fields (pointer to suite [ADR-0014](../../../../docs/ADR-0014-fair-alignment.md)) | Proposed | 2026-05-15 |
 
 ## What is an ADR?
 
