@@ -192,9 +192,27 @@ public class CDDocumentReference: NSManagedObject, Identifiable {
     @NSManaged public var license: String?
     @NSManaged public var embargoUntil: Date?
 
+    /// Typed semantics for the folder-membership relationship (ADR-0014 D56).
+    /// Defaults to "Contains" on legacy rows via lightweight migration. Values
+    /// mirror `crates/impress-core/src/reference.rs::EdgeType`; the small set
+    /// applicable here is Contains / Cites / Supersedes / DerivedFrom.
+    @NSManaged public var edgeType: String?
+
     // Relationships
     @NSManaged public var folder: CDFolder?
     @NSManaged public var workspace: CDWorkspace?
+}
+
+/// Edge types used by `CDDocumentReference.edgeType`. Mirrors a subset of the
+/// Rust `EdgeType` enum (ADR-0014 D56) — only the variants meaningful for
+/// a folder→document link are surfaced here.
+public enum CDDocumentReferenceEdgeType: String, CaseIterable, Sendable {
+    case contains   = "Contains"
+    case cites      = "Cites"
+    case supersedes = "Supersedes"
+    case derivedFrom = "DerivedFrom"
+
+    public static var defaultValue: CDDocumentReferenceEdgeType { .contains }
 }
 
 public extension CDDocumentReference {

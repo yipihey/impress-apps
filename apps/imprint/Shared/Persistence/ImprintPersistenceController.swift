@@ -355,6 +355,15 @@ public final class ImprintPersistenceController: @unchecked Sendable {
         embargoUntil.isOptional = true
         properties.append(embargoUntil)
 
+        // Typed edge label for the folder-membership relationship
+        // (ADR-0014 D56). Legacy rows migrate as NULL and are
+        // treated as `Contains` at the call site.
+        let edgeType = NSAttributeDescription()
+        edgeType.name = "edgeType"
+        edgeType.attributeType = .stringAttributeType
+        edgeType.isOptional = true
+        properties.append(edgeType)
+
         entity.properties = properties
         return entity
     }
