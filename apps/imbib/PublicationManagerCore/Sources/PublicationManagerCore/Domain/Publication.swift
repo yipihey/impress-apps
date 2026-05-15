@@ -49,6 +49,32 @@ public struct PublicationModel: Identifiable, Hashable, Sendable {
     public var publisher: String? { fields["publisher"] }
     public var booktitle: String? { fields["booktitle"] }
 
+    // FAIR attribution (ADR-0014 D54). Read from the same `fields` bag so
+    // BibTeX round-trip preserves them via the existing rawBibTeX channel.
+    public var orcid: String? { fields["orcid"] }
+    public var affiliation: String? { fields["affiliation"] }
+    public var funder: String? { fields["funder"] }
+    public var license: String? { fields["license"] }
+    public var embargoUntil: Date? {
+        guard let raw = fields["embargo_until"] else { return nil }
+        return PublicationModel.iso8601Formatter.date(from: raw)
+    }
+
+    /// Validates an ORCID iD string of the form `0000-0000-0000-0000`
+    /// (with optional `X` checksum digit in the last position).
+    public static func isValidORCID(_ candidate: String) -> Bool {
+        candidate.range(
+            of: #"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f
+    }()
+
     public var authorString: String {
         fields["author_text"] ?? authors.map(\.displayName).joined(separator: ", ")
     }

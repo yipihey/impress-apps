@@ -7,7 +7,7 @@ pub fn presentation_schema() -> Schema {
     Schema {
         id: "impress/artifact/presentation".into(),
         name: "Presentation".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -19,7 +19,7 @@ pub fn poster_schema() -> Schema {
     Schema {
         id: "impress/artifact/poster".into(),
         name: "Poster".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -31,7 +31,7 @@ pub fn dataset_schema() -> Schema {
     Schema {
         id: "impress/artifact/dataset".into(),
         name: "Dataset".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -43,7 +43,7 @@ pub fn webpage_schema() -> Schema {
     Schema {
         id: "impress/artifact/webpage".into(),
         name: "Web Page".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -55,7 +55,7 @@ pub fn note_schema() -> Schema {
     Schema {
         id: "impress/artifact/note".into(),
         name: "Note".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -67,7 +67,7 @@ pub fn media_schema() -> Schema {
     Schema {
         id: "impress/artifact/media".into(),
         name: "Media".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -79,7 +79,7 @@ pub fn code_schema() -> Schema {
     Schema {
         id: "impress/artifact/code".into(),
         name: "Code".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -91,7 +91,7 @@ pub fn general_schema() -> Schema {
     Schema {
         id: "impress/artifact/general".into(),
         name: "General Artifact".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: artifact_fields(),
         expected_edges: vec![EdgeType::Attaches, EdgeType::RelatesTo],
         inherits: None,
@@ -99,6 +99,8 @@ pub fn general_schema() -> Schema {
 }
 
 /// Common fields shared by all artifact schemas.
+///
+/// 1.1.0 (ADR-0014 D54): additive — five FAIR attribution fields.
 fn artifact_fields() -> Vec<FieldDef> {
     vec![
         required_string("title"),
@@ -115,6 +117,12 @@ fn artifact_fields() -> Vec<FieldDef> {
         optional_string("original_author"),
         optional_string("event_name"),
         optional_string("event_date"),
+        // FAIR attribution (ADR-0014 D54)
+        optional_string("orcid"),
+        optional_string("affiliation"),
+        optional_string("funder"),
+        optional_string("license"),
+        field("embargo_until", FieldType::DateTime, false),
     ]
 }
 

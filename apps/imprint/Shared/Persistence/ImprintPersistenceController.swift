@@ -60,6 +60,9 @@ public final class ImprintPersistenceController: @unchecked Sendable {
                 privateDesc.url = URL(fileURLWithPath: "/dev/null")
             }
 
+            privateDesc.shouldMigrateStoreAutomatically = true
+            privateDesc.shouldInferMappingModelAutomatically = true
+
             if enableCloudKit {
                 privateDesc.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
                     containerIdentifier: Self.cloudKitContainerID
@@ -88,6 +91,8 @@ public final class ImprintPersistenceController: @unchecked Sendable {
                 sharedDesc.cloudKitContainerOptions = sharedOptions
                 sharedDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
                 sharedDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+                sharedDesc.shouldMigrateStoreAutomatically = true
+                sharedDesc.shouldInferMappingModelAutomatically = true
 
                 container.persistentStoreDescriptions = [privateDesc, sharedDesc]
             }
@@ -303,6 +308,12 @@ public final class ImprintPersistenceController: @unchecked Sendable {
         fileBookmark.isOptional = true
         properties.append(fileBookmark)
 
+        let fileURLString = NSAttributeDescription()
+        fileURLString.name = "fileURLString"
+        fileURLString.attributeType = .stringAttributeType
+        fileURLString.isOptional = true
+        properties.append(fileURLString)
+
         let cachedTitle = NSAttributeDescription()
         cachedTitle.name = "cachedTitle"
         cachedTitle.attributeType = .stringAttributeType
@@ -328,6 +339,21 @@ public final class ImprintPersistenceController: @unchecked Sendable {
         sortOrder.isOptional = false
         sortOrder.defaultValue = Int16(0)
         properties.append(sortOrder)
+
+        // FAIR attribution fields (ADR-0014 D54). All optional; lightweight
+        // migration adds them as NULL on existing rows.
+        for fieldName in ["orcid", "affiliation", "funder", "license"] {
+            let attr = NSAttributeDescription()
+            attr.name = fieldName
+            attr.attributeType = .stringAttributeType
+            attr.isOptional = true
+            properties.append(attr)
+        }
+        let embargoUntil = NSAttributeDescription()
+        embargoUntil.name = "embargoUntil"
+        embargoUntil.attributeType = .dateAttributeType
+        embargoUntil.isOptional = true
+        properties.append(embargoUntil)
 
         entity.properties = properties
         return entity

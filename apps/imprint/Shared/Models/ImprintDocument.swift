@@ -68,6 +68,24 @@ struct ImprintDocument: FileDocument, Equatable {
     /// Document snapshot for undo (CRDT bytes)
     private var automergeData: Data?
 
+    /// Tracked Veusz plots (figures/*.vsz). Empty for documents that haven't
+    /// added any plots yet, including all pre-v1.3 documents.
+    var plots: [VeuszPlotRef] = []
+
+    /// File contents under `figures/` in the package, keyed by name (e.g. "pulse.vsz").
+    /// Carries every file in `figures/` through a read → write round-trip so manuscripts
+    /// don't silently lose plot sources or rendered figures while Phase 1 lays the model
+    /// groundwork. Phase 3 replaces this with a per-document working directory.
+    var figureFiles: [String: Data] = [:]
+
+    // FAIR attribution (ADR-0014 D54, schema v1.4+). All optional. `embargoUntil`
+    // is informational only — no enforcement code paths.
+    var orcid: String? = nil
+    var affiliation: String? = nil
+    var funder: String? = nil
+    var license: String? = nil
+    var embargoUntil: Date? = nil
+
     // MARK: - FileDocument
 
     static var readableContentTypes: [UTType] { [.imprintDocument, .latexSource, .plainText] }
@@ -114,6 +132,13 @@ struct ImprintDocument: FileDocument, Equatable {
                     modifiedAt = metadata.modifiedAt
                     linkedImbibManuscriptID = metadata.linkedImbibManuscriptID
                     linkedImbibLibraryID = metadata.linkedImbibLibraryID
+                    plots = metadata.plots
+                    // FAIR fields (ADR-0014 D54). Default to nil for older docs.
+                    orcid = metadata.orcid
+                    affiliation = metadata.affiliation
+                    funder = metadata.funder
+                    license = metadata.license
+                    embargoUntil = metadata.embargoUntil
 
                     // Validate schema version
                     let checker = DocumentVersionChecker()
@@ -151,6 +176,32 @@ struct ImprintDocument: FileDocument, Equatable {
             if let crdtWrapper = wrapper["document.crdt"],
                let data = crdtWrapper.regularFileContents {
                 automergeData = data
+            }
+
+            // Read figures/ directory (Veusz plot sources + rendered outputs)
+            if let figuresWrapper = wrapper["figures"],
+               figuresWrapper.isDirectory,
+               let children = figuresWrapper.fileWrappers {
+                for (name, child) in children {
+                    if let data = child.regularFileContents {
+                        figureFiles[name] = data
+                    }
+                }
+            }
+
+            // Read RO-Crate overlay (ADR-0014 D55). When the overlay is
+            // present, its FAIR fields take precedence over metadata.json's
+            // — this lets an external editor mutate the overlay and have
+            // those changes respected on next open.
+            if let crateWrapper = wrapper[ROCrateBuilder.manifestFilename],
+               let crateData = crateWrapper.regularFileContents,
+               let lifted = ROCrateBuilder.readFAIRFields(from: crateData),
+               !lifted.isEmpty {
+                if let v = lifted.orcid { orcid = v }
+                if let v = lifted.affiliation { affiliation = v }
+                if let v = lifted.funder { funder = v }
+                if let v = lifted.license { license = v }
+                if let v = lifted.embargoUntil { embargoUntil = v }
             }
 
         } else {
@@ -254,7 +305,13 @@ struct ImprintDocument: FileDocument, Equatable {
             createdAt: createdAt,
             modifiedAt: Date(),
             linkedImbibManuscriptID: linkedImbibManuscriptID,
-            lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+            plots: plots,
+            orcid: orcid,
+            affiliation: affiliation,
+            funder: funder,
+            license: license,
+            embargoUntil: embargoUntil
         )
         metadata.linkedImbibLibraryID = linkedImbibLibraryID
         let encoder = JSONEncoder()
@@ -275,6 +332,28 @@ struct ImprintDocument: FileDocument, Equatable {
         // CRDT state (if available)
         if let crdtData = automergeData {
             wrappers["document.crdt"] = FileWrapper(regularFileWithContents: crdtData)
+        }
+
+        // figures/ directory (Veusz plot sources + rendered outputs).
+        // Only emit the directory when there are figures to write so old
+        // documents that never touched the feature stay byte-identical on disk.
+        if !figureFiles.isEmpty {
+            var figureWrappers: [String: FileWrapper] = [:]
+            for (name, data) in figureFiles {
+                let child = FileWrapper(regularFileWithContents: data)
+                child.preferredFilename = name
+                figureWrappers[name] = child
+            }
+            let figuresDirectory = FileWrapper(directoryWithFileWrappers: figureWrappers)
+            figuresDirectory.preferredFilename = "figures"
+            wrappers["figures"] = figuresDirectory
+        }
+
+        // RO-Crate metadata overlay (ADR-0014 D55). Regenerated on every save.
+        // metadata.json stays authoritative; this is a FAIR-tool-readable view.
+        let bibKeys = Array(bibliography.keys).sorted()
+        if let crateData = ROCrateBuilder.build(for: self, bibKeys: bibKeys) {
+            wrappers[ROCrateBuilder.manifestFilename] = FileWrapper(regularFileWithContents: crateData)
         }
 
         // Notify listeners that a save occurred
@@ -405,6 +484,16 @@ struct DocumentMetadata: Codable {
     /// App version that last saved this document.
     var lastSavedByAppVersion: String?
 
+    /// Tracked Veusz plots. Empty for v1.2 and older documents.
+    var plots: [VeuszPlotRef]
+
+    // FAIR attribution (ADR-0014 D54, schema v1.4+). All optional.
+    var orcid: String?
+    var affiliation: String?
+    var funder: String?
+    var license: String?
+    var embargoUntil: Date?
+
     init(
         schemaVersion: Int = DocumentSchemaVersion.current.rawValue,
         id: UUID = UUID(),
@@ -413,7 +502,13 @@ struct DocumentMetadata: Codable {
         createdAt: Date,
         modifiedAt: Date,
         linkedImbibManuscriptID: UUID? = nil,
-        lastSavedByAppVersion: String? = nil
+        lastSavedByAppVersion: String? = nil,
+        plots: [VeuszPlotRef] = [],
+        orcid: String? = nil,
+        affiliation: String? = nil,
+        funder: String? = nil,
+        license: String? = nil,
+        embargoUntil: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -423,6 +518,37 @@ struct DocumentMetadata: Codable {
         self.modifiedAt = modifiedAt
         self.linkedImbibManuscriptID = linkedImbibManuscriptID
         self.lastSavedByAppVersion = lastSavedByAppVersion
+        self.plots = plots
+        self.orcid = orcid
+        self.affiliation = affiliation
+        self.funder = funder
+        self.license = license
+        self.embargoUntil = embargoUntil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, title, authors, createdAt, modifiedAt
+        case linkedImbibManuscriptID, linkedImbibLibraryID, lastSavedByAppVersion, plots
+        case orcid, affiliation, funder, license, embargoUntil
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        authors = try c.decode([String].self, forKey: .authors)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        linkedImbibManuscriptID = try c.decodeIfPresent(UUID.self, forKey: .linkedImbibManuscriptID)
+        linkedImbibLibraryID = try c.decodeIfPresent(String.self, forKey: .linkedImbibLibraryID)
+        lastSavedByAppVersion = try c.decodeIfPresent(String.self, forKey: .lastSavedByAppVersion)
+        plots = try c.decodeIfPresent([VeuszPlotRef].self, forKey: .plots) ?? []
+        orcid = try c.decodeIfPresent(String.self, forKey: .orcid)
+        affiliation = try c.decodeIfPresent(String.self, forKey: .affiliation)
+        funder = try c.decodeIfPresent(String.self, forKey: .funder)
+        license = try c.decodeIfPresent(String.self, forKey: .license)
+        embargoUntil = try c.decodeIfPresent(Date.self, forKey: .embargoUntil)
     }
 
     /// Get the schema version as an enum, if valid.

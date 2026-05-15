@@ -171,6 +171,10 @@ public class CDDocumentReference: NSManagedObject, Identifiable {
     @NSManaged public var documentUUID: UUID?
     /// Security-scoped bookmark data for sandbox file access
     @NSManaged public var fileBookmark: Data?
+    /// Plain-text absolute path mirror of the file the bookmark resolves to.
+    /// Stored alongside `fileBookmark` so we can recover after a machine
+    /// migration (or signing-identity change) invalidates the bookmark blob.
+    @NSManaged public var fileURLString: String?
     /// Cached title from document metadata
     @NSManaged public var cachedTitle: String?
     /// Cached authors from document metadata
@@ -180,9 +184,28 @@ public class CDDocumentReference: NSManagedObject, Identifiable {
     /// Sort order within the folder
     @NSManaged public var sortOrder: Int16
 
+    // FAIR attribution (ADR-0014 D54). All optional. Informational only —
+    // `embargoUntil` does not gate any action.
+    @NSManaged public var orcid: String?
+    @NSManaged public var affiliation: String?
+    @NSManaged public var funder: String?
+    @NSManaged public var license: String?
+    @NSManaged public var embargoUntil: Date?
+
     // Relationships
     @NSManaged public var folder: CDFolder?
     @NSManaged public var workspace: CDWorkspace?
+}
+
+public extension CDDocumentReference {
+    /// Validates an ORCID iD string of the form `0000-0000-0000-0000`
+    /// (with optional `X` checksum digit in the last position).
+    static func isValidORCID(_ candidate: String) -> Bool {
+        candidate.range(
+            of: #"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$"#,
+            options: .regularExpression
+        ) != nil
+    }
 }
 
 public extension CDDocumentReference {

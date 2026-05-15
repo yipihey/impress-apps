@@ -38,10 +38,16 @@ public enum DocumentSchemaVersion: Int, Comparable, Codable, Sendable {
     /// Added CRDT state file (1.2)
     case v1_2 = 120
 
+    /// Added figures/ directory with Veusz plot tracking (1.3)
+    case v1_3 = 130
+
+    /// Added FAIR attribution fields and RO-Crate overlay (1.4) — ADR-0014.
+    case v1_4 = 140
+
     // MARK: - Current Version
 
     /// The current document format version.
-    public static let current: DocumentSchemaVersion = .v1_2
+    public static let current: DocumentSchemaVersion = .v1_4
 
     /// The minimum version this app can read.
     public static let minimumReadable: DocumentSchemaVersion = .v1_0
@@ -87,6 +93,10 @@ public enum DocumentSchemaVersion: Int, Comparable, Codable, Sendable {
             return "Added linked imbib manuscript ID for citation integration"
         case .v1_2:
             return "Added Automerge CRDT state for real-time collaboration"
+        case .v1_3:
+            return "Added figures/ directory with Veusz plot tracking"
+        case .v1_4:
+            return "Added FAIR attribution fields and ro-crate-metadata.json overlay"
         }
     }
 
@@ -99,6 +109,10 @@ public enum DocumentSchemaVersion: Int, Comparable, Codable, Sendable {
             return ["main.typ", "metadata.json", "bibliography.bib"]
         case .v1_2:
             return ["main.typ", "metadata.json", "bibliography.bib", "document.crdt"]
+        case .v1_3:
+            return ["main.typ", "metadata.json", "bibliography.bib", "document.crdt"]
+        case .v1_4:
+            return ["main.typ", "metadata.json", "bibliography.bib", "document.crdt"]
         }
     }
 
@@ -110,7 +124,11 @@ public enum DocumentSchemaVersion: Int, Comparable, Codable, Sendable {
         case .v1_1:
             return ["document.crdt"]
         case .v1_2:
-            return []
+            return ["figures"]
+        case .v1_3:
+            return ["figures"]
+        case .v1_4:
+            return ["figures", "ro-crate-metadata.json"]
         }
     }
 }
@@ -212,6 +230,16 @@ public struct VersionedDocumentMetadata: Codable {
     /// App version that last saved this document.
     public var lastSavedByAppVersion: String?
 
+    /// Tracked Veusz plots (figures/*.vsz). Empty for v1.2 and older documents.
+    public var plots: [VeuszPlotRef]
+
+    // FAIR attribution (ADR-0014 D54, schema v1.4+). All optional.
+    public var orcid: String?
+    public var affiliation: String?
+    public var funder: String?
+    public var license: String?
+    public var embargoUntil: Date?
+
     public init(
         schemaVersion: DocumentSchemaVersion = .current,
         id: UUID = UUID(),
@@ -220,7 +248,13 @@ public struct VersionedDocumentMetadata: Codable {
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         linkedImbibManuscriptID: UUID? = nil,
-        lastSavedByAppVersion: String? = nil
+        lastSavedByAppVersion: String? = nil,
+        plots: [VeuszPlotRef] = [],
+        orcid: String? = nil,
+        affiliation: String? = nil,
+        funder: String? = nil,
+        license: String? = nil,
+        embargoUntil: Date? = nil
     ) {
         self.schemaVersion = schemaVersion.rawValue
         self.id = id
@@ -230,6 +264,36 @@ public struct VersionedDocumentMetadata: Codable {
         self.modifiedAt = modifiedAt
         self.linkedImbibManuscriptID = linkedImbibManuscriptID
         self.lastSavedByAppVersion = lastSavedByAppVersion
+        self.plots = plots
+        self.orcid = orcid
+        self.affiliation = affiliation
+        self.funder = funder
+        self.license = license
+        self.embargoUntil = embargoUntil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, title, authors, createdAt, modifiedAt
+        case linkedImbibManuscriptID, lastSavedByAppVersion, plots
+        case orcid, affiliation, funder, license, embargoUntil
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        authors = try c.decode([String].self, forKey: .authors)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        linkedImbibManuscriptID = try c.decodeIfPresent(UUID.self, forKey: .linkedImbibManuscriptID)
+        lastSavedByAppVersion = try c.decodeIfPresent(String.self, forKey: .lastSavedByAppVersion)
+        plots = try c.decodeIfPresent([VeuszPlotRef].self, forKey: .plots) ?? []
+        orcid = try c.decodeIfPresent(String.self, forKey: .orcid)
+        affiliation = try c.decodeIfPresent(String.self, forKey: .affiliation)
+        funder = try c.decodeIfPresent(String.self, forKey: .funder)
+        license = try c.decodeIfPresent(String.self, forKey: .license)
+        embargoUntil = try c.decodeIfPresent(Date.self, forKey: .embargoUntil)
     }
 
     /// Get the schema version as an enum, if valid.
@@ -328,6 +392,12 @@ public actor DocumentMigrator {
                 try await migrateFrom1_1To1_2(at: url)
                 currentVersion = .v1_2
             case .v1_2:
+                try await migrateFrom1_2To1_3(at: url)
+                currentVersion = .v1_3
+            case .v1_3:
+                try await migrateFrom1_3To1_4(at: url)
+                currentVersion = .v1_4
+            case .v1_4:
                 // Already at current
                 break
             }
@@ -350,6 +420,20 @@ public actor DocumentMigrator {
         // v1.1 -> v1.2: Add empty CRDT state if not present
         // CRDT state is optional at this point, will be created on first edit
         Logger.documents.infoCapture("Migrated v1.1 → v1.2: Ready for CRDT state", category: "documents")
+    }
+
+    private func migrateFrom1_2To1_3(at url: URL) async throws {
+        // v1.2 -> v1.3: figures/ directory + plots[] in metadata. Both default to empty;
+        // existing documents simply start tracking plots from zero.
+        Logger.documents.infoCapture("Migrated v1.2 → v1.3: Ready for Veusz plot tracking", category: "documents")
+    }
+
+    private func migrateFrom1_3To1_4(at url: URL) async throws {
+        // v1.3 -> v1.4: FAIR attribution fields default to nil; ro-crate-metadata.json
+        // emitted on next save (ROCrateBuilder runs in fileWrapper).
+        // Existing documents are byte-compatible: the new optional fields decode as nil,
+        // and the overlay is added on the next save.
+        Logger.documents.infoCapture("Migrated v1.3 → v1.4: FAIR attribution fields available; RO-Crate overlay will emit on next save", category: "documents")
     }
 
     private func migrateLegacyDocument(at url: URL) async throws {
@@ -408,7 +492,13 @@ public actor DocumentMigrator {
             createdAt: metadata.createdAt,
             modifiedAt: Date(),
             linkedImbibManuscriptID: metadata.linkedImbibManuscriptID,
-            lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            lastSavedByAppVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+            plots: metadata.plots,
+            orcid: metadata.orcid,
+            affiliation: metadata.affiliation,
+            funder: metadata.funder,
+            license: metadata.license,
+            embargoUntil: metadata.embargoUntil
         )
 
         let encoder = JSONEncoder()

@@ -3,11 +3,13 @@ use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
 /// Schema for bibliography entries (articles, books, preprints, theses, etc.).
+///
+/// 1.1.0 (ADR-0014 D54): additive — five FAIR attribution fields.
 pub fn bibliography_entry_schema() -> Schema {
     Schema {
         id: "bibliography-entry".into(),
         name: "Bibliography Entry".into(),
-        version: "1.0.0".into(),
+        version: "1.1.0".into(),
         fields: vec![
             required_string("cite_key"),
             required_string("entry_type"),
@@ -22,6 +24,13 @@ pub fn bibliography_entry_schema() -> Schema {
             optional_string("journal"),
             optional_string("venue"),
             optional_string("bibcode"),
+            // FAIR attribution fields (ADR-0014 D54). Item-level — per-author
+            // ORCID modeling is deferred until authors-as-items.
+            optional_string("orcid"),
+            optional_string("affiliation"),
+            optional_string("funder"),
+            optional_string("license"),
+            field("embargo_until", FieldType::DateTime, false),
         ],
         expected_edges: vec![EdgeType::Cites, EdgeType::Attaches],
         inherits: None,
