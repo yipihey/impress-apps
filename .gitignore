@@ -45,7 +45,11 @@ apps/*/*.xcodeproj/
 **/frameworks/
 **/*.xcframework/
 **/*RustCore/
-**/Packages/*/Tests/
+# Tests under app-embedded Packages/ are built into the app target and
+# shouldn't be tracked separately. Top-level packages/*/Tests/ (SPM
+# package tests) ARE tracked — earlier `**/Packages/*/Tests/` rule was
+# too broad and silently dropped them.
+apps/*/Packages/*/Tests/
 
 # Environment
 .env
