@@ -154,7 +154,7 @@ final class CRDTRecoveryTests: XCTestCase {
         // Create document with corrupted CRDT
         let bundleURL = tempDirectory.appendingPathComponent("repair-test.imprint")
         let invalidData = Data([0x00, 0x00, 0x00, 0x00])
-        try createTestBundle(at: bundleURL, crdtContent: invalidData, sourceContent: "= Valid Source\n\nContent here.")
+        try createTestBundle(at: bundleURL, sourceContent: "= Valid Source\n\nContent here.", crdtContent: invalidData)
 
         // Repair should rebuild CRDT from source
         let result = try await validator.repairDocument(at: bundleURL)

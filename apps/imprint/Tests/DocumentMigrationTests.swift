@@ -21,13 +21,17 @@ final class DocumentMigrationTests: XCTestCase {
     func testDocumentSchemaVersionComparable() {
         XCTAssertLessThan(DocumentSchemaVersion.v1_0, DocumentSchemaVersion.v1_1)
         XCTAssertLessThan(DocumentSchemaVersion.v1_1, DocumentSchemaVersion.v1_2)
-        XCTAssertEqual(DocumentSchemaVersion.v1_2, DocumentSchemaVersion.current)
+        XCTAssertLessThan(DocumentSchemaVersion.v1_2, DocumentSchemaVersion.v1_3)
+        XCTAssertLessThan(DocumentSchemaVersion.v1_3, DocumentSchemaVersion.v1_4)
+        XCTAssertEqual(DocumentSchemaVersion.v1_4, DocumentSchemaVersion.current)
     }
 
     func testDocumentSchemaVersionDisplayString() {
         XCTAssertEqual(DocumentSchemaVersion.v1_0.displayString, "1.0")
         XCTAssertEqual(DocumentSchemaVersion.v1_1.displayString, "1.1")
         XCTAssertEqual(DocumentSchemaVersion.v1_2.displayString, "1.2")
+        XCTAssertEqual(DocumentSchemaVersion.v1_3.displayString, "1.3")
+        XCTAssertEqual(DocumentSchemaVersion.v1_4.displayString, "1.4")
     }
 
     func testDocumentSchemaVersionReadability() {
@@ -35,12 +39,16 @@ final class DocumentMigrationTests: XCTestCase {
         XCTAssertTrue(DocumentSchemaVersion.v1_0.isReadableByCurrentApp)
         XCTAssertTrue(DocumentSchemaVersion.v1_1.isReadableByCurrentApp)
         XCTAssertTrue(DocumentSchemaVersion.v1_2.isReadableByCurrentApp)
+        XCTAssertTrue(DocumentSchemaVersion.v1_3.isReadableByCurrentApp)
+        XCTAssertTrue(DocumentSchemaVersion.v1_4.isReadableByCurrentApp)
     }
 
     func testDocumentSchemaVersionNeedsMigration() {
         XCTAssertTrue(DocumentSchemaVersion.v1_0.needsMigration)
         XCTAssertTrue(DocumentSchemaVersion.v1_1.needsMigration)
-        XCTAssertFalse(DocumentSchemaVersion.v1_2.needsMigration) // Already current
+        XCTAssertTrue(DocumentSchemaVersion.v1_2.needsMigration)
+        XCTAssertTrue(DocumentSchemaVersion.v1_3.needsMigration)
+        XCTAssertFalse(DocumentSchemaVersion.v1_4.needsMigration) // Already current
     }
 
     func testDocumentSchemaVersionExpectedFiles() {
@@ -49,12 +57,17 @@ final class DocumentMigrationTests: XCTestCase {
         XCTAssertTrue(v1_0Files.contains("main.typ"))
         XCTAssertTrue(v1_0Files.contains("metadata.json"))
 
-        // v1.2 should have all files
-        let v1_2Files = DocumentSchemaVersion.v1_2.expectedFiles
-        XCTAssertTrue(v1_2Files.contains("main.typ"))
-        XCTAssertTrue(v1_2Files.contains("metadata.json"))
-        XCTAssertTrue(v1_2Files.contains("bibliography.bib"))
-        XCTAssertTrue(v1_2Files.contains("document.crdt"))
+        // v1.4 carries v1.3's files and gains ro-crate-metadata.json
+        // as an optional sibling (figures/ also optional).
+        let v1_4Files = DocumentSchemaVersion.v1_4.expectedFiles
+        XCTAssertTrue(v1_4Files.contains("main.typ"))
+        XCTAssertTrue(v1_4Files.contains("metadata.json"))
+        XCTAssertTrue(v1_4Files.contains("bibliography.bib"))
+        XCTAssertTrue(v1_4Files.contains("document.crdt"))
+
+        let v1_4Optional = DocumentSchemaVersion.v1_4.optionalFiles
+        XCTAssertTrue(v1_4Optional.contains("figures"))
+        XCTAssertTrue(v1_4Optional.contains("ro-crate-metadata.json"))
     }
 
     // MARK: - Version Checker Tests
