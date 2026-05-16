@@ -95,13 +95,16 @@ public enum IntentClassifier {
             }
         }
 
-        // arxiv.org/abs/<id>  or  arxiv.org/pdf/<id>(.pdf)
+        // arxiv.org/abs/<id>  |  arxiv.org/pdf/<id>(.pdf)  |  arxiv.org/html/<id>(.html)
+        // `html` is arXiv's HTML rendering (launched 2024) — without it, the
+        // URL falls through to page-fetch which scrapes every reference on
+        // the article, drowning the actual paper in a batch of unrelated ids.
         if host.hasSuffix("arxiv.org") {
             let segments = path.split(separator: "/").map(String.init)
-            if segments.count >= 2, segments[0] == "abs" || segments[0] == "pdf" {
+            if segments.count >= 2, ["abs", "pdf", "html"].contains(segments[0]) {
                 var id = segments.dropFirst().joined(separator: "/")
-                // Strip trailing .pdf and version suffix-stripping is OK to keep.
                 if id.hasSuffix(".pdf") { id = String(id.dropLast(4)) }
+                if id.hasSuffix(".html") { id = String(id.dropLast(5)) }
                 if id.range(of: #"^(\d{4}\.\d{4,5}(v\d+)?|[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?)$"#,
                             options: .regularExpression) != nil {
                     return .arxiv(id)
