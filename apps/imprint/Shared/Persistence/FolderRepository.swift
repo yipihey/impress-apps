@@ -171,6 +171,7 @@ public actor FolderRepository {
         ref.id = UUID()
         ref.documentUUID = documentUUID
         ref.fileBookmark = bookmarkData
+        ref.fileURLString = url.path
         ref.cachedTitle = title
         ref.cachedAuthors = authors
         ref.dateAdded = Date()

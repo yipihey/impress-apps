@@ -118,6 +118,7 @@ public actor SharedWorkspaceCopyService {
             newRef.id = UUID()
             newRef.documentUUID = docRef.documentUUID
             newRef.fileBookmark = docRef.fileBookmark
+            newRef.fileURLString = docRef.fileURLString
             newRef.cachedTitle = docRef.cachedTitle
             newRef.cachedAuthors = docRef.cachedAuthors
             newRef.dateAdded = Date()

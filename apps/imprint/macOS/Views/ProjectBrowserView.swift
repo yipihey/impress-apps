@@ -157,17 +157,97 @@ struct ProjectBrowserView: View {
                     relativeTo: nil
                 ) {
                     ref.fileBookmark = newBookmark
+                    ref.fileURLString = url.path
                     try? ref.managedObjectContext?.save()
                 }
             }
         } catch {
             Logger.documents.errorCapture(
-                "Open '\(title)' failed to resolve bookmark: \(error.localizedDescription)",
+                "Open '\(title)' failed to resolve bookmark: \(error.localizedDescription) — attempting recovery",
+                category: "documents"
+            )
+            attemptBookmarkRecovery(for: ref, bookmark: bookmark)
+            return
+        }
+
+        // Mirror the resolved path into fileURLString if it isn't set yet,
+        // so future machine-migrations can drive the recovery panel without
+        // having to crack open the bookmark blob.
+        if ref.fileURLString != url.path {
+            ref.fileURLString = url.path
+            try? ref.managedObjectContext?.save()
+        }
+
+        openResolvedURL(url, title: title, ref: ref)
+    }
+
+    /// Drives a fresh `NSOpenPanel` pre-targeted at the file's last known
+    /// path so the user can re-grant sandbox access in one click, then
+    /// re-bookmarks and continues opening.
+    private func attemptBookmarkRecovery(for ref: CDDocumentReference, bookmark: Data) {
+        let title = ref.displayTitle
+        let recoveredPath = ref.fileURLString ?? DocumentBookmarkService.path(fromBookmark: bookmark)
+
+        guard let path = recoveredPath, !path.isEmpty else {
+            Logger.documents.errorCapture(
+                "Recovery for '\(title)' failed: no path stored on ref and bookmark blob does not expose one",
                 category: "documents"
             )
             return
         }
 
+        let originalURL = URL(fileURLWithPath: path)
+        let filename = originalURL.lastPathComponent
+
+        let panel = NSOpenPanel()
+        panel.message = "imprint needs your permission to access \"\(filename)\" again. This usually happens after migrating to a new Mac or signing change — pick the same file to restore access."
+        panel.prompt = "Grant Access"
+        panel.directoryURL = originalURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = filename
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: originalURL.pathExtension)
+        ].compactMap { $0 }
+
+        panel.begin { response in
+            guard response == .OK, let chosen = panel.url else {
+                Logger.documents.infoCapture("Recovery for '\(title)' cancelled by user", category: "documents")
+                return
+            }
+
+            // NSOpenPanel-returned URLs carry an implicit grant, so we can
+            // mint a security-scoped bookmark from them directly without
+            // calling startAccessingSecurityScopedResource first.
+            let scopedURL: URL
+            do {
+                let newBookmark = try DocumentBookmarkService.createBookmark(for: chosen)
+                ref.fileBookmark = newBookmark
+                ref.fileURLString = chosen.path
+                try ref.managedObjectContext?.save()
+                // Resolve the fresh bookmark right away so the URL we pass
+                // to NSDocumentController is properly security-scoped and
+                // works with `startAccessingSecurityScopedResource`.
+                let (resolved, _) = try DocumentBookmarkService.resolveBookmark(newBookmark)
+                scopedURL = resolved
+                Logger.documents.infoCapture(
+                    "Recovery for '\(title)' succeeded — re-bookmarked \(chosen.path)",
+                    category: "documents"
+                )
+            } catch {
+                Logger.documents.errorCapture(
+                    "Recovery for '\(title)' failed during bookmark creation: \(error.localizedDescription)",
+                    category: "documents"
+                )
+                return
+            }
+
+            openResolvedURL(scopedURL, title: title, ref: ref)
+        }
+    }
+
+    private func openResolvedURL(_ url: URL, title: String, ref: CDDocumentReference) {
         Logger.documents.infoCapture(
             "Open '\(title)' resolved to \(url.path)",
             category: "documents"

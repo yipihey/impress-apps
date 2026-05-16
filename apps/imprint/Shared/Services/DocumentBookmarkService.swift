@@ -33,6 +33,15 @@ public enum DocumentBookmarkService {
         return (url, isStale)
     }
 
+    /// Read the original absolute path embedded in a bookmark blob without
+    /// performing security-scoped resolution. Useful for recovery when the
+    /// bookmark itself can no longer be resolved (e.g. after machine
+    /// migration or signing-identity change).
+    public static func path(fromBookmark data: Data) -> String? {
+        let values = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)
+        return values?.path
+    }
+
     /// Refresh a stale bookmark on a CDDocumentReference
     @MainActor
     public static func refreshStaleBookmark(for ref: CDDocumentReference) {
@@ -50,6 +59,7 @@ public enum DocumentBookmarkService {
 
             let newBookmark = try createBookmark(for: url)
             ref.fileBookmark = newBookmark
+            ref.fileURLString = url.path
             try ref.managedObjectContext?.save()
 
             Logger.bookmarks.infoCapture("Refreshed stale bookmark for '\(ref.displayTitle)'", category: "bookmarks")
