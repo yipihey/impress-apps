@@ -151,6 +151,19 @@ targets:
             UTTypeDescription: Impress Figure Reference
             UTTypeIdentifier: com.impress.figure-reference
             UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+              - public.plain-text
+            UTTypeDescription: Veusz Plot
+            UTTypeIdentifier: org.veusz.document
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - vsz
     entitlements:
       path: macOS/imprint.entitlements
       properties:
@@ -285,6 +298,19 @@ targets:
             UTTypeDescription: Impress Figure Reference
             UTTypeIdentifier: com.impress.figure-reference
             UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+              - public.plain-text
+            UTTypeDescription: Veusz Plot
+            UTTypeIdentifier: org.veusz.document
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - vsz
     entitlements:
       path: imprint-iOS/imprint-iOS.entitlements
       properties:

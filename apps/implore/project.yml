@@ -87,6 +87,12 @@ targets:
             UTTypeDescription: Impress Figure Reference
             UTTypeIdentifier: com.impress.figure-reference
             UTTypeTagSpecification: {}
+        UTImportedTypeDeclarations:
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: Implore/implore.entitlements
       properties:

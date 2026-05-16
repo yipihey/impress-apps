@@ -763,6 +763,77 @@ export class ImprintClient {
     if (!res.ok) throw new Error(`Reject comment failed: ${res.statusText}`);
     return (await res.json()) as { status: string; commentId: string; rejected: boolean };
   }
+
+  // MARK: - Veusz plots (Phase 7)
+
+  async listVeuszPlots(documentId?: string): Promise<{
+    plots: Array<{
+      id: string;
+      title: string;
+      documentID: string;
+      renderedFormat: string;
+      renderedRelativePath: string;
+      lastRenderedAt?: string | null;
+    }>;
+  }> {
+    const url = documentId
+      ? `${this.baseURL}/api/veusz/plots?documentId=${encodeURIComponent(documentId)}`
+      : `${this.baseURL}/api/veusz/plots`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`List Veusz plots failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; count: number; plots: Array<{
+      id: string; title: string; documentID: string;
+      renderedFormat: string; renderedRelativePath: string;
+      lastRenderedAt?: string | null;
+    }>; error?: string };
+    if (data.status !== "ok") throw new Error(data.error || "List Veusz plots failed");
+    return { plots: data.plots };
+  }
+
+  async openVeuszPlot(plotId: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/veusz/plots/${plotId}/open`, { method: "POST" });
+    if (!res.ok) throw new Error(`Open Veusz plot failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; error?: string };
+    return { ok: data.status === "ok" };
+  }
+
+  async renderVeuszPlot(plotId: string, format?: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/veusz/plots/${plotId}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(format ? { format } : {}),
+    });
+    if (!res.ok) throw new Error(`Render Veusz plot failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; error?: string };
+    return { ok: data.status === "ok" };
+  }
+
+  async insertVeuszPlot(documentId: string, plotId: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`${this.baseURL}/api/veusz/plots/${plotId}/insert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId }),
+    });
+    if (!res.ok) throw new Error(`Insert Veusz plot failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; error?: string };
+    return { ok: data.status === "ok" };
+  }
+
+  async createVeuszPlot(documentId: string, name: string): Promise<{
+    id: string; title: string; renderedRelativePath: string;
+  }> {
+    const res = await fetch(`${this.baseURL}/api/veusz/plots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId, name }),
+    });
+    if (!res.ok) throw new Error(`Create Veusz plot failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; plot?: { id: string; title: string; renderedRelativePath: string }; error?: string };
+    if (data.status !== "ok" || !data.plot) {
+      throw new Error(data.error || "Create Veusz plot failed");
+    }
+    return data.plot;
+  }
 }
 
 // MARK: - v2 / comment response types

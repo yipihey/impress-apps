@@ -51,5 +51,20 @@
 			<dict/>
 		</dict>
 	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Veusz Plot Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.veusz-plot-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
 </dict>
 </plist>

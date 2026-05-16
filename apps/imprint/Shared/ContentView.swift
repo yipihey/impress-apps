@@ -64,6 +64,9 @@ struct ContentView: View {
     #if os(macOS)
     /// Comment service for this document (macOS only)
     @State private var commentService = CommentService()
+
+    /// Veusz plot picker sheet visibility (Cmd+Shift+I / "Insert Veusz Plot…")
+    @State private var showingVeuszPlotPicker = false
     #endif
 
     /// Shared Typst renderer instance
@@ -357,6 +360,11 @@ struct ContentView: View {
         // HTTP API automation handlers (applied before platform-specific handlers)
         .modifier(AutomationHandlersModifier(document: $document))
         #if os(macOS)
+        .modifier(VeuszWiringModifier(
+            document: $document,
+            cursorPosition: cursorPosition,
+            showingVeuszPlotPicker: $showingVeuszPlotPicker
+        ))
         .onReceive(NotificationCenter.default.publisher(for: .openPaperPanel)) { notification in
             if let pubID = notification.userInfo?["publicationID"] as? String {
                 openPaperPublicationID = pubID
@@ -1264,6 +1272,7 @@ private struct NotificationHandlersModifier: ViewModifier {
                 (.toggleFocusMode, { _ in appState.isFocusMode.toggle() }),
                 (.toggleAIAssistant, { _ in withAnimation { appState.showingAIAssistant.toggle() } }),
                 (.toggleCommentsSidebar, { _ in withAnimation { appState.showingComments.toggle() } }),
+                (.toggleVeuszPlotsPanel, { _ in withAnimation { appState.showingVeuszPlots.toggle() } }),
                 (.exportPDF, { _ in onExportPDF() }),
                 (.printPDF, { _ in onPrintPDF() }),
                 (.showSymbolPalette, { _ in onShowSymbolPalette() }),

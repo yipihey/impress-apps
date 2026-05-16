@@ -97,6 +97,11 @@ targets:
             UTTypeDescription: Impress Paper Reference
             UTTypeIdentifier: com.impress.paper-reference
             UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: macOS/Resources/impart.entitlements
       properties:
@@ -201,6 +206,11 @@ targets:
               - public.data
             UTTypeDescription: Impress Paper Reference
             UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
             UTTypeTagSpecification: {}
     entitlements:
       path: impart-iOS/Resources/impart-iOS.entitlements

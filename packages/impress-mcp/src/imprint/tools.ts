@@ -694,6 +694,73 @@ export const IMPRINT_TOOLS: Tool[] = [
       required: ["commentId"],
     },
   },
+  // MARK: - Veusz plots (Phase 7)
+  // These tools expose imprint's first-class Veusz plot integration. The
+  // HTTP endpoints they call are added in a follow-up commit; until then the
+  // handlers return a stub message so agents see the API surface but get a
+  // useful error when invoking it.
+  {
+    name: "imprint_list_veusz_plots",
+    description:
+      "List Veusz plots tracked by a manuscript. Returns id, title, renderedRelativePath (the figures/*.svg path), exportFormat, and lastRenderedAt for each plot. Pass documentId to scope, or omit for all open documents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Manuscript UUID (optional)" },
+      },
+    },
+  },
+  {
+    name: "imprint_open_veusz_plot",
+    description:
+      "Open a Veusz plot's .vsz source in the Veusz GUI for interactive editing. Launches /Applications/Veusz.app via Launch Services.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        plotId: { type: "string", description: "Plot UUID (from imprint_list_veusz_plots)" },
+      },
+      required: ["plotId"],
+    },
+  },
+  {
+    name: "imprint_render_veusz_plot",
+    description:
+      "Re-render a Veusz plot's .vsz to its rendered output (SVG/PNG/PDF). Runs `veusz.exe --export` headlessly; typical render time is ~1s.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        plotId: { type: "string", description: "Plot UUID" },
+        format: { type: "string", description: "Optional format override: 'svg', 'png', or 'pdf'. Defaults to the plot's stored exportFormat." },
+      },
+      required: ["plotId"],
+    },
+  },
+  {
+    name: "imprint_insert_veusz_plot",
+    description:
+      "Insert a figure block referencing a Veusz plot's rendered output at the cursor position of a document. Generates Typst #figure(image(...)) or LaTeX \\begin{figure}\\includegraphics{...} depending on the manuscript format.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Manuscript UUID" },
+        plotId: { type: "string", description: "Plot UUID" },
+      },
+      required: ["documentId", "plotId"],
+    },
+  },
+  {
+    name: "imprint_create_veusz_plot",
+    description:
+      "Create a new Veusz plot inside a manuscript. Writes a minimal .vsz template to the manuscript's figures/ directory and opens it in Veusz for editing. Returns the new plot's id, title, and renderedRelativePath.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Manuscript UUID" },
+        name: { type: "string", description: "Display name (also used as the .vsz filename stem)" },
+      },
+      required: ["documentId", "name"],
+    },
+  },
 ];
 
 export class ImprintTools {
@@ -786,6 +853,16 @@ export class ImprintTools {
         return this.acceptSuggestion(args);
       case "imprint_reject_suggestion":
         return this.rejectSuggestion(args);
+      case "imprint_list_veusz_plots":
+        return this.listVeuszPlots(args);
+      case "imprint_open_veusz_plot":
+        return this.openVeuszPlot(args);
+      case "imprint_render_veusz_plot":
+        return this.renderVeuszPlot(args);
+      case "imprint_insert_veusz_plot":
+        return this.insertVeuszPlot(args);
+      case "imprint_create_veusz_plot":
+        return this.createVeuszPlot(args);
       default:
         return {
           content: [{ type: "text", text: `Unknown imprint tool: ${name}` }],
@@ -1812,6 +1889,52 @@ export class ImprintTools {
         },
       ],
     };
+  }
+
+  private async listVeuszPlots(args: Record<string, unknown> | undefined) {
+    const documentId = args?.documentId as string | undefined;
+    const result = await this.client.listVeuszPlots(documentId);
+    if (result.plots.length === 0) {
+      return textContent(documentId
+        ? `No Veusz plots tracked by document ${documentId}.`
+        : `No Veusz plots tracked across open manuscripts.`);
+    }
+    const lines = result.plots.map((p) => {
+      const rendered = p.lastRenderedAt ? `last rendered ${p.lastRenderedAt}` : "not yet rendered";
+      return `- **${p.title}** (${p.id})\n  ${p.renderedRelativePath} · format: ${p.renderedFormat} · ${rendered}\n  document: ${p.documentID}`;
+    });
+    return textContent(`# Veusz Plots (${result.plots.length})\n\n${lines.join("\n")}`);
+  }
+
+  private async openVeuszPlot(args: Record<string, unknown> | undefined) {
+    const plotId = String(args?.plotId || "");
+    if (!plotId) return errText("plotId is required");
+    const r = await this.client.openVeuszPlot(plotId);
+    return textContent(`Plot ${plotId}: ${r.ok ? "opened in Veusz" : "failed to open"}`);
+  }
+
+  private async renderVeuszPlot(args: Record<string, unknown> | undefined) {
+    const plotId = String(args?.plotId || "");
+    if (!plotId) return errText("plotId is required");
+    const format = args?.format as string | undefined;
+    const r = await this.client.renderVeuszPlot(plotId, format);
+    return textContent(`Plot ${plotId}: ${r.ok ? "re-rendered" : "render failed"}`);
+  }
+
+  private async insertVeuszPlot(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const plotId = String(args?.plotId || "");
+    if (!documentId || !plotId) return errText("documentId and plotId are required");
+    const r = await this.client.insertVeuszPlot(documentId, plotId);
+    return textContent(`Plot ${plotId} ${r.ok ? "inserted into" : "failed to insert into"} document ${documentId}`);
+  }
+
+  private async createVeuszPlot(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const name = String(args?.name || "");
+    if (!documentId || !name) return errText("documentId and name are required");
+    const r = await this.client.createVeuszPlot(documentId, name);
+    return textContent(`Created plot **${r.title}** (${r.id})\nRendered output: \`${r.renderedRelativePath}\``);
   }
 
   private async crossDocumentSearch(

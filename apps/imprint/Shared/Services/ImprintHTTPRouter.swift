@@ -229,6 +229,11 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     return await handleGetDocument(id: remainder)
                 }
             }
+
+            // GET /api/veusz/plots[?documentId=…]
+            if pathLower == "/api/veusz/plots" {
+                return await handleListVeuszPlots(request)
+            }
         }
 
         // POST endpoints
@@ -339,6 +344,31 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 if remainderLower.hasSuffix("/bibliography") {
                     let docId = String(remainder.dropLast("/bibliography".count))
                     return await handleAddCitation(id: docId, request: request)
+                }
+            }
+
+            // POST /api/veusz/plots — create a new plot in a manuscript
+            if pathLower == "/api/veusz/plots" {
+                return await handleCreateVeuszPlot(request)
+            }
+
+            // POST /api/veusz/plots/{id}/open
+            // POST /api/veusz/plots/{id}/render
+            // POST /api/veusz/plots/{id}/insert
+            if pathLower.hasPrefix("/api/veusz/plots/") {
+                let remainder = String(path.dropFirst("/api/veusz/plots/".count))
+                let remainderLower = remainder.lowercased()
+                if remainderLower.hasSuffix("/open") {
+                    let plotID = String(remainder.dropLast("/open".count))
+                    return await handleOpenVeuszPlot(id: plotID)
+                }
+                if remainderLower.hasSuffix("/render") {
+                    let plotID = String(remainder.dropLast("/render".count))
+                    return await handleRenderVeuszPlot(id: plotID, request: request)
+                }
+                if remainderLower.hasSuffix("/insert") {
+                    let plotID = String(remainder.dropLast("/insert".count))
+                    return await handleInsertVeuszPlot(id: plotID, request: request)
                 }
             }
         }
@@ -2826,6 +2856,117 @@ public actor ImprintHTTPRouter: HTTPRouter {
     @MainActor
     private func findDocument(by id: UUID) -> ImprintDocument? {
         return DocumentRegistry.shared.document(withId: id)
+    }
+
+    // MARK: - Veusz plot handlers (Phase 7)
+
+    /// GET /api/veusz/plots[?documentId=…]
+    private func handleListVeuszPlots(_ request: HTTPRequest) async -> HTTPResponse {
+        let documentIDParam = request.queryParams["documentId"]
+        let documentID: UUID?
+        if let raw = documentIDParam, !raw.isEmpty {
+            guard let uuid = UUID(uuidString: raw) else {
+                return .badRequest("Invalid documentId")
+            }
+            documentID = uuid
+        } else {
+            documentID = nil
+        }
+
+        let plots: [VeuszPlotEntity]
+        do {
+            plots = try await ImprintIntentServiceImpl.shared.listVeuszPlots(documentID: documentID)
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription])
+        }
+
+        return .json([
+            "status": "ok",
+            "count": plots.count,
+            "plots": plots.map(Self.dict(forPlot:))
+        ])
+    }
+
+    /// POST /api/veusz/plots  body: { "documentId": "…", "name": "…" }
+    private func handleCreateVeuszPlot(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let docIDString = json["documentId"] as? String,
+              let docID = UUID(uuidString: docIDString) else {
+            return .badRequest("documentId is required")
+        }
+        guard let name = json["name"] as? String, !name.isEmpty else {
+            return .badRequest("name is required")
+        }
+        do {
+            let plot = try await ImprintIntentServiceImpl.shared.createVeuszPlot(documentID: docID, name: name)
+            return .json(["status": "ok", "plot": Self.dict(forPlot: plot)])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription])
+        }
+    }
+
+    /// POST /api/veusz/plots/{id}/open
+    private func handleOpenVeuszPlot(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else { return .badRequest("Invalid plot ID") }
+        do {
+            try await ImprintIntentServiceImpl.shared.openVeuszPlot(plotID: uuid)
+            return .json(["status": "ok"])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription])
+        }
+    }
+
+    /// POST /api/veusz/plots/{id}/render  body: { "format"?: "svg|png|pdf" }
+    private func handleRenderVeuszPlot(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else { return .badRequest("Invalid plot ID") }
+        var format: String? = nil
+        if let body = request.body,
+           let data = body.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            format = json["format"] as? String
+        }
+        do {
+            try await ImprintIntentServiceImpl.shared.renderVeuszPlot(plotID: uuid, format: format)
+            return .json(["status": "ok"])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription])
+        }
+    }
+
+    /// POST /api/veusz/plots/{id}/insert  body: { "documentId": "…" }
+    private func handleInsertVeuszPlot(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else { return .badRequest("Invalid plot ID") }
+        guard let body = request.body,
+              let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let docIDString = json["documentId"] as? String,
+              let docID = UUID(uuidString: docIDString) else {
+            return .badRequest("documentId is required")
+        }
+        do {
+            try await ImprintIntentServiceImpl.shared.insertVeuszPlot(plotID: uuid, documentID: docID)
+            return .json(["status": "ok"])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription])
+        }
+    }
+
+    private static func dict(forPlot plot: VeuszPlotEntity) -> [String: Any] {
+        var d: [String: Any] = [
+            "id": plot.id.uuidString,
+            "title": plot.title,
+            "documentID": plot.documentID.uuidString,
+            "renderedFormat": plot.renderedFormat,
+            "renderedRelativePath": plot.renderedRelativePath,
+        ]
+        if let lastRenderedAt = plot.lastRenderedAt {
+            d["lastRenderedAt"] = ISO8601DateFormatter().string(from: lastRenderedAt)
+        }
+        return d
     }
 }
 

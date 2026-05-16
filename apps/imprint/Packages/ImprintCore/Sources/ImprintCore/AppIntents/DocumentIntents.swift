@@ -16,6 +16,36 @@ public protocol ImprintIntentService: Sendable {
     func getBibliography(id: UUID) async throws -> String
     func documentsForIds(_ ids: [UUID]) async throws -> [DocumentEntity]
     func searchDocumentsByTitle(_ query: String) async throws -> [DocumentEntity]
+
+    // Veusz plots (Phase 7). Default-no-op implementations live in the protocol
+    // extension below so existing service stubs in the app target don't need to
+    // implement them until they're ready.
+    func listVeuszPlots(documentID: UUID?) async throws -> [VeuszPlotEntity]
+    func veuszPlotsForIds(_ ids: [UUID]) async throws -> [VeuszPlotEntity]
+    func searchVeuszPlotsByTitle(_ query: String) async throws -> [VeuszPlotEntity]
+    func openVeuszPlot(plotID: UUID) async throws
+    func renderVeuszPlot(plotID: UUID, format: String?) async throws
+    func insertVeuszPlot(plotID: UUID, documentID: UUID) async throws
+    func createVeuszPlot(documentID: UUID, name: String) async throws -> VeuszPlotEntity
+}
+
+@available(macOS 14.0, iOS 17.0, *)
+public extension ImprintIntentService {
+    func listVeuszPlots(documentID: UUID?) async throws -> [VeuszPlotEntity] { [] }
+    func veuszPlotsForIds(_ ids: [UUID]) async throws -> [VeuszPlotEntity] { [] }
+    func searchVeuszPlotsByTitle(_ query: String) async throws -> [VeuszPlotEntity] { [] }
+    func openVeuszPlot(plotID: UUID) async throws {
+        throw ImprintIntentError.executionFailed("Veusz plot integration is not yet wired up in this build.")
+    }
+    func renderVeuszPlot(plotID: UUID, format: String?) async throws {
+        throw ImprintIntentError.executionFailed("Veusz plot integration is not yet wired up in this build.")
+    }
+    func insertVeuszPlot(plotID: UUID, documentID: UUID) async throws {
+        throw ImprintIntentError.executionFailed("Veusz plot integration is not yet wired up in this build.")
+    }
+    func createVeuszPlot(documentID: UUID, name: String) async throws -> VeuszPlotEntity {
+        throw ImprintIntentError.executionFailed("Veusz plot integration is not yet wired up in this build.")
+    }
 }
 
 /// Global service locator — set by the app at launch.

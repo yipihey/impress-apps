@@ -142,6 +142,36 @@
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Veusz Plot Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.veusz-plot-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Veusz Plot</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.veusz.document</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>vsz</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

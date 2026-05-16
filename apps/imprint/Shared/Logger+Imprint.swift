@@ -37,6 +37,7 @@ extension Logger {
     static let urlScheme = Logger(subsystem: "com.imprint.app", category: "url-scheme")
     static let editor = Logger(subsystem: "com.imprint.app", category: "editor")
     static let spotlight = Logger(subsystem: "com.imprint.app", category: "spotlight")
+    static let veusz = Logger(subsystem: "com.imprint.app", category: "veusz")
 
     // iOS
     static let dictation = Logger(subsystem: "com.imprint.app", category: "dictation")

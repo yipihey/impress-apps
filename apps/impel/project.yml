@@ -104,6 +104,11 @@ targets:
             UTTypeDescription: Impress Figure Reference
             UTTypeIdentifier: com.impress.figure-reference
             UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
     entitlements:
       path: macOS/impel.entitlements
       properties:

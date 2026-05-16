@@ -91,5 +91,35 @@ public struct ImprintShortcuts: AppShortcutsProvider {
             shortTitle: "Insert Citation",
             systemImageName: "quote.opening"
         )
+
+        AppShortcut(
+            intent: ListVeuszPlotsIntent(),
+            phrases: [
+                "List \(.applicationName) plots",
+                "Show Veusz plots in \(.applicationName)"
+            ],
+            shortTitle: "List Plots",
+            systemImageName: "chart.xyaxis.line"
+        )
+
+        AppShortcut(
+            intent: OpenVeuszPlotIntent(),
+            phrases: [
+                "Open Veusz plot in \(.applicationName)",
+                "Edit Veusz plot in \(.applicationName)"
+            ],
+            shortTitle: "Edit Plot in Veusz",
+            systemImageName: "chart.line.uptrend.xyaxis"
+        )
+
+        AppShortcut(
+            intent: CreateVeuszPlotIntent(),
+            phrases: [
+                "Create a Veusz plot in \(.applicationName)",
+                "New plot in \(.applicationName)"
+            ],
+            shortTitle: "New Veusz Plot",
+            systemImageName: "chart.bar.doc.horizontal"
+        )
     }
 }

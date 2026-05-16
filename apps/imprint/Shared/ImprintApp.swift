@@ -62,6 +62,12 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             await DocumentMetadataCacheService.shared.refreshAll()
         }
 
+        // Register the App Intents service so Siri Shortcuts, App Intents, and
+        // MCP-via-HTTP can all resolve to a single concrete implementation.
+        Task { @MainActor in
+            ImprintIntentServiceLocator.service = ImprintIntentServiceImpl.shared
+        }
+
         // Touch the shared store adapter to trigger its setup (opens shared workspace directory).
         // Non-fatal: if the app group container is unavailable, isReady stays false
         // and all storeSection() calls are no-ops.
@@ -397,6 +403,18 @@ struct ImprintApp: App {
                     openWindow(id: "console")
                 }
                 .keyboardShortcut("C", modifiers: [.command, .shift])
+
+                Button("Show Plots Panel") {
+                    NotificationCenter.default.post(name: .toggleVeuszPlotsPanel, object: nil)
+                }
+                .keyboardShortcut("P", modifiers: [.command, .option])
+            }
+
+            CommandGroup(after: .pasteboard) {
+                Button("Insert Veusz Plot…") {
+                    NotificationCenter.default.post(name: .presentVeuszPlotPicker, object: nil)
+                }
+                .keyboardShortcut("I", modifiers: [.command, .shift])
             }
 
             // Format menu
@@ -546,6 +564,9 @@ class AppState {
     /// Whether the comments sidebar is visible
     var showingComments = false
 
+    /// Whether the Veusz plots inspector panel is visible
+    var showingVeuszPlots = false
+
     /// Currently selected text (for AI actions)
     var selectedText = ""
 
@@ -618,6 +639,8 @@ extension Notification.Name {
     static let toggleFocusMode = Notification.Name("toggleFocusMode")
     static let toggleAIAssistant = Notification.Name("toggleAIAssistant")
     static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
+    static let toggleVeuszPlotsPanel = Notification.Name("toggleVeuszPlotsPanel")
+    static let presentVeuszPlotPicker = Notification.Name("presentVeuszPlotPicker")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
     static let showSymbolPalette = Notification.Name("showSymbolPalette")

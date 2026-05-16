@@ -51,6 +51,12 @@ extension UTType {
         conformingTo: .impressArtifact
     )
 
+    /// A cross-app Veusz plot reference (UUID + manuscript UUID + rendered format/path).
+    public static let impressVeuszPlotReference = UTType(
+        exportedAs: "com.impress.veusz-plot-reference",
+        conformingTo: .impressArtifact
+    )
+
     /// A full BibTeX entry (conforms to public.text for plain-text fallback).
     public static let impressBibTeXEntry = UTType(
         exportedAs: "com.impress.bibtex-entry",
