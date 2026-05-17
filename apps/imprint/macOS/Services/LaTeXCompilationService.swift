@@ -121,6 +121,24 @@ actor LaTeXCompilationService {
             env["PATH"] = "\(distPath):\(existingPath)"
         }
 
+        // Inject TEXINPUTS so graphicx can find rendered Veusz plots that
+        // live in the per-document plot-store working directory (a
+        // sandboxed container path that the main.tex's cwd can't see).
+        // Format per kpathsea: colon-separated, trailing `//` recurses,
+        // trailing `:` appends the default search path.
+        let plotPaths = await Self.plotSearchPaths()
+        if !plotPaths.isEmpty {
+            let existing = ProcessInfo.processInfo.environment["TEXINPUTS"] ?? ""
+            let joined = (plotPaths + [existing]).filter { !$0.isEmpty }.joined(separator: ":")
+            // Trailing colon = append system default. Required for kpathsea.
+            env["TEXINPUTS"] = joined.hasSuffix(":") ? joined : "\(joined):"
+            let joinedForLog = plotPaths.joined(separator: ", ")
+            Logger.compilation.infoCapture(
+                "TEXINPUTS injected for \(plotPaths.count) plot working dir(s): \(joinedForLog)",
+                category: "latex"
+            )
+        }
+
         let pdfFileName = sourceURL.deletingPathExtension().lastPathComponent + ".pdf"
         let pdfURL = buildDir.appendingPathComponent(pdfFileName)
 
@@ -197,6 +215,14 @@ actor LaTeXCompilationService {
         if let distPath = await texDistribution.distributionPath?.path {
             let existingPath = env["PATH"] ?? "/usr/bin:/bin"
             env["PATH"] = "\(distPath):\(existingPath)"
+        }
+
+        // Same TEXINPUTS injection as the toolbox path (see compileViaToolbox).
+        let plotPaths = await Self.plotSearchPaths()
+        if !plotPaths.isEmpty {
+            let existing = env["TEXINPUTS"] ?? ""
+            let joined = (plotPaths + [existing]).filter { !$0.isEmpty }.joined(separator: ":")
+            env["TEXINPUTS"] = joined.hasSuffix(":") ? joined : "\(joined):"
         }
 
         let envArguments = [engine.rawValue] + arguments
@@ -282,6 +308,19 @@ actor LaTeXCompilationService {
             exitCode: exitCode,
             compilationTimeMs: elapsedMs
         )
+    }
+
+    // MARK: - TEXINPUTS for Veusz plot working dirs
+
+    /// Collect the on-disk working-directory paths of every registered
+    /// `VeuszPlotStore` so the LaTeX compile can find rendered plots that
+    /// live in per-document sandboxed paths (not next to main.tex).
+    ///
+    /// Returns absolute paths; kpathsea expands `~` for us via TEXINPUTS,
+    /// but absolute paths are simpler.
+    @MainActor
+    private static func plotSearchPaths() -> [String] {
+        VeuszPlotStoreRegistry.shared.allStores.map(\.workingDirectory.path)
     }
 
     // MARK: - Build Directory

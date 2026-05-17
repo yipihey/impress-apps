@@ -82,11 +82,12 @@ final class VeuszService {
         case sourceFileMissing(URL)
         case processFailed(exitCode: Int32, stderr: String)
         case outputNotProduced(URL)
+        case helperScriptNotInstalled
 
         var errorDescription: String? {
             switch self {
             case .veuszNotInstalled:
-                return "Veusz is not installed. Install Veusz.app in /Applications to render plots."
+                return "Veusz is not installed. Install Veusz.app in /Applications (or ~/MyApplications) to render plots."
             case .sourceFileMissing(let url):
                 return "Veusz source file not found: \(url.path)"
             case .processFailed(let code, let stderr):
@@ -94,6 +95,8 @@ final class VeuszService {
                 return "Veusz export failed (exit \(code)): \(tail)"
             case .outputNotProduced(let url):
                 return "Veusz exited successfully but did not produce \(url.lastPathComponent)."
+            case .helperScriptNotInstalled:
+                return "Imprint needs a one-time grant to install the Veusz helper script. Open Settings → Veusz, click \"Install Helper\", and pick the suggested folder when the panel appears."
             }
         }
     }
@@ -126,9 +129,18 @@ final class VeuszService {
         let parentDir = normalizedDestination.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
 
+        // The sandbox blocks Process.run() on arbitrary user-installed
+        // binaries — even when locateExecutable() confirms the file exists,
+        // direct subprocess spawn fails with "file doesn't exist" because
+        // the sandbox filters the path during exec. NSUserUnixTask is
+        // Apple's blessed escape hatch: the wrapper script lives outside
+        // the sandbox in ~/Library/Application Scripts/<bundle-id>/ and
+        // the system arbitrates its invocation. (See VeuszService+UnixTask
+        // for the install + invoke logic.)
+        _ = executable  // retained for the install banner; actual exec goes via NSUserUnixTask
+
         let started = Date()
-        try await runProcess(
-            executable: executable,
+        try await runViaUserUnixTask(
             arguments: ["--export", normalizedDestination.path, source.path, "--quiet"]
         )
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
@@ -216,36 +228,223 @@ final class VeuszService {
         }
     }
 
-    // MARK: - Process
+    // MARK: - NSUserUnixTask invocation
 
-    private nonisolated func runProcess(executable: URL, arguments: [String]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
+    /// File name of the wrapper script we install at
+    /// `~/Library/Application Scripts/com.imbib.imprint/`.
+    static let unixTaskScriptName = "run-veusz.sh"
 
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-            // Veusz prints noise to stdout we don't need; redirect to /dev/null.
-            process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+    /// True when the user has granted write access (via `installHelperScript`)
+    /// and the wrapper script is present + executable at the expected path.
+    /// The Plots inspector reads this to show the install banner.
+    static var isHelperScriptInstalled: Bool {
+        guard let dir = try? FileManager.default.url(
+            for: .applicationScriptsDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else { return false }
+        let scriptURL = dir.appendingPathComponent(unixTaskScriptName)
+        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else { return false }
+        // Treat presence-with-correct-prefix as installed. We don't require
+        // byte-exact match against the template so a user-customised wrapper
+        // continues to satisfy the check.
+        if let existing = try? String(contentsOf: scriptURL, encoding: .utf8),
+           existing.hasPrefix("#!/usr/bin/env bash") || existing.hasPrefix("#!/bin/bash") {
+            return true
+        }
+        return false
+    }
 
-            process.terminationHandler = { proc in
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                if proc.terminationStatus == 0 {
-                    continuation.resume()
-                } else {
-                    continuation.resume(throwing: ExportError.processFailed(
-                        exitCode: proc.terminationStatus,
-                        stderr: stderr
-                    ))
+    /// Resolve the URL of the user-unix-task wrapper script. The script
+    /// lives in the App-Scripts container, which is sandbox-exempt for
+    /// *execution* but NOT for writes (Apple security boundary). Writing
+    /// requires the one-time user grant via `installHelperScript`.
+    ///
+    /// Returns the absolute URL of an installed script — or throws
+    /// `ExportError.helperScriptNotInstalled` when missing.
+    private nonisolated func resolveUnixTaskScript() throws -> URL {
+        guard let dir = try? FileManager.default.url(
+            for: .applicationScriptsDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else {
+            throw ExportError.helperScriptNotInstalled
+        }
+        let scriptURL = dir.appendingPathComponent(Self.unixTaskScriptName)
+        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+            throw ExportError.helperScriptNotInstalled
+        }
+        return scriptURL
+    }
+
+    /// Install the wrapper script via a user-granted NSOpenPanel.
+    ///
+    /// Called from the Plots panel "Install Helper" button. NSSavePanel
+    /// proved unreliable on macOS 26 — `directoryURL` was sometimes
+    /// ignored for sandbox-restricted folders, and the script ended up in
+    /// the wrong place. Switching to NSOpenPanel pointed at the *parent*
+    /// (`~/Library/Application Scripts/`) and asking the user to click
+    /// the bundle-id folder is two clicks but unambiguous: the only valid
+    /// target is the `com.imbib.imprint` folder.
+    ///
+    /// Returns the installed script's URL on success, or nil if the user
+    /// cancelled. Throws when the user picks the wrong folder.
+    @MainActor
+    static func installHelperScript() async throws -> URL? {
+        let scriptsDir = try FileManager.default.url(
+            for: .applicationScriptsDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let parent = scriptsDir.deletingLastPathComponent()
+        let bundleFolderName = scriptsDir.lastPathComponent
+
+        let panel = NSOpenPanel()
+        panel.title = "Install Veusz Helper"
+        panel.message = "Click the folder named \"\(bundleFolderName)\" below, then click \"Grant Access\". The script will be installed inside that folder."
+        panel.prompt = "Grant Access"
+        panel.directoryURL = parent
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.treatsFilePackagesAsDirectories = false
+        panel.showsHiddenFiles = false
+
+        let response = await panel.beginAsync()
+        guard response == .OK, let granted = panel.url else {
+            Logger.veusz.infoCapture("Helper install cancelled by user", category: "veusz")
+            return nil
+        }
+
+        let chosen = granted.standardizedFileURL
+        let expected = scriptsDir.standardizedFileURL
+
+        if chosen != expected {
+            Logger.veusz.warningCapture(
+                "Helper install: chosen folder \(chosen.path) does not match expected \(expected.path) — install rejected",
+                category: "veusz"
+            )
+            throw ExportError.processFailed(
+                exitCode: -1,
+                stderr: "Wrong folder. Please click 'Install Helper…' again and select the folder named \"\(bundleFolderName)\" (no other folder is valid)."
+            )
+        }
+
+        // Granted scope covers everything inside the folder. Write the
+        // script + chmod it.
+        let scriptURL = granted.appendingPathComponent(unixTaskScriptName)
+        let started = granted.startAccessingSecurityScopedResource()
+        defer { if started { granted.stopAccessingSecurityScopedResource() } }
+
+        try unixTaskScriptTemplate.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: scriptURL.path
+        )
+        Logger.veusz.infoCapture("Installed Veusz helper at \(scriptURL.path)", category: "veusz")
+        return scriptURL
+    }
+
+    /// Run the Veusz wrapper script via NSUserUnixTask. Captures stderr so
+    /// failures surface a useful message instead of the raw NSError.
+    private nonisolated func runViaUserUnixTask(arguments: [String]) async throws {
+        let scriptURL = try resolveUnixTaskScript()
+        let task = try NSUserUnixTask(url: scriptURL)
+
+        let stderrPipe = Pipe()
+        task.standardError = stderrPipe.fileHandleForWriting
+        // We don't need Veusz's chatty stdout; route it to /dev/null. If
+        // /dev/null open fails (vanishingly unlikely), fall back to leaving
+        // stdout unset (inherits from the parent — fine).
+        task.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                task.execute(withArguments: arguments) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
                 }
             }
+        } catch {
+            // Drain stderr so the error message includes the wrapper +
+            // veusz's complaint instead of just "exit 1".
+            try? stderrPipe.fileHandleForWriting.close()
+            let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // NSUserUnixTask reports the non-zero exit as NSError with
+            // userInfo[NSUserScriptTaskNameKey] etc. Surface the exit code
+            // when we can extract it; otherwise use the underlying domain/code.
+            let nsErr = error as NSError
+            let exitCode: Int32 = (nsErr.userInfo["NSTaskTerminationReason"] as? Int32) ?? Int32(nsErr.code)
+            throw ExportError.processFailed(
+                exitCode: exitCode,
+                stderr: stderrText.isEmpty ? nsErr.localizedDescription : stderrText
+            )
+        }
 
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+        // Drain stderr (and close) on success too — leftover open handles
+        // can stall the next render.
+        try? stderrPipe.fileHandleForWriting.close()
+        _ = try? stderrPipe.fileHandleForReading.readToEnd()
+    }
+
+    /// Embedded template for the NSUserUnixTask wrapper. We carry it inline
+    /// so the install path doesn't depend on any repo-relative file.
+    ///
+    /// Searches the well-known Veusz install locations, exec's the binary
+    /// with the caller's verbatim arguments. Falls back with a clear stderr
+    /// message + exit 127 when Veusz is genuinely missing.
+    static let unixTaskScriptTemplate: String = #"""
+        #!/usr/bin/env bash
+        # imprint -> Veusz wrapper, invoked via NSUserUnixTask from
+        # apps/imprint/macOS/Services/VeuszService.swift. Sandboxed imprint
+        # can't spawn arbitrary user-installed binaries directly; it relies
+        # on this script (living outside the sandbox under
+        # ~/Library/Application Scripts/com.imbib.imprint/) to do it.
+        #
+        # The script is auto-installed on first VeuszService call. If you
+        # need to customise the Veusz lookup, fork this file under a
+        # different name; imprint overwrites this one to match the embedded
+        # template whenever it drifts.
+        #
+        # All arguments are passed through verbatim to veusz.exe.
+
+        set -u
+
+        for app in \
+            "/Applications/Veusz.app" \
+            "$HOME/Applications/Veusz.app" \
+            "$HOME/MyApplications/Veusz.app"; do
+            if [ -x "$app/Contents/MacOS/veusz.exe" ]; then
+                exec "$app/Contents/MacOS/veusz.exe" "$@"
+            fi
+        done
+
+        echo "run-veusz.sh: Veusz.app not found at /Applications, ~/Applications, or ~/MyApplications" >&2
+        exit 127
+        """#
+}
+
+// MARK: - NSOpenPanel async helper
+
+private extension NSSavePanel {
+    /// Modal-but-async wrapper around `begin(completionHandler:)`. The
+    /// returned `NSApplication.ModalResponse` matches the panel's response.
+    /// Extension is on `NSSavePanel` so both Open and Save panels get it
+    /// (NSOpenPanel inherits from NSSavePanel).
+    @MainActor
+    func beginAsync() async -> NSApplication.ModalResponse {
+        await withCheckedContinuation { (continuation: CheckedContinuation<NSApplication.ModalResponse, Never>) in
+            begin { response in
+                continuation.resume(returning: response)
             }
         }
     }

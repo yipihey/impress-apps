@@ -89,17 +89,23 @@ final class VeuszPlotStore {
 
     /// Create a new plot from the minimal template, write the .vsz to disk, and
     /// (best-effort) render its initial output so the panel has a thumbnail.
+    ///
+    /// `format` is the rendered output format. Callers pick based on the
+    /// host manuscript: SVG for Typst (native), PDF for LaTeX (pdfLaTeX
+    /// has no native SVG support and requires `--shell-escape` + Inkscape
+    /// via the `svg` package, which we'd rather not impose).
     @discardableResult
-    func createPlot(name: String) async throws -> VeuszPlotRef {
+    func createPlot(name: String, format: VeuszPlotRef.ExportFormat = .svg) async throws -> VeuszPlotRef {
         let baseName = Self.sanitize(name: name)
         let sourceName = "\(baseName).vsz"
-        let renderedName = "\(baseName).svg"
+        let ext = format.fileExtension
+        let renderedName = "\(baseName).\(ext)"
 
         // Avoid clobbering an existing plot with the same name.
         let sourceURL = uniquePath(in: workingDirectory, named: sourceName)
         let renderedURL = workingDirectory.appending(path: renderedName)
         let finalSourceName = sourceURL.lastPathComponent
-        let finalRenderedName = (sourceURL.deletingPathExtension().lastPathComponent) + ".svg"
+        let finalRenderedName = (sourceURL.deletingPathExtension().lastPathComponent) + ".\(ext)"
 
         try Self.minimalVszTemplate(title: baseName)
             .data(using: .utf8)!
@@ -109,7 +115,7 @@ final class VeuszPlotStore {
             displayName: baseName,
             sourceRelativePath: "figures/\(finalSourceName)",
             renderedRelativePath: "figures/\(finalRenderedName)",
-            exportFormat: .svg,
+            exportFormat: format,
             sourceModifiedAt: Date(),
             renderStatus: .rendering
         )
@@ -122,7 +128,7 @@ final class VeuszPlotStore {
             try await renderer.export(
                 source: sourceURL,
                 to: renderedURL,
-                format: .svg
+                format: format
             )
             plot.lastRenderedAt = Date()
             plot.renderStatus = .idle
@@ -256,12 +262,21 @@ final class VeuszPlotStore {
 
     /// Minimal valid Veusz document for new plots — one page, one graph, no data.
     /// Edited from the GUI immediately on creation.
+    ///
+    /// Page is set to 10×7 cm so the rendered PDF/SVG has manuscript-friendly
+    /// dimensions (Veusz's 15×15 cm default leaves so much whitespace around
+    /// the graph that `\includegraphics[width=0.8\textwidth]` floats the
+    /// figure onto its own page in LaTeX, or eats half of a Typst page).
+    /// Users can override Page → Width/Height in the Veusz GUI if they
+    /// need a different aspect for a specific plot.
     static func minimalVszTemplate(title: String) -> String {
         """
         # Veusz saved document (version 0.9)
         # Created by imprint for plot "\(title)"
         Add('page', name='page1', autoadd=False)
         To('page1')
+        Set('width', '10cm')
+        Set('height', '7cm')
         Add('graph', name='graph1', autoadd=False)
         To('graph1')
         Add('axis', name='x', autoadd=False)

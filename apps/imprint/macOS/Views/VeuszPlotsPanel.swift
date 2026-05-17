@@ -20,6 +20,9 @@ struct VeuszPlotsPanel: View {
     @State private var initializationError: String?
     @State private var newPlotName: String = ""
     @State private var showingNewPlotPrompt = false
+    /// Reflects `VeuszService.isHelperScriptInstalled` so the install banner
+    /// can disappear as soon as the one-time grant + script write completes.
+    @State private var helperInstalled = VeuszService.isHelperScriptInstalled
 
     private var documentFormat: DocumentFormat { document.format }
 
@@ -29,6 +32,9 @@ struct VeuszPlotsPanel: View {
             Divider()
             if !VeuszService.isInstalled {
                 veuszMissingBanner
+                Divider()
+            } else if !helperInstalled {
+                helperMissingBanner
                 Divider()
             }
             content
@@ -161,6 +167,42 @@ struct VeuszPlotsPanel: View {
         .background(Color.orange.opacity(0.08))
     }
 
+    /// Shown once, when Veusz is present on the machine but the sandboxed
+    /// app hasn't yet been granted permission to install its NSUserUnixTask
+    /// wrapper script. Clicking "Install Helper" opens an NSOpenPanel
+    /// pre-targeted at ~/Library/Application Scripts/<bundle>/ — the user
+    /// just confirms with "Grant Access" and the script gets written.
+    private var helperMissingBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "gear.badge")
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("One-time setup needed")
+                    .font(.subheadline.bold())
+                Text("Imprint runs Veusz via a helper script. macOS asks for a one-time folder grant before installing it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Install Helper…") {
+                Task { await installHelper() }
+            }
+            .font(.caption)
+        }
+        .padding(10)
+        .background(Color.blue.opacity(0.08))
+    }
+
+    private func installHelper() async {
+        do {
+            if (try await VeuszService.installHelperScript()) != nil {
+                helperInstalled = VeuszService.isHelperScriptInstalled
+            }
+        } catch {
+            initializationError = "Helper install failed: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - New plot sheet
 
     private var newPlotSheet: some View {
@@ -189,9 +231,14 @@ struct VeuszPlotsPanel: View {
         let name = newPlotName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         showingNewPlotPrompt = false
+        // SVG is native for Typst; LaTeX (pdfLaTeX) has no native SVG path
+        // and would otherwise require --shell-escape + Inkscape via the
+        // `svg` package, so default new plots in .tex documents to PDF.
+        // Users can still change per-plot format from the tile menu.
+        let defaultFormat: VeuszPlotRef.ExportFormat = (document.format == .latex) ? .pdf : .svg
         Task {
             do {
-                let plot = try await store.createPlot(name: name)
+                let plot = try await store.createPlot(name: name, format: defaultFormat)
                 _ = store.openInVeusz(plotID: plot.id)
             } catch {
                 initializationError = error.localizedDescription

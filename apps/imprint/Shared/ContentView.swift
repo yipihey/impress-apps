@@ -1107,6 +1107,26 @@ struct ContentView: View {
         do {
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             try sourceText.data(using: .utf8)?.write(to: sourceURL)
+
+            // Mirror the per-document Veusz figures dir into the compile
+            // tempdir so `\includegraphics{figures/foo.pdf}` resolves.
+            // The plot store renders into
+            //   <container>/Application Support/imprint/manuscripts/<docID>/figures/
+            // but pdfLaTeX runs with `tempDir/` as cwd and only sees what's
+            // under it. We re-build figures/ on every compile so deletes
+            // + renames in the plot panel land here too. Best-effort: a
+            // copy failure shouldn't block the compile, only log it.
+            let figuresSrc = try? VeuszWorkingDirectory().figuresDirectory(forDocumentID: document.id)
+            let figuresDst = tempDir.appendingPathComponent("figures")
+            try? FileManager.default.removeItem(at: figuresDst)
+            if let figuresSrc, FileManager.default.fileExists(atPath: figuresSrc.path) {
+                do {
+                    try FileManager.default.copyItem(at: figuresSrc, to: figuresDst)
+                    Logger.documents.infoCapture("Mirrored figures/ from plot store into compile tempdir", category: "compile")
+                } catch {
+                    Logger.documents.warningCapture("Failed to mirror figures/ for compile: \(error.localizedDescription)", category: "compile")
+                }
+            }
         } catch {
             compilationError = "Failed to write temp file: \(error.localizedDescription)"
             debugHistory += "X:write "
