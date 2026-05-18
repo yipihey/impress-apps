@@ -285,12 +285,17 @@ struct ImprintApp: App {
     }
 
     var body: some Scene {
-        // Project browser window
+        // Project browser window. This is the always-present scene
+        // (no UTI bindings), so the app-wide commands attach here —
+        // they survive the eventual retirement of `DocumentGroup`
+        // for the macOS path (Phase 4b of
+        // /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md).
         WindowGroup("imprint", id: "project-browser") {
             ProjectBrowserView()
                 .withAppearance()
         }
         .defaultSize(width: 800, height: 600)
+        .commands { sharedCommands }
 
         #if os(macOS)
         // Manuscript Library (phase 1 of the impress-wide unified store
@@ -402,219 +407,6 @@ struct ImprintApp: App {
                 }
         }
         .defaultSize(width: 1100, height: 700)
-        .commands {
-            // File menu additions — augment the standard "New" command
-            // (which creates a Typst .imprint document) with a sibling
-            // "New LaTeX Document" that creates a .tex-format buffer.
-            CommandGroup(after: .newItem) {
-                Button("New LaTeX Document") {
-                    Self.pendingNewDocumentFormat = .latex
-                    NSDocumentController.shared.newDocument(nil)
-                }
-                .keyboardShortcut("N", modifiers: [.command, .option])
-
-                Button("Open Manuscript Library") {
-                    openWindow(id: "manuscript-library")
-                }
-                .keyboardShortcut("L", modifiers: [.command, .shift])
-
-                Button("Import to Manuscript Library…") {
-                    handleImportToLibrary()
-                }
-                .keyboardShortcut("I", modifiers: [.command, .shift])
-            }
-
-            // Edit menu additions
-            CommandGroup(after: .textEditing) {
-                Button("Insert Citation...") {
-                    NotificationCenter.default.post(name: .insertCitation, object: nil)
-                }
-                .keyboardShortcut("K", modifiers: [.command, .shift])
-
-                Button("Add Comment...") {
-                    NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)
-                }
-                .keyboardShortcut("M", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Symbol Palette...") {
-                    NotificationCenter.default.post(name: .showSymbolPalette, object: nil)
-                }
-                .keyboardShortcut("Y", modifiers: [.command, .shift])
-
-                Button("AI Assistant...") {
-                    NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
-                }
-                .keyboardShortcut("A", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Compile to PDF") {
-                    NotificationCenter.default.post(name: .compileDocument, object: nil)
-                }
-                .keyboardShortcut(.return, modifiers: [.command])
-
-                Divider()
-
-                Button("Search Across Manuscripts…") {
-                    openWindow(id: "cross-document-search")
-                }
-                .keyboardShortcut("F", modifiers: [.command, .shift])
-            }
-
-            // View menu additions
-            CommandGroup(after: .sidebar) {
-                Picker("Edit Mode", selection: $appState.editMode) {
-                    Text("Direct PDF").tag(EditMode.directPdf)
-                    Text("Split View").tag(EditMode.splitView)
-                    Text("Text Only").tag(EditMode.textOnly)
-                }
-                .keyboardShortcut(.tab)
-
-                Divider()
-
-                Button(appState.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
-                    NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
-                }
-                .keyboardShortcut("F", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button(appState.showingAIAssistant ? "Hide AI Assistant" : "Show AI Assistant") {
-                    NotificationCenter.default.post(name: .toggleAIAssistant, object: nil)
-                }
-                .keyboardShortcut(".", modifiers: [.command])
-
-                Button(appState.showingComments ? "Hide Comments" : "Show Comments") {
-                    NotificationCenter.default.post(name: .toggleCommentsSidebar, object: nil)
-                }
-                .keyboardShortcut("K", modifiers: [.command, .option])
-
-                Divider()
-
-                Button("Show Console") {
-                    openWindow(id: "console")
-                }
-                .keyboardShortcut("C", modifiers: [.command, .shift])
-
-                Button("Show Plots Panel") {
-                    NotificationCenter.default.post(name: .toggleVeuszPlotsPanel, object: nil)
-                }
-                .keyboardShortcut("P", modifiers: [.command, .option])
-            }
-
-            CommandGroup(after: .pasteboard) {
-                Button("Insert Veusz Plot…") {
-                    NotificationCenter.default.post(name: .presentVeuszPlotPicker, object: nil)
-                }
-                .keyboardShortcut("I", modifiers: [.command, .shift])
-            }
-
-            // Format menu
-            CommandMenu("Format") {
-                Button("Bold") {
-                    NotificationCenter.default.post(name: .formatBold, object: nil)
-                }
-                .keyboardShortcut("B", modifiers: [.command])
-
-                Button("Italic") {
-                    NotificationCenter.default.post(name: .formatItalic, object: nil)
-                }
-                .keyboardShortcut("I", modifiers: [.command])
-
-                Divider()
-
-                Menu("Heading") {
-                    Button("Heading 1") {
-                        NotificationCenter.default.post(name: .insertHeading, object: 1)
-                    }
-                    .keyboardShortcut("1", modifiers: [.command, .option])
-
-                    Button("Heading 2") {
-                        NotificationCenter.default.post(name: .insertHeading, object: 2)
-                    }
-                    .keyboardShortcut("2", modifiers: [.command, .option])
-
-                    Button("Heading 3") {
-                        NotificationCenter.default.post(name: .insertHeading, object: 3)
-                    }
-                    .keyboardShortcut("3", modifiers: [.command, .option])
-                }
-            }
-
-            // File menu: Print compiled PDF
-            CommandGroup(replacing: .printItem) {
-                Button("Print Compiled PDF...") {
-                    NotificationCenter.default.post(name: .printPDF, object: nil)
-                }
-                .keyboardShortcut("P", modifiers: [.command])
-            }
-
-            // Git menu
-            CommandMenu("Git") {
-                Button("Commit...") {
-                    NotificationCenter.default.post(name: .gitCommit, object: nil)
-                }
-                .keyboardShortcut("G", modifiers: [.command, .option])
-
-                Button("Push") {
-                    NotificationCenter.default.post(name: .gitPush, object: nil)
-                }
-                .keyboardShortcut("P", modifiers: [.command, .shift])
-
-                Button("Pull") {
-                    NotificationCenter.default.post(name: .gitPull, object: nil)
-                }
-                .keyboardShortcut("U", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Link Repository...") {
-                    NotificationCenter.default.post(name: .gitLink, object: nil)
-                }
-
-                Button("Create GitHub Repository...") {
-                    NotificationCenter.default.post(name: .gitCreateRepo, object: nil)
-                }
-
-                Divider()
-
-                Button("History...") {
-                    NotificationCenter.default.post(name: .gitHistory, object: nil)
-                }
-            }
-
-            // Document menu
-            CommandMenu("Document") {
-                Button("Export PDF...") {
-                    NotificationCenter.default.post(name: .exportPDF, object: nil)
-                }
-                .keyboardShortcut("E", modifiers: [.command, .shift])
-
-                Button("Export to LaTeX...") {
-                    NotificationCenter.default.post(name: .exportLatex, object: nil)
-                }
-
-                Button("Export Bibliography...") {
-                    NotificationCenter.default.post(name: .exportBibliography, object: nil)
-                }
-
-                Divider()
-
-                Button("Version History...") {
-                    NotificationCenter.default.post(name: .showVersionHistory, object: nil)
-                }
-                .keyboardShortcut("H", modifiers: [.command, .option])
-
-                Divider()
-
-                Button("Share...") {
-                    NotificationCenter.default.post(name: .shareDocument, object: nil)
-                }
-                .keyboardShortcut("S", modifiers: [.command, .shift])
-            }
-        }
 
         // Settings window
         #if os(macOS)
@@ -629,6 +421,228 @@ struct ImprintApp: App {
         }
         .defaultSize(width: 800, height: 400)
         #endif
+    }
+
+    // MARK: - App-wide commands
+    //
+    // Lifted out of the (eventually retiring) `DocumentGroup` scene so
+    // they survive when that scene is gated off on macOS — see Phase 4b
+    // of /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md.
+    // Attached to the project-browser `WindowGroup` above, which is the
+    // always-present scene.
+    @CommandsBuilder
+    private var sharedCommands: some Commands {
+        // File menu additions — augment the standard "New" command
+        // (which creates a Typst .imprint document) with a sibling
+        // "New LaTeX Document" that creates a .tex-format buffer.
+        CommandGroup(after: .newItem) {
+            Button("New LaTeX Document") {
+                Self.pendingNewDocumentFormat = .latex
+                NSDocumentController.shared.newDocument(nil)
+            }
+            .keyboardShortcut("N", modifiers: [.command, .option])
+
+            Button("Open Manuscript Library") {
+                openWindow(id: "manuscript-library")
+            }
+            .keyboardShortcut("L", modifiers: [.command, .shift])
+
+            Button("Import to Manuscript Library…") {
+                handleImportToLibrary()
+            }
+            .keyboardShortcut("I", modifiers: [.command, .shift])
+        }
+
+        // Edit menu additions
+        CommandGroup(after: .textEditing) {
+            Button("Insert Citation...") {
+                NotificationCenter.default.post(name: .insertCitation, object: nil)
+            }
+            .keyboardShortcut("K", modifiers: [.command, .shift])
+
+            Button("Add Comment...") {
+                NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)
+            }
+            .keyboardShortcut("M", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Symbol Palette...") {
+                NotificationCenter.default.post(name: .showSymbolPalette, object: nil)
+            }
+            .keyboardShortcut("Y", modifiers: [.command, .shift])
+
+            Button("AI Assistant...") {
+                NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
+            }
+            .keyboardShortcut("A", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Compile to PDF") {
+                NotificationCenter.default.post(name: .compileDocument, object: nil)
+            }
+            .keyboardShortcut(.return, modifiers: [.command])
+
+            Divider()
+
+            Button("Search Across Manuscripts…") {
+                openWindow(id: "cross-document-search")
+            }
+            .keyboardShortcut("F", modifiers: [.command, .shift])
+        }
+
+        // View menu additions
+        CommandGroup(after: .sidebar) {
+            Picker("Edit Mode", selection: $appState.editMode) {
+                Text("Direct PDF").tag(EditMode.directPdf)
+                Text("Split View").tag(EditMode.splitView)
+                Text("Text Only").tag(EditMode.textOnly)
+            }
+            .keyboardShortcut(.tab)
+
+            Divider()
+
+            Button(appState.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
+                NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
+            }
+            .keyboardShortcut("F", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button(appState.showingAIAssistant ? "Hide AI Assistant" : "Show AI Assistant") {
+                NotificationCenter.default.post(name: .toggleAIAssistant, object: nil)
+            }
+            .keyboardShortcut(".", modifiers: [.command])
+
+            Button(appState.showingComments ? "Hide Comments" : "Show Comments") {
+                NotificationCenter.default.post(name: .toggleCommentsSidebar, object: nil)
+            }
+            .keyboardShortcut("K", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("Show Console") {
+                openWindow(id: "console")
+            }
+            .keyboardShortcut("C", modifiers: [.command, .shift])
+
+            Button("Show Plots Panel") {
+                NotificationCenter.default.post(name: .toggleVeuszPlotsPanel, object: nil)
+            }
+            .keyboardShortcut("P", modifiers: [.command, .option])
+        }
+
+        CommandGroup(after: .pasteboard) {
+            Button("Insert Veusz Plot…") {
+                NotificationCenter.default.post(name: .presentVeuszPlotPicker, object: nil)
+            }
+            .keyboardShortcut("I", modifiers: [.command, .shift])
+        }
+
+        // Format menu
+        CommandMenu("Format") {
+            Button("Bold") {
+                NotificationCenter.default.post(name: .formatBold, object: nil)
+            }
+            .keyboardShortcut("B", modifiers: [.command])
+
+            Button("Italic") {
+                NotificationCenter.default.post(name: .formatItalic, object: nil)
+            }
+            .keyboardShortcut("I", modifiers: [.command])
+
+            Divider()
+
+            Menu("Heading") {
+                Button("Heading 1") {
+                    NotificationCenter.default.post(name: .insertHeading, object: 1)
+                }
+                .keyboardShortcut("1", modifiers: [.command, .option])
+
+                Button("Heading 2") {
+                    NotificationCenter.default.post(name: .insertHeading, object: 2)
+                }
+                .keyboardShortcut("2", modifiers: [.command, .option])
+
+                Button("Heading 3") {
+                    NotificationCenter.default.post(name: .insertHeading, object: 3)
+                }
+                .keyboardShortcut("3", modifiers: [.command, .option])
+            }
+        }
+
+        // File menu: Print compiled PDF
+        CommandGroup(replacing: .printItem) {
+            Button("Print Compiled PDF...") {
+                NotificationCenter.default.post(name: .printPDF, object: nil)
+            }
+            .keyboardShortcut("P", modifiers: [.command])
+        }
+
+        // Git menu
+        CommandMenu("Git") {
+            Button("Commit...") {
+                NotificationCenter.default.post(name: .gitCommit, object: nil)
+            }
+            .keyboardShortcut("G", modifiers: [.command, .option])
+
+            Button("Push") {
+                NotificationCenter.default.post(name: .gitPush, object: nil)
+            }
+            .keyboardShortcut("P", modifiers: [.command, .shift])
+
+            Button("Pull") {
+                NotificationCenter.default.post(name: .gitPull, object: nil)
+            }
+            .keyboardShortcut("U", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Link Repository...") {
+                NotificationCenter.default.post(name: .gitLink, object: nil)
+            }
+
+            Button("Create GitHub Repository...") {
+                NotificationCenter.default.post(name: .gitCreateRepo, object: nil)
+            }
+
+            Divider()
+
+            Button("History...") {
+                NotificationCenter.default.post(name: .gitHistory, object: nil)
+            }
+        }
+
+        // Document menu
+        CommandMenu("Document") {
+            Button("Export PDF...") {
+                NotificationCenter.default.post(name: .exportPDF, object: nil)
+            }
+            .keyboardShortcut("E", modifiers: [.command, .shift])
+
+            Button("Export to LaTeX...") {
+                NotificationCenter.default.post(name: .exportLatex, object: nil)
+            }
+
+            Button("Export Bibliography...") {
+                NotificationCenter.default.post(name: .exportBibliography, object: nil)
+            }
+
+            Divider()
+
+            Button("Version History...") {
+                NotificationCenter.default.post(name: .showVersionHistory, object: nil)
+            }
+            .keyboardShortcut("H", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("Share...") {
+                NotificationCenter.default.post(name: .shareDocument, object: nil)
+            }
+            .keyboardShortcut("S", modifiers: [.command, .shift])
+        }
     }
 }
 
