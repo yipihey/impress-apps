@@ -145,6 +145,23 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
                 let uuid = UUID(uuidString: idString)
             else { return }
             Task { @MainActor in
+                // Phase 4b: prefer the manuscript store (the new path).
+                // The Spotlight provider indexes both store + legacy
+                // CDDocumentReference entries; migration preserves UUIDs
+                // so the same uuid resolves on both sides.
+                if ManuscriptStoreAdapter.shared.manuscript(id: uuid) != nil {
+                    NotificationCenter.default.post(
+                        name: .openManuscriptInEditor,
+                        object: nil,
+                        userInfo: ["manuscriptID": uuid]
+                    )
+                    return
+                }
+                // Legacy fallback: registry was populated by
+                // DocumentGroup. After Phase 4b that scene is gone,
+                // so this path effectively never fires — kept for
+                // forward compatibility if a future refactor
+                // re-introduces transient documents.
                 if let url = DocumentRegistry.shared.urlByDocumentID[uuid] {
                     NSDocumentController.shared.openDocument(
                         withContentsOf: url,
@@ -285,6 +302,26 @@ struct ImprintApp: App {
         // HTTP server is started via ImprintAppDelegate.applicationDidFinishLaunching
     }
 
+    /// File → New Typst/LaTeX Manuscript handler. Creates an empty
+    /// manuscript in the unified store and opens an editor window
+    /// for it. Replaces the old `NSDocumentController.shared.newDocument`
+    /// path that was DocumentGroup-bound.
+    private func createNewManuscript(format: ManuscriptFormat) {
+        do {
+            let id = try ManuscriptStoreAdapter.shared.createManuscript(
+                title: format == .latex ? "Untitled.tex" : "Untitled",
+                format: format
+            )
+            openWindow(id: "manuscript-editor", value: id)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't create manuscript"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+        }
+    }
+
     /// File → Import to Manuscript Library… handler. Opens an
     /// NSOpenPanel for .tex / .imprint files, runs the importer, and
     /// pops a manuscript-editor window for each successful import.
@@ -367,6 +404,22 @@ struct ImprintApp: App {
                     else { return }
                     openWindow(id: "manuscript-editor", value: id)
                 }
+                // Spotlight result continuation. Previously lived on
+                // the (now-retired) DocumentGroup scene. The handler
+                // posts `.openDocument` with the document UUID; the
+                // app delegate observes that and either opens the
+                // legacy doc URL (if DocumentRegistry still knows it)
+                // or opens the manuscript-store editor window
+                // (preferred — set up by Phase 4a's dual-read paths).
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imprint) { uuid, _ in
+                        NotificationCenter.default.post(
+                            name: .openDocument,
+                            object: nil,
+                            userInfo: ["documentID": uuid.uuidString]
+                        )
+                    }
+                }
         }
         .defaultSize(width: 800, height: 600)
         .commands { sharedCommands }
@@ -417,70 +470,15 @@ struct ImprintApp: App {
         .defaultPosition(.center)
         #endif
 
-        // Document editing windows (existing)
-        DocumentGroup(newDocument: Self.createInitialDocument()) { file in
-            ContentView(document: file.$document)
-                .frame(minWidth: 700, minHeight: 400)
-                .environment(appState)
-                .withAppearance()
-                .task {
-                    // Start heartbeat for SiblingDiscovery
-                    Task.detached {
-                        while !Task.isCancelled {
-                            ImpressNotification.postHeartbeat(from: .imprint)
-                            try? await Task.sleep(for: .seconds(25))
-                        }
-                    }
-                    // Observe library changes from imbib to invalidate citation cache
-                    let _ = ImpressNotification.observe(ImpressNotification.libraryChanged, from: .imbib) {
-                        Task { @MainActor in
-                            NotificationCenter.default.post(name: .insertCitation, object: "refresh")
-                        }
-                    }
-                }
-                .onAppear {
-                    // In UI testing mode, auto-create an untitled document if none open
-                    if Self.isUITesting {
-                        UITestingSupport.ensureDocumentOpen()
-                    }
-
-                    // Register document with HTTP API registry
-                    DocumentRegistry.shared.register(file.document, fileURL: file.fileURL)
-
-                    // Wire git lifecycle — notify integration of document open
-                    ImprintGitIntegration.shared.documentOpened(at: file.fileURL)
-                }
-                .onDisappear {
-                    // Unregister document when closed
-                    DocumentRegistry.shared.unregister(file.document, fileURL: file.fileURL)
-
-                    // Wire git lifecycle — notify integration of document close
-                    ImprintGitIntegration.shared.documentClosed()
-                }
-                .onChange(of: file.document) { _, newDoc in
-                    // Update registry when document changes
-                    DocumentRegistry.shared.register(newDoc, fileURL: file.fileURL)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .imprintDocumentDidSave)) { _ in
-                    // Wire git lifecycle — notify integration of document save
-                    ImprintGitIntegration.shared.documentSaved(at: file.fileURL)
-                }
-                .onContinueUserActivity(CSSearchableItemActionType) { activity in
-                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .imprint) { uuid, _ in
-                        NotificationCenter.default.post(
-                            name: .openDocument,
-                            object: nil,
-                            userInfo: ["documentID": uuid.uuidString]
-                        )
-                    }
-                }
-                .onOpenURL { url in
-                    Task {
-                        await URLSchemeHandler.shared.handleURL(url)
-                    }
-                }
-        }
-        .defaultSize(width: 1100, height: 700)
+        // DocumentGroup-based editor retired in Phase 4b. File opens
+        // go through `ImprintAppDelegate.application(_:open:)` →
+        // `ManuscriptImporter` → `manuscript-editor` WindowGroup
+        // (above). The imprint:// URL scheme is also handled by the
+        // delegate. Spotlight continuation is on `project-browser`
+        // (above). DocumentRegistry stays as a value cache for any
+        // remaining legacy callers but is no longer populated by an
+        // active editor scene — the dual-read fallbacks added in
+        // Phase 4a route those through the manuscript store.
 
         // Settings window
         #if os(macOS)
@@ -509,12 +507,22 @@ struct ImprintApp: App {
         // File menu additions — augment the standard "New" command
         // (which creates a Typst .imprint document) with a sibling
         // "New LaTeX Document" that creates a .tex-format buffer.
-        CommandGroup(after: .newItem) {
-            Button("New LaTeX Document") {
-                Self.pendingNewDocumentFormat = .latex
-                NSDocumentController.shared.newDocument(nil)
+        CommandGroup(replacing: .newItem) {
+            // Phase 4b: replaces the old NSDocumentController-driven
+            // File > New with adapter-backed manuscript creation.
+            // Both formats create a fresh `manuscript` item in the
+            // unified store and pop the editor window for it.
+            Button("New Typst Manuscript") {
+                createNewManuscript(format: .typst)
+            }
+            .keyboardShortcut("N", modifiers: [.command])
+
+            Button("New LaTeX Manuscript") {
+                createNewManuscript(format: .latex)
             }
             .keyboardShortcut("N", modifiers: [.command, .option])
+
+            Divider()
 
             Button("Open Manuscript Library") {
                 openWindow(id: "manuscript-library")
