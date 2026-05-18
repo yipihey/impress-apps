@@ -14,68 +14,30 @@ public struct ImprintSpotlightProvider: SpotlightItemProvider {
 
     public init() {}
 
+    /// Index every manuscript in the unified store.
+    ///
+    /// Phase F2 collapse: previously dual-read both `CDDocumentReference`
+    /// and `ManuscriptStoreAdapter`. After Phase 3's migration runs,
+    /// every legacy CD ref has a corresponding manuscript item with the
+    /// same UUID, so the unified-store side carries the truth.
     @MainActor
     public func allItemIDs() async -> Set<UUID> {
-        var ids: Set<UUID> = []
-
-        // Legacy CD-backed documents (still authoritative until Phase
-        // 4b retires FileDocument).
-        let context = ImprintPersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDDocumentReference>(entityName: "DocumentReference")
-        if let refs = try? context.fetch(request) {
-            ids.formUnion(refs.compactMap { $0.documentUUID })
-        }
-
-        // Phase 4a dual-read: unified-store manuscripts. Spotlight now
-        // sees both sets and dedupes by UUID (which is preserved across
-        // the migration, so duplicates collapse correctly).
-        for m in ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000) {
-            ids.insert(m.id)
-        }
-        return ids
+        Set(ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000).map(\.id))
     }
 
     @MainActor
     public func spotlightItems(for ids: [UUID]) async -> [any SpotlightItem] {
-        // Build the CD-side lookup once.
-        let context = ImprintPersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDDocumentReference>(entityName: "DocumentReference")
-        let cdRefs = (try? context.fetch(request)) ?? []
-        let refsByUUID = Dictionary(
-            cdRefs.compactMap { ref -> (UUID, CDDocumentReference)? in
-                guard let uuid = ref.documentUUID else { return nil }
-                return (uuid, ref)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        // Build the manuscript-store lookup once. The list is bounded
-        // by the user's manuscript count, not the Spotlight `ids` set,
-        // but indexing is faster than re-querying per id.
         let manuscriptsByUUID: [UUID: ManuscriptModel] = Dictionary(
             ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000).map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-
         return ids.compactMap { id -> (any SpotlightItem)? in
-            // Prefer the unified-store snapshot when both exist — it
-            // has fresher metadata (title and authors are updated by
-            // the editor's debounced write) than the cached CD copy.
-            if let m = manuscriptsByUUID[id] {
-                return DocumentSpotlightItem(
-                    id: id,
-                    title: m.title,
-                    authors: m.authors.isEmpty ? nil : m.authors.joined(separator: ", ")
-                )
-            }
-            if let ref = refsByUUID[id] {
-                return DocumentSpotlightItem(
-                    id: id,
-                    title: ref.cachedTitle ?? "Untitled",
-                    authors: ref.cachedAuthors
-                )
-            }
-            return nil
+            guard let m = manuscriptsByUUID[id] else { return nil }
+            return DocumentSpotlightItem(
+                id: id,
+                title: m.title,
+                authors: m.authors.isEmpty ? nil : m.authors.joined(separator: ", ")
+            )
         }
     }
 }
