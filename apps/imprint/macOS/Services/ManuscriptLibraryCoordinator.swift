@@ -68,10 +68,75 @@ final class ManuscriptLibraryCoordinator {
     /// Suggested library name based on document title. Used both on creation
     /// and by `UnfoundPaperRow` for its "New Library..." default.
     func suggestedLibraryName(for document: ImprintDocument) -> String {
-        let title = document.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.isEmpty {
+        suggestedLibraryName(forTitle: document.title)
+    }
+
+    /// Title-only variant — used by both the legacy and the unified-store paths.
+    func suggestedLibraryName(forTitle title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
             return "Manuscript References"
         }
-        return "References: \(title)"
+        return "References: \(trimmed)"
+    }
+
+    // MARK: - Manuscript-store overloads (Phase F1)
+    //
+    // Parallel to the legacy `inout ImprintDocument` API above but
+    // operating against the unified store. `ensureLibrary(forManuscriptID:)`
+    // persists the library UUID via
+    // `ManuscriptStoreAdapter.updateMetadata(linkedImbibLibraryID:)`.
+
+    @discardableResult
+    func ensureLibrary(forManuscriptID manuscriptID: UUID) -> String? {
+        let adapter = ManuscriptStoreAdapter.shared
+        guard let manuscript = adapter.manuscript(id: manuscriptID) else {
+            return nil
+        }
+        if let existing = manuscript.linkedImbibLibraryID, !existing.isEmpty {
+            return existing
+        }
+        guard ImprintPublicationService.shared.isReady else {
+            logInfo(
+                "ManuscriptLibraryCoordinator: store not ready, skipping library creation",
+                category: "manuscript-library"
+            )
+            return nil
+        }
+        let name = suggestedLibraryName(forTitle: manuscript.title)
+        do {
+            let libraryID = try ImprintPublicationService.shared.createLibrary(name: name)
+            try adapter.updateMetadata(id: manuscriptID, linkedImbibLibraryID: libraryID)
+            logInfo(
+                "ManuscriptLibraryCoordinator: created library '\(name)' → \(libraryID) for manuscript \(manuscriptID)",
+                category: "manuscript-library"
+            )
+            return libraryID
+        } catch {
+            logInfo(
+                "ManuscriptLibraryCoordinator: createLibrary failed: \(error.localizedDescription)",
+                category: "manuscript-library"
+            )
+            return nil
+        }
+    }
+
+    func addPublication(publicationID: String, toManuscriptID manuscriptID: UUID) {
+        guard let libraryID = ensureLibrary(forManuscriptID: manuscriptID) else { return }
+        do {
+            try ImprintPublicationService.shared.addPublicationsToLibrary(
+                libraryID: libraryID,
+                publicationIDs: [publicationID]
+            )
+            logInfo(
+                "ManuscriptLibraryCoordinator: added \(publicationID) to library \(libraryID)",
+                category: "manuscript-library"
+            )
+        } catch {
+            logInfo(
+                "ManuscriptLibraryCoordinator: addPublicationsToLibrary failed: \(error.localizedDescription)",
+                category: "manuscript-library"
+            )
+        }
     }
 }

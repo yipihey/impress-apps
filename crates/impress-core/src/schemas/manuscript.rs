@@ -170,6 +170,69 @@ pub fn manuscript_schema() -> Schema {
                         .into(),
                 ),
             },
+            // -----------------------------------------------------------------
+            // imbib bridge + FAIR attribution fields (added in Phase F1 of the
+            // unified-store plan). Migrated 1:1 from the legacy
+            // `ImprintDocument` so the macOS callsite refactor (ROCrateBuilder,
+            // ManuscriptLibraryCoordinator) can pull these off the
+            // `manuscript` payload instead of going through the legacy type.
+            // All optional — pre-existing items continue to validate.
+            // -----------------------------------------------------------------
+            FieldDef {
+                name: "linked_imbib_manuscript_id".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "UUID string of the linked imbib manuscript-record, if any. \
+                     Maintained by ManuscriptLibraryCoordinator when the user \
+                     associates a draft with an imbib library entry."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "linked_imbib_library_id".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "UUID string of the imbib library that holds papers cited \
+                     by this manuscript. Created on first save by \
+                     ManuscriptLibraryCoordinator."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "orcid".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some("Author ORCID (FAIR attribution, ADR-0014 D54).".into()),
+            },
+            FieldDef {
+                name: "affiliation".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some("Author affiliation (FAIR attribution).".into()),
+            },
+            FieldDef {
+                name: "funder".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some("Funding source (FAIR attribution).".into()),
+            },
+            FieldDef {
+                name: "license".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some("Manuscript license identifier (FAIR attribution).".into()),
+            },
+            FieldDef {
+                name: "embargo_until".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "ISO 8601 embargo expiration (informational only — no enforcement code)."
+                        .into(),
+                ),
+            },
         ],
         expected_edges: vec![
             EdgeType::HasVersion,

@@ -47,6 +47,21 @@ public struct ManuscriptModel: Sendable, Identifiable, Equatable {
     public let tags: [String]
     public let flagColor: String?
     public let importSource: ImportSource?
+
+    /// imbib bridge fields — mirror the manuscript payload's
+    /// `linked_imbib_manuscript_id` / `linked_imbib_library_id`. Maintained
+    /// by `ManuscriptLibraryCoordinator` when a draft is linked to an imbib
+    /// library entry.
+    public let linkedImbibManuscriptID: UUID?
+    public let linkedImbibLibraryID: String?
+
+    /// FAIR attribution fields (ADR-0014 D54). All informational; no
+    /// enforcement code paths.
+    public let orcid: String?
+    public let affiliation: String?
+    public let funder: String?
+    public let license: String?
+    public let embargoUntil: Date?
 }
 
 public enum ManuscriptFormat: String, Sendable, Codable, Equatable {
@@ -290,13 +305,21 @@ public final class ManuscriptStoreAdapter {
     }
 
     /// Update top-level manuscript metadata (title, status, authors,
-    /// import_source). Body edits go through `setBody(id:text:)`.
+    /// import_source, imbib bridges, FAIR attribution). Body edits go
+    /// through `setBody(id:text:)`. Pass nil to leave a field unchanged.
     public func updateMetadata(
         id: UUID,
         title: String? = nil,
         status: String? = nil,
         authors: [String]? = nil,
-        importSource: ImportSource? = nil
+        importSource: ImportSource? = nil,
+        linkedImbibManuscriptID: UUID? = nil,
+        linkedImbibLibraryID: String? = nil,
+        orcid: String? = nil,
+        affiliation: String? = nil,
+        funder: String? = nil,
+        license: String? = nil,
+        embargoUntil: Date? = nil
     ) throws {
         var payload: [String: Any] = [:]
         if let title { payload["title"] = title }
@@ -304,6 +327,19 @@ public final class ManuscriptStoreAdapter {
         if let authors { payload["authors"] = authors }
         if let importSource {
             payload["import_source"] = try Self.encodeJSON(importSource)
+        }
+        if let linkedImbibManuscriptID {
+            payload["linked_imbib_manuscript_id"] = linkedImbibManuscriptID.uuidString
+        }
+        if let linkedImbibLibraryID {
+            payload["linked_imbib_library_id"] = linkedImbibLibraryID
+        }
+        if let orcid { payload["orcid"] = orcid }
+        if let affiliation { payload["affiliation"] = affiliation }
+        if let funder { payload["funder"] = funder }
+        if let license { payload["license"] = license }
+        if let embargoUntil {
+            payload["embargo_until"] = ISO8601DateFormatter().string(from: embargoUntil)
         }
         guard !payload.isEmpty else { return }
         let json = try Self.encodeJSON(payload)
@@ -401,6 +437,16 @@ public final class ManuscriptStoreAdapter {
             importSource = try? JSONDecoder().decode(ImportSource.self, from: data)
         }
 
+        let linkedImbibManuscriptID = (payload["linked_imbib_manuscript_id"] as? String)
+            .flatMap(UUID.init(uuidString:))
+        let linkedImbibLibraryID = payload["linked_imbib_library_id"] as? String
+        let orcid = payload["orcid"] as? String
+        let affiliation = payload["affiliation"] as? String
+        let funder = payload["funder"] as? String
+        let license = payload["license"] as? String
+        let embargoUntil = (payload["embargo_until"] as? String)
+            .flatMap { ISO8601DateFormatter().date(from: $0) }
+
         return ManuscriptModel(
             id: id,
             title: title,
@@ -415,7 +461,14 @@ public final class ManuscriptStoreAdapter {
             isRead: row.isRead,
             tags: row.tags,
             flagColor: row.flagColor,
-            importSource: importSource
+            importSource: importSource,
+            linkedImbibManuscriptID: linkedImbibManuscriptID,
+            linkedImbibLibraryID: linkedImbibLibraryID,
+            orcid: orcid,
+            affiliation: affiliation,
+            funder: funder,
+            license: license,
+            embargoUntil: embargoUntil
         )
     }
 

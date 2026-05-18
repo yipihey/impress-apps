@@ -16,37 +16,80 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
     nonisolated init() {}
 
     // MARK: - Documents
+    //
+    // Phase F1 of /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md:
+    // Routed through `ManuscriptStoreAdapter` (the unified store) with a
+    // `DocumentRegistry` fallback for any legacy in-memory entries. With
+    // DocumentGroup retired (Phase 4b), the registry is no longer
+    // populated in normal use; the fallback is kept for forward
+    // compatibility and one-off recovery flows.
 
     func listDocuments(limit: Int) async throws -> [DocumentEntity] {
-        let docs = DocumentRegistry.shared.allDocuments.prefix(max(0, limit))
+        let n = max(0, limit)
+        let manuscripts = await MainActor.run {
+            ManuscriptStoreAdapter.shared.listManuscripts(limit: UInt32(n == 0 ? 100 : n))
+        }
+        let primary = manuscripts.prefix(n == 0 ? Int.max : n).map(Self.entity(for:))
+        if !primary.isEmpty { return Array(primary) }
+        // Fallback for any legacy DocumentRegistry entries.
+        let docs = DocumentRegistry.shared.allDocuments.prefix(n)
         return docs.map(Self.entity(for:))
     }
 
     func documentsForIds(_ ids: [UUID]) async throws -> [DocumentEntity] {
-        ids.compactMap { id in
-            DocumentRegistry.shared.document(withId: id).map(Self.entity(for:))
+        await MainActor.run {
+            ids.compactMap { id -> DocumentEntity? in
+                if let m = ManuscriptStoreAdapter.shared.manuscript(id: id) {
+                    return Self.entity(for: m)
+                }
+                if let doc = DocumentRegistry.shared.document(withId: id) {
+                    return Self.entity(for: doc)
+                }
+                return nil
+            }
         }
     }
 
     func searchDocumentsByTitle(_ query: String) async throws -> [DocumentEntity] {
         let needle = query.lowercased()
+        let manuscripts = await MainActor.run {
+            ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000)
+        }
+        let storeHits = manuscripts
+            .filter { $0.title.lowercased().contains(needle) }
+            .map(Self.entity(for:))
+        if !storeHits.isEmpty { return storeHits }
         return DocumentRegistry.shared.allDocuments
             .filter { $0.title.lowercased().contains(needle) }
             .map(Self.entity(for:))
     }
 
     func getDocumentContent(id: UUID) async throws -> String {
-        guard let doc = DocumentRegistry.shared.document(withId: id) else {
-            throw ImprintIntentError.documentNotFound(id.uuidString)
+        if let m = await MainActor.run(body: { ManuscriptStoreAdapter.shared.manuscript(id: id) }) {
+            return m.body
         }
-        return doc.source
+        if let doc = DocumentRegistry.shared.document(withId: id) {
+            return doc.source
+        }
+        throw ImprintIntentError.documentNotFound(id.uuidString)
     }
 
     func createDocument(title: String, template: String?) async throws -> DocumentEntity {
-        // Document creation routes through DocumentController on the main thread —
-        // an App Intent can't reliably drive that workflow, so we surface a clear
-        // error rather than partially implement it.
-        throw ImprintIntentError.executionFailed("Document creation via App Intent is not yet wired up.")
+        // Phase F1: creation now routes through `ManuscriptStoreAdapter`
+        // — no more DocumentController dance required. `template` selects
+        // the format: "latex" or "tex" → LaTeX, anything else → Typst.
+        let format: ManuscriptFormat = (template?.lowercased() == "latex" || template?.lowercased() == "tex")
+            ? .latex : .typst
+        return try await MainActor.run {
+            let id = try ManuscriptStoreAdapter.shared.createManuscript(
+                title: title,
+                format: format
+            )
+            guard let m = ManuscriptStoreAdapter.shared.manuscript(id: id) else {
+                throw ImprintIntentError.executionFailed("Created manuscript \(id) but couldn't read it back.")
+            }
+            return Self.entity(for: m)
+        }
     }
 
     func compileDocument(id: UUID) async throws {
@@ -179,6 +222,19 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
             title: document.title,
             wordCount: document.source.split(separator: " ", omittingEmptySubsequences: true).count,
             lastModified: document.modifiedAt,
+            hasUnsavedChanges: false
+        )
+    }
+
+    /// Phase F1: `ManuscriptModel`-driven overload. Source of truth post-Phase-4b.
+    /// The `lastModified` falls back to `createdAt` when the manuscript hasn't
+    /// had a body edit yet (a brand-new manuscript via File → New).
+    private static func entity(for manuscript: ManuscriptModel) -> DocumentEntity {
+        DocumentEntity(
+            id: manuscript.id,
+            title: manuscript.title,
+            wordCount: manuscript.body.split(separator: " ", omittingEmptySubsequences: true).count,
+            lastModified: manuscript.bodyModifiedAt ?? manuscript.createdAt,
             hasUnsavedChanges: false
         )
     }
