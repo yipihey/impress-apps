@@ -579,7 +579,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -587,6 +587,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let response: [String: Any] = [
             "status": "ok",
+            "via": doc.via,
             "id": doc.id.uuidString,
             "outline": outline
         ]
@@ -652,7 +653,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -662,6 +663,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let response: [String: Any] = [
             "status": "ok",
+            "via": doc.via,
             "id": doc.id.uuidString,
             "count": doc.bibliography.count,
             "citations": citations
@@ -677,7 +679,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -686,6 +688,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let response: [String: Any] = [
             "status": "ok",
+            "via": doc.via,
             "id": doc.id.uuidString,
             "usages": usages
         ]
@@ -710,7 +713,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -738,7 +741,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -763,7 +766,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1337,7 +1340,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Missing 'query' parameter")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1915,7 +1918,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard let uuid = UUID(uuidString: id) else {
             return .badRequest("Invalid document ID format")
         }
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
         let sections = SectionExtractor.extract(from: doc.source, documentID: uuid)
@@ -1953,7 +1956,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard let docUUID = UUID(uuidString: docId) else {
             return .badRequest("Invalid document ID format")
         }
-        guard let doc = await findDocument(by: docUUID) else {
+        guard let doc = await findDocumentSnapshot(by: docUUID) else {
             return .notFound("Document not found: \(docId)")
         }
         let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
@@ -2906,6 +2909,56 @@ public actor ImprintHTTPRouter: HTTPRouter {
     @MainActor
     private func findManuscript(by id: UUID) -> ManuscriptModel? {
         ManuscriptStoreAdapter.shared.manuscript(id: id)
+    }
+
+    /// Read-only snapshot of a document's display + content surface,
+    /// populated from either the legacy registry (live editor buffer)
+    /// or the unified store. The Phase F1 read handlers consume this
+    /// instead of `ImprintDocument` so they work in both cases.
+    ///
+    /// `via` reports which source resolved the ID, so response JSON
+    /// can carry that as a hint to API consumers debugging stale data.
+    struct DocumentSnapshot {
+        let id: UUID
+        let title: String
+        let authors: [String]
+        let source: String
+        let bibliography: [String: String]
+        let createdAt: Date
+        let modifiedAt: Date
+        let via: String  // "document-registry" | "manuscript-store"
+    }
+
+    /// Dual-read lookup for the read-only handlers in Band D. Prefers
+    /// the live registry; falls through to the manuscript-store snapshot
+    /// (which Phase 4b made the canonical source for new manuscripts).
+    @MainActor
+    private func findDocumentSnapshot(by id: UUID) -> DocumentSnapshot? {
+        if let doc = findDocument(by: id) {
+            return DocumentSnapshot(
+                id: doc.id,
+                title: doc.title,
+                authors: doc.authors,
+                source: doc.source,
+                bibliography: doc.bibliography,
+                createdAt: doc.createdAt,
+                modifiedAt: doc.modifiedAt,
+                via: "document-registry"
+            )
+        }
+        if let m = findManuscript(by: id) {
+            return DocumentSnapshot(
+                id: m.id,
+                title: m.title,
+                authors: m.authors,
+                source: m.body,
+                bibliography: [:],  // bibliography-entry items not yet wired here
+                createdAt: m.createdAt,
+                modifiedAt: m.bodyModifiedAt ?? m.createdAt,
+                via: "manuscript-store"
+            )
+        }
+        return nil
     }
 
     // MARK: - Veusz plot handlers (Phase 7)
