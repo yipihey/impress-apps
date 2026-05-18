@@ -2,6 +2,7 @@
 import AppKit
 import CoreData
 import CoreSpotlight
+import UniformTypeIdentifiers
 import ImpressGit
 import ImpressLogging
 import ImprintCore
@@ -210,6 +211,44 @@ struct ImprintApp: App {
         // HTTP server is started via ImprintAppDelegate.applicationDidFinishLaunching
     }
 
+    /// File → Import to Manuscript Library… handler. Opens an
+    /// NSOpenPanel for .tex / .imprint files, runs the importer, and
+    /// pops a manuscript-editor window for each successful import.
+    ///
+    /// Errors are surfaced through `NSAlert` because this is a
+    /// user-driven flow — silent failure here would be confusing.
+    private func handleImportToLibrary() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.title = "Import into Manuscript Library"
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "tex") ?? .plainText,
+            UTType(filenameExtension: "ltx") ?? .plainText,
+            UTType(filenameExtension: "imprint") ?? .package,
+        ]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true       // .imprint bundles are dirs
+        panel.canChooseFiles = true
+        panel.treatsFilePackagesAsDirectories = false
+
+        guard panel.runModal() == .OK else { return }
+        Task { @MainActor in
+            for url in panel.urls {
+                do {
+                    let result = try ManuscriptImporter.importDocument(at: url)
+                    openWindow(id: "manuscript-editor", value: result.manuscriptID)
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Import failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
+        #endif
+    }
+
     private func configureForUITesting() {
         // Reset user defaults if requested
         if Self.shouldResetState {
@@ -250,6 +289,20 @@ struct ImprintApp: App {
                 .withAppearance()
         }
         .defaultSize(width: 1100, height: 650)
+
+        // Phase 2: editor window for a manuscript in the unified store.
+        // Opened from the library list or after a successful import via
+        // `openWindow(id: "manuscript-editor", value: manuscriptID)`.
+        WindowGroup("Manuscript Editor", id: "manuscript-editor", for: UUID.self) { $manuscriptID in
+            if let id = manuscriptID {
+                ManuscriptEditorView(manuscriptID: id)
+                    .withAppearance()
+            } else {
+                Text("No manuscript selected")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .defaultSize(width: 900, height: 600)
         #endif
 
         #if os(macOS)
@@ -344,6 +397,11 @@ struct ImprintApp: App {
                     openWindow(id: "manuscript-library")
                 }
                 .keyboardShortcut("L", modifiers: [.command, .shift])
+
+                Button("Import to Manuscript Library…") {
+                    handleImportToLibrary()
+                }
+                .keyboardShortcut("I", modifiers: [.command, .shift])
             }
 
             // Edit menu additions

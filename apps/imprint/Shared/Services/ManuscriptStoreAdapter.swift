@@ -134,6 +134,14 @@ public final class ManuscriptStoreAdapter {
         batchDepth += 1
     }
 
+    /// Force a `dataVersion` bump + structural event without going through
+    /// a typed mutation method. Used by services that talk to the FFI
+    /// directly (e.g. `ManuscriptImporter` when preserving a bundle's
+    /// pre-assigned UUID through a raw `upsertItem`).
+    public func refresh() {
+        didMutate(structural: true)
+    }
+
     /// End a batch mutation. When the outermost batch ends, posts a single
     /// coalesced `.structural` (or `.itemsMutated`) event summarizing all
     /// mutations during the batch.

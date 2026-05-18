@@ -21,6 +21,10 @@ struct ManuscriptLibraryView: View {
     /// so we observe the adapter's `dataVersion` directly.
     @Bindable private var adapter = ManuscriptStoreAdapter.shared
 
+    /// Used by the row's double-click handler to pop a dedicated
+    /// editor window for the selected manuscript.
+    @Environment(\.openWindow) private var openWindow
+
     /// Sidebar section currently selected. Phase 1 only supports the
     /// "All Manuscripts" pseudo-section; phase 3 adds real workspaces +
     /// collections.
@@ -82,6 +86,10 @@ struct ManuscriptLibraryView: View {
                     ForEach(manuscripts) { m in
                         ManuscriptRow(manuscript: m)
                             .tag(m.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) {
+                                openWindow(id: "manuscript-editor", value: m.id)
+                            }
                     }
                 }
                 .listStyle(.inset)
