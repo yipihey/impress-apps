@@ -302,12 +302,20 @@ struct ImprintApp: App {
         }
         .defaultSize(width: 1100, height: 650)
 
-        // Phase 2: editor window for a manuscript in the unified store.
-        // Opened from the library list or after a successful import via
-        // `openWindow(id: "manuscript-editor", value: manuscriptID)`.
+        // Phase 2 + 4b: editor window for a manuscript in the unified
+        // store. Opened from the library list or after a successful
+        // import via `openWindow(id: "manuscript-editor", value: manuscriptID)`.
+        //
+        // The editor reuses the rich `ContentView` via a bridged
+        // `ImprintDocument` (loaded from `ManuscriptStoreAdapter`,
+        // body edits debounced back). This keeps every editor feature
+        // — syntax highlighting, citation insert, plots panel, AI
+        // assistant — working in the manuscript-keyed path, which
+        // unblocks the eventual full retirement of `DocumentGroup`.
         WindowGroup("Manuscript Editor", id: "manuscript-editor", for: UUID.self) { $manuscriptID in
             if let id = manuscriptID {
                 ManuscriptEditorView(manuscriptID: id)
+                    .environment(appState)
                     .withAppearance()
             } else {
                 Text("No manuscript selected")

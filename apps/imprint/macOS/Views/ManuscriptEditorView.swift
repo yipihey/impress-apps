@@ -1,21 +1,27 @@
 //
 //  ManuscriptEditorView.swift
 //
-//  Phase 2 of the unified-store pivot
+//  Phase 2 + 4b of the unified-store pivot
 //  (/Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md).
 //
 //  The editor window for a manuscript that lives in the unified store.
-//  Body content is loaded from `ManuscriptStoreAdapter.body(id:)` and
-//  written back via `setBody(id:text:)` with a 200 ms idle debounce.
+//  Bridges to the existing rich `ContentView` so every editor feature
+//  (syntax highlighting, citation insert, plots panel, AI assistant,
+//  Veusz wiring) keeps working in the manuscript-keyed path. The
+//  bridged `ImprintDocument` is the editor's local source of truth
+//  during a session; body changes are debounced back into the store.
 //
-//  This is intentionally a minimal editor in Phase 2 — phase 4b folds
-//  in the rich `ContentView` (syntax highlighting, citation insert,
-//  plots panel, etc.) once `FileDocument` is retired. The Phase 2 goal
-//  is to prove the body-in-SQLite + materialize-for-toolchain path
-//  end-to-end without breaking the existing `DocumentGroup` editor.
+//  This keeps `ContentView` itself unchanged — the heavy refactor
+//  (taking a `manuscriptID` directly) is deferred to a follow-up,
+//  along with the actual deletion of `ImprintDocument: FileDocument`.
+//  In the meantime, the bridge is enough to retire `DocumentGroup`
+//  as the *user-visible* path: every new manuscript opens through
+//  the library here.
 //
 
 import AppKit
+import ImpressLogging
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -30,17 +36,25 @@ struct ManuscriptEditorView: View {
 
     @Bindable private var adapter = ManuscriptStoreAdapter.shared
 
-    /// The live editing buffer. Initialised from the store on first
-    /// appearance; written back via the debouncer on every change.
-    @State private var bodyBuffer: String = ""
+    /// Bridged `ImprintDocument` driving the legacy `ContentView`.
+    /// Materialised in `loadFromStore()` once the manuscript snapshot
+    /// is available. Until then, the loading placeholder is shown.
+    @State private var bridge: ImprintDocument = ImprintDocument(format: .typst)
 
-    /// Snapshot of the manuscript at open time; used to render title /
-    /// authors / format badge in the header. Reread from the adapter
-    /// when `dataVersion` changes.
+    /// True after the first `loadFromStore()` call. Gates whether the
+    /// editor body is shown and whether the source-change watcher
+    /// debounces writes back to the store (we don't want the initial
+    /// load to round-trip as a "user edit").
+    @State private var hasLoaded: Bool = false
+
+    /// Snapshot of the manuscript at open time + on every store
+    /// mutation. Drives the import-banner heuristic and gives the
+    /// header view live `ManuscriptModel` state without forcing
+    /// `ContentView` to know about manuscript-store types.
     @State private var manuscript: ManuscriptModel?
 
     /// One-shot banner for newly-imported manuscripts. Hides itself
-    /// after `bannerDisplayDuration`. Reset by the view's task.
+    /// after `bannerDisplayDuration`.
     @State private var showImportedBanner: Bool = false
 
     /// Debouncer state.
@@ -51,27 +65,49 @@ struct ManuscriptEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             if showImportedBanner, let source = manuscript?.importSource {
+                Divider()
                 ImportedBanner(source: source) {
                     showImportedBanner = false
                 }
-                Divider()
             }
-            editor
+            Divider()
+            if hasLoaded {
+                ContentView(document: $bridge)
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading manuscript…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
-        .frame(minWidth: 600, minHeight: 400)
-        .task { await loadOnAppear() }
+        .frame(minWidth: 700, minHeight: 400)
+        .task(id: manuscriptID) { await loadFromStore() }
         .onChange(of: adapter.dataVersion) { _, _ in
-            // Re-read the metadata snapshot. We deliberately don't
-            // overwrite the live body buffer: the editor is the source
-            // of truth between debounces.
+            // Refresh metadata snapshot. Body buffer is owned by the
+            // editor between debounces — we don't overwrite it from the
+            // store here, that would clobber in-flight edits.
             if let updated = adapter.manuscript(id: manuscriptID) {
                 manuscript = updated
             }
         }
-        .onChange(of: bodyBuffer) { _, newValue in
+        .onChange(of: bridge.source) { _, newValue in
+            guard hasLoaded else { return }
             scheduleSave(text: newValue)
+        }
+        // Mirror metadata edits (title, authors) made via ContentView's
+        // metadata UI back into the store. Debounced through the same
+        // path so quick consecutive edits coalesce.
+        .onChange(of: bridge.title) { _, newTitle in
+            guard hasLoaded else { return }
+            try? adapter.updateMetadata(id: manuscriptID, title: newTitle)
+        }
+        .onChange(of: bridge.authors) { _, newAuthors in
+            guard hasLoaded else { return }
+            try? adapter.updateMetadata(id: manuscriptID, authors: newAuthors)
         }
     }
 
@@ -97,12 +133,8 @@ struct ManuscriptEditorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Menu("Export") {
-                    Button("As .imprint Bundle…") {
-                        exportAsBundle()
-                    }
-                    Button("As Standalone Project…") {
-                        exportAsProject()
-                    }
+                    Button("As .imprint Bundle…") { exportAsBundle() }
+                    Button("As Standalone Project…") { exportAsProject() }
                 }
                 .font(.caption)
                 .menuStyle(.borderlessButton)
@@ -110,8 +142,70 @@ struct ManuscriptEditorView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .background(Color(NSColor.windowBackgroundColor))
         }
     }
+
+    // MARK: - Load + save
+
+    private func loadFromStore() async {
+        guard let m = adapter.manuscript(id: manuscriptID) else {
+            Logger.sharedStore.warningCapture(
+                "ManuscriptEditorView: manuscript \(manuscriptID) not found in store",
+                category: "manuscript-editor"
+            )
+            return
+        }
+        manuscript = m
+
+        // Synthesize the bridged ImprintDocument. Reuses the type's
+        // init(format:) so default templates are applied, then layers
+        // the manuscript snapshot's fields on top so the editor sees
+        // the actual content rather than the boilerplate.
+        let format: DocumentFormat = m.format == .latex ? .latex : .typst
+        var doc = ImprintDocument(format: format)
+        doc.id = manuscriptID
+        doc.title = m.title
+        doc.authors = m.authors
+        doc.source = m.body
+        doc.createdAt = m.createdAt
+        doc.modifiedAt = m.bodyModifiedAt ?? Date()
+        bridge = doc
+        hasLoaded = true
+
+        // Import banner: show for freshly-imported manuscripts only.
+        if let source = m.importSource,
+           let modified = m.bodyModifiedAt,
+           Date().timeIntervalSince(modified) < 30,
+           source.kind == .tex || source.kind == .imprint {
+            showImportedBanner = true
+            Task {
+                try? await Task.sleep(for: Self.bannerDisplayDuration)
+                await MainActor.run { showImportedBanner = false }
+            }
+        }
+    }
+
+    /// Debounced save. Replaces any pending save when the user keeps
+    /// typing; after 200 ms of inactivity, writes back to the adapter.
+    private func scheduleSave(text: String) {
+        debounceTask?.cancel()
+        debounceTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: Self.debounceInterval)
+                guard !Task.isCancelled else { return }
+                try adapter.setBody(id: manuscriptID, text: text)
+            } catch is CancellationError {
+                // Normal — replaced by a newer keystroke.
+            } catch {
+                Logger.sharedStore.error(
+                    "ManuscriptEditorView: setBody failed: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    // MARK: - Export
 
     private func exportAsBundle() {
         let panel = NSSavePanel()
@@ -147,60 +241,6 @@ struct ManuscriptEditorView: View {
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .warning
         alert.runModal()
-    }
-
-    // MARK: - Editor
-
-    private var editor: some View {
-        TextEditor(text: $bodyBuffer)
-            .font(.system(.body, design: .monospaced))
-            .lineSpacing(2)
-            .padding(8)
-            .scrollContentBackground(.hidden)
-            .background(Color(NSColor.textBackgroundColor))
-    }
-
-    // MARK: - Load + save
-
-    private func loadOnAppear() async {
-        guard let m = adapter.manuscript(id: manuscriptID) else {
-            return
-        }
-        manuscript = m
-        bodyBuffer = m.body
-        // Show the import banner once if the manuscript was just imported
-        // (heuristic: import_source present AND body_modified_at within
-        // the last 30 seconds).
-        if let source = m.importSource,
-           let modified = m.bodyModifiedAt,
-           Date().timeIntervalSince(modified) < 30,
-           source.kind == .tex || source.kind == .imprint {
-            showImportedBanner = true
-            // Auto-hide after the display duration.
-            Task {
-                try? await Task.sleep(for: Self.bannerDisplayDuration)
-                await MainActor.run { showImportedBanner = false }
-            }
-        }
-    }
-
-    /// Debounced save. Cancel any pending save when the user keeps typing;
-    /// after 200 ms of inactivity, write back to the adapter.
-    private func scheduleSave(text: String) {
-        debounceTask?.cancel()
-        debounceTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: Self.debounceInterval)
-                guard !Task.isCancelled else { return }
-                try adapter.setBody(id: manuscriptID, text: text)
-            } catch is CancellationError {
-                // Normal — replaced by a newer keystroke.
-            } catch {
-                // Persistent failures should surface; for now we just log.
-                // Phase 4a wires a proper error banner.
-                print("ManuscriptEditorView: setBody failed: \(error)")
-            }
-        }
     }
 }
 
