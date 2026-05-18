@@ -339,12 +339,16 @@ impl SqliteItemStore {
             let _ = conn.execute(idx_sql, []);
         }
 
-        // FTS5 table
+        // FTS5 table. `body` column carries manuscript body_content (added
+        // alongside the impress-wide unified-store pivot) so suite-wide
+        // full-text search hits manuscript prose, not just bibliography
+        // metadata. For databases that pre-date the `body` column,
+        // `migrate_schema` handles the ALTER TABLE ADD COLUMN below.
         conn.execute_batch(
             "
             CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
                 item_id UNINDEXED,
-                title, author_text, abstract_text, note
+                title, author_text, abstract_text, note, body
             );
             ",
         )
@@ -391,6 +395,14 @@ impl SqliteItemStore {
         for sql in &index_migrations {
             let _ = conn.execute(sql, []);
         }
+
+        // FTS5 ADD COLUMN for the new `body` column on pre-existing databases.
+        // FTS5 supports ALTER TABLE ADD COLUMN since SQLite 3.27 (2019-02);
+        // macOS ships much newer. The `.ok()` makes this idempotent: on a
+        // fresh DB, init_schema already created the column; on an upgraded
+        // DB this adds it; on a doubly-upgraded DB the statement fails with
+        // "duplicate column" and we ignore it.
+        let _ = conn.execute("ALTER TABLE items_fts ADD COLUMN body", []);
 
         Ok(())
     }
@@ -1757,17 +1769,28 @@ impl SqliteItemStore {
         let author_text = extract_string_field(&item.payload, "author_text");
         let abstract_text = extract_string_field(&item.payload, "abstract_text");
         let note = extract_string_field(&item.payload, "note");
+        // `body_content` is the manuscript body field added by the
+        // impress-wide unified-store pivot. Indexed alongside the
+        // bibliography-metadata fields above so full-text search finds
+        // manuscript prose as well.
+        let body = extract_string_field(&item.payload, "body_content");
 
-        if title.is_some() || author_text.is_some() || abstract_text.is_some() || note.is_some() {
+        if title.is_some()
+            || author_text.is_some()
+            || abstract_text.is_some()
+            || note.is_some()
+            || body.is_some()
+        {
             conn.execute(
-                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id_str,
                     title.unwrap_or_default(),
                     author_text.unwrap_or_default(),
                     abstract_text.unwrap_or_default(),
                     note.unwrap_or_default(),
+                    body.unwrap_or_default(),
                 ],
             )
             .map_err(|e| StoreError::Storage(format!("update_fts: {}", e)))?;
@@ -3236,6 +3259,52 @@ mod tests {
         };
         let results = store.query(&q).unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    /// Verify that manuscript `body_content` is indexed and searchable through
+    /// the same FTS path used for title/abstract. Confirms the
+    /// impress-wide unified-store pivot wires the body column end-to-end.
+    #[test]
+    fn fts_search_indexes_manuscript_body() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let mut manuscript = make_item("manuscript", "Notes on Topology");
+        manuscript.payload.insert(
+            "body_content".into(),
+            Value::String(
+                "The Möbius strip is a non-orientable surface with a single \
+                 boundary curve. Its construction from a rectangle is classical."
+                    .into(),
+            ),
+        );
+        store.insert(manuscript).unwrap();
+
+        store
+            .insert(make_item("manuscript", "Notes on Algebra"))
+            .unwrap();
+
+        let q = ItemQuery {
+            predicates: vec![Predicate::Contains(
+                "body_content".into(),
+                "Möbius".into(),
+            )],
+            ..Default::default()
+        };
+        let results = store.query(&q).unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "FTS query on body_content should find the manuscript that has it"
+        );
+        assert_eq!(
+            results[0]
+                .payload
+                .get("title")
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.as_str()),
+                    _ => None,
+                }),
+            Some("Notes on Topology"),
+        );
     }
 
     #[test]

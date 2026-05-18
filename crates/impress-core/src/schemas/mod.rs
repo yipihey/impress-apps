@@ -8,11 +8,13 @@ pub mod implore;
 pub mod knowledge_objects;
 pub mod manuscript;
 pub mod manuscript_bundle_manifest;
+pub mod manuscript_collection;
 pub mod manuscript_revision;
 pub mod manuscript_section;
 pub mod manuscript_submission;
 pub mod operation;
 pub mod task;
+pub mod veusz_plot;
 
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
@@ -23,11 +25,13 @@ pub use git_project::register_git_project_schemas;
 pub use implore::register_implore_schemas;
 pub use knowledge_objects::register_knowledge_object_schemas;
 pub use manuscript::register_manuscript_schema;
+pub use manuscript_collection::register_manuscript_collection_schema;
 pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
 pub use operation::register_operation_schema;
 pub use task::register_task_schemas;
+pub use veusz_plot::register_veusz_plot_schema;
 
 /// Register all canonical impress-core schemas into the registry.
 ///
@@ -50,6 +54,8 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_manuscript_schema(registry);
     register_manuscript_revision_schema(registry);
     register_manuscript_submission_schema(registry);
+    register_manuscript_collection_schema(registry);
+    register_veusz_plot_schema(registry);
     register_knowledge_object_schemas(registry);
 }
 

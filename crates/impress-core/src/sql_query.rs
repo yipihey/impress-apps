@@ -269,10 +269,16 @@ fn sort_field_to_column(field: &str) -> String {
 fn is_fts_field(field: &str) -> bool {
     matches!(
         field,
-        "title" | "author_text" | "abstract_text" | "note" | "payload.title"
+        "title"
+            | "author_text"
+            | "abstract_text"
+            | "note"
+            | "body_content"
+            | "payload.title"
             | "payload.author_text"
             | "payload.abstract_text"
             | "payload.note"
+            | "payload.body_content"
     )
 }
 

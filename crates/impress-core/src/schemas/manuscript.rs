@@ -80,6 +80,96 @@ pub fn manuscript_schema() -> Schema {
                 required: false,
                 description: Some("Free-form notes on the manuscript as a whole.".into()),
             },
+            // -----------------------------------------------------------------
+            // Body-in-store fields (added by the impress-wide unified-store
+            // pivot — see plan-one-store-the-store).
+            //
+            // The manuscript body now lives inside the manuscript item's
+            // payload rather than on the filesystem next to it. Toolchains
+            // (LaTeX compile, Veusz render) request a render-time
+            // materialization to `<working dir>/.tmp/main.{typ|tex}` and
+            // clean it up after the invocation returns.
+            //
+            // All seven fields are optional so v1.0 items (no body, only
+            // metadata) continue to validate.
+            // -----------------------------------------------------------------
+            FieldDef {
+                name: "format".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "Source format: \"typst\" | \"latex\". Drives extension of the \
+                     materialized body file (main.typ vs main.tex) and the rendered \
+                     plot format default (SVG for Typst, PDF for LaTeX)."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "body_content".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "UTF-8 source text (LaTeX or Typst markup). Editor reads/writes \
+                     via the manuscript store adapter with a 200ms idle debounce. \
+                     For bodies > 1 MB, store as a `blob:sha256:...` ref via a sibling \
+                     artifact item (matching the manuscript-revision.source_archive_ref \
+                     precedent)."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "crdt_state".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "Base64-encoded Automerge state bytes for Typst manuscripts. Null \
+                     for LaTeX. Same >1 MB blob-ref escape hatch as `body_content`."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "body_content_hash".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "SHA-256 hex of `body_content`. Used to detect external drift and \
+                     to dedup imports against existing manuscripts."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "body_modified_at".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "ISO 8601 timestamp of the most recent body edit (separate from the \
+                     envelope's `modified` so metadata-only updates don't bump it)."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "format_schema_version".into(),
+                field_type: FieldType::Int,
+                required: false,
+                description: Some(
+                    "Per-item payload schema version. Drives ManuscriptPayloadMigrator \
+                     (formerly imprint's DocumentMigrator) so new payload fields can be \
+                     added without breaking older items."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "import_source".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "JSON-encoded `{ kind: \"tex\" | \"imprint\", original_path: String?, \
+                     original_path_bookmark_base64: String? }`. Informational only; \
+                     powers the \"Imported from \\<path\\>. Original is detached.\" \
+                     banner and the \"Reveal in Finder\" affordance."
+                        .into(),
+                ),
+            },
         ],
         expected_edges: vec![
             EdgeType::HasVersion,
@@ -139,5 +229,28 @@ mod tests {
         let json = serde_json::to_string_pretty(&s).unwrap();
         let back: Schema = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn manuscript_schema_body_fields_present_and_optional() {
+        let s = manuscript_schema();
+        let body_fields = [
+            "format",
+            "body_content",
+            "crdt_state",
+            "body_content_hash",
+            "body_modified_at",
+            "format_schema_version",
+            "import_source",
+        ];
+        for name in &body_fields {
+            let field = s.fields.iter().find(|f| f.name == *name);
+            assert!(field.is_some(), "body field '{}' should exist", name);
+            assert!(
+                !field.unwrap().required,
+                "body field '{}' must be optional so pre-pivot items still validate",
+                name
+            );
+        }
     }
 }
