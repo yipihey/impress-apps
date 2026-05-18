@@ -36,12 +36,18 @@ struct ManuscriptLibraryView: View {
     @State private var selectedManuscriptID: UUID?
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } content: {
-            manuscriptList
-        } detail: {
-            preview
+        VStack(spacing: 0) {
+            if let report = ManuscriptMigrationRunner.lastReport, report.hasFailures {
+                MigrationFailureBanner(report: report)
+                Divider()
+            }
+            NavigationSplitView {
+                sidebar
+            } content: {
+                manuscriptList
+            } detail: {
+                preview
+            }
         }
         .navigationTitle("imprint — Manuscripts")
         .frame(minWidth: 900, minHeight: 500)
@@ -224,6 +230,56 @@ private struct ManuscriptRow: View {
         case .typst: return .blue
         case .latex: return .orange
         }
+    }
+}
+
+// MARK: - Migration failure banner
+
+private struct MigrationFailureBanner: View {
+    let report: MigrationReport
+    @State private var expanded: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(report.failures.count) manuscripts couldn’t be imported")
+                    .font(.subheadline.bold())
+                Spacer()
+                Button(expanded ? "Hide" : "Review") { expanded.toggle() }
+                    .font(.caption)
+            }
+            if expanded {
+                Divider().padding(.vertical, 4)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(report.failures, id: \.referenceID) { failure in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "doc")
+                                    .foregroundStyle(.tertiary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(failure.cachedTitle ?? failure.originalPath ?? failure.referenceID.uuidString)
+                                        .font(.caption)
+                                    Text(failure.reason)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 140)
+                Text("Phase 3 wires interactive bookmark recovery — for now, locate the originals in Finder and use File → Import to Manuscript Library… to bring them in manually.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
     }
 }
 

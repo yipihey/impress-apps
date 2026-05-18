@@ -76,6 +76,18 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             _ = ImprintStoreAdapter.shared.isReady
         }
 
+        // Phase 3 of the unified-store pivot: run the one-shot migration
+        // from CDWorkspace/CDFolder/CDDocumentReference into manuscript-
+        // collection + manuscript items. Idempotent; safe to call on
+        // every launch. Deferred 5s so it runs after the initial UI
+        // settle (mirrors the 60-90s startup-render-loop precedent from
+        // imbib's MEMORY but at a milder 5s — phase 3 is one-shot work,
+        // not a recurring background service).
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            _ = ManuscriptMigrationRunner.runIfNeeded()
+        }
+
         // Open the shared publication database (imbib's publications) for direct SQL access.
         // Enables citation palette, hover preview, .bib projection, paper panel — all without HTTP.
         Task { @MainActor in
