@@ -178,6 +178,68 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         return flag
     }
+
+    /// Foundation for the eventual DocumentGroup retirement (Phase 4b
+    /// of /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md).
+    ///
+    /// When the system asks the app to open file URLs (Finder
+    /// double-click, drag-drop onto Dock icon), route them through
+    /// `ManuscriptImporter` so they land in the unified store and open
+    /// in the new editor — instead of becoming `FileDocument`-backed
+    /// editor windows.
+    ///
+    /// Today this method coexists with `DocumentGroup`'s UTI binding:
+    /// `DocumentGroup` claims the `.imprint` / `.tex` UTIs (per
+    /// Info.plist's `CFBundleDocumentTypes`) and intercepts the URLs
+    /// before this delegate sees them. The hook lives here so that
+    /// when DocumentGroup is finally retired, no code change is
+    /// needed to keep Finder opens working — just the Info.plist UTI
+    /// claims (which already point at imprint) will be enough.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        Task { @MainActor in
+            for url in urls {
+                // imprint:// URL scheme: handled by URLSchemeHandler
+                // (the legacy path was an `.onOpenURL` on DocumentGroup).
+                if url.scheme == "imprint" {
+                    await URLSchemeHandler.shared.handleURL(url)
+                    continue
+                }
+                // file:// URLs: import into the unified store.
+                guard url.isFileURL else { continue }
+                let ext = url.pathExtension.lowercased()
+                guard ["tex", "ltx", "imprint"].contains(ext) else {
+                    logInfo(
+                        "Ignoring open for unsupported file extension: \(url.lastPathComponent)",
+                        category: "documents"
+                    )
+                    continue
+                }
+                do {
+                    let result = try ManuscriptImporter.importDocument(at: url)
+                    NotificationCenter.default.post(
+                        name: .openManuscriptInEditor,
+                        object: nil,
+                        userInfo: ["manuscriptID": result.manuscriptID]
+                    )
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't import \(url.lastPathComponent)"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
+    }
+}
+
+extension NSNotification.Name {
+    /// Posted by `ImprintAppDelegate.application(_:open:)` after a
+    /// successful import. A SwiftUI scene observes this and calls
+    /// `openWindow(id: "manuscript-editor", value: manuscriptID)` to
+    /// pop the editor — the delegate has no access to `openWindow`.
+    static let openManuscriptInEditor = NSNotification.Name("com.imprint.openManuscriptInEditor")
 }
 
 /// Main application entry point for imprint (macOS)
@@ -293,6 +355,18 @@ struct ImprintApp: App {
         WindowGroup("imprint", id: "project-browser") {
             ProjectBrowserView()
                 .withAppearance()
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .openManuscriptInEditor)
+                ) { notification in
+                    // Posted by ImprintAppDelegate.application(_:open:)
+                    // after a successful Finder open + import. The
+                    // delegate can't call openWindow itself (no
+                    // SwiftUI environment), so it asks us to do it.
+                    guard
+                        let id = notification.userInfo?["manuscriptID"] as? UUID
+                    else { return }
+                    openWindow(id: "manuscript-editor", value: id)
+                }
         }
         .defaultSize(width: 800, height: 600)
         .commands { sharedCommands }
