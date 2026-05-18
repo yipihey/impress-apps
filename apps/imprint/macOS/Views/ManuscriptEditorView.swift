@@ -15,7 +15,9 @@
 //  end-to-end without breaking the existing `DocumentGroup` editor.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Editor for a single manuscript opened by ID from the library.
 /// Instantiated by `WindowGroup("manuscript-editor")` via
@@ -94,10 +96,57 @@ struct ManuscriptEditorView: View {
                 Text(m.status.capitalized)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Menu("Export") {
+                    Button("As .imprint Bundle…") {
+                        exportAsBundle()
+                    }
+                    Button("As Standalone Project…") {
+                        exportAsProject()
+                    }
+                }
+                .font(.caption)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+    }
+
+    private func exportAsBundle() {
+        let panel = NSSavePanel()
+        panel.title = "Export as .imprint Bundle"
+        panel.nameFieldStringValue = "\(manuscript?.title ?? "manuscript").imprint"
+        panel.allowedContentTypes = [UTType(filenameExtension: "imprint") ?? .package]
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        do {
+            try ManuscriptExporter.exportAsBundle(manuscriptID: manuscriptID, to: dest)
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } catch {
+            presentExportError(error)
+        }
+    }
+
+    private func exportAsProject() {
+        let panel = NSSavePanel()
+        panel.title = "Export Standalone Project"
+        panel.nameFieldStringValue = manuscript?.title ?? "manuscript"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        do {
+            try ManuscriptExporter.exportAsProject(manuscriptID: manuscriptID, to: dest)
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } catch {
+            presentExportError(error)
+        }
+    }
+
+    private func presentExportError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Export failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     // MARK: - Editor
