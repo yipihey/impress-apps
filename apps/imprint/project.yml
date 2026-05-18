@@ -47,6 +47,8 @@ packages:
     path: ../../packages/ImpressKit
   ImpressRustCore:
     path: ../../packages/ImpressRustCore
+  ImpressStoreKit:
+    path: ../../packages/ImpressStoreKit
   ImpressSpotlight:
     path: ../../packages/ImpressSpotlight
   ImpressToolbox:
@@ -88,6 +90,8 @@ targets:
       - package: ImpressSidebar
       - package: ImpressLogging
       - package: ImpressKit
+      - package: ImpressRustCore
+      - package: ImpressStoreKit
       - package: ImpressSpotlight
       - package: ImpressToolbox
       - package: ImpressGit
@@ -235,6 +239,8 @@ targets:
       - package: ImpressSidebar
       - package: ImpressLogging
       - package: ImpressKit
+      - package: ImpressRustCore
+      - package: ImpressStoreKit
       - package: ImpressSpotlight
       - package: ImpressToolbox
       - package: ImpressGit
