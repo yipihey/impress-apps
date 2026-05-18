@@ -57,10 +57,13 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             await ImprintHTTPServer.shared.start()
         }
 
-        // Ensure default workspace and refresh metadata cache
+        // Ensure default workspace exists for any one-shot migration
+        // that still reads from the legacy Core Data store. The
+        // metadata-cache refresh was retired in Phase F2 — the unified
+        // store carries authoritative title/authors on each manuscript
+        // item, so there's no separate cache to refresh.
         Task { @MainActor in
             ImprintPersistenceController.shared.ensureDefaultWorkspace()
-            await DocumentMetadataCacheService.shared.refreshAll()
         }
 
         // Register the App Intents service so Siri Shortcuts, App Intents, and
@@ -257,6 +260,16 @@ extension NSNotification.Name {
     /// `openWindow(id: "manuscript-editor", value: manuscriptID)` to
     /// pop the editor — the delegate has no access to `openWindow`.
     static let openManuscriptInEditor = NSNotification.Name("com.imprint.openManuscriptInEditor")
+
+    /// Posted with `userInfo["documentID"]` (UUID string) when a UI
+    /// element wants to deep-link into a manuscript — e.g. clicking a
+    /// Spotlight result, or a cross-document-search hit. The delegate's
+    /// observer (see `applicationDidFinishLaunching`) resolves it via
+    /// `ManuscriptStoreAdapter` and pops the editor window.
+    ///
+    /// Previously declared in the now-retired `ProjectBrowserView`;
+    /// rehomed here as part of the Phase F2 cleanup.
+    static let openDocumentByID = NSNotification.Name("com.imprint.openDocumentByID")
 }
 
 /// Main application entry point for imprint (macOS)
@@ -389,8 +402,14 @@ struct ImprintApp: App {
         // they survive the eventual retirement of `DocumentGroup`
         // for the macOS path (Phase 4b of
         // /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md).
+        // Project browser window (post-Phase-4b cleanup). Hosts the
+        // ManuscriptLibraryView directly — the legacy CD-backed
+        // `ProjectBrowserView` is retired now that the unified store
+        // holds all manuscripts. The scene id "project-browser" is
+        // preserved so external integrations (URL scheme, openWindow
+        // callers) keep working without a transition step.
         WindowGroup("imprint", id: "project-browser") {
-            ProjectBrowserView()
+            ManuscriptLibraryView()
                 .withAppearance()
                 .onReceive(
                     NotificationCenter.default.publisher(for: .openManuscriptInEditor)
@@ -425,14 +444,10 @@ struct ImprintApp: App {
         .commands { sharedCommands }
 
         #if os(macOS)
-        // Manuscript Library (phase 1 of the impress-wide unified store
-        // pivot — see one-store-the-store-melodic-wreath.md). Read-only
-        // for now; phases 2-3 wire imports, curation, and editing.
-        WindowGroup("Manuscripts", id: "manuscript-library") {
-            ManuscriptLibraryView()
-                .withAppearance()
-        }
-        .defaultSize(width: 1100, height: 650)
+        // The dedicated "manuscript-library" scene was retired in the
+        // Phase F2 cleanup — `project-browser` (above) now hosts the
+        // library directly. The "Open Manuscript Library" menu command
+        // points at `project-browser` so the keystroke still works.
 
         // Phase 2 + 4b: editor window for a manuscript in the unified
         // store. Opened from the library list or after a successful
@@ -525,7 +540,7 @@ struct ImprintApp: App {
             Divider()
 
             Button("Open Manuscript Library") {
-                openWindow(id: "manuscript-library")
+                openWindow(id: "project-browser")
             }
             .keyboardShortcut("L", modifiers: [.command, .shift])
 
