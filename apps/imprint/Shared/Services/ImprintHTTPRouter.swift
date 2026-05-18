@@ -453,38 +453,46 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// GET /api/status
     /// Returns server health and basic info.
     private func handleStatus() async -> HTTPResponse {
-        let openDocs = await getOpenDocuments()
+        let manuscripts = await MainActor.run {
+            ManuscriptStoreAdapter.shared.listManuscripts(limit: 1)
+        }
 
         let response: [String: Any] = [
             "status": "ok",
             "app": "imprint",
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
             "port": ImprintHTTPServer.defaultPort,
-            "openDocuments": openDocs.count
+            // Field name kept for backward-compat with existing API
+            // consumers; post-Phase-4b this counts manuscripts in the
+            // unified store, not in-memory FileDocument windows.
+            "openDocuments": manuscripts.count
         ]
 
         return .json(response)
     }
 
     /// GET /api/documents
-    /// List all open documents.
+    /// List all manuscripts in the unified store.
     private func handleListDocuments() async -> HTTPResponse {
-        let documents = await getOpenDocuments()
+        let manuscripts = await MainActor.run {
+            ManuscriptStoreAdapter.shared.listManuscripts(limit: 1000)
+        }
 
-        let docDicts: [[String: Any]] = documents.map { doc in
+        let docDicts: [[String: Any]] = manuscripts.map { m in
             [
-                "id": doc.id.uuidString,
-                "title": doc.title,
-                "authors": doc.authors,
-                "modifiedAt": ISO8601DateFormatter().string(from: doc.modifiedAt),
-                "createdAt": ISO8601DateFormatter().string(from: doc.createdAt),
-                "citationCount": doc.bibliography.count
+                "id": m.id.uuidString,
+                "title": m.title,
+                "authors": m.authors,
+                "format": m.format.rawValue,
+                "status": m.status,
+                "modifiedAt": ISO8601DateFormatter().string(from: m.bodyModifiedAt ?? m.createdAt),
+                "createdAt": ISO8601DateFormatter().string(from: m.createdAt),
             ]
         }
 
         return .json([
             "status": "ok",
-            "count": documents.count,
+            "count": manuscripts.count,
             "documents": docDicts
         ])
     }
@@ -575,11 +583,15 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
             return .notFound("Document not found: \(id)")
         }
 
-        // Get cached PDF from DocumentRegistry
+        // Get cached PDF. DocumentRegistry's cachedPDF map was populated
+        // by ContentView's compile pipeline (post-Phase-4b it's still
+        // shared between the bridge editor and the HTTP server). Reading
+        // it directly is fine — when it's empty, we trigger compile and
+        // wait briefly for the cache to fill.
         guard let pdfData = await MainActor.run(body: { DocumentRegistry.shared.cachedPDF[uuid] }) else {
             // Trigger compilation and wait briefly, or return error
             await MainActor.run {
@@ -801,7 +813,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1232,7 +1244,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         let bibtex = json["bibtex"] as? String
         let position = json["position"] as? Int
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1271,7 +1283,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid JSON body")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1359,7 +1371,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Missing 'replacement' parameter")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1407,7 +1419,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Missing 'text' parameter")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1457,7 +1469,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("'start' must be less than 'end'")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1504,7 +1516,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Missing 'bibtex' parameter")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1543,7 +1555,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid JSON body")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1577,7 +1589,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1636,7 +1648,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1675,7 +1687,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard await findDocument(by: uuid) != nil else {
+        guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
@@ -1971,7 +1983,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard newBody != nil || newTitle != nil else {
             return .badRequest("Provide at least one of 'body' or 'title'")
         }
-        guard let doc = await findDocument(by: docUUID) else {
+        guard let doc = await findDocumentSnapshot(by: docUUID) else {
             return .notFound("Document not found: \(docId)")
         }
         let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
@@ -1996,21 +2008,30 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let opID = UUID()
         OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "patchSection")
-        await MainActor.run {
-            DocumentRegistry.shared.queueOperation(
-                .replaceRange(
-                    operationID: opID,
+        do {
+            _ = try await MainActor.run {
+                try applySectionReplacement(
+                    manuscriptID: docUUID,
+                    source: doc.source,
                     start: section.start,
                     end: section.end,
-                    text: newSectionText
-                ),
-                for: docUUID
+                    replacement: newSectionText
+                )
+            }
+            OperationTracker.shared.markCompleted(id: opID)
+        } catch {
+            OperationTracker.shared.markFailed(id: opID, reason: error.localizedDescription)
+            return HTTPResponse(
+                status: 500,
+                statusText: "Internal Server Error",
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{"status":"error","message":"setBody failed"}"#.utf8)
             )
         }
 
         return .json([
             "status": "ok",
-            "message": "Section patch requested",
+            "message": "Section patched",
             "documentId": docId,
             "sectionId": section.id.uuidString,
             "operationId": opID.uuidString,
@@ -2025,7 +2046,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard let docUUID = UUID(uuidString: docId) else {
             return .badRequest("Invalid document ID format")
         }
-        guard let doc = await findDocument(by: docUUID) else {
+        guard let doc = await findDocumentSnapshot(by: docUUID) else {
             return .notFound("Document not found: \(docId)")
         }
         let sections = SectionExtractor.extract(from: doc.source, documentID: docUUID)
@@ -2034,15 +2055,29 @@ public actor ImprintHTTPRouter: HTTPRouter {
         }
         let opID = UUID()
         OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "deleteSection")
-        await MainActor.run {
-            DocumentRegistry.shared.queueOperation(
-                .deleteText(operationID: opID, start: section.start, end: section.end),
-                for: docUUID
+        do {
+            _ = try await MainActor.run {
+                try applySectionReplacement(
+                    manuscriptID: docUUID,
+                    source: doc.source,
+                    start: section.start,
+                    end: section.end,
+                    replacement: ""
+                )
+            }
+            OperationTracker.shared.markCompleted(id: opID)
+        } catch {
+            OperationTracker.shared.markFailed(id: opID, reason: error.localizedDescription)
+            return HTTPResponse(
+                status: 500,
+                statusText: "Internal Server Error",
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{"status":"error","message":"setBody failed"}"#.utf8)
             )
         }
         return .json([
             "status": "ok",
-            "message": "Section deletion requested",
+            "message": "Section deleted",
             "documentId": docId,
             "sectionId": section.id.uuidString,
             "operationId": opID.uuidString,
@@ -2069,7 +2104,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         let level = (json["level"] as? Int).map { max(1, min($0, 6)) } ?? 1
         let position = (json["position"] as? String) ?? "end"
 
-        guard let doc = await findDocument(by: docUUID) else {
+        guard let doc = await findDocumentSnapshot(by: docUUID) else {
             return .notFound("Document not found: \(docId)")
         }
         let format = SectionFormat.autoDetect(doc.source)
@@ -2118,16 +2153,31 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let opID = UUID()
         OperationTracker.shared.registerPending(id: opID, documentID: docUUID, kind: "createSection")
-        await MainActor.run {
-            DocumentRegistry.shared.queueOperation(
-                .insertText(operationID: opID, position: insertOffset, text: text),
-                for: docUUID
+        let textToInsert = text  // capture for the @MainActor closure
+        do {
+            _ = try await MainActor.run {
+                try applySectionReplacement(
+                    manuscriptID: docUUID,
+                    source: doc.source,
+                    start: insertOffset,
+                    end: insertOffset,
+                    replacement: textToInsert
+                )
+            }
+            OperationTracker.shared.markCompleted(id: opID)
+        } catch {
+            OperationTracker.shared.markFailed(id: opID, reason: error.localizedDescription)
+            return HTTPResponse(
+                status: 500,
+                statusText: "Internal Server Error",
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{"status":"error","message":"setBody failed"}"#.utf8)
             )
         }
 
         return .json([
             "status": "ok",
-            "message": "Section create requested",
+            "message": "Section created",
             "documentId": docId,
             "operationId": opID.uuidString,
             "predictedSectionId": newID.uuidString,
@@ -2161,7 +2211,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         let bibtex = json["bibtex"] as? String
         let relPosition = json["position"] as? Int
 
-        guard let doc = await findDocument(by: docUUID) else {
+        guard let doc = await findDocumentSnapshot(by: docUUID) else {
             return .notFound("Document not found: \(docId)")
         }
         let format = SectionFormat.autoDetect(doc.source)
@@ -2194,31 +2244,39 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         let citationText = Self.composeCitation(citeKey: citeKey, format: format, appendSpace: relPosition == nil)
 
-        // Add to bibliography first (so the .bib projector sees it) — fire
-        // this as its own operation, then queue the insertion.
-        if let bibtex, !bibtex.isEmpty {
-            let addOp = UUID()
-            OperationTracker.shared.registerPending(id: addOp, documentID: docUUID, kind: "addCitation")
-            await MainActor.run {
-                DocumentRegistry.shared.queueOperation(
-                    .addCitation(operationID: addOp, citeKey: citeKey, bibtex: bibtex),
-                    for: docUUID
-                )
-            }
-        }
+        // Phase F2: the bibtex parameter is accepted for forward
+        // compatibility but not yet linked into the manuscript's
+        // Cites edges. Adding bibliography-entry items + Cites edges
+        // needs FFI typed-reference support — tracked as a follow-up.
+        // The citation text is inserted into the source regardless.
+        _ = bibtex
 
         let insertOp = UUID()
         OperationTracker.shared.registerPending(id: insertOp, documentID: docUUID, kind: "insertCitation")
-        await MainActor.run {
-            DocumentRegistry.shared.queueOperation(
-                .insertText(operationID: insertOp, position: absPosition, text: citationText),
-                for: docUUID
+        do {
+            _ = try await MainActor.run {
+                try applySectionReplacement(
+                    manuscriptID: docUUID,
+                    source: doc.source,
+                    start: absPosition,
+                    end: absPosition,
+                    replacement: citationText
+                )
+            }
+            OperationTracker.shared.markCompleted(id: insertOp)
+        } catch {
+            OperationTracker.shared.markFailed(id: insertOp, reason: error.localizedDescription)
+            return HTTPResponse(
+                status: 500,
+                statusText: "Internal Server Error",
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{"status":"error","message":"setBody failed"}"#.utf8)
             )
         }
 
         return .json([
             "status": "ok",
-            "message": "Section citation insert requested",
+            "message": "Section citation inserted",
             "documentId": docId,
             "sectionId": section.id.uuidString,
             "citeKey": citeKey,
@@ -2856,28 +2914,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Get all open documents from the legacy registry.
-    ///
-    /// Post-Phase-4b this is effectively always empty (no scene
-    /// populates `DocumentRegistry`). Retained as a no-op stub so any
-    /// remaining mutation-handler callsite compiles until those handlers
-    /// migrate to the manuscript-store mutation path. Returns `[]`.
-    @MainActor
-    private func getOpenDocuments() -> [ImprintDocument] {
-        return DocumentRegistry.shared.allDocuments
-    }
-
-    /// Legacy lookup against the (now-empty) `DocumentRegistry`. Always
-    /// returns `nil` post-Phase-4b; the mutation handlers that still
-    /// call this fail gracefully with a `.notFound` response. Migrating
-    /// those handlers to the manuscript-store mutation path is a
-    /// follow-up (see `/Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md`,
-    /// Phase F1 Band D mutations).
-    @MainActor
-    private func findDocument(by id: UUID) -> ImprintDocument? {
-        return DocumentRegistry.shared.document(withId: id)
-    }
-
     /// Look up a manuscript by ID.
     ///
     /// Phase F2 collapse: `DocumentRegistry` is permanently empty after
@@ -2901,6 +2937,32 @@ public actor ImprintHTTPRouter: HTTPRouter {
         let createdAt: Date
         let modifiedAt: Date
         let via: String  // always "manuscript-store" post-F2
+    }
+
+    /// Splice replacement text into a manuscript's source and persist
+    /// the result via `ManuscriptStoreAdapter`. Returns the new source
+    /// on success so the caller can include byte ranges / lengths in
+    /// its JSON response.
+    ///
+    /// Phase F2: this replaces the legacy
+    /// `DocumentRegistry.queueOperation(.replaceRange(...))` path,
+    /// which queued operations against an in-memory `ImprintDocument`
+    /// instance that no longer exists post-Phase-4b. Writes here apply
+    /// immediately (last-writer-wins; consistency contract is the same
+    /// ≤ 200 ms staleness as a debounced editor save).
+    @MainActor
+    private func applySectionReplacement(
+        manuscriptID: UUID,
+        source: String,
+        start: Int,
+        end: Int,
+        replacement: String
+    ) throws -> String {
+        let startIndex = source.index(source.startIndex, offsetBy: max(0, start))
+        let endIndex = source.index(source.startIndex, offsetBy: min(source.count, end))
+        let newSource = String(source[..<startIndex]) + replacement + String(source[endIndex...])
+        try ManuscriptStoreAdapter.shared.setBody(id: manuscriptID, text: newSource)
+        return newSource
     }
 
     /// Single-source lookup for the read-only handlers in Band D.
