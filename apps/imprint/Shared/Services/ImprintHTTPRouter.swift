@@ -496,24 +496,42 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
-            return .notFound("Document not found: \(id)")
+        if let doc = await findDocument(by: uuid) {
+            let response: [String: Any] = [
+                "status": "ok",
+                "source": "document-registry",
+                "document": [
+                    "id": doc.id.uuidString,
+                    "title": doc.title,
+                    "authors": doc.authors,
+                    "modifiedAt": ISO8601DateFormatter().string(from: doc.modifiedAt),
+                    "createdAt": ISO8601DateFormatter().string(from: doc.createdAt),
+                    "bibliography": Array(doc.bibliography.keys),
+                    "linkedImbibManuscriptID": doc.linkedImbibManuscriptID?.uuidString as Any
+                ]
+            ]
+            return .json(response)
         }
 
-        let response: [String: Any] = [
-            "status": "ok",
-            "document": [
-                "id": doc.id.uuidString,
-                "title": doc.title,
-                "authors": doc.authors,
-                "modifiedAt": ISO8601DateFormatter().string(from: doc.modifiedAt),
-                "createdAt": ISO8601DateFormatter().string(from: doc.createdAt),
-                "bibliography": Array(doc.bibliography.keys),
-                "linkedImbibManuscriptID": doc.linkedImbibManuscriptID?.uuidString as Any
+        // Phase 4a dual-read fallback: unified store snapshot.
+        if let m = await findManuscript(by: uuid) {
+            let response: [String: Any] = [
+                "status": "ok",
+                "source": "manuscript-store",
+                "document": [
+                    "id": m.id.uuidString,
+                    "title": m.title,
+                    "authors": m.authors,
+                    "format": m.format.rawValue,
+                    "status": m.status,
+                    "modifiedAt": m.bodyModifiedAt.map { ISO8601DateFormatter().string(from: $0) } as Any,
+                    "createdAt": ISO8601DateFormatter().string(from: m.createdAt),
+                ]
             ]
-        ]
+            return .json(response)
+        }
 
-        return .json(response)
+        return .notFound("Document not found: \(id)")
     }
 
     /// GET /api/documents/{id}/content
@@ -523,18 +541,35 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid document ID format")
         }
 
-        guard let doc = await findDocument(by: uuid) else {
-            return .notFound("Document not found: \(id)")
+        // Phase 4a dual-read: live registry first (sees the editor's
+        // unsaved buffer), unified-store snapshot second. Both sources
+        // serve `source` from their respective canonical bytes; the
+        // unified-store path additionally tags the response with
+        // `via: "manuscript-store"` so callers can tell which contract
+        // they're getting.
+        if let doc = await findDocument(by: uuid) {
+            let response: [String: Any] = [
+                "status": "ok",
+                "via": "document-registry",
+                "id": doc.id.uuidString,
+                "source": doc.source,
+                "bibliography": doc.bibliography
+            ]
+            return .json(response)
         }
 
-        let response: [String: Any] = [
-            "status": "ok",
-            "id": doc.id.uuidString,
-            "source": doc.source,
-            "bibliography": doc.bibliography
-        ]
+        if let m = await findManuscript(by: uuid) {
+            let response: [String: Any] = [
+                "status": "ok",
+                "via": "manuscript-store",
+                "id": m.id.uuidString,
+                "source": m.body,
+                "format": m.format.rawValue,
+            ]
+            return .json(response)
+        }
 
-        return .json(response)
+        return .notFound("Document not found: \(id)")
     }
 
     /// GET /api/documents/{id}/outline
@@ -2856,6 +2891,21 @@ public actor ImprintHTTPRouter: HTTPRouter {
     @MainActor
     private func findDocument(by id: UUID) -> ImprintDocument? {
         return DocumentRegistry.shared.document(withId: id)
+    }
+
+    /// Unified-store fallback for `findDocument(by:)`. Returns a
+    /// `ManuscriptModel` snapshot from `ManuscriptStoreAdapter` when the
+    /// legacy `DocumentRegistry` doesn't know the ID — typically because
+    /// the manuscript was imported via Phase 2's library flow and never
+    /// opened in a `DocumentGroup` editor window.
+    ///
+    /// Phase 4a dual-read: HTTP handlers prefer the registry (live
+    /// editor buffer) and fall back to this snapshot. Phase 4b collapses
+    /// both paths into a single store-only read once `FileDocument`
+    /// retires.
+    @MainActor
+    private func findManuscript(by id: UUID) -> ManuscriptModel? {
+        ManuscriptStoreAdapter.shared.manuscript(id: id)
     }
 
     // MARK: - Veusz plot handlers (Phase 7)
