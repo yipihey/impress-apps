@@ -242,6 +242,17 @@ struct ImprintApp: App {
         .defaultSize(width: 800, height: 600)
 
         #if os(macOS)
+        // Manuscript Library (phase 1 of the impress-wide unified store
+        // pivot — see one-store-the-store-melodic-wreath.md). Read-only
+        // for now; phases 2-3 wire imports, curation, and editing.
+        WindowGroup("Manuscripts", id: "manuscript-library") {
+            ManuscriptLibraryView()
+                .withAppearance()
+        }
+        .defaultSize(width: 1100, height: 650)
+        #endif
+
+        #if os(macOS)
         // Cross-document search window — indexed from the shared store
         // by `ManuscriptSearchService`. Opened with Cmd+Shift+F.
         Window("Search Across Manuscripts", id: "cross-document-search") {
@@ -328,6 +339,11 @@ struct ImprintApp: App {
                     NSDocumentController.shared.newDocument(nil)
                 }
                 .keyboardShortcut("N", modifiers: [.command, .option])
+
+                Button("Open Manuscript Library") {
+                    openWindow(id: "manuscript-library")
+                }
+                .keyboardShortcut("L", modifiers: [.command, .shift])
             }
 
             // Edit menu additions
