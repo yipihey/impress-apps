@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "message-type": "work-list",
+  "message-version": "1.0.0",
+  "message": {
+    "total-results": 2,
+    "items-per-page": 2,
+    "query": {"start-index": 0, "search-terms": "supernova"},
+    "items": [
+      {
+        "DOI": "10.1086/300499",
+        "type": "journal-article",
+        "title": ["Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant"],
+        "author": [
+          {"given": "Adam G.", "family": "Riess"},
+          {"given": "Alexei V.", "family": "Filippenko"}
+        ],
+        "published-print": {"date-parts": [[1998, 9, 1]]},
+        "container-title": ["The Astronomical Journal"],
+        "abstract": "<jats:p>We present spectral and photometric observations of 10 Type Ia supernovae.</jats:p>",
+        "link": [
+          {"URL": "https://example.org/riess1998.pdf", "content-type": "application/pdf"}
+        ]
+      },
+      {
+        "DOI": "10.1086/307221",
+        "type": "journal-article",
+        "title": ["Measurements of Omega and Lambda from 42 High-Redshift Supernovae"],
+        "author": [
+          {"given": "Saul", "family": "Perlmutter"}
+        ],
+        "issued": {"date-parts": [[1999]]},
+        "container-title": ["The Astrophysical Journal"]
+      }
+    ]
+  }
+}

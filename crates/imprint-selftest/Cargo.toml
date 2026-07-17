@@ -1,0 +1,36 @@
+[package]
+name = "imprint-selftest"
+description = "Declarative capability self-tests for imprint. Tier A runs pure-Rust checks against the imprint-service traits (fast, headless, no UI); Tier B drives a running imprint app over HTTP. Produces a machine-readable pass/fail report agents can consume via cargo test, CLI, HTTP, or MCP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[[bin]]
+name = "imprint-selftest"
+path = "src/bin/main.rs"
+
+[dependencies]
+# Tier A: exercise the service traits directly.
+imprint-service = { workspace = true }
+# Tier B: drive the running app over HTTP.
+impress-app-client = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tempfile = "3"
+uuid = { workspace = true, features = ["v4"] }
+url = { workspace = true }
+
+# Codegen pipeline — exposes `run_selftest` as an MCP tool + CLI subcommand.
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

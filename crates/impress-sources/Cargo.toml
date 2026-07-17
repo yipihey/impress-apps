@@ -1,0 +1,28 @@
+[package]
+name = "impress-sources"
+description = "HTTP source clients (arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar, WoS) for the impress suite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+chrono = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+quick-xml = "0.31"
+regex = { workspace = true }
+lazy_static = { workspace = true }
+tokio = { workspace = true }
+
+# Reuse the canonical impress Author type when shapes match
+impress-domain = { workspace = true }
+
+[dev-dependencies]
+mockito = "1"
+tokio = { workspace = true }

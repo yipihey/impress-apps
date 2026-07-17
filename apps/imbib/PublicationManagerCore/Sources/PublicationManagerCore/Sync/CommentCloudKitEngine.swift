@@ -21,9 +21,16 @@ import CloudKit
 ///
 /// Uses item-level sync (not operation replay) for simplicity.
 /// The `canonical_id` field on each Item maps to the CKRecord.recordID.
-public actor CommentCloudKitEngine {
+///
+/// Conforms to `CloudKitEngine` so it can be registered with
+/// `CloudKitDispatcher` alongside future per-schema engines.
+public actor CommentCloudKitEngine: CloudKitEngine {
 
     public static let shared = CommentCloudKitEngine()
+
+    // MARK: - CloudKitEngine
+
+    public nonisolated let schemaID: String = "comments"
 
     // MARK: - Configuration
 
@@ -66,16 +73,8 @@ public actor CommentCloudKitEngine {
 
     // MARK: - Public API
 
-    /// Current sync status for UI display.
-    public struct SyncStatus: Sendable {
-        public let isRunning: Bool
-        public let lastSyncDate: Date?
-        public let lastError: String?
-        public let pendingUploadCount: Int
-    }
-
-    public func status() -> SyncStatus {
-        SyncStatus(
+    public func status() -> CloudKitSyncStatus {
+        CloudKitSyncStatus(
             isRunning: isRunning,
             lastSyncDate: lastSyncDate,
             lastError: lastError,

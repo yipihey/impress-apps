@@ -4969,6 +4969,39 @@ public func compileTypstToSvg(source: String, options: CompileOptions) -> SvgCom
 })
 }
 /**
+ * Compose an inline citation token for a manuscript.
+ *
+ * `format` accepts `"typst"` or `"latex"` (case-insensitive; unknown → typst).
+ * Typst → `@key`, LaTeX → `\cite{key}`. When `append_space` is true a single
+ * leading space is prepended. This is the canonical implementation the Swift
+ * router should call instead of its own `composeCitation` helper.
+ */
+public func composeCitation(citeKey: String, format: String, appendSpace: Bool) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_compose_citation(
+        FfiConverterString.lower(citeKey),
+        FfiConverterString.lower(format),
+        FfiConverterBool.lower(appendSpace),$0
+    )
+})
+}
+/**
+ * Compose a heading line at `level` (1-based) for a manuscript.
+ *
+ * `format` accepts `"typst"` or `"latex"`. Typst uses `level` `=` characters
+ * (clamped 1..=6); LaTeX maps 1→`\section` … 5+→`\subparagraph`. Canonical
+ * replacement for the Swift router's `composeHeading` helper.
+ */
+public func composeHeading(title: String, level: UInt32, format: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_compose_heading(
+        FfiConverterString.lower(title),
+        FfiConverterUInt32.lower(level),
+        FfiConverterString.lower(format),$0
+    )
+})
+}
+/**
  * Get source map entries for a compiled document
  *
  * This can be called separately if you already have PDF data and just need the source map.
@@ -5180,6 +5213,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_compile_typst_to_svg() != 17224) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_compose_citation() != 37086) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_compose_heading() != 61643) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {

@@ -89,6 +89,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleGetLogs(request)
             }
 
+            if pathLower == "/api/logs/stream" {
+                return await handleStreamLogs(request)
+            }
+
             if pathLower == "/api/documents" {
                 return await handleListDocuments()
             }
@@ -99,6 +103,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
             if pathLower == "/api/store-timings" {
                 return handleStoreTimings(request)
+            }
+
+            if pathLower == "/api/performance" {
+                return handlePerformance(request)
             }
 
             if pathLower == "/api/manuscripts" {
@@ -260,6 +268,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
             if pathLower == "/api/store-timings/reset" {
                 return handleResetStoreTimings()
+            }
+
+            if pathLower == "/api/performance/reset" {
+                return handleResetPerformance()
             }
 
             // POST /api/documents/{docId}/sections — append a new section
@@ -689,6 +701,14 @@ public actor ImprintHTTPRouter: HTTPRouter {
         }
     }
 
+    /// GET /api/logs/stream
+    /// Cursor-based incremental log feed for agents watching a scenario.
+    private func handleStreamLogs(_ request: HTTPRequest) async -> HTTPResponse {
+        await MainActor.run {
+            LogEndpointHandler.handleStream(request)
+        }
+    }
+
     // MARK: - Export Handlers
 
     /// GET /api/documents/{id}/export/latex
@@ -896,9 +916,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
         // Run the synchronous Rust compile call on a background thread so it
         // doesn't block the HTTP server's actor.
         let start = Date()
-        let result: ImprintRustCore.CompileResult = await Task.detached(priority: .userInitiated) {
-            ImprintRustCore.compileTypstToPdf(source: source, options: options)
-        }.value
+        let result: ImprintRustCore.CompileResult = await PerfMetrics.shared.measureAsync(
+            PerfBucket.compile, detail: "typst"
+        ) {
+            await Task.detached(priority: .userInitiated) {
+                ImprintRustCore.compileTypstToPdf(source: source, options: options)
+            }.value
+        }
         let compileMs = Int(Date().timeIntervalSince(start) * 1000)
 
         // Compiler error in source → 422.
@@ -1068,12 +1092,16 @@ public actor ImprintHTTPRouter: HTTPRouter {
         start: Date
     ) async -> HTTPResponse {
         let projectPath = projectDir.path
-        let result: ImprintRustCore.ProjectCompileResult = await Task.detached(priority: .userInitiated) {
-            ImprintRustCore.compileTypstProjectToPdf(
-                projectDir: projectPath,
-                mainFile: mainFile
-            )
-        }.value
+        let result: ImprintRustCore.ProjectCompileResult = await PerfMetrics.shared.measureAsync(
+            PerfBucket.compile, detail: "typst-project"
+        ) {
+            await Task.detached(priority: .userInitiated) {
+                ImprintRustCore.compileTypstProjectToPdf(
+                    projectDir: projectPath,
+                    mainFile: mainFile
+                )
+            }.value
+        }
         let compileMs = Int(Date().timeIntervalSince(start) * 1000)
 
         if let err = result.error {
@@ -1124,11 +1152,15 @@ public actor ImprintHTTPRouter: HTTPRouter {
         }()
         let options = LaTeXCompileOptions(engine: engine)
         do {
-            let result = try await LaTeXCompilationService.shared.compile(
-                sourceURL: mainURL,
-                engine: engine,
-                options: options
-            )
+            let result = try await PerfMetrics.shared.measureAsync(
+                PerfBucket.compile, detail: "latex-\(engineStr)"
+            ) {
+                try await LaTeXCompilationService.shared.compile(
+                    sourceURL: mainURL,
+                    engine: engine,
+                    options: options
+                )
+            }
             let compileMs = result.compilationTimeMs
             if !result.isSuccess {
                 let firstError = result.errors.first?.message ?? "LaTeX compile failed (exit \(result.exitCode))"
@@ -1803,7 +1835,9 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Missing query parameter 'q'")
         }
         let limit = Int(request.queryParams["limit"] ?? "50") ?? 50
-        let hits = await ManuscriptSearchService.shared.search(query, limit: limit)
+        let hits = await PerfMetrics.shared.measureAsync(PerfBucket.search, detail: "cross-doc") {
+            await ManuscriptSearchService.shared.search(query, limit: limit)
+        }
         let payload: [[String: Any]] = hits.map { hit in
             [
                 "sectionID": hit.sectionID.uuidString,
@@ -2516,12 +2550,15 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     /// Compose the citation token for the given format.
     private static func composeCitation(citeKey: String, format: SectionFormat, appendSpace: Bool) -> String {
-        let token: String
-        switch format {
-        case .typst: token = "@\(citeKey)"
-        case .latex: token = "\\cite{\(citeKey)}"
-        }
-        return appendSpace ? " " + token : token
+        // Delegates to the canonical Rust implementation (imprint-core
+        // citations::compose) so the format-specific string logic lives in one
+        // place, shared with MCP/CLI and covered by the imprint-selftest
+        // Tier-A capability `text.compose_citation`.
+        ImprintRustCore.composeCitation(
+            citeKey: citeKey,
+            format: format.rustName,
+            appendSpace: appendSpace
+        )
     }
 
     // MARK: - Section helpers
@@ -2546,20 +2583,16 @@ public actor ImprintHTTPRouter: HTTPRouter {
     }
 
     /// Build a heading line at the given level for the given format.
+    ///
+    /// Delegates to the canonical Rust implementation (imprint-core
+    /// citations::compose), covered by the imprint-selftest Tier-A capability
+    /// `text.compose_heading`.
     private static func composeHeading(title: String, level: Int, format: SectionFormat) -> String {
-        switch format {
-        case .typst:
-            let prefix = String(repeating: "=", count: max(1, min(level, 6)))
-            return "\(prefix) \(title)"
-        case .latex:
-            switch level {
-            case 1: return "\\section{\(title)}"
-            case 2: return "\\subsection{\(title)}"
-            case 3: return "\\subsubsection{\(title)}"
-            case 4: return "\\paragraph{\(title)}"
-            default: return "\\subparagraph{\(title)}"
-            }
-        }
+        ImprintRustCore.composeHeading(
+            title: title,
+            level: UInt32(max(0, level)),
+            format: format.rustName
+        )
     }
 
     /// Predict the order index a newly-created section will occupy.
@@ -2620,6 +2653,50 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return .json(["status": "ok", "reset": true])
     }
 
+    // MARK: - Performance Handlers
+
+    /// GET /api/performance
+    /// Returns a JSON snapshot of `PerfMetrics.shared` — per-operation buckets
+    /// (compile, render, search, store, snapshot, http, …) with count, min/max,
+    /// mean, p50/p95, main-thread share, and budget-breach counts. This is the
+    /// machine-readable form of the Console "Performance" tab so an agent can
+    /// spot bottlenecks headlessly.
+    private func handlePerformance(_ request: HTTPRequest) -> HTTPResponse {
+        let snap = PerfMetrics.shared.snapshot()
+        let buckets: [[String: Any]] = snap.buckets.map { b in
+            var dict: [String: Any] = [
+                "name": b.name,
+                "count": b.count,
+                "mainThreadCount": b.mainThreadCount,
+                "mainThreadShare": round(b.mainThreadShare * 10000) / 10000,
+                "minMillis": round(b.minMillis * 1000) / 1000,
+                "meanMillis": round(b.meanMillis * 1000) / 1000,
+                "p50Millis": round(b.p50Millis * 1000) / 1000,
+                "p95Millis": round(b.p95Millis * 1000) / 1000,
+                "maxMillis": round(b.maxMillis * 1000) / 1000,
+                "breachCount": b.breachCount,
+                "totalNanos": b.totalNanos
+            ]
+            if let budget = b.budgetMillis {
+                dict["budgetMillis"] = round(budget * 1000) / 1000
+            }
+            return dict
+        }
+        let payload: [String: Any] = [
+            "status": "ok",
+            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
+            "bucketCount": snap.buckets.count,
+            "buckets": buckets
+        ]
+        return .json(payload)
+    }
+
+    /// POST /api/performance/reset — clears sample data (budgets are preserved).
+    private func handleResetPerformance() -> HTTPResponse {
+        PerfMetrics.shared.reset()
+        return .json(["status": "ok", "reset": true])
+    }
+
     // MARK: - Helpers
 
     /// CORS preflight response.
@@ -2644,6 +2721,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "endpoints": [
                 "GET /api/status": "Server health and info",
                 "GET /api/logs": "Query log entries (params: limit, offset, level, category, search, after)",
+                "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
+                "GET /api/performance": "PerfMetrics snapshot — per-operation latency buckets, percentiles, budget breaches",
                 "GET /api/documents": "List open documents",
                 "GET /api/documents/{id}": "Get document metadata",
                 "GET /api/documents/{id}/content": "Get document source content",

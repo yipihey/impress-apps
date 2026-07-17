@@ -1,0 +1,22 @@
+{
+  "responseHeader": {"status": 0, "QTime": 5},
+  "response": {
+    "numFound": 1,
+    "start": 0,
+    "docs": [
+      {
+        "bibcode": "1998AJ....116.1009R",
+        "title": ["Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant"],
+        "author": ["Riess, Adam G.", "Filippenko, Alexei V.", "Challis, Peter"],
+        "year": "1998",
+        "pub": "The Astronomical Journal",
+        "doi": ["10.1086/300499"],
+        "abstract": "We present spectral and photometric observations of 10 Type Ia supernovae.",
+        "identifier": ["arXiv:astro-ph/9805201", "10.1086/300499"],
+        "citation_count": 5000,
+        "read_count": 12,
+        "esources": ["PUB_HTML", "EPRINT_HTML"]
+      }
+    ]
+  }
+}

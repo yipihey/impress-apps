@@ -245,6 +245,11 @@ public struct WoSSearchFormView: View {
     private func performSearch() {
         guard !isFormEmpty else { return }
         searchViewModel.query = searchViewModel.modernFormState.searchText
+        // WoS form: restrict to WoS source so the multi-source fan-out doesn't
+        // pollute results with unrelated matches from Crossref/OpenAlex.
+        if searchViewModel.selectedSourceIDs.isEmpty {
+            searchViewModel.selectedSourceIDs = ["wos"]
+        }
         Task {
             await searchViewModel.search()
         }
@@ -444,6 +449,11 @@ public struct WoSSearchFormView: View {
     private func performSearch() {
         guard !isFormEmpty else { return }
         searchViewModel.query = searchViewModel.modernFormState.searchText
+        // WoS form: restrict to WoS source so the multi-source fan-out doesn't
+        // pollute results with unrelated matches from Crossref/OpenAlex.
+        if searchViewModel.selectedSourceIDs.isEmpty {
+            searchViewModel.selectedSourceIDs = ["wos"]
+        }
         Task {
             await searchViewModel.search()
         }

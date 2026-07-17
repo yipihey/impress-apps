@@ -1,0 +1,14 @@
+SyncTeX Version: 1.21
+Magnification:1000
+Unit:1
+Input:1:./paper.tex
+Input:2:./section.tex
+Content:
+{1
+h1,10:65536,131072:65536,65536,0
+h2,5:131072,196608:131072,65536,0
+}
+{2
+h1,20:65536,262144:65536,65536,0
+}
+Postamble:

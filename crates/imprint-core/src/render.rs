@@ -382,7 +382,9 @@ mod typst_impl {
     use typst::foundations::Bytes;
     use typst::syntax::{FileId, Source, VirtualPath};
     use typst_as_lib::file_resolver::FileResolver;
-    use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine, TypstTemplateCollection};
+    use typst_as_lib::{
+        typst_kit_options::TypstKitFontOptions, TypstEngine, TypstTemplateCollection,
+    };
 
     /// File ID for the virtual main source file
     fn main_file_id() -> FileId {
@@ -460,8 +462,8 @@ mod typst_impl {
         /// Build or rebuild the engine (loads fonts, sets up resolvers)
         fn ensure_engine(&mut self, preamble: &str, initial_source: &str) {
             let preamble_hash = Self::hash_preamble(preamble);
-            let needs_rebuild = self.engine.is_none()
-                || self.last_preamble_hash != Some(preamble_hash);
+            let needs_rebuild =
+                self.engine.is_none() || self.last_preamble_hash != Some(preamble_hash);
 
             if needs_rebuild {
                 let t0 = std::time::Instant::now();
@@ -717,13 +719,11 @@ mod typst_impl {
                     let svgs: Vec<String> = document.pages.iter().map(typst_svg::svg).collect();
                     Ok(RenderOutput::Svg(svgs))
                 }
-                OutputFormat::Png { ppi: _ } => {
-                    Err(RenderError::PngError(
-                        "PNG rendering requires the typst-render crate with resvg. \
+                OutputFormat::Png { ppi: _ } => Err(RenderError::PngError(
+                    "PNG rendering requires the typst-render crate with resvg. \
                          Consider rendering to SVG and converting with an image library."
-                            .to_string(),
-                    ))
-                }
+                        .to_string(),
+                )),
             }
         }
     }

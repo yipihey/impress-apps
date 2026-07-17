@@ -3,9 +3,21 @@
 //! Exposes semantic search over locally indexed PDFs via the
 //! Model Context Protocol (JSON-RPC 2.0 over stdio).
 
+mod inventory_bridge;
 mod server;
 mod store;
 mod tools;
+
+// Phase 3B: force the linker to retain the `inventory::submit!` entries
+// that the service crates register at static-init time. Without an
+// explicit reference, dead-code elimination on rlib-only deps can drop
+// the entire crate (and its `ctor`-style submissions with it).
+#[allow(unused_imports)]
+use imbib_service as _force_link_imbib_service;
+#[allow(unused_imports)]
+use imprint_service as _force_link_imprint_service;
+#[allow(unused_imports)]
+use imprint_selftest as _force_link_imprint_selftest;
 
 use imbib_core::search::{ChunkIndex, EmbeddingStore, SemanticSearch};
 use std::path::PathBuf;
@@ -24,6 +36,13 @@ fn default_main_store_path() -> PathBuf {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Phase A/B/C: try the HTTP backend first (lets us drive the live store
+    // through the running imbib macOS app, bypassing macOS TCC restrictions
+    // on the sandboxed group container). Falls back silently to SQLite.
+    let _ = imbib_service_http::maybe_install_http_backend();
+    // Phase E: same dance for imprint (port 23121).
+    let _ = imprint_service_http::maybe_install_http_backend();
+
     let args: Vec<String> = std::env::args().collect();
 
     let mut embeddings_path = default_embeddings_path();

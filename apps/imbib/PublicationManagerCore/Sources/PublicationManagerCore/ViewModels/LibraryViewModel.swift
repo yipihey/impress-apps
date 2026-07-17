@@ -314,8 +314,10 @@ public final class LibraryViewModel {
 
     public func markAsRead(id: UUID) async {
         store.setRead(ids: [id], read: true)
-        // Phase 8: SignalCollector still uses CDPublication — will be migrated
-        // Task { await SignalCollector.shared.recordRead(publicationId: id) }
+        // SignalCollector + EnrichmentCoordinator are UUID-based after the Rust
+        // migration; wiring them back into this code path is a Phase 1H punch-list
+        // item — needs the SHKSharingServicePicker startup probe before re-enabling.
+        // Task { await SignalCollector.shared.recordRead(id) }
     }
 
     /// Convenience for callers that have PublicationRowData
@@ -452,8 +454,12 @@ public final class LibraryViewModel {
         guard !idsToEnrich.isEmpty else { return }
 
         Logger.viewModels.infoCapture("Queueing \(idsToEnrich.count) papers for enrichment", category: "enrichment")
-        // Phase 8: EnrichmentCoordinator still uses CDPublication — will be migrated
-        // await EnrichmentCoordinator.shared.queueForEnrichment(ids: idsToEnrich, priority: .libraryPaper)
+        // EnrichmentCoordinator.queueForEnrichment(_:priority:) is now UUID-based.
+        // Re-enabling this call is a Phase 1H punch-list item — must run the
+        // startup render-loop probe (SHKSharingServicePicker) after re-enabling
+        // because enrichment posts `.storeDidMutate` and could trigger the loop
+        // if invoked too early during app launch.
+        // await EnrichmentCoordinator.shared.queueForEnrichment(idsToEnrich, priority: .libraryPaper)
     }
 }
 

@@ -52,7 +52,9 @@ pub fn compile_typst_project_to_pdf(
     use typst::layout::PagedDocument;
     use typst::syntax::{FileId, VirtualPath};
     use typst_as_lib::file_resolver::FileSystemResolver;
-    use typst_as_lib::{typst_kit_options::TypstKitFontOptions, TypstEngine, TypstTemplateCollection};
+    use typst_as_lib::{
+        typst_kit_options::TypstKitFontOptions, TypstEngine, TypstTemplateCollection,
+    };
 
     if !project_dir.exists() {
         return Err(RenderError::IoError(std::io::Error::new(
@@ -141,7 +143,10 @@ mod tests {
     fn project_compile_succeeds_on_simple_main() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        write(&root.join("paper.typ"), "= Hello\n\nA simple Typst document.\n");
+        write(
+            &root.join("paper.typ"),
+            "= Hello\n\nA simple Typst document.\n",
+        );
 
         let options = RenderOptions::default();
         let result = compile_typst_project_to_pdf(root, "paper.typ", &options).unwrap();
@@ -170,12 +175,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         let options = RenderOptions::default();
-        let err =
-            compile_typst_project_to_pdf(root, "nope.typ", &options).unwrap_err();
+        let err = compile_typst_project_to_pdf(root, "nope.typ", &options).unwrap_err();
         match err {
             RenderError::CompilationError(msg) => assert!(msg.contains("nope.typ")),
             other => panic!("unexpected error: {:?}", other),
         }
     }
-
 }

@@ -36,6 +36,11 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         static let commentSyncEnabled = "cloudKit.sync.commentSyncEnabled"
         static let lastCommentSyncDate = "cloudKit.sync.lastCommentSyncDate"
         static let commentSyncError = "cloudKit.sync.commentSyncError"
+        // Phase 1H: feature flag for CloudKitDispatcher live-subscription.
+        // Default OFF — user must opt in and run the SHKSharingServicePicker
+        // startup-loop probe before the dispatcher begins forwarding store
+        // events to engines. See Sync/CloudKitDispatcher.swift for context.
+        static let cloudKitDispatcherEnabled = "cloudKit.sync.dispatcherEnabled"
     }
 
     // MARK: - Properties
@@ -238,7 +243,30 @@ public final class CloudKitSyncSettingsStore: @unchecked Sendable {
         defaults.removeObject(forKey: Keys.commentSyncEnabled)
         defaults.removeObject(forKey: Keys.lastCommentSyncDate)
         defaults.removeObject(forKey: Keys.commentSyncError)
+        defaults.removeObject(forKey: Keys.cloudKitDispatcherEnabled)
         Logger.settings.info("CloudKit sync settings reset")
+    }
+
+    // MARK: - CloudKit Dispatcher
+
+    /// Whether the `CloudKitDispatcher` should subscribe to store events
+    /// and route mutations to engines. **Default: false.**
+    ///
+    /// Off by default because turning it on adds a mutation observer that
+    /// runs during app launch — a known render-loop risk vector (see
+    /// CLAUDE.md "Startup Render Loop Prevention"). Flip this to `true`
+    /// only after running the SHKSharingServicePicker probe on a
+    /// representative library:
+    ///
+    ///     log show --process imbib --last 15s | grep -c SHKSharingServicePicker
+    ///
+    /// must report 0 after 90s of runtime.
+    public var cloudKitDispatcherEnabled: Bool {
+        get { defaults.bool(forKey: Keys.cloudKitDispatcherEnabled) }
+        set {
+            defaults.set(newValue, forKey: Keys.cloudKitDispatcherEnabled)
+            Logger.settings.info("CloudKit dispatcher enabled: \(newValue)")
+        }
     }
 
     // MARK: - Feature Flags

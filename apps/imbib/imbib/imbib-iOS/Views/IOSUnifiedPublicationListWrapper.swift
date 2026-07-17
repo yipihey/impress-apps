@@ -578,7 +578,8 @@ struct IOSUnifiedPublicationListWrapper: View {
     }
 
     private func handleAddToLibrary(_ ids: Set<UUID>, _ targetLibraryID: UUID) async {
-        _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+        // Multi-library membership via Contains edges — no duplicate item created.
+        RustStoreAdapter.shared.libraryAddMembers(libraryId: targetLibraryID, publicationIds: Array(ids))
         refreshPublicationsList()
     }
 

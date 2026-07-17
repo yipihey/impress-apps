@@ -70,3 +70,7 @@ apps/t.txt
 
 # Non-standard in-tree DerivedData (use Xcode's global DerivedData instead)
 DerivedData/
+
+# Local tool / cache directories (not part of the repo)
+.codex/
+.fastembed_cache/

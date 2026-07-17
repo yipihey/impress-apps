@@ -552,15 +552,12 @@ public final class SearchViewModel {
 
             Logger.viewModels.infoCapture("Search returned \(deduped.count) deduplicated results", category: "search")
 
-            // Auto-import results via single Rust FFI call (batch find + classify + insert)
+            // Auto-import results via single Rust FFI call (batch find + classify + insert).
+            // Search results live in the Exploration library — never in the active
+            // library or default ("Save"). The user explicitly chooses to move
+            // papers to Save via the keep/save action.
             let store = RustStoreAdapter.shared
-            let activeLib = libraryManager?.activeLibrary
-            let libraryId: UUID? = if let activeLib, !activeLib.isInbox {
-                activeLib.id
-            } else {
-                libraryManager?.libraries.first(where: { $0.isDefault && !$0.isInbox })?.id
-                ?? libraryManager?.libraries.first(where: { !$0.isInbox })?.id
-            }
+            let libraryId: UUID? = manager.getOrCreateExplorationLibrary().id
 
             let entries = deduped.map { result in
                 (bibtex: result.primary.toBibTeX(abstractOverride: result.bestAbstract),

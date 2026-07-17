@@ -31,11 +31,26 @@ public actor ArXivSource: SourcePlugin {
     private let baseURL = "https://export.arxiv.org/api/query"
     private let session: URLSession
 
+    /// Compact identifier the arXiv API team can recognize per
+    /// https://info.arxiv.org/help/api/user-manual.html#_call_for_proposers.
+    /// They explicitly ask for a contact-style User-Agent.
+    private static let userAgent = "imbib/1.0 (https://github.com/impress-apps; mailto:support@impress.app)"
+
     // MARK: - Initialization
 
     public init(session: URLSession = .shared) {
         self.session = session
         self.rateLimiter = RateLimiter(rateLimit: RateLimit(requestsPerInterval: 1, intervalSeconds: 3))
+    }
+
+    /// Build a request with the User-Agent header arXiv expects.
+    /// Without this, arXiv aggressively rate-limits the source IP and the
+    /// entire imbib install (background feeds + interactive search) shares
+    /// a single starved budget.
+    private func arxivRequest(url: URL) -> URLRequest {
+        var req = URLRequest(url: url)
+        req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        return req
     }
 
     // MARK: - SourcePlugin
@@ -119,7 +134,11 @@ public actor ArXivSource: SourcePlugin {
 
         Logger.network.httpRequest("GET", url: url)
 
-        let (data, response) = try await session.data(from: url)
+        // arXiv's API explicitly requests a descriptive User-Agent so they can
+        // identify clients and rate-limit politely. Without one, the IP gets
+        // aggressively throttled — even legitimate user-initiated searches fail
+        // because background services share the same IP budget.
+        let (data, response) = try await session.data(for: arxivRequest(url: url))
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw SourceError.networkError(URLError(.badServerResponse))
@@ -296,7 +315,7 @@ public actor ArXivSource: SourcePlugin {
 
         Logger.network.httpRequest("GET", url: url)
 
-        let (data, response) = try await session.data(from: url)
+        let (data, response) = try await session.data(for: arxivRequest(url: url))
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw SourceError.networkError(URLError(.badServerResponse))

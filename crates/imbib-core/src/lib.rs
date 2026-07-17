@@ -16,9 +16,11 @@ pub mod bibtex;
 pub mod conversions;
 pub mod deduplication;
 pub mod domain;
+pub mod enrichment;
 pub mod error;
 pub mod export;
 pub mod filename;
+pub mod files;
 #[cfg(feature = "native")]
 pub mod http;
 pub mod identifiers;
@@ -265,6 +267,36 @@ pub struct PdfThumbnail {
 
 // Note: Domain FFI functions (parse_author_string, enrichment_*_display_name, etc.)
 // are exported directly from domain module submodules with #[uniffi::export]
+
+// ===== Tag Path Normalization FFI Wrappers =====
+// Phase 1E: canonical logic lives in `crates/impress-tags`. These wrappers
+// expose it to Swift via the existing `imbib-core` UniFFI scaffolding, since
+// `impress-tags` itself does not currently ship an xcframework. When
+// `impress-tags` is surfaced as its own Swift package, drop these wrappers and
+// route callers through it directly.
+
+/// Normalize a single tag path segment (e.g. "Dark Energy" → "dark-energy").
+///
+/// Lowercases, replaces spaces/underscores with hyphens, collapses runs of
+/// hyphens, and trims leading/trailing hyphens. Returns the empty string for
+/// input that reduces to nothing. Callers should guard against empty output
+/// before composing it into a path.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn tags_normalize_segment(segment: String) -> String {
+    impress_tags::normalize_tag_segment(&segment)
+}
+
+/// Normalize a full hierarchical tag path (e.g. "ai/Dark Energy/Sub Topic"
+/// becomes "ai/dark-energy/sub-topic").
+///
+/// Splits on `/`, slugifies each segment via [`tags_normalize_segment`],
+/// drops segments that reduce to empty, and rejoins with `/`.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn tags_normalize_path(path: String) -> String {
+    impress_tags::normalize_tag_path(&path)
+}
 
 #[cfg(test)]
 mod tests {

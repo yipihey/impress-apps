@@ -50,6 +50,17 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         ImpressSyntaxLog.callback = { message in
             logInfo(message, category: "syntax")
         }
+        // Performance budgets: when an operation exceeds its budget, PerfMetrics
+        // logs a warning to the Console (the "Performance" tab and /api/performance
+        // surface the same numbers). Start generous; tighten as baselines settle.
+        PerfMetrics.shared.setBudgets([
+            PerfBucket.compile: 1500,   // Typst/LaTeX compile
+            PerfBucket.render: 250,     // preview render
+            PerfBucket.search: 200,     // cross-document search
+            PerfBucket.store: 50,       // unified-store reads
+            PerfBucket.snapshot: 100,   // snapshot rebuilds
+        ])
+
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         logInfo("HTTP server starting on port \(port)", category: "http-server")
         // Start HTTP automation server for AI/MCP integration

@@ -1,0 +1,19 @@
+[package]
+name = "imbib-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "imbib CLI binary, auto-generated from the imbib-service trait via the impress codegen pipeline"
+
+[[bin]]
+name = "imbib"
+path = "src/main.rs"
+
+[dependencies]
+# Linking imbib-service pulls its inventory submissions (5 McpToolDescriptor
+# + 5 CliSubcommand entries) into the final binary, where this CLI iterates
+# them at startup.
+imbib-service = { workspace = true }
+impress-service-core = { workspace = true, features = ["cli"] }
+serde_json = { workspace = true }

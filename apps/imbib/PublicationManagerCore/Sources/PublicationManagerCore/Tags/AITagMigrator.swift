@@ -8,6 +8,7 @@
 
 import Foundation
 import OSLog
+import ImbibRustCore
 
 /// Migrates legacy flat `ai/` tags to the structured `ai/field/`, `ai/type/`, `ai/topic/` hierarchy.
 ///
@@ -69,8 +70,8 @@ public enum AITagMigrator {
         store.beginBatchMutation()
 
         for tag in flatAITags {
-            let leaf = TagPathNormalizer.normalize(
-                tag.path.components(separatedBy: "/").last ?? ""
+            let leaf = tagsNormalizeSegment(
+                segment: tag.path.components(separatedBy: "/").last ?? ""
             )
             guard !leaf.isEmpty else { continue }
 

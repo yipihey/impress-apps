@@ -212,6 +212,7 @@ impl SharedStore {
             }],
             limit: Some(effective_limit),
             offset: Some(offset as usize),
+            ..ItemQuery::default()
         };
         let items = self.inner.query(&q)?;
         Ok(items.into_iter().map(item_to_row).collect())
@@ -244,6 +245,7 @@ impl SharedStore {
             }],
             limit: Some(effective_limit),
             offset: None,
+            ..ItemQuery::default()
         };
         let items = self.inner.query(&q)?;
         Ok(items.into_iter().map(item_to_row).collect())

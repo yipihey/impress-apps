@@ -1,0 +1,19 @@
+[package]
+name = "imbib-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Service-trait facade over imbib-core exposed via #[impress_service] to MCP/CLI/etc."
+
+[dependencies]
+imbib-core = { workspace = true, features = ["native"] }
+impress-tags = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+# The proc macro emits `derive(schemars::JsonSchema)` which needs schemars
+# resolvable as a top-level crate at the call site, not just via re-export.
+schemars = { workspace = true }

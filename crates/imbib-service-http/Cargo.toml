@@ -1,0 +1,14 @@
+[package]
+name = "imbib-service-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HTTP-backed implementations of imbib-service traits (routes to running imbib macOS app)"
+
+[dependencies]
+imbib-service = { workspace = true }
+impress-app-client = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }

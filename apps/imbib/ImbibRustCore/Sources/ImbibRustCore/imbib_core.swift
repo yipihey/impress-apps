@@ -818,6 +818,30 @@ public protocol ImbibStoreProtocol : AnyObject {
     func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?) throws  -> Bool
     
     /**
+     * Add publications to a library as members WITHOUT duplicating them.
+     *
+     * Multi-library membership uses `EdgeType::Contains` edges from the library
+     * item to the publication item. The publication keeps its original
+     * `parent_uuid` (its "home" library). Queries that ask "what's in library X"
+     * must use `in_library_predicate(X)` to see both parent-based members and
+     * Contains-based members.
+     *
+     * Replaces the old `duplicate_publications(to_library_id)` anti-pattern
+     * for the "add to library" use case — duplicate is now reserved for true
+     * copy semantics.
+     */
+    func libraryAddMembers(libraryId: String, publicationIds: [String]) throws  -> UndoInfo
+    
+    /**
+     * Remove a Contains-edge membership from a library.
+     *
+     * Does NOT delete the publication, and does NOT remove the publication if
+     * the library is its parent (its home). Use `move_publications` or
+     * `delete_publications` for those operations.
+     */
+    func libraryRemoveMembers(libraryId: String, publicationIds: [String]) throws  -> UndoInfo
+    
+    /**
      * Link an artifact to a publication via RelatesTo edge.
      */
     func linkArtifactToPublication(artifactId: String, publicationId: String) throws  -> UndoInfo
@@ -1796,6 +1820,44 @@ open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, cit
         FfiConverterOptionString.lower(arxivId),
         FfiConverterOptionString.lower(bibcode),
         FfiConverterOptionString.lower(citeKey),$0
+    )
+})
+}
+    
+    /**
+     * Add publications to a library as members WITHOUT duplicating them.
+     *
+     * Multi-library membership uses `EdgeType::Contains` edges from the library
+     * item to the publication item. The publication keeps its original
+     * `parent_uuid` (its "home" library). Queries that ask "what's in library X"
+     * must use `in_library_predicate(X)` to see both parent-based members and
+     * Contains-based members.
+     *
+     * Replaces the old `duplicate_publications(to_library_id)` anti-pattern
+     * for the "add to library" use case — duplicate is now reserved for true
+     * copy semantics.
+     */
+open func libraryAddMembers(libraryId: String, publicationIds: [String])throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_library_add_members(self.uniffiClonePointer(),
+        FfiConverterString.lower(libraryId),
+        FfiConverterSequenceString.lower(publicationIds),$0
+    )
+})
+}
+    
+    /**
+     * Remove a Contains-edge membership from a library.
+     *
+     * Does NOT delete the publication, and does NOT remove the publication if
+     * the library is its parent (its home). Use `move_publications` or
+     * `delete_publications` for those operations.
+     */
+open func libraryRemoveMembers(libraryId: String, publicationIds: [String])throws  -> UndoInfo {
+    return try  FfiConverterTypeUndoInfo.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_library_remove_members(self.uniffiClonePointer(),
+        FfiConverterString.lower(libraryId),
+        FfiConverterSequenceString.lower(publicationIds),$0
     )
 })
 }
@@ -21088,6 +21150,35 @@ public func supportedIdentifiersForSource(source: EnrichmentSource) -> [String] 
     )
 })
 }
+/**
+ * Normalize a full hierarchical tag path (e.g. "ai/Dark Energy/Sub Topic"
+ * becomes "ai/dark-energy/sub-topic").
+ *
+ * Splits on `/`, slugifies each segment via [`tags_normalize_segment`],
+ * drops segments that reduce to empty, and rejoins with `/`.
+ */
+public func tagsNormalizePath(path: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_tags_normalize_path(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * Normalize a single tag path segment (e.g. "Dark Energy" → "dark-energy").
+ *
+ * Lowercases, replaces spaces/underscores with hyphens, collapses runs of
+ * hyphens, and trims leading/trailing hyphens. Returns the empty string for
+ * input that reduces to nothing. Callers should guard against empty output
+ * before composing it into a path.
+ */
+public func tagsNormalizeSegment(segment: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_tags_normalize_segment(
+        FfiConverterString.lower(segment),$0
+    )
+})
+}
 public func titlesMatch(title1: String, title2: String, threshold: Double) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_titles_match(
@@ -21695,6 +21786,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_supported_identifiers_for_source() != 39367) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_tags_normalize_path() != 33839) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_tags_normalize_segment() != 12313) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_titles_match() != 58179) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21915,6 +22012,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 12541) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_library_add_members() != 34648) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_library_remove_members() != 54093) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_link_artifact_to_publication() != 6040) {

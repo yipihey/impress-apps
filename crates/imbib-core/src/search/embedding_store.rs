@@ -703,10 +703,24 @@ pub fn embedding_store_close(handle: u64) -> bool {
 mod tests {
     use super::*;
 
-    fn temp_store() -> EmbeddingStore {
+    struct TestStore {
+        store: EmbeddingStore,
+        _dir: tempfile::TempDir,
+    }
+
+    impl std::ops::Deref for TestStore {
+        type Target = EmbeddingStore;
+
+        fn deref(&self) -> &Self::Target {
+            &self.store
+        }
+    }
+
+    fn temp_store() -> TestStore {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test_embeddings.sqlite");
-        EmbeddingStore::open(path.to_str().unwrap()).unwrap()
+        let store = EmbeddingStore::open(path.to_str().unwrap()).unwrap();
+        TestStore { store, _dir: dir }
     }
 
     #[test]

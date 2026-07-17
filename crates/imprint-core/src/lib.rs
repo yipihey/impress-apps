@@ -37,6 +37,7 @@ pub mod render;
 pub mod render_project;
 pub mod selection;
 pub mod sourcemap;
+pub mod synctex;
 pub mod templates;
 pub mod transaction;
 
@@ -320,8 +321,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
         match renderer.render(&source, &render_options) {
             Ok(output) => {
                 if let Some(pdf_bytes) = output.as_pdf() {
-                    let source_map_entries =
-                        generate_source_map_entries(&source, &render_options);
+                    let source_map_entries = generate_source_map_entries(&source, &render_options);
                     CompileResult {
                         pdf_data: Some(pdf_bytes.to_vec()),
                         error: None,
@@ -841,8 +841,7 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
             let mut renderer = cell.borrow_mut();
             match renderer.render_svg(&source, &render_options) {
                 Ok((svg_pages, warnings, page_count)) => {
-                    let source_map_entries =
-                        generate_source_map_entries(&source, &render_options);
+                    let source_map_entries = generate_source_map_entries(&source, &render_options);
                     SvgCompileResult {
                         svg_pages,
                         page_count,
@@ -927,6 +926,41 @@ pub fn get_typst_version() -> String {
 #[uniffi::export]
 pub fn hello_from_imprint() -> String {
     "Hello from imprint-core (Rust)!".to_string()
+}
+
+// ============================================================================
+// UniFFI Exports for Section Composition (see citations::compose)
+// ============================================================================
+
+/// Compose an inline citation token for a manuscript.
+///
+/// `format` accepts `"typst"` or `"latex"` (case-insensitive; unknown → typst).
+/// Typst → `@key`, LaTeX → `\cite{key}`. When `append_space` is true a single
+/// leading space is prepended. This is the canonical implementation the Swift
+/// router should call instead of its own `composeCitation` helper.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn compose_citation(cite_key: String, format: String, append_space: bool) -> String {
+    crate::citations::compose::compose_citation(
+        &cite_key,
+        crate::citations::compose::ComposeFormat::from_str_lenient(&format),
+        append_space,
+    )
+}
+
+/// Compose a heading line at `level` (1-based) for a manuscript.
+///
+/// `format` accepts `"typst"` or `"latex"`. Typst uses `level` `=` characters
+/// (clamped 1..=6); LaTeX maps 1→`\section` … 5+→`\subparagraph`. Canonical
+/// replacement for the Swift router's `composeHeading` helper.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn compose_heading(title: String, level: u32, format: String) -> String {
+    crate::citations::compose::compose_heading(
+        &title,
+        level,
+        crate::citations::compose::ComposeFormat::from_str_lenient(&format),
+    )
 }
 
 // ============================================================================

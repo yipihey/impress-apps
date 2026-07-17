@@ -1,0 +1,27 @@
+[package]
+name = "impress-app-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Typed Rust HTTP client for the impress macOS apps' automation APIs (imbib, imprint, …)"
+
+[dependencies]
+# Reuse all the DTOs from imbib-service so the client surface matches the trait surface 1:1.
+imbib-service = { workspace = true }
+imprint-service = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
+urlencoding = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -314,27 +314,30 @@ public final class InboxManager {
     }
 
     /// Add multiple paper IDs to the Inbox in a single batch.
-    /// Uses bulk ID query + single batch FFI calls instead of per-paper loops.
+    /// Uses a single Rust FFI call that creates Contains edges on the Inbox
+    /// library — no duplicate publication items are created. Replaces the
+    /// old `duplicatePublications` path that caused Save-library bloat
+    /// (every inbox-add silently created a second copy in the default library).
     @discardableResult
     public func addToInboxBatch(_ publicationIDs: [UUID]) -> Int {
         guard !publicationIDs.isEmpty else { return 0 }
         let inbox = getOrCreateInbox()
 
-        // Query inbox membership once — O(1) lookups
+        // queryPublicationIDs now respects Contains edges, so this filter
+        // catches both parent-children and already-Contains-linked papers.
         let inboxMemberIDs = store.queryPublicationIDs(parentId: inbox.id)
         let idsToAdd = publicationIDs.filter { !inboxMemberIDs.contains($0) }
         guard !idsToAdd.isEmpty else { return 0 }
 
-        // Batch: suppress per-call notifications, fire once at end
         store.beginBatchMutation()
-        // One FFI call for all duplications (single transaction in Rust)
-        let _ = store.duplicatePublications(ids: idsToAdd, toLibraryId: inbox.id)
-        // One FFI call for all read status resets
+        // Add as Contains-edge members instead of duplicating.
+        store.libraryAddMembers(libraryId: inbox.id, publicationIds: idsToAdd)
+        // Make sure the freshly-linked papers show as unread in the inbox triage queue.
         store.setRead(ids: idsToAdd, read: false)
         store.endBatchMutation()
 
         updateUnreadCount()
-        Logger.inbox.infoCapture("Added \(idsToAdd.count) papers to Inbox (batch)", category: "papers")
+        Logger.inbox.infoCapture("Added \(idsToAdd.count) papers to Inbox (batch, via Contains)", category: "papers")
         return idsToAdd.count
     }
 

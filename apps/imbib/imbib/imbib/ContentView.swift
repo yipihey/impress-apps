@@ -80,14 +80,11 @@ struct ContentView: View {
     /// Data for batch PDF download sheet (nil = not shown)
     @State private var batchDownloadData: BatchDownloadData?
 
-    /// Whether to show the global search palette (Cmd+K)
-    @State private var showGlobalSearch = false
+    /// Shared presenter for Cmd+F local find and Cmd+S online source search.
+    @State private var searchPresenter = ImbibSearchPresenter()
 
     /// Whether to show the command palette (Cmd+Shift+P)
     @State private var showCommandPalette = false
-
-    /// Whether to show the NL Smart Search overlay (Cmd+S)
-    @State private var showNLSearch = false
 
     /// Whether to show the onboarding sheet
     @State private var showOnboarding = false
@@ -142,6 +139,28 @@ struct ContentView: View {
     /// Get the selected publications for multi-selection operations (e.g., BibTeX export).
     private var selectedPublicationsForExport: [PublicationRowData] {
         selectedPublicationIDs.compactMap { libraryViewModel.publication(for: $0) }
+    }
+
+    private var localFindPresented: Binding<Bool> {
+        Binding(
+            get: { searchPresenter.isLocalFindPresented },
+            set: { isPresented in
+                if !isPresented {
+                    searchPresenter.dismiss(.localFind)
+                }
+            }
+        )
+    }
+
+    private var onlineSourceSearchPresented: Binding<Bool> {
+        Binding(
+            get: { searchPresenter.isOnlineSourceSearchPresented },
+            set: { isPresented in
+                if !isPresented {
+                    searchPresenter.dismiss(.onlineSourceSearch)
+                }
+            }
+        )
     }
 
     // MARK: - Body
@@ -250,22 +269,29 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
                 showCommandPalette = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .performSearchAction)) { notification in
+                guard let action = ImbibSearchAction.from(notification) else { return }
+                presentSearch(action)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .showGlobalSearch)) { _ in
-                showGlobalSearch = true
+                presentSearch(.localFind(context: currentSearchContext, source: .notificationBridge))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in
+                presentSearch(.localFind(context: currentSearchContext, source: .notificationBridge))
             }
             .onReceive(NotificationCenter.default.publisher(for: .showNLSearch)) { _ in
-                showNLSearch = true
+                presentSearch(.onlineSourceSearch(source: .notificationBridge))
             }
             .overlay {
-                if showGlobalSearch {
+                if searchPresenter.isLocalFindPresented {
                     GlobalSearchPaletteView(
-                        isPresented: $showGlobalSearch,
+                        isPresented: localFindPresented,
                         onSelect: { publicationID in
                             navigateToPublication(publicationID)
                         },
                         onPDFSearch: handlePDFSearch
                     )
-                    .environment(\.searchContext, currentSearchContext)
+                    .environment(\.searchContext, searchPresenter.localFindContext)
                 }
             }
             .overlay {
@@ -274,19 +300,19 @@ struct ContentView: View {
                 }
             }
             .overlay {
-                if showNLSearch {
-                    SmartSearchOverlayView(isPresented: $showNLSearch)
+                if searchPresenter.isOnlineSourceSearchPresented {
+                    SmartSearchOverlayView(isPresented: onlineSourceSearchPresented)
                 }
             }
             .background {
-                Button("Global Search") {
-                    showGlobalSearch = true
+                Button("Find in Library") {
+                    presentSearch(.localFind(context: currentSearchContext, source: .keyboardShortcut))
                 }
                 .keyboardShortcut("f", modifiers: .command)
                 .opacity(0)
 
-                Button("Smart Search") {
-                    showNLSearch = true
+                Button("Search Online Sources") {
+                    presentSearch(.onlineSourceSearch(source: .keyboardShortcut))
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 .opacity(0)
@@ -308,6 +334,11 @@ struct ContentView: View {
     }
 
     // MARK: - Batch Download Handling
+
+    private func presentSearch(_ action: ImbibSearchAction) {
+        showCommandPalette = false
+        searchPresenter.perform(action)
+    }
 
     private func handleBatchDownloadNotification(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
@@ -361,7 +392,7 @@ struct ContentView: View {
     /// Handle PDF search - triggers in-PDF search with highlighting.
     /// Called when user submits search while in PDF context.
     private func handlePDFSearch(_ query: String) {
-        showGlobalSearch = false
+        searchPresenter.dismiss(.localFind)
         NotificationCenter.default.post(
             name: .pdfSearchRequested,
             object: nil,

@@ -263,12 +263,24 @@ final class VeuszPlotStore {
     /// Minimal valid Veusz document for new plots — one page, one graph, no data.
     /// Edited from the GUI immediately on creation.
     ///
-    /// Page is set to 10×7 cm so the rendered PDF/SVG has manuscript-friendly
-    /// dimensions (Veusz's 15×15 cm default leaves so much whitespace around
-    /// the graph that `\includegraphics[width=0.8\textwidth]` floats the
-    /// figure onto its own page in LaTeX, or eats half of a Typst page).
-    /// Users can override Page → Width/Height in the Veusz GUI if they
-    /// need a different aspect for a specific plot.
+    /// Page is 10×7 cm with explicit graph margins (1.0 cm left + 0.8 cm
+    /// bottom for axis labels, 0.2 cm right + 0.3 cm top to keep the
+    /// figure tight). The page Background is hidden so Veusz doesn't
+    /// emit a white fill rectangle into the PDF — without that,
+    /// Ghostscript's bbox detector (used by `pdfcrop`) sees the white
+    /// fill as ink spanning the full page and the post-export crop
+    /// becomes a no-op.
+    ///
+    /// Combined with the `pdfcrop` post-step in `VeuszService`, rendered
+    /// PDFs land with no whitespace around the figure so
+    /// `\includegraphics[width=0.8\textwidth]{plot.pdf}` sits naturally
+    /// in a manuscript without floating to its own page.
+    ///
+    /// Users can override Page → Width/Height or any of the graph
+    /// margins in the Veusz GUI if they need a different aspect for a
+    /// specific plot. `pdfcrop` trims to ink-bounding-box on export
+    /// regardless of the margin settings, so tweaks in the GUI work
+    /// without needing to re-tune cropping.
     static func minimalVszTemplate(title: String) -> String {
         """
         # Veusz saved document (version 0.9)
@@ -277,8 +289,13 @@ final class VeuszPlotStore {
         To('page1')
         Set('width', '10cm')
         Set('height', '7cm')
+        Set('Background/hide', True)
         Add('graph', name='graph1', autoadd=False)
         To('graph1')
+        Set('leftMargin', '1.0cm')
+        Set('rightMargin', '0.2cm')
+        Set('topMargin', '0.3cm')
+        Set('bottomMargin', '0.8cm')
         Add('axis', name='x', autoadd=False)
         Add('axis', name='y', autoadd=False, direction='vertical')
         To('..')

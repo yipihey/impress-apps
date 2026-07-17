@@ -10,8 +10,11 @@
 //! Query building/parsing works on all platforms including WASM.
 //! Full-text search requires native platforms (uses Tantivy).
 
+pub mod ads_normalizer;
+pub mod local_filter;
 mod query_builder;
 mod query_parser;
+pub mod smart_query;
 pub mod snippets;
 
 // Tantivy-based full-text search (native only - requires filesystem)

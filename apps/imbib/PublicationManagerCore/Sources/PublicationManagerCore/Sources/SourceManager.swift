@@ -63,8 +63,22 @@ public actor SourceManager {
         let availableSourceIDs = await filterAvailableSources(sourceIDs)
 
         guard !availableSourceIDs.isEmpty else {
-            Logger.sources.warning("No available sources for search")
-            return []
+            // Surface a clear, user-visible error instead of silently returning
+            // 0 results. Without this, the search UI just shows "0 results"
+            // and the user can't tell that the real cause is a missing API key
+            // (e.g., ADS requires a token from
+            // https://ui.adsabs.harvard.edu/user/settings/token).
+            let requested = sourceIDs.sorted().joined(separator: ", ")
+            Logger.sources.errorCapture(
+                "No available sources for search — requested [\(requested)] but none have valid credentials. " +
+                "Set API keys in Settings > Sources.",
+                category: "sources"
+            )
+            // Pick the first requested source that's a known plugin for the
+            // error message, so the UI can prompt the user toward Settings
+            // for that specific source.
+            let target = sourceIDs.first(where: { plugins[$0] != nil }) ?? sourceIDs.first ?? "any source"
+            throw SourceError.authenticationRequired(target)
         }
 
         Logger.sources.info("Searching \(availableSourceIDs.count) sources for: \(query)")

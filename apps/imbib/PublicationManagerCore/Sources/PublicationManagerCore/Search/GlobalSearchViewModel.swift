@@ -14,7 +14,7 @@ private let logger = Logger(subsystem: "com.imbib", category: "GlobalSearch")
 
 /// ViewModel that orchestrates combined fulltext and semantic search.
 ///
-/// This powers the command palette (Cmd+K) feature, providing:
+/// This powers the local find palette (Cmd+F) feature, providing:
 /// - Parallel fulltext (Tantivy) and semantic (embedding) search
 /// - Result merging with deduplication
 /// - Match type detection (text, semantic, or both)
@@ -158,12 +158,10 @@ public final class GlobalSearchViewModel {
 
     /// Set up the view model for a new search session.
     ///
-    /// Always defaults to global scope. The environment context is ignored - users
-    /// explicitly choose their scope via the scope picker.
+    /// The caller chooses the initial scope. Users can still broaden or narrow
+    /// the scope explicitly from the picker after the palette opens.
     public func setContext(_ context: SearchContext) {
-        // Always default to global - the scope picker lets users narrow if desired
-        // We keep this method for compatibility but ignore the context parameter
-        selectedScope = .global
+        selectedScope = context
     }
 
     /// Move selection up in the results list.
@@ -200,11 +198,16 @@ public final class GlobalSearchViewModel {
 
     /// Perform semantic search using embeddings.
     private func performSemanticSearch() async -> [SimilarityResult] {
-        // Lazy-build the embedding index on first Cmd+K use (deferred from startup)
-        await EmbeddingService.shared.ensureIndexReady()
+        // Never block interactive search on the first-use index build. If the
+        // index isn't ready, trigger a background build and skip semantic
+        // results for THIS query — FTS hits are shown instantly and semantic
+        // results join automatically on the next search once the index is
+        // built. (Awaiting ensureIndexReady() here was the spinning-ball
+        // regression: the 5–25s build froze the UI even though FTS had hits.)
         let hasIndex = await EmbeddingService.shared.hasIndex
         guard hasIndex else {
-            logger.debug("Semantic search unavailable (embedding index not built)")
+            await EmbeddingService.shared.startBackgroundIndexBuildIfNeeded()
+            logger.debug("Semantic search skipped — embedding index building in background")
             return []
         }
         let results = await EmbeddingService.shared.searchByText(query, topK: 100)
@@ -669,4 +672,3 @@ public final class GlobalSearchViewModel {
         )
     }
 }
-

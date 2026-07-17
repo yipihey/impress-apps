@@ -1,0 +1,45 @@
+[package]
+name = "imprint-service"
+description = "Stateless imprint service layer: manuscript persistence (content-addressed), tantivy-backed cross-document search, and stateless HTTP handler implementations. Phase 2D/2E of the impress Rust-core consolidation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+# Shared impress workspace crates
+impress-store-ffi = { workspace = true }
+imprint-core = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite"] }
+
+# Phase 3A — codegen pipeline (ImprintTextService).
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+# Async + concurrency
+tokio = { workspace = true }
+
+# Hashing for content-addressed storage
+sha2 = "0.10"
+hex = "0.4"
+
+# Full-text search
+tantivy = "0.22"
+
+# Serialization / domain types
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5"] }
+chrono = { workspace = true }
+
+# Errors
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

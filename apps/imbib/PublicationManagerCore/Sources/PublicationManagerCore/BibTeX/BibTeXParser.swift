@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImbibRustCore
 import OSLog
 
 // MARK: - BibTeX Parser
@@ -280,7 +281,7 @@ public struct BibTeXParser: Sendable {
             }
 
             if decodeLaTeX {
-                part = LaTeXDecoder.decode(part)
+                part = ImbibRustCore.decodeLatex(input: part)
             }
             parts.append(part)
 

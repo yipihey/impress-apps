@@ -16,3 +16,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rusqlite = { workspace = true }
 dirs = { workspace = true }
+# Phase 3B: pull in the service crates so their inventory-registered
+# McpToolDescriptor entries link into this binary at compile time, plus
+# the core runtime helpers for descriptor iteration and `block_on`.
+impress-service-core = { workspace = true }
+imbib-service = { workspace = true }
+imbib-service-http = { workspace = true }
+imprint-service = { workspace = true }
+imprint-service-http = { workspace = true }
+# Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
+imprint-selftest = { workspace = true }

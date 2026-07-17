@@ -279,6 +279,13 @@ public struct ADSModernSearchFormView: View {
         guard !isFormEmpty else { return }
 
         searchViewModel.query = searchViewModel.modernFormState.searchText
+        // SciX form must search ADS only — otherwise the multi-source fan-out
+        // returns Crossref/OpenAlex matches for query fragments like "Volker"
+        // (German medical books, unrelated people), polluting the result set
+        // with "Unknown author" rows.
+        if searchViewModel.selectedSourceIDs.isEmpty {
+            searchViewModel.selectedSourceIDs = ["ads"]
+        }
 
         Task {
             await searchViewModel.search()
@@ -625,6 +632,10 @@ public struct ADSModernSearchFormView: View {
     private func performSearch() {
         guard !isFormEmpty else { return }
         searchViewModel.query = searchViewModel.modernFormState.searchText
+        // SciX form: ADS only (see macOS performSearch above for rationale)
+        if searchViewModel.selectedSourceIDs.isEmpty {
+            searchViewModel.selectedSourceIDs = ["ads"]
+        }
         Task {
             await searchViewModel.search()
         }

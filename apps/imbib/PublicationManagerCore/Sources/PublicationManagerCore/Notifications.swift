@@ -54,8 +54,8 @@ import Foundation
 // ## userInfo Conventions
 //
 // Some notifications pass data via userInfo dictionary:
-// - `["collection": CDCollection]` - Target collection for move/add
-// - `["library": CDLibrary]` - Target library for import
+// - `["collection": UUID]` - Target collection ID for move/add
+// - `["library": UUID]` - Target library ID for import
 // - `["fileURL": URL]` - File to import
 // - `["category": String]` - arXiv category to search
 // - `["documentID": String]` - Help document to show
@@ -84,7 +84,7 @@ public extension Notification.Name {
     static let importBibTeX = Notification.Name("importBibTeX")
 
     /// Import BibTeX file to specific library (from drag-and-drop)
-    /// userInfo: ["fileURL": URL, "library": CDLibrary]
+    /// userInfo: ["fileURL": URL, "libraryID": UUID]
     static let importBibTeXToLibrary = Notification.Name("importBibTeXToLibrary")
 
     /// Export library to BibTeX
@@ -98,7 +98,22 @@ public extension Notification.Name {
     /// Show search view
     static let showSearch = Notification.Name("showSearch")
 
-    /// Show the NL Smart Search overlay (⌘S)
+    /// Typed search action dispatcher.
+    ///
+    /// object: `ImbibSearchAction`
+    /// userInfo:
+    ///   - "workflow": String (`ImbibSearchWorkflow.rawValue`)
+    ///   - "source": String (`ImbibSearchActionSource.rawValue`)
+    ///   - "context": String stable context identifier
+    ///
+    /// New search entry points should post this action. The legacy
+    /// `.showGlobalSearch`, `.focusSearch`, and `.showNLSearch` notifications
+    /// remain as compatibility bridges for URL schemes, user-customized
+    /// shortcuts, and older UI surfaces.
+    static let performSearchAction = Notification.Name("performSearchAction")
+
+    /// Show the NL Smart Search overlay (⌘S).
+    /// Compatibility bridge for `ImbibSearchAction.onlineSourceSearch`.
     static let showNLSearch = Notification.Name("showNLSearch")
 
     /// Posted after a Cmd+S "Add Selected" completes successfully so the
@@ -263,7 +278,8 @@ public extension Notification.Name {
 
     // MARK: - Search Actions
 
-    /// Focus search field (⌘F)
+    /// Focus search field (⌘F).
+    /// Compatibility bridge for `ImbibSearchAction.localFind`.
     static let focusSearch = Notification.Name("focusSearch")
 
     /// Toggle unread filter (⌘\\)
@@ -319,7 +335,7 @@ public extension Notification.Name {
 
     // MARK: - Exploration Navigation
 
-    /// Navigate to a collection in the sidebar (userInfo["collection"] = CDCollection)
+    /// Navigate to a collection in the sidebar (userInfo["collectionID"] = UUID)
     static let navigateToCollection = Notification.Name("navigateToCollection")
 
     /// Exploration library changed (collection added/removed)
@@ -378,13 +394,13 @@ public extension Notification.Name {
 
     // MARK: - Explore Actions (Context Menu)
 
-    /// Explore references for a publication (object = CDPublication)
+    /// Explore references for a publication (object = UUID publication ID)
     static let exploreReferences = Notification.Name("exploreReferences")
 
-    /// Explore citations for a publication (object = CDPublication)
+    /// Explore citations for a publication (object = UUID publication ID)
     static let exploreCitations = Notification.Name("exploreCitations")
 
-    /// Explore similar papers for a publication (object = CDPublication)
+    /// Explore similar papers for a publication (object = UUID publication ID)
     static let exploreSimilar = Notification.Name("exploreSimilar")
 
     // MARK: - Window Management (Dual Monitor Support)
@@ -423,7 +439,8 @@ public extension Notification.Name {
     /// Show the command palette (⇧⌘P)
     static let showCommandPalette = Notification.Name("showCommandPalette")
 
-    /// Show the global search palette (⌘F)
+    /// Show the global search palette (⌘F).
+    /// Compatibility bridge for `ImbibSearchAction.localFind`.
     static let showGlobalSearch = Notification.Name("showGlobalSearch")
 
     /// Activate the filter input (⇧⌘F or /)
@@ -557,8 +574,8 @@ public extension Notification.Name {
     /// Show the unified export dialog
     ///
     /// userInfo (optional):
-    /// - `library`: CDLibrary to export (if from context menu)
-    /// - `publications`: [CDPublication] to export (if selection export)
+    /// - `libraryID`: UUID of library to export (if from context menu)
+    /// - `publicationIDs`: [UUID] to export (if selection export)
     ///
     /// This notification triggers the UnifiedExportView sheet.
     static let showUnifiedExport = Notification.Name("showUnifiedExport")
@@ -566,7 +583,7 @@ public extension Notification.Name {
     /// Show the unified import dialog
     ///
     /// userInfo (optional):
-    /// - `library`: CDLibrary to import into (if from context menu)
+    /// - `libraryID`: UUID of library to import into (if from context menu)
     ///
     /// This notification triggers the UnifiedImportView file picker and preview.
     static let showUnifiedImport = Notification.Name("showUnifiedImport")
@@ -576,7 +593,7 @@ public extension Notification.Name {
     /// Send selected papers to E-Ink device (reMarkable, Supernote, Kindle Scribe)
     ///
     /// userInfo (optional):
-    /// - `publications`: [CDPublication] to send (if not provided, uses current selection)
+    /// - `publicationIDs`: [UUID] to send (if not provided, uses current selection)
     ///
     /// This notification triggers the E-Ink sync process for the specified papers.
     static let sendToEInkDevice = Notification.Name("sendToEInkDevice")
@@ -640,7 +657,7 @@ public extension Notification.Name {
 
     /// Posted when an attachment (linked file) is added to or removed from a publication.
     ///
-    /// object: NSManagedObjectID of the affected CDPublication
+    /// object: UUID of the affected publication (may be nil for global refresh)
     ///
     /// Both PDFTab and NotesTab observe this to refresh their PDF viewer state.
     static let attachmentDidChange = Notification.Name("attachmentDidChange")
@@ -657,7 +674,7 @@ public extension Notification.Name {
     // MARK: - Comments & Activity
 
     /// Posted when a comment is added to a shared library publication.
-    /// object: CDComment
+    /// object: `Comment` value-type (see `Domain/Comment.swift`)
     static let commentAdded = Notification.Name("commentAdded")
 
     /// Posted when a comment is deleted.
@@ -665,7 +682,7 @@ public extension Notification.Name {
     static let commentDeleted = Notification.Name("commentDeleted")
 
     /// Posted when the activity feed has new entries.
-    /// object: CDLibrary
+    /// object: UUID library ID
     static let activityFeedUpdated = Notification.Name("activityFeedUpdated")
 
     // MARK: - Shared Feeds

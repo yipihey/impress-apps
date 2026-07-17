@@ -149,6 +149,16 @@ final class VeuszService {
             throw ExportError.outputNotProduced(normalizedDestination)
         }
 
+        // Veusz's PDF output has the .vsz page as its MediaBox — even
+        // with tight graph margins there's residual whitespace. Trim
+        // the PDF to its content bounding box via the pdfcrop helper
+        // so `\includegraphics{plot.pdf}` lands without padding around
+        // the figure. Best-effort: when pdfcrop isn't installed the
+        // helper exits 0 and the untrimmed PDF stays in place.
+        if format == .pdf {
+            await cropPdfIfPossible(at: normalizedDestination)
+        }
+
         // ADR-0014 D57: emit a JSON-LD provenance sidecar next to the
         // rendered file. Best-effort — if this fails, the figure render
         // already succeeded so don't surface the error to the caller.
@@ -230,13 +240,21 @@ final class VeuszService {
 
     // MARK: - NSUserUnixTask invocation
 
-    /// File name of the wrapper script we install at
+    /// File name of the Veusz wrapper script we install at
     /// `~/Library/Application Scripts/com.imbib.imprint/`.
     static let unixTaskScriptName = "run-veusz.sh"
 
+    /// File name of the pdfcrop wrapper script installed alongside
+    /// `run-veusz.sh`. Runs `pdfcrop` (TeXLive) on a PDF in-place to
+    /// trim it to the content bounding box so figures land in LaTeX
+    /// `\includegraphics` without surrounding whitespace.
+    static let pdfcropScriptName = "run-pdfcrop.sh"
+
     /// True when the user has granted write access (via `installHelperScript`)
-    /// and the wrapper script is present + executable at the expected path.
-    /// The Plots inspector reads this to show the install banner.
+    /// and BOTH wrapper scripts (`run-veusz.sh` and `run-pdfcrop.sh`) are
+    /// present + executable at the expected path. The Plots inspector
+    /// reads this to show the install banner — if either is missing,
+    /// the banner re-prompts for a fresh install.
     static var isHelperScriptInstalled: Bool {
         guard let dir = try? FileManager.default.url(
             for: .applicationScriptsDirectory,
@@ -244,17 +262,31 @@ final class VeuszService {
             appropriateFor: nil,
             create: false
         ) else { return false }
-        let scriptURL = dir.appendingPathComponent(unixTaskScriptName)
-        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else { return false }
-        // Treat presence-with-correct-prefix as installed. We don't require
-        // byte-exact match against the template so a user-customised wrapper
-        // continues to satisfy the check.
-        if let existing = try? String(contentsOf: scriptURL, encoding: .utf8),
-           existing.hasPrefix("#!/usr/bin/env bash") || existing.hasPrefix("#!/bin/bash") {
-            return true
+        for name in [unixTaskScriptName, pdfcropScriptName] {
+            let scriptURL = dir.appendingPathComponent(name)
+            guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+                return false
+            }
+            guard let existing = try? String(contentsOf: scriptURL, encoding: .utf8),
+                  existing.hasPrefix("#!/usr/bin/env bash") || existing.hasPrefix("#!/bin/bash")
+            else { return false }
+            // Version marker — bump `imprint-helper-version` in both
+            // embedded templates whenever the script logic changes in a
+            // way that needs the user to re-install. Older versions
+            // miss the marker and trigger a re-install prompt.
+            if !existing.contains("imprint-helper-version: \(currentHelperVersion)") {
+                return false
+            }
         }
-        return false
+        return true
     }
+
+    /// Bump this whenever either embedded helper-script template
+    /// changes in a way that requires a re-install (PATH fixes,
+    /// stderr-surfacing tweaks, new flags, etc.). The version marker
+    /// in both `unixTaskScriptTemplate` and `pdfcropScriptTemplate`
+    /// must match this number.
+    static let currentHelperVersion: Int = 3
 
     /// Resolve the URL of the user-unix-task wrapper script. The script
     /// lives in the App-Scripts container, which is sandbox-exempt for
@@ -334,25 +366,151 @@ final class VeuszService {
             )
         }
 
-        // Granted scope covers everything inside the folder. Write the
-        // script + chmod it.
-        let scriptURL = granted.appendingPathComponent(unixTaskScriptName)
+        // Granted scope covers everything inside the folder. Write both
+        // wrapper scripts + chmod them.
+        let veuszScriptURL = granted.appendingPathComponent(unixTaskScriptName)
+        let pdfcropScriptURL = granted.appendingPathComponent(pdfcropScriptName)
         let started = granted.startAccessingSecurityScopedResource()
         defer { if started { granted.stopAccessingSecurityScopedResource() } }
 
-        try unixTaskScriptTemplate.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try unixTaskScriptTemplate.write(to: veuszScriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
-            ofItemAtPath: scriptURL.path
+            ofItemAtPath: veuszScriptURL.path
         )
-        Logger.veusz.infoCapture("Installed Veusz helper at \(scriptURL.path)", category: "veusz")
+        try pdfcropScriptTemplate.write(to: pdfcropScriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: pdfcropScriptURL.path
+        )
+        Logger.veusz.infoCapture(
+            "Installed Veusz helpers at \(veuszScriptURL.path) + \(pdfcropScriptURL.path)",
+            category: "veusz"
+        )
+        return veuszScriptURL
+    }
+
+    /// Run the Veusz wrapper script via NSUserUnixTask. Convenience
+    /// over the script-agnostic `runScriptViaUserUnixTask`.
+    private nonisolated func runViaUserUnixTask(arguments: [String]) async throws {
+        try await runScriptViaUserUnixTask(
+            scriptURL: try resolveUnixTaskScript(),
+            arguments: arguments
+        )
+    }
+
+    /// Resolve the pdfcrop wrapper script. Throws
+    /// `helperScriptNotInstalled` when missing (caller treats that as a
+    /// no-op skip — pdfcrop is a quality-of-life step, never required).
+    private nonisolated func resolvePdfcropScript() throws -> URL {
+        guard let dir = try? FileManager.default.url(
+            for: .applicationScriptsDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else {
+            throw ExportError.helperScriptNotInstalled
+        }
+        let scriptURL = dir.appendingPathComponent(Self.pdfcropScriptName)
+        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+            throw ExportError.helperScriptNotInstalled
+        }
         return scriptURL
     }
 
-    /// Run the Veusz wrapper script via NSUserUnixTask. Captures stderr so
-    /// failures surface a useful message instead of the raw NSError.
-    private nonisolated func runViaUserUnixTask(arguments: [String]) async throws {
-        let scriptURL = try resolveUnixTaskScript()
+    /// Crop the given PDF to its content bounding box in-place via the
+    /// pdfcrop wrapper. Best-effort — failures (pdfcrop not installed,
+    /// TeXLive missing, file unreadable) log a warning and return; the
+    /// uncropped PDF stays in place so the figure still appears in
+    /// downstream `\includegraphics`, just with margins.
+    ///
+    /// The wrapper script ALWAYS exits 0 (it can't tell its caller
+    /// what to do on failure without disrupting the render pipeline)
+    /// and reports actual status via stderr. We capture that and log
+    /// it so we can see whether cropping really happened.
+    nonisolated func cropPdfIfPossible(at pdfURL: URL) async {
+        do {
+            let scriptURL = try resolvePdfcropScript()
+            let stderr = try await runScriptViaUserUnixTaskCapturingStderr(
+                scriptURL: scriptURL,
+                arguments: [pdfURL.path]
+            )
+            let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                Logger.veusz.infoCapture(
+                    "pdfcrop completed for \(pdfURL.lastPathComponent) (no stderr)",
+                    category: "veusz"
+                )
+            } else if trimmed.contains("cropped ") {
+                Logger.veusz.infoCapture(
+                    "pdfcrop: \(trimmed)",
+                    category: "veusz"
+                )
+            } else {
+                // Any non-success stderr (pdfcrop not found, gs missing,
+                // pdfcrop internal error) surfaces here so it's visible
+                // in the in-app console + HTTP /api/logs.
+                Logger.veusz.warningCapture(
+                    "pdfcrop did not trim \(pdfURL.lastPathComponent): \(trimmed)",
+                    category: "veusz"
+                )
+            }
+        } catch {
+            Logger.veusz.warningCapture(
+                "pdfcrop skipped for \(pdfURL.lastPathComponent): \(error.localizedDescription)",
+                category: "veusz"
+            )
+        }
+    }
+
+    /// Variant of `runScriptViaUserUnixTask` that returns captured
+    /// stderr instead of discarding it. Used by `cropPdfIfPossible`
+    /// so the diagnostic line from the wrapper script reaches our
+    /// log capture.
+    private nonisolated func runScriptViaUserUnixTaskCapturingStderr(
+        scriptURL: URL,
+        arguments: [String]
+    ) async throws -> String {
+        let task = try NSUserUnixTask(url: scriptURL)
+        let stderrPipe = Pipe()
+        task.standardError = stderrPipe.fileHandleForWriting
+        task.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                task.execute(withArguments: arguments) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
+        } catch {
+            try? stderrPipe.fileHandleForWriting.close()
+            let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let nsErr = error as NSError
+            let exitCode: Int32 = (nsErr.userInfo["NSTaskTerminationReason"] as? Int32) ?? Int32(nsErr.code)
+            throw ExportError.processFailed(
+                exitCode: exitCode,
+                stderr: stderrText.isEmpty ? nsErr.localizedDescription : stderrText
+            )
+        }
+
+        try? stderrPipe.fileHandleForWriting.close()
+        let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+        return String(data: stderrData, encoding: .utf8) ?? ""
+    }
+
+    /// Run an arbitrary user-unix-task script with the given args.
+    /// Captures stderr so failures surface a useful message instead of
+    /// the raw NSError. Shared by the Veusz + pdfcrop callers.
+    private nonisolated func runScriptViaUserUnixTask(
+        scriptURL: URL,
+        arguments: [String]
+    ) async throws {
         let task = try NSUserUnixTask(url: scriptURL)
 
         let stderrPipe = Pipe()
@@ -404,6 +562,7 @@ final class VeuszService {
     /// message + exit 127 when Veusz is genuinely missing.
     static let unixTaskScriptTemplate: String = #"""
         #!/usr/bin/env bash
+        # imprint-helper-version: 3
         # imprint -> Veusz wrapper, invoked via NSUserUnixTask from
         # apps/imprint/macOS/Services/VeuszService.swift. Sandboxed imprint
         # can't spawn arbitrary user-installed binaries directly; it relies
@@ -430,6 +589,98 @@ final class VeuszService {
 
         echo "run-veusz.sh: Veusz.app not found at /Applications, ~/Applications, or ~/MyApplications" >&2
         exit 127
+        """#
+
+    /// Embedded template for the pdfcrop wrapper. Trims a PDF to its
+    /// content bounding box in-place. Best-effort — exits 0 even on
+    /// failure (caller treats absence as a no-op fallback). On
+    /// success/failure, writes a diagnostic line to stderr so the
+    /// app's log capture can surface what actually happened.
+    ///
+    /// Why a separate script: pdfcrop needs a different binary than
+    /// Veusz (`/Library/TeX/texbin/pdfcrop` vs. Veusz.app) and the
+    /// sandbox requires each invocation to go through its own
+    /// NSUserUnixTask script for the system to arbitrate exec.
+    static let pdfcropScriptTemplate: String = #"""
+        #!/usr/bin/env bash
+        # imprint-helper-version: 3
+        # imprint -> pdfcrop wrapper, invoked via NSUserUnixTask from
+        # apps/imprint/macOS/Services/VeuszService.swift after a PDF
+        # render to trim the bounding box for clean LaTeX inclusion.
+        #
+        # Usage: run-pdfcrop.sh <path-to-pdf>
+        # Trims the PDF in-place. Exits 0 unconditionally; diagnostic
+        # output on stderr.
+
+        set -u
+
+        if [ -z "${1:-}" ]; then
+            echo "run-pdfcrop.sh: missing PDF path argument" >&2
+            exit 64
+        fi
+        target="$1"
+
+        # NSUserUnixTask environments don't inherit /usr/local/bin etc., so
+        # pdfcrop's internal `gs` lookup fails by default on macOS unless we
+        # extend PATH ourselves to the standard install locations.
+        export PATH="/Library/TeX/texbin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+
+        pdfcrop_bin=""
+        for bin in \
+            "/Library/TeX/texbin/pdfcrop" \
+            "/usr/local/texlive/2025/bin/universal-darwin/pdfcrop" \
+            "/usr/local/texlive/2024/bin/universal-darwin/pdfcrop" \
+            "/opt/homebrew/bin/pdfcrop"; do
+            if [ -x "$bin" ]; then
+                pdfcrop_bin="$bin"
+                break
+            fi
+        done
+
+        if [ -z "$pdfcrop_bin" ]; then
+            echo "run-pdfcrop.sh: pdfcrop not found on system; leaving PDF untrimmed" >&2
+            exit 0
+        fi
+
+        # pdfcrop calls Ghostscript internally; verify it's reachable so
+        # we report a clear "gs missing" diagnostic instead of letting
+        # pdfcrop fail with a cryptic error.
+        if ! command -v gs >/dev/null 2>&1; then
+            echo "run-pdfcrop.sh: ghostscript (gs) not on PATH (=$PATH); install gs or pdfcrop will fail" >&2
+            exit 0
+        fi
+
+        # pdfcrop refuses to write input==output. Use a temp file then mv.
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+        cropped="$tmpdir/cropped.pdf"
+
+        orig_size=$(stat -f%z "$target" 2>/dev/null || echo 0)
+
+        # pdfcrop creates a hardlink in its CWD to the input PDF (so
+        # ghostscript can process it). NSUserUnixTask launches us with
+        # a CWD that's read-only inside the sandbox — see the previous
+        # error "tmp-pdfcrop-NNNN-img.pdf failed (Read-only file system)".
+        # cd into the writable tmpdir so the hardlink lands there.
+        cd "$tmpdir"
+
+        # `--margins 2` adds 2bp (≈0.7mm) padding so labels at the edge
+        # don't kiss the crop boundary in print. `--hires` computes the
+        # bounding box at higher precision (matters for tight crops
+        # around small text labels). Capture stderr so failures surface
+        # in app logs instead of being swallowed.
+        pdfcrop_stderr=$("$pdfcrop_bin" --hires --margins 2 "$target" "$cropped" 2>&1 >/dev/null) || pdfcrop_status=$?
+        : "${pdfcrop_status:=0}"
+
+        if [ "$pdfcrop_status" -ne 0 ] || [ ! -s "$cropped" ]; then
+            echo "run-pdfcrop.sh: pdfcrop failed (exit $pdfcrop_status). stderr: $pdfcrop_stderr" >&2
+            exit 0
+        fi
+
+        new_size=$(stat -f%z "$cropped" 2>/dev/null || echo 0)
+        mv "$cropped" "$target"
+        echo "run-pdfcrop.sh: cropped $target ($orig_size B → $new_size B)" >&2
+        exit 0
         """#
 }
 

@@ -106,6 +106,23 @@ public actor EmbeddingService {
         }
     }
 
+    /// Kick off the lazy index build in the background without blocking the
+    /// caller. Safe to call repeatedly — the build is guarded by
+    /// `needsLazyBuild`/`isBuilding`/`isIndexBuilt`.
+    ///
+    /// Interactive search (Cmd+F) MUST use this rather than awaiting
+    /// `ensureIndexReady()`: the first-use build scans every library (thousands
+    /// of papers, with per-library main-thread loads) and takes 5–25s. Awaiting
+    /// it inline keeps the search Task alive and the build's repeated
+    /// `MainActor.run` hops starve SwiftUI from painting the FTS hits that are
+    /// already available — producing a spinning ball even though results exist.
+    public func startBackgroundIndexBuildIfNeeded() {
+        guard needsLazyBuild, isAvailable, !isBuilding, !isIndexBuilt else { return }
+        Task.detached(priority: .utility) {
+            await EmbeddingService.shared.ensureIndexReady()
+        }
+    }
+
     /// Ensure the index is ready, building it if needed (lazy build on first use).
     /// Returns true if the index is available.
     @discardableResult

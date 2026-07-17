@@ -116,8 +116,8 @@ public struct GlobalSearchPaletteView: View {
             }
         }
         .onAppear {
-            // Initialize with global scope (user can narrow via scope picker)
-            viewModel.setContext(.global)
+            // Initialize with the action/context selected by the host.
+            viewModel.setContext(searchContext)
 
             // Delay focus slightly to ensure the view is fully rendered
             // Only focus if the view is actually being presented
@@ -126,6 +126,9 @@ public struct GlobalSearchPaletteView: View {
                     isSearchFieldFocused = true
                 }
             }
+        }
+        .onChange(of: searchContext) { _, newContext in
+            viewModel.setContext(newContext)
         }
     }
 

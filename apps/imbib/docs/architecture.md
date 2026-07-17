@@ -299,6 +299,9 @@ For detailed rationale, see the Architecture Decision Records in `docs/adr/`:
 
 ## Testing
 
+For the current no-human regression gate and testing pyramid, see
+[`../TESTING.md`](../TESTING.md).
+
 ### Unit Tests
 
 ```bash

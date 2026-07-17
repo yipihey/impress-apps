@@ -55,6 +55,15 @@ public enum SectionFormat: Sendable {
     case typst
     case latex
 
+    /// The lowercase name the Rust `imprint-core` composition/extraction
+    /// functions expect for their `format`/`syntax` string parameter.
+    public var rustName: String {
+        switch self {
+        case .typst: return "typst"
+        case .latex: return "latex"
+        }
+    }
+
     /// Auto-detect from source content. Defaults to `.typst` when ambiguous.
     public static func autoDetect(_ source: String) -> SectionFormat {
         // LaTeX documents almost always start with \documentclass or have

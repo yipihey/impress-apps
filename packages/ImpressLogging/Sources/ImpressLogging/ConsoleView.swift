@@ -15,6 +15,16 @@ private let consoleTimeFormatter: DateFormatter = {
     return f
 }()
 
+// MARK: - Console Mode
+
+/// The Console window can display either the live log stream or a live
+/// performance-metrics table. Both are read-only observations.
+private enum ConsoleMode: String, CaseIterable, Identifiable {
+    case logs = "Logs"
+    case performance = "Performance"
+    var id: String { rawValue }
+}
+
 // MARK: - Console View
 
 public struct ConsoleView: View {
@@ -33,6 +43,7 @@ public struct ConsoleView: View {
     @State private var showError = true
     @State private var autoScroll = true
     @State private var selection: Set<LogEntry.ID> = []
+    @State private var mode: ConsoleMode = .logs
 
     // MARK: - Init
 
@@ -59,6 +70,40 @@ public struct ConsoleView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            modeBar
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                #if os(macOS)
+                .background(Color(nsColor: .windowBackgroundColor))
+                #endif
+
+            switch mode {
+            case .logs:
+                logsContent
+            case .performance:
+                PerformanceTabView()
+            }
+        }
+        .frame(minWidth: 600, minHeight: 300)
+    }
+
+    // MARK: - Mode Bar
+
+    private var modeBar: some View {
+        Picker("", selection: $mode) {
+            ForEach(ConsoleMode.allCases) { m in
+                Text(m.rawValue).tag(m)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 260)
+    }
+
+    // MARK: - Logs Content
+
+    private var logsContent: some View {
+        VStack(spacing: 0) {
             toolbar
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -74,7 +119,6 @@ public struct ConsoleView: View {
                 logList
             }
         }
-        .frame(minWidth: 600, minHeight: 300)
     }
 
     // MARK: - Toolbar
@@ -295,4 +339,154 @@ public struct ConsoleRowView: View {
         }
         .padding(.vertical, 2)
     }
+}
+
+// MARK: - Performance Tab
+
+/// Live view of `PerfMetrics.shared` — one row per operation bucket showing
+/// call count, latency percentiles, main-thread share, and budget breaches.
+/// Bottlenecks (budget breaches, high main-thread share) are highlighted so
+/// the user watching the Console can see them without leaving the app.
+public struct PerformanceTabView: View {
+
+    @State private var snapshot: PerfSnapshot = PerfMetrics.shared.snapshot()
+    @State private var autoRefresh = true
+
+    public init() {}
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            toolbar
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                #if os(macOS)
+                .background(Color(nsColor: .windowBackgroundColor))
+                #endif
+
+            Divider()
+
+            if snapshot.buckets.isEmpty {
+                emptyState
+            } else {
+                table
+            }
+        }
+        // Refresh while visible; the loop ends when the view disappears (the
+        // `.task` is cancelled), so it never runs in the background.
+        .task(id: autoRefresh) {
+            guard autoRefresh else { return }
+            while !Task.isCancelled {
+                snapshot = PerfMetrics.shared.snapshot()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 12) {
+            Text("\(snapshot.buckets.count) buckets")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let slowest = snapshot.slowestBucket, slowest.maxMillis > 0 {
+                Text("slowest: \(slowest.name) \(fmt(slowest.maxMillis))ms")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Toggle(isOn: $autoRefresh) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .toggleStyle(.button)
+            .help("Auto-refresh (1s)")
+
+            Button {
+                snapshot = PerfMetrics.shared.snapshot()
+            } label: {
+                Image(systemName: "arrow.clockwise.circle")
+            }
+            .help("Refresh now")
+
+            Button {
+                PerfMetrics.shared.reset()
+                snapshot = PerfMetrics.shared.snapshot()
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Reset counters (budgets preserved)")
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            cell("Operation", width: 120, align: .leading, bold: true)
+            cell("Count", width: 60, align: .trailing, bold: true)
+            cell("mean", width: 70, align: .trailing, bold: true)
+            cell("p50", width: 70, align: .trailing, bold: true)
+            cell("p95", width: 70, align: .trailing, bold: true)
+            cell("max", width: 70, align: .trailing, bold: true)
+            cell("main%", width: 55, align: .trailing, bold: true)
+            cell("budget", width: 70, align: .trailing, bold: true)
+            cell("breaches", width: 70, align: .trailing, bold: true)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+    }
+
+    private var table: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            List(snapshot.buckets, id: \.name) { b in
+                HStack(spacing: 8) {
+                    cell(b.name, width: 120, align: .leading)
+                    cell("\(b.count)", width: 60, align: .trailing)
+                    cell(fmt(b.meanMillis), width: 70, align: .trailing)
+                    cell(fmt(b.p50Millis), width: 70, align: .trailing)
+                    cell(fmt(b.p95Millis), width: 70, align: .trailing)
+                    cell(fmt(b.maxMillis), width: 70, align: .trailing)
+                    cell(pct(b.mainThreadShare), width: 55, align: .trailing,
+                         color: b.mainThreadShare > 0.5 ? .orange : .primary)
+                    cell(b.budgetMillis.map { fmt($0) } ?? "—", width: 70, align: .trailing)
+                    cell(b.breachCount == 0 ? "0" : "\(b.breachCount)", width: 70,
+                         align: .trailing, color: b.breachCount > 0 ? .red : .primary)
+                }
+                .padding(.vertical, 1)
+            }
+            .listStyle(.plain)
+            .font(.system(.body, design: .monospaced))
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text("No performance samples yet")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Timings appear as operations run (compile, search, store, …)")
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Cell helpers
+
+    private func cell(_ text: String, width: CGFloat, align: Alignment,
+                      bold: Bool = false, color: Color = .primary) -> some View {
+        Text(text)
+            .font(.system(.caption, design: .monospaced))
+            .fontWeight(bold ? .semibold : .regular)
+            .foregroundStyle(color)
+            .frame(width: width, alignment: align == .leading ? .leading : .trailing)
+    }
+
+    private func fmt(_ ms: Double) -> String { String(format: "%.1f", ms) }
+    private func pct(_ share: Double) -> String { String(format: "%.0f%%", share * 100) }
 }

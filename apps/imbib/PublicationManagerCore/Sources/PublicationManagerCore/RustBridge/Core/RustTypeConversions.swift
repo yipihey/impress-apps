@@ -88,7 +88,7 @@ public enum BibTeXEntryConversions {
         for field in rustEntry.fields {
             var value = field.value
             if decodeLaTeX {
-                value = LaTeXDecoder.decode(value)
+                value = ImbibRustCore.decodeLatex(input: value)
             }
             fields[field.key.lowercased()] = value
         }

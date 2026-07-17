@@ -1,0 +1,14 @@
+[package]
+name = "imprint-service-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HTTP-backed implementations of imprint-service traits (routes to running imprint macOS app)"
+
+[dependencies]
+imprint-service = { workspace = true }
+impress-app-client = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }

@@ -396,13 +396,63 @@ impl SqliteItemStore {
             let _ = conn.execute(sql, []);
         }
 
-        // FTS5 ADD COLUMN for the new `body` column on pre-existing databases.
-        // FTS5 supports ALTER TABLE ADD COLUMN since SQLite 3.27 (2019-02);
-        // macOS ships much newer. The `.ok()` makes this idempotent: on a
-        // fresh DB, init_schema already created the column; on an upgraded
-        // DB this adds it; on a doubly-upgraded DB the statement fails with
-        // "duplicate column" and we ignore it.
-        let _ = conn.execute("ALTER TABLE items_fts ADD COLUMN body", []);
+        // FTS5 migration for the `body` column.
+        //
+        // CORRECTION: SQLite's FTS5 virtual tables do NOT support
+        // `ALTER TABLE ADD COLUMN` (that's a regular-table feature). The
+        // prior `.execute("ALTER TABLE items_fts ADD COLUMN body", [])`
+        // silently failed on pre-existing databases — every subsequent
+        // `INSERT INTO items_fts (..., body) VALUES (...)` then errored with
+        //   "table items_fts has no column named body"
+        // which surfaced as "importBibTeX failed" on the Swift side.
+        //
+        // The fix: detect a missing `body` column, drop the FTS table, and
+        // rebuild it from `items`. FTS5 data is derived — no information is
+        // lost. The rebuild is single-shot and runs once per upgraded DB.
+        let has_body: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('items_fts') WHERE name = 'body'",
+                [],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("migrate_fts probe: {}", e)))?
+            .unwrap_or(false);
+
+        if !has_body {
+            // Drop the stale FTS table, recreate with the new schema, and
+            // rebuild from `items` using SQLite's JSON functions to extract
+            // the indexed payload fields. Mirrors the field set used by
+            // `update_fts` (title, author_text, abstract_text, note,
+            // body_content).
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS items_fts;
+                 CREATE VIRTUAL TABLE items_fts USING fts5(
+                     item_id UNINDEXED,
+                     title, author_text, abstract_text, note, body
+                 );",
+            )
+            .map_err(|e| StoreError::Storage(format!("migrate_fts recreate: {}", e)))?;
+
+            conn.execute(
+                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                 SELECT
+                     id,
+                     COALESCE(json_extract(payload, '$.title'), ''),
+                     COALESCE(json_extract(payload, '$.author_text'), ''),
+                     COALESCE(json_extract(payload, '$.abstract_text'), ''),
+                     COALESCE(json_extract(payload, '$.note'), ''),
+                     COALESCE(json_extract(payload, '$.body_content'), '')
+                 FROM items
+                 WHERE json_extract(payload, '$.title') IS NOT NULL
+                    OR json_extract(payload, '$.author_text') IS NOT NULL
+                    OR json_extract(payload, '$.abstract_text') IS NOT NULL
+                    OR json_extract(payload, '$.note') IS NOT NULL
+                    OR json_extract(payload, '$.body_content') IS NOT NULL",
+                [],
+            )
+            .map_err(|e| StoreError::Storage(format!("migrate_fts rebuild: {}", e)))?;
+        }
 
         Ok(())
     }

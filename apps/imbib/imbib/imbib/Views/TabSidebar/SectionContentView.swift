@@ -27,14 +27,6 @@ private let sectionLogger = Logger(subsystem: "com.imbib.app", category: "sectio
 /// of NavigationSplitView's closure lifecycle.
 struct SectionContentView: View {
 
-    /// What type of content to show in the left pane.
-    enum ContentKind: Equatable {
-        case source(PublicationSource)
-        case searchForm(SearchFormType, SearchFormMode)
-        case artifacts(ArtifactType?)   // nil = all artifacts, else filtered by type
-        case feedFormPicker              // Choose which search form to use for feed creation
-    }
-
     // MARK: - Properties
 
     let viewModel: ImbibSidebarViewModel
@@ -71,29 +63,42 @@ struct SectionContentView: View {
     private let scixRepository = SciXLibraryRepository.shared
     @State private var scixViewModel = SciXLibraryViewModel()
 
-    /// Resolves the current sidebar selection to a `ContentKind`.
+    /// Resolves the current sidebar selection to a declarative content route.
     /// Reading `viewModel.selectedTab` here establishes a direct @Observable
     /// dependency, so this view re-evaluates when the tab changes.
-    private var resolvedContent: ContentKind? {
+    private var resolvedRoute: ImbibContentRoute? {
+        if let journalRoute = viewModel.selectedTab?.journalRoute {
+            return .journal(journalRoute)
+        }
+
         switch viewModel.selectedTab {
         case .searchForm(let formType):
-            return .searchForm(formType, .explorationSearch)
+            return .searchForm(ImbibSearchFormRoute(
+                formType: formType,
+                mode: .explorationSearch
+            ))
         case .scixLibrary(let id):
             guard scixRepository.libraries.contains(where: { $0.id == id }) else { return nil }
-            return .source(.scixLibrary(id))
+            return .publicationList(.scixLibrary(id))
         case .allArtifacts:
             return .artifacts(nil)
         case .artifactType(let rawValue):
             return .artifacts(ArtifactType(rawValue: rawValue))
         case .addFeed:
             if let formType = feedCreationFormType {
-                return .searchForm(formType, .inboxFeed)
+                return .searchForm(ImbibSearchFormRoute(
+                    formType: formType,
+                    mode: .inboxFeed
+                ))
             }
             return .feedFormPicker
         case .addLibraryFeed(let libraryID):
             let libName = libraryManager.libraries.first(where: { $0.id == libraryID })?.name ?? "Library"
             if let formType = feedCreationFormType {
-                return .searchForm(formType, .libraryFeed(libraryID, libName))
+                return .searchForm(ImbibSearchFormRoute(
+                    formType: formType,
+                    mode: .libraryFeed(libraryID, libName)
+                ))
             }
             return .feedFormPicker
         case .editFeed(let feedID):
@@ -101,17 +106,29 @@ struct SectionContentView: View {
                 // Determine correct mode based on feed type
                 if let ss = RustStoreAdapter.shared.getSmartSearch(id: feedID) {
                     if ss.feedsToInbox {
-                        return .searchForm(formType, .inboxFeed)
+                        return .searchForm(ImbibSearchFormRoute(
+                            formType: formType,
+                            mode: .inboxFeed,
+                            editingFeedID: feedID
+                        ))
                     } else if let libID = ss.libraryID {
                         let libName = libraryManager.libraries.first(where: { $0.id == libID })?.name ?? "Library"
-                        return .searchForm(formType, .libraryFeed(libID, libName))
+                        return .searchForm(ImbibSearchFormRoute(
+                            formType: formType,
+                            mode: .libraryFeed(libID, libName),
+                            editingFeedID: feedID
+                        ))
                     }
                 }
-                return .searchForm(formType, .inboxFeed)
+                return .searchForm(ImbibSearchFormRoute(
+                    formType: formType,
+                    mode: .inboxFeed,
+                    editingFeedID: feedID
+                ))
             }
             return nil
         default:
-            return currentSource.map { .source($0) }
+            return currentSource.map { .publicationList($0) }
         }
     }
 
@@ -218,13 +235,7 @@ struct SectionContentView: View {
 
     /// Stable key for detecting tab changes — clears selection on change.
     private var tabKey: String {
-        guard let content = resolvedContent else { return "none" }
-        switch content {
-        case .source(let source): return "source-\(source.viewID)"
-        case .searchForm(let type, _): return "search-\(type.rawValue)"
-        case .artifacts(let type): return "artifacts-\(type?.rawValue ?? "all")"
-        case .feedFormPicker: return "feedFormPicker"
-        }
+        resolvedRoute?.stableID ?? "none"
     }
 
     private var showFeedSettingsBinding: Binding<Bool> {
@@ -283,52 +294,38 @@ struct SectionContentView: View {
     var body: some View {
         // Journal pipeline tabs (per ADR-0011 D8) bypass the publication
         // HSplitView and render full-bleed in the content area.
-        if isJournalTab {
-            journalDispatch
-        } else if let content = resolvedContent {
-            contentBody(content)
+        if let route = resolvedRoute {
+            switch route {
+            case .journal(let journalRoute):
+                journalView(journalRoute)
+            default:
+                contentBody(route)
+            }
         } else {
             placeholderView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    /// True when the current sidebar selection is a journal-pipeline tab.
-    /// Kept as a separate Bool to avoid relying on `@ViewBuilder` returning
-    /// `(some View)?` — that pattern doesn't reliably evaluate to nil
-    /// (SwiftUI unifies the branches into an opaque type), which caused
-    /// non-journal tabs to render an empty view.
-    private var isJournalTab: Bool {
-        switch viewModel.selectedTab {
-        case .journalSubmissions, .journalAll, .journalByStatus, .manuscript:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Dispatch journal-pipeline sidebar selections to the right detail view.
-    /// Only invoked when `isJournalTab` is true.
     @ViewBuilder
-    private var journalDispatch: some View {
-        switch viewModel.selectedTab {
-        case .journalSubmissions:
+    private func journalView(_ route: ImbibJournalRoute) -> some View {
+        switch route {
+        case .submissions:
             SubmissionsInboxView()
-        case .journalAll:
+        case .all:
             JournalManuscriptsListView(statusFilter: nil)
-        case .journalByStatus(let status):
+        case .status(let status):
             JournalManuscriptsListView(statusFilter: status)
         case .manuscript(let id):
             ManuscriptDetailView(manuscriptID: id)
-        default:
-            EmptyView()  // unreachable when isJournalTab is true
         }
     }
 
     @ViewBuilder
-    private func contentBody(_ content: ContentKind) -> some View {
+    private func contentBody(_ route: ImbibContentRoute) -> some View {
         ImpressSplitView(listMinWidth: 200, listIdealWidth: 300, detailMinWidth: 300) {
-            leftPane(content)
+            leftPane(route)
         } detail: {
             detailView
         }
@@ -415,7 +412,7 @@ struct SectionContentView: View {
             displayedPublication = nil
             selectedArtifactID = nil
             // Reset search form when switching to a search tab
-            if case .searchForm = content {
+            if route.isSearchForm {
                 showSearchForm = true
             }
         }
@@ -482,8 +479,7 @@ struct SectionContentView: View {
         .onChange(of: selectedPublicationIDs) { _, newIDs in
             if !newIDs.isEmpty {
                 ragViewModel.scope = .papers(Array(newIDs))
-            } else if case .source(let source) = resolvedContent,
-                      case .collection(let id) = source {
+            } else if case .collection(let id)? = resolvedRoute?.publicationSource {
                 ragViewModel.scope = .collection(id, name: collectionName(for: id))
             } else {
                 ragViewModel.scope = .library
@@ -494,9 +490,9 @@ struct SectionContentView: View {
     // MARK: - Left Pane
 
     @ViewBuilder
-    private func leftPane(_ content: ContentKind) -> some View {
-        switch content {
-        case .source(let source):
+    private func leftPane(_ route: ImbibContentRoute) -> some View {
+        switch route {
+        case .publicationList(let source):
             VStack(spacing: 0) {
                 if case .scixLibrary(let id) = source,
                    let library = scixRepository.libraries.first(where: { $0.id == id }) {
@@ -512,9 +508,9 @@ struct SectionContentView: View {
                 .id(source.viewID)
             }
 
-        case .searchForm(let formType, let mode):
+        case .searchForm(let searchRoute):
             if showSearchForm {
-                searchFormView(formType, mode: mode)
+                searchFormView(searchRoute)
             } else {
                 searchResultsView
             }
@@ -527,6 +523,9 @@ struct SectionContentView: View {
 
         case .feedFormPicker:
             feedFormPickerView
+
+        case .journal:
+            EmptyView()
         }
     }
 
@@ -552,11 +551,10 @@ struct SectionContentView: View {
     // MARK: - Search Form Views
 
     @ViewBuilder
-    private func searchFormView(_ formType: SearchFormType, mode: SearchFormMode = .explorationSearch) -> some View {
-        let editingFeedID: UUID? = {
-            if case .editFeed(let id) = viewModel.selectedTab { return id }
-            return nil
-        }()
+    private func searchFormView(_ route: ImbibSearchFormRoute) -> some View {
+        let formType = route.formType
+        let mode = route.mode
+        let editingFeedID = route.editingFeedID
 
         switch formType {
         case .nlSearch:
@@ -631,8 +629,7 @@ struct SectionContentView: View {
     }
 
     private var isArtifactContent: Bool {
-        if case .artifacts = resolvedContent { return true }
-        return false
+        resolvedRoute?.isArtifactRoute == true
     }
 
     // MARK: - Detail Toolbar (Liquid Glass)
@@ -1100,5 +1097,3 @@ struct SectionContentView: View {
         }
     }
 }
-
-

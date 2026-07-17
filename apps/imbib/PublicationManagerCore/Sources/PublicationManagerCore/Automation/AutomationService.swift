@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import ImbibRustCore
 import OSLog
 import ImpressFTUI
 #if canImport(AppKit)
@@ -1623,10 +1624,10 @@ public actor AutomationService: AutomationOperations {
 
         // Decode LaTeX everywhere — authors/title/journal/raw bibtex may
         // arrive with `\'e`, `\&`, `\textit{...}`, etc.
-        let decodedAuthors = input.authors.map { LaTeXDecoder.decode($0) }
-        let decodedTitle = input.title.map { LaTeXDecoder.decode($0) }
-        let decodedJournal = input.journal.map { LaTeXDecoder.decode($0) }
-        let decodedBibtex = input.rawBibtex.map { LaTeXDecoder.decode($0) } ?? ""
+        let decodedAuthors = input.authors.map { ImbibRustCore.decodeLatex(input: $0) }
+        let decodedTitle = input.title.map { ImbibRustCore.decodeLatex(input: $0) }
+        let decodedJournal = input.journal.map { ImbibRustCore.decodeLatex(input: $0) }
+        let decodedBibtex = input.rawBibtex.map { ImbibRustCore.decodeLatex(input: $0) } ?? ""
 
         // Step 1: identifier path.
         let identifier: PaperIdentifier? = {

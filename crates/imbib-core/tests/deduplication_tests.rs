@@ -389,10 +389,10 @@ proptest! {
     }
 
     #[test]
-    fn test_identical_titles_always_match(title in "[a-zA-Z ]{5,30}") {
+    fn test_identical_non_empty_titles_always_match(title in "[a-zA-Z][a-zA-Z ]{4,29}") {
         prop_assert!(
             titles_match(title.clone(), title, 0.99),
-            "Identical titles should always match"
+            "Identical non-empty titles should always match"
         );
     }
 
@@ -442,6 +442,7 @@ proptest! {
 fn test_empty_titles() {
     assert!(!titles_match("".to_string(), "Some Title".to_string(), 0.5));
     assert!(!titles_match("Some Title".to_string(), "".to_string(), 0.5));
+    assert!(!titles_match("     ".to_string(), "     ".to_string(), 0.5));
 }
 
 #[test]

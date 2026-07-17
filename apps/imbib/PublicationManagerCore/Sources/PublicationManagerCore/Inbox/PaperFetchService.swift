@@ -468,13 +468,19 @@ public actor PaperFetchService {
             if let bc = pub.bibcode?.uppercased(), !bc.isEmpty { bibcodeMap[bc] = pub.id }
         }
 
-        // Get default library for import
-        let defaultLibraryId = await withStore { store -> UUID? in
-            store.getDefaultLibrary()?.id ?? store.listLibraries().first?.id
+        // Import inbox-fetched papers DIRECTLY to the Inbox library.
+        // Using the default library (typically "Save") here was a bug: it imported
+        // into Save and then `addToInboxBatch` (below) duplicated the same paper
+        // into Inbox. Save then grew by N papers per fetch even though the user
+        // never explicitly saved any of them.
+        let inboxLibraryId = await withStore { store -> UUID? in
+            store.getInboxLibrary()?.id
+                ?? store.getDefaultLibrary()?.id
+                ?? store.listLibraries().first?.id
         }
 
-        guard let libraryId = defaultLibraryId else {
-            Logger.inbox.errorCapture("No library available for import", category: "fetch")
+        guard let libraryId = inboxLibraryId else {
+            Logger.inbox.errorCapture("No Inbox library available for import", category: "fetch")
             return 0
         }
 

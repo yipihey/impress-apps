@@ -24,7 +24,8 @@ public enum SyncedSettingsKey: String, CaseIterable {
     // Inbox Settings
     case inboxAgeLimit = "sync.inbox.ageLimit"
     case inboxSaveLibraryID = "sync.inbox.saveLibraryID"
-    // Note: Muted items are stored in Core Data (CDMutedItem) and sync via CloudKit
+    // Note: Muted items live in the shared Rust SQLite store (`MutedItem`)
+    // and sync via the CloudKit engines in `Sync/`.
 
     // Smart Search Settings
     case smartSearchMaxResults = "sync.smartSearch.maxResults"

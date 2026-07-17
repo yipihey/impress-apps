@@ -1,6 +1,24 @@
 //! BibTeX formatting module
 //!
 //! Converts BibTeXEntry structures back to BibTeX string format.
+//
+// TODO(phase-1d): byte-equivalent parity with Swift `BibTeXExporter`.
+//
+// `BibTeXEntry.fields` is a `Vec<BibTeXField>`, but every Swift caller stores
+// fields in a `[String: String]` whose iteration order is undefined. When such
+// a dict is converted to `Vec<BibTeXField>` and handed to `format_entry`, the
+// resulting BibTeX has non-deterministic field order. The Swift exporter
+// instead (1) sorts fields by `BibTeXFieldNames.defaultFieldOrder` then
+// alphabetical, (2) omits the trailing comma on the last field, and (3)
+// treats only a small allow-list as numeric (year/volume/number/pages) — all
+// other digit-only values get braces. Direct byte equivalence therefore fails;
+// see `BibTeXExporterByteEquivalenceTests` in PublicationManagerCore for the
+// empirical evidence.
+//
+// To consolidate onto Rust we need a `format_entry_with_options(entry, opts)`
+// API that accepts a field-order vector, a numeric-field set, and a
+// trailing-comma toggle — plus a UniFFI export + xcframework rebuild so Swift
+// can call it. Tracked in Phase 1D of we-are-planning-to-frolicking-boot.md.
 
 use super::entry::BibTeXEntry;
 

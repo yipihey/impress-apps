@@ -352,6 +352,46 @@ logInfo("message", category: "tags")                        // global convenienc
 measureTime("rebuild row data", count: rows.count) { ... }
 ```
 
+### Performance Metrics (`PerfMetrics`)
+
+`ImpressLogging` provides `PerfMetrics` (alongside `StoreTimings`) — named-operation
+latency buckets with p50/p95, main-thread share, and **per-bucket budgets that log a
+`warning` to the Console on breach**, so bottlenecks flag themselves in the window the
+user already watches. Wrap hot paths:
+
+```swift
+let pdf = await PerfMetrics.shared.measureAsync(PerfBucket.compile, detail: "typst") { ... }
+PerfMetrics.shared.setBudgets([PerfBucket.compile: 1500, PerfBucket.search: 200])
+```
+
+Surfaced live via `GET /api/performance` and the Console **Performance tab**. First
+proven in imprint; **adopt in imbib next** by wrapping its compile/search/store hot paths
+and adding a `/api/performance` route (same handler shape as imprint's).
+
+### Agent-Driven Self-Test (`imprint-selftest`)
+
+Confirming a feature works must not require clicking the GUI. imprint has a declarative
+capability catalog (`crates/imprint-selftest`): **Tier A** is pure-Rust against the
+`imprint-service` traits (headless `cargo test`), **Tier B** drives the running app over
+HTTP (auto-skips when the app is down). Run it headlessly:
+
+```bash
+cargo run -p imprint-selftest -- --tier a      # or: imprint run-selftest --tier all
+```
+
+Also exposed as the MCP tool `imprint-selftest-service_run-selftest` (auto-registered via
+the `#[impress_service]` codegen pipeline). **This is the pattern to replicate for imbib**:
+push logic into a `*-service` Rust trait, add a Tier-A capability, and it becomes testable
+by `cargo test`, CLI, and MCP for free. A generic runner core can later be extracted to a
+shared `impress-selftest-core` crate.
+
+### Live Log Stream
+
+`GET /api/logs/stream?after=<iso8601|0>` (in the shared `LogEndpointHandler`) is a
+cursor-based incremental feed for agents watching a scenario: returns new entries
+chronologically plus `nextCursor`/`hasMore`/`serverTime`; poll with the returned cursor.
+Available to any app that routes to `LogEndpointHandler.handleStream`.
+
 ### Live Log Access
 
 Each app runs a local HTTP server exposing `GET /api/logs`:

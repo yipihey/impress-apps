@@ -170,6 +170,15 @@ struct ManuscriptEditorView: View {
         doc.source = m.body
         doc.createdAt = m.createdAt
         doc.modifiedAt = m.bodyModifiedAt ?? Date()
+        // Filesystem-is-source-of-truth: rebuild the plots manifest
+        // from whatever .vsz files live in this manuscript's working
+        // directory. Without this, opening a manuscript shows an
+        // empty plot panel even though the .vsz files are still on
+        // disk — the original bug that motivated the unified-store
+        // pivot (see Context in one-store-the-store-melodic-wreath.md).
+        let scanned = Self.scanPlots(forManuscriptID: manuscriptID)
+        doc.plots = scanned.plots
+        doc.figureFiles = scanned.figureFiles
         bridge = doc
         hasLoaded = true
 
@@ -241,6 +250,85 @@ struct ManuscriptEditorView: View {
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .warning
         alert.runModal()
+    }
+
+    // MARK: - Plot reconstruction from disk
+
+    /// Scan the manuscript's working-dir `figures/` for `.vsz` source
+    /// files + their rendered outputs, and build a `VeuszPlotRef` list
+    /// from what's there. The filesystem is the source of truth — this
+    /// is what makes plot tracking survive across reopen even though
+    /// the manuscript store doesn't (yet) carry a plot manifest.
+    ///
+    /// Returns the plot list AND a `figureFiles` dict (filename → Data)
+    /// so the rest of ContentView's existing wiring (which expects to
+    /// round-trip `figureFiles` through the document) keeps working.
+    private static func scanPlots(
+        forManuscriptID manuscriptID: UUID
+    ) -> (plots: [VeuszPlotRef], figureFiles: [String: Data]) {
+        let wd = VeuszWorkingDirectory()
+        guard let figuresDir = try? wd.figuresDirectory(forDocumentID: manuscriptID) else {
+            return ([], [:])
+        }
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: figuresDir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ) else {
+            return ([], [:])
+        }
+
+        // 1) Snapshot every regular file under figures/ into figureFiles
+        //    so ContentView's existing save path can round-trip them.
+        var figureFiles: [String: Data] = [:]
+        for url in contents {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else { continue }
+            if let data = try? Data(contentsOf: url) {
+                figureFiles[url.lastPathComponent] = data
+            }
+        }
+
+        // 2) For each .vsz, look for a sibling rendered output and emit
+        //    a VeuszPlotRef. Format priority: pdf > svg > png (matches
+        //    new-plot defaults; pdf wins for LaTeX hosts, svg for Typst).
+        let renderedExtensions: [VeuszPlotRef.ExportFormat] = [.pdf, .svg, .png]
+        var plots: [VeuszPlotRef] = []
+        for url in contents where url.pathExtension.lowercased() == "vsz" {
+            let stem = url.deletingPathExtension().lastPathComponent
+            let displayName = stem
+            // Find the rendered output, if any.
+            var renderedRelPath = "figures/\(stem).svg"  // default
+            var format: VeuszPlotRef.ExportFormat = .svg
+            var lastRenderedAt: Date?
+            for candidateFormat in renderedExtensions {
+                let candidate = figuresDir.appendingPathComponent("\(stem).\(candidateFormat.fileExtension)")
+                if fm.fileExists(atPath: candidate.path) {
+                    renderedRelPath = "figures/\(stem).\(candidateFormat.fileExtension)"
+                    format = candidateFormat
+                    let attrs = try? fm.attributesOfItem(atPath: candidate.path)
+                    lastRenderedAt = attrs?[.modificationDate] as? Date
+                    break
+                }
+            }
+            let sourceMtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            plots.append(
+                VeuszPlotRef(
+                    displayName: displayName,
+                    sourceRelativePath: "figures/\(stem).vsz",
+                    renderedRelativePath: renderedRelPath,
+                    exportFormat: format,
+                    lastRenderedAt: lastRenderedAt,
+                    sourceModifiedAt: sourceMtime,
+                    renderStatus: lastRenderedAt == nil ? .stale : .idle
+                )
+            )
+        }
+        // Stable order: by display name. The Plots panel sorts however
+        // it wants on top of this; we just want determinism here.
+        plots.sort { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        return (plots, figureFiles)
     }
 }
 

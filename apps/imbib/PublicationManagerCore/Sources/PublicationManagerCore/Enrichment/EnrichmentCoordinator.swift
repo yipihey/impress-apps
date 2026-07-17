@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import ImbibRustCore
 
 // MARK: - Enrichment Coordinator
 
@@ -414,14 +415,14 @@ extension EnrichmentCoordinator {
             var tags: [String] = []
 
             if autoTagSettings.includeFieldTag {
-                let field = TagPathNormalizer.normalize(classification.field)
+                let field = tagsNormalizeSegment(segment: classification.field)
                 if !field.isEmpty {
                     tags.append("ai/field/\(field)")
                 }
             }
 
             if autoTagSettings.includeTypeTag {
-                let paperType = TagPathNormalizer.normalize(classification.paperType)
+                let paperType = tagsNormalizeSegment(segment: classification.paperType)
                 if !paperType.isEmpty {
                     tags.append("ai/type/\(paperType)")
                 }
@@ -429,7 +430,7 @@ extension EnrichmentCoordinator {
 
             if autoTagSettings.includeTopicTags {
                 for keyword in classification.tags {
-                    let normalized = TagPathNormalizer.normalize(keyword)
+                    let normalized = tagsNormalizeSegment(segment: keyword)
                     if !normalized.isEmpty {
                         tags.append("ai/topic/\(normalized)")
                     }

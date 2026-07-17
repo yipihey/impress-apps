@@ -204,6 +204,21 @@ impl ImbibStore {
     }
 }
 
+/// Predicate that matches publications visible in a library — either as the
+/// library's children (parent==library) OR via a Contains edge from the library
+/// to the publication.
+///
+/// Use this anywhere we want "all papers shown when the user clicks library X".
+/// Don't use it for structural/hierarchy queries (collections-in-library,
+/// smart-searches-in-library, linked-files-of-publication) — those should keep
+/// `HasParent` because they describe ownership, not membership.
+pub fn in_library_predicate(library_id: Uuid) -> Predicate {
+    Predicate::Or(vec![
+        Predicate::HasParent(library_id),
+        Predicate::ReferencedBy(EdgeType::Contains, library_id),
+    ])
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 impl ImbibStore {
     /// Open or create a store at the given database path.
@@ -354,6 +369,87 @@ impl ImbibStore {
         })
     }
 
+    /// Add publications to a library as members WITHOUT duplicating them.
+    ///
+    /// Multi-library membership uses `EdgeType::Contains` edges from the library
+    /// item to the publication item. The publication keeps its original
+    /// `parent_uuid` (its "home" library). Queries that ask "what's in library X"
+    /// must use `in_library_predicate(X)` to see both parent-based members and
+    /// Contains-based members.
+    ///
+    /// Replaces the old `duplicate_publications(to_library_id)` anti-pattern
+    /// for the "add to library" use case — duplicate is now reserved for true
+    /// copy semantics.
+    pub fn library_add_members(
+        &self,
+        library_id: String,
+        publication_ids: Vec<String>,
+    ) -> Result<UndoInfo, StoreApiError> {
+        let lib_uuid = parse_uuid(&library_id)?;
+        let mut all_op_ids = Vec::new();
+        let mut batch_id = None;
+        for pub_id_str in &publication_ids {
+            let pub_uuid = parse_uuid(pub_id_str)?;
+            // No-op if the paper is already the library's child (parent==library)
+            // or already has a Contains edge from this library.
+            if let Some(item) = self.store.get(pub_uuid)? {
+                if item.parent == Some(lib_uuid) {
+                    continue;
+                }
+            }
+            let info = self.store.update_with_undo(
+                lib_uuid,
+                vec![FieldMutation::AddReference(
+                    impress_core::reference::TypedReference {
+                        target: pub_uuid,
+                        edge_type: EdgeType::Contains,
+                        metadata: None,
+                    },
+                )],
+            )?;
+            all_op_ids.extend(info.operation_ids);
+            if batch_id.is_none() {
+                batch_id = info.batch_id;
+            }
+        }
+        Ok(UndoInfo {
+            operation_ids: all_op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id,
+            description: "Add to Library".into(),
+        })
+    }
+
+    /// Remove a Contains-edge membership from a library.
+    ///
+    /// Does NOT delete the publication, and does NOT remove the publication if
+    /// the library is its parent (its home). Use `move_publications` or
+    /// `delete_publications` for those operations.
+    pub fn library_remove_members(
+        &self,
+        library_id: String,
+        publication_ids: Vec<String>,
+    ) -> Result<UndoInfo, StoreApiError> {
+        let lib_uuid = parse_uuid(&library_id)?;
+        let mut all_op_ids = Vec::new();
+        let mut batch_id = None;
+        for pub_id_str in &publication_ids {
+            let pub_uuid = parse_uuid(pub_id_str)?;
+            let info = self.store.update_with_undo(
+                lib_uuid,
+                vec![FieldMutation::RemoveReference(pub_uuid, EdgeType::Contains)],
+            )?;
+            all_op_ids.extend(info.operation_ids);
+            if batch_id.is_none() {
+                batch_id = info.batch_id;
+            }
+        }
+        Ok(UndoInfo {
+            operation_ids: all_op_ids.iter().map(|id| id.to_string()).collect(),
+            batch_id,
+            description: "Remove from Library".into(),
+        })
+    }
+
     /// Remove all dismissed papers from a collection.
     /// Returns the number of members removed.
     pub fn purge_dismissed_from_collection(
@@ -449,7 +545,8 @@ impl ImbibStore {
         let parent_uuid = parse_uuid(&parent_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::HasParent(parent_uuid)],
+            // Membership query: include both parent-children and Contains-linked papers.
+            predicates: vec![in_library_predicate(parent_uuid)],
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
@@ -486,7 +583,7 @@ impl ImbibStore {
         let parent_uuid = parse_uuid(&parent_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::HasParent(parent_uuid)],
+            predicates: vec![in_library_predicate(parent_uuid)],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -512,7 +609,7 @@ impl ImbibStore {
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
             let parent_uuid = parse_uuid(&pid)?;
-            predicates.push(Predicate::HasParent(parent_uuid));
+            predicates.push(in_library_predicate(parent_uuid));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -865,7 +962,7 @@ impl ImbibStore {
         let parent_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::HasParent(parent_uuid)],
+            predicates: vec![in_library_predicate(parent_uuid)],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -1752,7 +1849,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::IsRead(false)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1770,7 +1867,7 @@ impl ImbibStore {
     pub fn count_unread(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
         let mut predicates = vec![Predicate::IsRead(false)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1785,7 +1882,7 @@ impl ImbibStore {
     pub fn count_publications(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
         let mut predicates = Vec::new();
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1799,7 +1896,7 @@ impl ImbibStore {
     pub fn count_starred(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
         let mut predicates = vec![Predicate::IsStarred(true)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1817,7 +1914,7 @@ impl ImbibStore {
     ) -> Result<u32, StoreApiError> {
         let mut predicates = vec![Predicate::HasTag(tag_path)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1851,7 +1948,7 @@ impl ImbibStore {
         ]);
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1916,7 +2013,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::IsStarred(true)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1942,7 +2039,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = vec![Predicate::HasTag(tag_path)];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1964,7 +2061,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let mut predicates = Vec::new();
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -1993,7 +2090,7 @@ impl ImbibStore {
         ]);
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
-            predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
+            predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -2410,6 +2507,7 @@ impl ImbibStore {
     ) -> Result<Vec<AssignmentRow>, StoreApiError> {
         let mut predicates = Vec::new();
         if let Some(pid) = publication_id {
+            // Structural: assignments are children of a publication, not a library
             predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
@@ -5229,5 +5327,155 @@ mod tests {
             .unwrap();
         assert_eq!(result.existing_ids.len(), 2);
         assert_eq!(result.imported_ids.len(), 1);
+    }
+
+    // ---- Phase 1: in-library predicate + Contains-edge membership ----
+
+    #[test]
+    fn library_add_members_creates_contains_edge() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let extra = store.create_library("Extra".into()).unwrap();
+
+        // Paper lives in `home` via parent
+        let ids = store
+            .import_bibtex(
+                "@article{X, title={Paper}}".into(),
+                home.id.clone(),
+            )
+            .unwrap();
+        let paper_id = ids[0].clone();
+
+        // Add to `extra` via Contains edge — must NOT change parent
+        store
+            .library_add_members(extra.id.clone(), vec![paper_id.clone()])
+            .unwrap();
+
+        let item = store.store.get(parse_uuid(&paper_id).unwrap()).unwrap().unwrap();
+        assert_eq!(
+            item.parent.map(|u| u.to_string()),
+            Some(home.id.clone()),
+            "parent must remain `home`"
+        );
+
+        // `extra` must now have a Contains edge to the paper
+        let extra_item = store
+            .store
+            .get(parse_uuid(&extra.id).unwrap())
+            .unwrap()
+            .unwrap();
+        let contains_targets: Vec<String> = extra_item
+            .references
+            .iter()
+            .filter(|r| r.edge_type == EdgeType::Contains)
+            .map(|r| r.target.to_string())
+            .collect();
+        assert_eq!(contains_targets, vec![paper_id.clone()]);
+    }
+
+    #[test]
+    fn in_library_predicate_matches_parent_and_contains() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let extra = store.create_library("Extra".into()).unwrap();
+
+        // Paper A: parent = home
+        let a = store
+            .import_bibtex("@article{A, title={A}}".into(), home.id.clone())
+            .unwrap()[0]
+            .clone();
+        // Paper B: parent = extra (so it's a "home child" of extra)
+        let b = store
+            .import_bibtex("@article{B, title={B}}".into(), extra.id.clone())
+            .unwrap()[0]
+            .clone();
+        // Paper C: parent = home, also Contains-edge from extra
+        let c = store
+            .import_bibtex("@article{C, title={C}}".into(), home.id.clone())
+            .unwrap()[0]
+            .clone();
+        store
+            .library_add_members(extra.id.clone(), vec![c.clone()])
+            .unwrap();
+
+        // Query for items in `extra` using the new predicate
+        let extra_uuid = parse_uuid(&extra.id).unwrap();
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![in_library_predicate(extra_uuid)],
+            ..Default::default()
+        };
+        let items = store.store.query(&q).unwrap();
+        let ids: std::collections::HashSet<String> =
+            items.iter().map(|i| i.id.to_string()).collect();
+        assert!(ids.contains(&b), "B must appear (parent==extra)");
+        assert!(ids.contains(&c), "C must appear (Contains edge)");
+        assert!(!ids.contains(&a), "A must NOT appear (only in home)");
+    }
+
+    #[test]
+    fn library_add_members_is_noop_when_paper_is_already_child() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let paper = store
+            .import_bibtex("@article{X, title={Paper}}".into(), home.id.clone())
+            .unwrap()[0]
+            .clone();
+
+        // No-op: paper's parent already == home
+        store
+            .library_add_members(home.id.clone(), vec![paper.clone()])
+            .unwrap();
+
+        // home should NOT have a self-referencing Contains edge for this paper
+        let home_item = store
+            .store
+            .get(parse_uuid(&home.id).unwrap())
+            .unwrap()
+            .unwrap();
+        let self_edges: Vec<_> = home_item
+            .references
+            .iter()
+            .filter(|r| {
+                r.edge_type == EdgeType::Contains && r.target.to_string() == paper
+            })
+            .collect();
+        assert!(self_edges.is_empty(), "no Contains edge needed for own children");
+    }
+
+    #[test]
+    fn library_remove_members_does_not_delete_paper() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let extra = store.create_library("Extra".into()).unwrap();
+        let paper = store
+            .import_bibtex("@article{X, title={Paper}}".into(), home.id.clone())
+            .unwrap()[0]
+            .clone();
+
+        store
+            .library_add_members(extra.id.clone(), vec![paper.clone()])
+            .unwrap();
+        store
+            .library_remove_members(extra.id.clone(), vec![paper.clone()])
+            .unwrap();
+
+        // Paper still exists, parent still home
+        let item = store.store.get(parse_uuid(&paper).unwrap()).unwrap().unwrap();
+        assert_eq!(
+            item.parent.map(|u| u.to_string()),
+            Some(home.id.clone())
+        );
+
+        // extra no longer Contains it
+        let extra_item = store
+            .store
+            .get(parse_uuid(&extra.id).unwrap())
+            .unwrap()
+            .unwrap();
+        let still_contains = extra_item.references.iter().any(|r| {
+            r.edge_type == EdgeType::Contains && r.target.to_string() == paper
+        });
+        assert!(!still_contains, "Contains edge must be removed");
     }
 }

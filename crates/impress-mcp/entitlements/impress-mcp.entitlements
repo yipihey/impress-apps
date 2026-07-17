@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Grants impress-mcp access to the shared imbib/imprint workspace
+        directory at ~/Library/Group Containers/group.com.impress.suite/.
+
+        The binary must be codesigned with an Apple Developer identity on
+        team QG3MEYVHMS (the team that registered this group). For a fresh
+        build, run `bash crates/impress-mcp/sign.sh`.
+
+        Network entitlements (client + server) let the impress-mcp binary
+        make outbound HTTP calls and listen on local ports — needed for
+        anything that talks to scix / arXiv / etc., and for future HTTP
+        transport.
+    -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.impress.suite</string>
+    </array>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

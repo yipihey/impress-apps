@@ -430,7 +430,9 @@ pub fn item_to_collection_row(item: &Item, publication_count: i32) -> Collection
     CollectionRow {
         id: item.id.to_string(),
         name: get_str(payload, "name").unwrap_or_default(),
-        parent_id: get_str(payload, "parent_id"),
+        // The parent (library) lives on the unified `item.parent` field, not
+        // on the payload. Reading from payload silently returned None.
+        parent_id: item.parent.map(|u| u.to_string()),
         is_smart: get_bool(payload, "is_smart"),
         publication_count,
         sort_order: get_i64(payload, "sort_order").unwrap_or(0) as i32,

@@ -3,8 +3,9 @@
 //  PublicationManagerCore
 //
 //  Wraps ImbibStore (Rust UniFFI) for Swift consumption.
-//  Single source of truth for all data operations — replaces
-//  PublicationRepository + PersistenceController + all Core Data services.
+//  Single source of truth for all data operations — the legacy
+//  PublicationRepository + PersistenceController + Core Data services
+//  have been fully retired; this adapter is the only data path.
 //
 
 import Foundation
@@ -508,10 +509,12 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         StoreTimings.shared.measure("importBibTeX") {
             do {
                 let ids = try store.importBibtex(bibtex: bibtex, libraryId: libraryId.uuidString)
-                didMutate()
-                UserDefaults.standard.set(true, forKey: "needsStartupDedup")
                 let imported = ids.compactMap { UUID(uuidString: $0) }
+                // No-op imports (all entries deduped) must not bump dataVersion, or
+                // batched callers that loop per-result trigger a render storm.
                 if !ids.isEmpty {
+                    didMutate()
+                    UserDefaults.standard.set(true, forKey: "needsStartupDedup")
                     let count = ids.count
                     let desc = count == 1 ? "Import Paper" : "Import \(count) Papers"
                     let capturedStore = store
@@ -1015,6 +1018,54 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.error("removeFromCollection failed: \(error)")
+        }
+    }
+
+    /// Add publications to a library as members WITHOUT duplicating them.
+    ///
+    /// Multi-library membership uses `Contains` edges from the library item
+    /// to the publication item. The publication keeps its original parent
+    /// library (its "home"). Library counts and lists already use
+    /// `in_library_predicate` so both parent-children and Contains-linked
+    /// papers appear.
+    ///
+    /// Use this in place of `duplicatePublications(toLibraryId:)` whenever the
+    /// intent is "also show this paper in library X" rather than "make a
+    /// genuine copy". A no-op for papers whose parent is already `libraryId`.
+    public func libraryAddMembers(libraryId: UUID, publicationIds: [UUID]) {
+        guard !publicationIds.isEmpty else { return }
+        StoreTimings.shared.measure("libraryAddMembers") {
+            do {
+                let info = try store.libraryAddMembers(
+                    libraryId: libraryId.uuidString,
+                    publicationIds: publicationIds.map(\.uuidString)
+                )
+                didMutate()
+                UndoCoordinator.shared.registerUndo(info: info)
+            } catch {
+                Logger.library.error("libraryAddMembers failed: \(error)")
+            }
+        }
+    }
+
+    /// Remove Contains-edge membership from a library.
+    ///
+    /// Does NOT delete the publication and does NOT touch the parent. If the
+    /// publication's home is `libraryId`, use `movePublications` to send it
+    /// somewhere else or `deletePublications` to remove it entirely.
+    public func libraryRemoveMembers(libraryId: UUID, publicationIds: [UUID]) {
+        guard !publicationIds.isEmpty else { return }
+        StoreTimings.shared.measure("libraryRemoveMembers") {
+            do {
+                let info = try store.libraryRemoveMembers(
+                    libraryId: libraryId.uuidString,
+                    publicationIds: publicationIds.map(\.uuidString)
+                )
+                didMutate()
+                UndoCoordinator.shared.registerUndo(info: info)
+            } catch {
+                Logger.library.error("libraryRemoveMembers failed: \(error)")
+            }
         }
     }
 
@@ -2214,9 +2265,17 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         sourceIDs: [String],
         maxResults: Int16? = nil
     ) -> SmartSearch? {
-        // Use a designated exploration library — just use the default library for now
-        guard let defaultLib = getDefaultLibrary() else {
-            Logger.library.error("createExplorationSearch: no default library")
+        // Exploration smart searches must live in the Exploration library so
+        // their results land there. Previously this used the default ("Save")
+        // library as a placeholder, which caused every exploration-search
+        // import to silently pile into Save.
+        let libs = listLibraries()
+        guard let explorationLib =
+            libs.first(where: { $0.name == "Exploration" })
+            ?? getDefaultLibrary()
+            ?? libs.first
+        else {
+            Logger.library.error("createExplorationSearch: no library available")
             return nil
         }
         let sourceIdsJson = sourceIDs.isEmpty ? nil : {
@@ -2228,7 +2287,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         return createSmartSearch(
             name: name,
             query: query,
-            libraryId: defaultLib.id,
+            libraryId: explorationLib.id,
             sourceIdsJson: sourceIdsJson,
             maxResults: Int64(maxResults ?? 100),
             autoRefreshEnabled: false,

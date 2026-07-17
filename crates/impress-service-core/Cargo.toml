@@ -1,0 +1,32 @@
+[package]
+name = "impress-service-core"
+description = "Runtime types and helper traits for the impress service codegen pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi"]
+pyo3 = ["dep:pyo3"]
+cli = ["dep:clap"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+inventory = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+clap = { version = "4", features = ["std", "help", "usage", "error-context", "string"], default-features = false, optional = true }
+
+[dev-dependencies]
+impress-service-macros = { path = "../impress-service-macros" }
+
+[[example]]
+name = "echo_demo"
+path = "examples/echo_demo.rs"

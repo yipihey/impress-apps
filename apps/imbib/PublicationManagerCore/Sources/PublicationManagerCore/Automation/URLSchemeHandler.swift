@@ -305,7 +305,7 @@ public actor URLSchemeHandler {
             case .detail:
                 await postNotification(.focusDetail)
             case .search:
-                await postNotification(.focusSearch)
+                await postSearchAction(.localFind(source: .automation))
             }
             return .success(command: "focus", result: ["target": AnyCodable(target.rawValue)])
 
@@ -383,7 +383,7 @@ public actor URLSchemeHandler {
                 "toggleDetailPane", "toggleSidebar", "focusSidebar", "focusList", "focusDetail",
                 "openReferences", "markAllAsRead", "deleteSelectedPapers", "saveToLibrary",
                 "dismissFromInbox", "moveToCollection", "addToCollection", "removeFromCollection",
-                "focusSearch", "toggleUnreadFilter", "togglePDFFilter",
+                "focusSearch", "showGlobalSearch", "showNLSearch", "toggleUnreadFilter", "togglePDFFilter",
                 "copyPublications", "cutPublications", "pastePublications", "selectAllPublications",
                 "copyAsCitation", "copyIdentifier", "sharePapers",
                 "navigateNextPaper", "navigatePreviousPaper", "navigateFirstPaper",
@@ -393,6 +393,10 @@ public actor URLSchemeHandler {
             ]
             guard allowedNotifications.contains(notificationName) else {
                 return .failure(command: "executeCommand", error: "Unknown notification: \(notificationName)")
+            }
+            if let searchAction = searchAction(forNotificationName: notificationName) {
+                await postSearchAction(searchAction)
+                return .success(command: "executeCommand", result: ["notification": AnyCodable(notificationName)])
             }
             let notification = Notification.Name(notificationName)
             await postNotification(notification)
@@ -560,6 +564,23 @@ public actor URLSchemeHandler {
     private func postNotification(_ name: Notification.Name, userInfo: [String: Any]? = nil) {
         NotificationCenter.default.post(name: name, object: nil, userInfo: userInfo)
         if Task.isCancelled { return }
+    }
+
+    @MainActor
+    private func postSearchAction(_ action: ImbibSearchAction) {
+        action.post()
+        if Task.isCancelled { return }
+    }
+
+    private func searchAction(forNotificationName notificationName: String) -> ImbibSearchAction? {
+        switch notificationName {
+        case "focusSearch", "showGlobalSearch":
+            return .localFind(source: .automation)
+        case "showNLSearch":
+            return .onlineSourceSearch(source: .automation)
+        default:
+            return nil
+        }
     }
 }
 

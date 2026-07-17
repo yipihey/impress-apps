@@ -896,12 +896,12 @@ struct AppCommands: Commands {
             // Find submenu (⌘F is handled by ContentView for global search)
             Menu("Find") {
                 Button("Smart Search (AI)...") {
-                    NotificationCenter.default.post(name: .showNLSearch, object: nil)
+                    ImbibSearchAction.onlineSourceSearch(source: .menuCommand).post()
                 }
                 .keyboardShortcut("s", modifiers: .command)
 
                 Button("Focus Search") {
-                    NotificationCenter.default.post(name: .focusSearch, object: nil)
+                    ImbibSearchAction.localFind(source: .menuCommand).post()
                 }
             }
 
@@ -1389,4 +1389,3 @@ struct AppCommands: Commands {
 }
 
 // Note: Notification.Name extensions are now defined in PublicationManagerCore/Notifications.swift
-

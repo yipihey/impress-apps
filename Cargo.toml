@@ -35,6 +35,33 @@ members = [
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
     "crates/scix-client-ffi",
+    # impress-sources - HTTP clients for arXiv/Crossref/ADS/OpenAlex/etc
+    "crates/impress-sources",
+    # impress-service-core + macros - codegen pipeline for Swift/Python/MCP/CLI bindings
+    "crates/impress-service-core",
+    "crates/impress-service-macros",
+    # imprint-service - Phase 2D/2E: manuscript persistence + search + stateless HTTP handlers
+    "crates/imprint-service",
+    # imbib-service - Phase 3: ImbibTextService trait exposed via #[impress_service]
+    "crates/imbib-service",
+    # imbib-cli / imprint-cli - Phase 3A: clap binaries auto-generated from
+    # CliSubcommand inventory entries registered by the *-service crates.
+    "crates/imbib-cli",
+    "crates/imprint-cli",
+    # impress-mcp - stdio JSON-RPC MCP server (Phase 3B: imports *-service
+    # inventory entries to surface trait methods as MCP tools).
+    "crates/impress-mcp",
+    # impress-app-client - typed Rust HTTP client for imbib/imprint
+    # automation APIs. Backs HttpImbib*Service impls.
+    "crates/impress-app-client",
+    # imbib-service-http - HTTP-backed impls of the 7 imbib-service traits +
+    # install() helper that probes localhost:23120 and installs the backend.
+    "crates/imbib-service-http",
+    # imprint-service-http - HTTP-backed impls of imprint-service traits.
+    "crates/imprint-service-http",
+    # imprint-selftest - declarative capability self-tests (Tier A pure-Rust,
+    # Tier B live-app-over-HTTP) producing an agent-readable pass/fail report.
+    "crates/imprint-selftest",
 ]
 
 [workspace.package]
@@ -59,6 +86,15 @@ lazy_static = "1.4"
 # UniFFI for FFI bindings (optional)
 uniffi = { version = "0.28", features = ["cli"] }
 
+# Async trait support (HTTP source plugins, service traits)
+async-trait = "0.1"
+# HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# XML parsing (arXiv Atom feed, PubMed)
+quick-xml = "0.31"
+# HTTP mocking for source-client tests
+mockito = "1"
+
 # Internal workspace crates
 impress-domain = { path = "crates/impress-domain" }
 impress-bibtex = { path = "crates/impress-bibtex" }
@@ -71,6 +107,9 @@ impress-collab = { path = "crates/impress-collab" }
 impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
 imprint-core = { path = "crates/imprint-core" }
+imprint-service = { path = "crates/imprint-service" }
+imprint-selftest = { path = "crates/imprint-selftest" }
+imbib-service = { path = "crates/imbib-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-git = { path = "crates/impress-git" }
@@ -141,3 +180,25 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Persona/config loading
 toml = "0.8"
 dirs = "5"
+
+# impress-service-* (Phase 0 codegen pipeline)
+impress-service-core = { path = "crates/impress-service-core" }
+impress-service-macros = { path = "crates/impress-service-macros" }
+inventory = "0.3"
+schemars = "0.8"
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+darling = "0.20"
+pyo3 = { version = "0.23", features = ["extension-module"] }
+
+# Auto-generated CLI binaries (imbib-cli, imprint-cli) — clap built from
+# CliSubcommand inventory entries registered by `#[impress_service]`.
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "string"] }
+imbib-cli = { path = "crates/imbib-cli" }
+imprint-cli = { path = "crates/imprint-cli" }
+
+# HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
+impress-app-client = { path = "crates/impress-app-client" }
+imbib-service-http = { path = "crates/imbib-service-http" }
+imprint-service-http = { path = "crates/imprint-service-http" }

@@ -40,6 +40,12 @@ urlencoding = "2"
 # Directory paths for user data
 dirs = "5"
 
+# Citation extraction (Phase 2A) — LaTeX `\cite{...}` matcher.
+regex = { workspace = true }
+
+# SyncTeX parsing (Phase 2B) — `.synctex.gz` gzip decompression.
+flate2 = "1"
+
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }
 

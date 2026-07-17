@@ -927,7 +927,8 @@ struct UnifiedPublicationListWrapper: View {
             await self.libraryViewModel.copyToClipboard(ids)
         }
         a.onAddToLibrary = { ids, targetLibraryID in
-            _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+            // Multi-library membership via Contains edges — no duplicate item created.
+            RustStoreAdapter.shared.libraryAddMembers(libraryId: targetLibraryID, publicationIds: Array(ids))
         }
         a.onAddToScixLibrary = { ids, scixLibraryID in
             RustStoreAdapter.shared.addToScixLibrary(publicationIds: Array(ids), scixLibraryId: scixLibraryID)
@@ -997,7 +998,7 @@ struct UnifiedPublicationListWrapper: View {
             self.handleRemoveTag(pubID: pubID, tagID: tagID)
         }
         a.onGlobalSearch = {
-            NotificationCenter.default.post(name: .showGlobalSearch, object: nil)
+            ImbibSearchAction.localFind(source: .toolbarButton).post()
         }
         a.onRefresh = {
             await self.refreshFromNetwork()
@@ -1540,7 +1541,9 @@ struct UnifiedPublicationListWrapper: View {
             let saveLibrary = libraryManager.getOrCreateSaveLibrary()
             showTriageFlash(ids: ids, color: .green)
             Task {
-                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                // Non-feed view: also-appear-in Save via Contains edge.
+                // Paper keeps its original home (e.g., Exploration).
+                RustStoreAdapter.shared.libraryAddMembers(libraryId: saveLibrary.id, publicationIds: Array(ids))
             }
         }
     }
@@ -1581,7 +1584,8 @@ struct UnifiedPublicationListWrapper: View {
             let saveLibrary = libraryManager.getOrCreateSaveLibrary()
             showTriageFlash(ids: ids, color: .yellow)
             Task {
-                _ = RustStoreAdapter.shared.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+                // Non-feed save+star: appear-in Save via Contains edge.
+                RustStoreAdapter.shared.libraryAddMembers(libraryId: saveLibrary.id, publicationIds: Array(ids))
             }
         }
     }
@@ -1956,7 +1960,10 @@ struct UnifiedPublicationListWrapper: View {
         performTriageAnimation(ids: ids, flashColor: .green) { ids in
             let store = RustStoreAdapter.shared
             store.beginBatchMutation()
-            _ = store.duplicatePublications(ids: Array(ids), toLibraryId: saveLibrary.id)
+            // Save = appear in Save library via Contains edge. The exploration
+            // paper keeps its original parent and is just delinked from the
+            // exploration collection below.
+            store.libraryAddMembers(libraryId: saveLibrary.id, publicationIds: Array(ids))
             store.removeFromCollection(publicationIds: Array(ids), collectionId: collectionID)
             store.endBatchMutation()
         }
@@ -2221,4 +2228,3 @@ private struct InputOverlayFocusModifier: ViewModifier {
             }
     }
 }
-

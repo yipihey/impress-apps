@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <link href="http://arxiv.org/api/query?search_query=all:supernova&amp;id_list=&amp;start=0&amp;max_results=2" rel="self" type="application/atom+xml"/>
+  <title type="html">ArXiv Query: search_query=all:supernova</title>
+  <id>http://arxiv.org/api/J/abc</id>
+  <updated>2024-01-01T00:00:00-05:00</updated>
+  <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">2</opensearch:totalResults>
+  <entry>
+    <id>http://arxiv.org/abs/2301.12345v1</id>
+    <updated>2023-02-01T12:00:00Z</updated>
+    <published>2023-01-30T10:00:00Z</published>
+    <title>A Study of Type Ia Supernovae and Cosmology</title>
+    <summary>We present a study of Type Ia supernovae demonstrating the use of standardized candles for cosmological measurements.</summary>
+    <author>
+      <name>Saul Perlmutter</name>
+    </author>
+    <author>
+      <name>Adam G. Riess</name>
+    </author>
+    <arxiv:doi xmlns:arxiv="http://arxiv.org/schemas/atom">10.1234/example.2023.001</arxiv:doi>
+    <link href="http://arxiv.org/abs/2301.12345v1" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2301.12345v1" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="astro-ph.CO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="astro-ph.CO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="astro-ph.HE" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/hep-th/9901001</id>
+    <updated>1999-01-01T00:00:00Z</updated>
+    <published>1999-01-01T00:00:00Z</published>
+    <title>Old Style Identifier Example</title>
+    <summary>Tests handling of pre-2007 arXiv identifiers.</summary>
+    <author>
+      <name>Alice Example</name>
+    </author>
+    <link href="http://arxiv.org/abs/hep-th/9901001" rel="alternate" type="text/html"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>

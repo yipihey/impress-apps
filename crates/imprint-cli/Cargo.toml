@@ -1,0 +1,21 @@
+[package]
+name = "imprint-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "imprint CLI binary, auto-generated from the imprint-service traits via the impress codegen pipeline"
+
+[[bin]]
+name = "imprint"
+path = "src/main.rs"
+
+[dependencies]
+# Linking imprint-service pulls its inventory submissions (ImprintTextService
+# subcommands) into the final binary, where this CLI iterates them at
+# startup.
+imprint-service = { workspace = true }
+# Pulls the ImprintSelftestService inventory (run-selftest subcommand).
+imprint-selftest = { workspace = true }
+impress-service-core = { workspace = true, features = ["cli"] }
+serde_json = { workspace = true }

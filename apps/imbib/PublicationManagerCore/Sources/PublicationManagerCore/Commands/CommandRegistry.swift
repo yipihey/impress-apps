@@ -45,24 +45,31 @@ public struct Command: Identifiable, Sendable {
     public let category: CommandCategory
     public let shortcut: String?
     public let notificationName: Notification.Name
+    public let searchAction: ImbibSearchAction?
 
     public init(
         id: String,
         title: String,
         category: CommandCategory,
         shortcut: String? = nil,
-        notificationName: Notification.Name
+        notificationName: Notification.Name,
+        searchAction: ImbibSearchAction? = nil
     ) {
         self.id = id
         self.title = title
         self.category = category
         self.shortcut = shortcut
         self.notificationName = notificationName
+        self.searchAction = searchAction
     }
 
     /// Execute this command by posting its notification
     public func execute() {
-        NotificationCenter.default.post(name: notificationName, object: nil)
+        if let searchAction {
+            searchAction.post()
+        } else {
+            NotificationCenter.default.post(name: notificationName, object: nil)
+        }
     }
 }
 
@@ -161,8 +168,22 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "openReferences", title: "Open References", category: .paper, shortcut: "⇧⌘R", notificationName: .openReferences))
 
         // Search
-        register(Command(id: "nlSearch", title: "Smart Search (AI)", category: .search, shortcut: "⌘S", notificationName: .showNLSearch))
-        register(Command(id: "globalSearch", title: "Global Search", category: .search, shortcut: "⌘F", notificationName: .focusSearch))
+        register(Command(
+            id: "nlSearch",
+            title: ImbibSearchWorkflow.onlineSourceSearch.commandTitle,
+            category: .search,
+            shortcut: ImbibSearchWorkflow.onlineSourceSearch.shortcut,
+            notificationName: .performSearchAction,
+            searchAction: .onlineSourceSearch(source: .commandPalette)
+        ))
+        register(Command(
+            id: "globalSearch",
+            title: ImbibSearchWorkflow.localFind.commandTitle,
+            category: .search,
+            shortcut: ImbibSearchWorkflow.localFind.shortcut,
+            notificationName: .performSearchAction,
+            searchAction: .localFind(source: .commandPalette)
+        ))
         register(Command(id: "toggleUnreadFilter", title: "Toggle Unread Filter", category: .search, shortcut: "⌘\\", notificationName: .toggleUnreadFilter))
         register(Command(id: "togglePDFFilter", title: "Toggle PDF Filter", category: .search, shortcut: "⇧⌘\\", notificationName: .togglePDFFilter))
 

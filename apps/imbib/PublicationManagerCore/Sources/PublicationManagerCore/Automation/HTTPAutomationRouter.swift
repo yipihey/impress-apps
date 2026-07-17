@@ -176,9 +176,167 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetNotes(citeKey: citeKey)
         }
 
+        // ===== Phase D additions: specific /api/papers/* routes (must come
+        // BEFORE the /api/papers/{citeKey} catch-all below) =====
+
+        // GET /api/papers/recent
+        if path == "/api/papers/recent" {
+            return await handleQueryRecent(request)
+        }
+
+        // GET /api/papers/starred
+        if path == "/api/papers/starred" {
+            return await handleQueryStarred(request)
+        }
+
+        // GET /api/papers/count/unread|starred|flagged|by-tag
+        if path == "/api/papers/count/unread" {
+            return await handleCountUnread(request)
+        }
+        if path == "/api/papers/count/starred" {
+            return await handleCountStarred(request)
+        }
+        if path == "/api/papers/count/flagged" {
+            return await handleCountFlagged(request)
+        }
+        if path == "/api/papers/count/by-tag" {
+            return await handleCountByTag(request)
+        }
+
+        // GET /api/papers/{citeKey}/files
+        if path.hasPrefix("/api/papers/") && path.hasSuffix("/files") {
+            let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/files".count))
+            return await handleListLinkedFilesForPaper(citeKey: citeKey)
+        }
+        // GET /api/papers/{citeKey}/files/count
+        if path.hasPrefix("/api/papers/") && path.hasSuffix("/files/count") {
+            let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/files/count".count))
+            return await handleCountPdfsForPaper(citeKey: citeKey)
+        }
+        // GET /api/papers/{citeKey}/dismissed — check if dismissed
+        if path.hasPrefix("/api/papers/") && path.hasSuffix("/dismissed") {
+            let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/dismissed".count))
+            return await handleIsPaperDismissedByCiteKey(citeKey: citeKey)
+        }
+
         if path.hasPrefix("/api/papers/") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count))
             return await handleGetPaper(citeKey: citeKey)
+        }
+
+        // ===== Phase D additions (continued, after /api/papers/* block) =====
+
+        // GET /api/dismissed-papers
+        if path == "/api/dismissed-papers" {
+            return await handleListDismissedPapers(request)
+        }
+        // GET /api/dismissed-papers/check
+        if path == "/api/dismissed-papers/check" {
+            return await handleIsPaperDismissed(request)
+        }
+
+        // GET /api/muted-items
+        if path == "/api/muted-items" {
+            return await handleListMutedItems(request)
+        }
+
+        // GET /api/libraries/default
+        if path == "/api/libraries/default" {
+            return await handleGetDefaultLibrary()
+        }
+        // GET /api/libraries/inbox
+        if path == "/api/libraries/inbox" {
+            return await handleGetInboxLibrary()
+        }
+        // GET /api/libraries/{id}/export-bibtex
+        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/export-bibtex") {
+            let segment = String(originalPath.dropFirst("/api/libraries/".count).dropLast("/export-bibtex".count))
+            guard let libraryID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid library ID")
+            }
+            return await handleExportAllBibTeXForLibrary(libraryID: libraryID)
+        }
+
+        // GET /api/smart-searches
+        if path == "/api/smart-searches" {
+            return await handleListSmartSearches(request)
+        }
+        // GET /api/smart-searches/{id}
+        if path.hasPrefix("/api/smart-searches/") {
+            let segment = String(originalPath.dropFirst("/api/smart-searches/".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid smart-search ID")
+            }
+            return await handleGetSmartSearch(id: id)
+        }
+
+        // GET /api/files/{linkedFileId}/annotations
+        if path.hasPrefix("/api/files/") && path.hasSuffix("/annotations") {
+            let segment = String(originalPath.dropFirst("/api/files/".count).dropLast("/annotations".count))
+            guard let fileID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid linked-file ID")
+            }
+            return await handleListAnnotationsForFile(linkedFileID: fileID, request: request)
+        }
+        // GET /api/files/{linkedFileId}/annotations/count
+        if path.hasPrefix("/api/files/") && path.hasSuffix("/annotations/count") {
+            let segment = String(originalPath.dropFirst("/api/files/".count).dropLast("/annotations/count".count))
+            guard let fileID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid linked-file ID")
+            }
+            return await handleCountAnnotationsForFile(linkedFileID: fileID)
+        }
+
+        // GET /api/items/{uuid} — generic item lookup for HTTP-client ID translation
+        if path.hasPrefix("/api/items/") && !path.hasSuffix("/comments") {
+            let segment = String(originalPath.dropFirst("/api/items/".count))
+            guard let itemID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid item ID")
+            }
+            return await handleGetItemByUUID(itemID: itemID)
+        }
+
+        // GET /api/scix-libraries
+        if path == "/api/scix-libraries" {
+            return await handleListScixLibraries()
+        }
+        // GET /api/scix-libraries/{id}
+        if path.hasPrefix("/api/scix-libraries/") && !path.contains("/papers") {
+            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid scix-library ID")
+            }
+            return await handleGetScixLibrary(id: id)
+        }
+        // GET /api/scix-libraries/{id}/papers
+        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
+            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid scix-library ID")
+            }
+            return await handleQueryScixLibraryPapers(scixLibraryID: id, request: request)
+        }
+        // GET /api/scix-libraries/{id}/papers/count
+        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers/count") {
+            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers/count".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid scix-library ID")
+            }
+            return await handleCountScixLibraryPapers(scixLibraryID: id)
+        }
+
+        // GET /api/undo/recent
+        if path == "/api/undo/recent" {
+            return await handleRecentUndoGroups(request)
+        }
+
+        // GET /api/artifacts/{id}/relations — must come before /api/artifacts/{id} below
+        if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/relations") {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count).dropLast("/relations".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleGetArtifactRelations(id: artifactID)
         }
 
         if path == "/api/export" {
@@ -284,6 +442,104 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/papers/resolve" {
             return await handleResolvePaper(request)
+        }
+
+        // ===== Phase D: new POST routes =====
+
+        // POST /api/papers/import-batch — accepts our PaperImport array shape
+        if path == "/api/papers/import-batch" {
+            return await handleImportPapersBatch(request)
+        }
+        // POST /api/papers/import-bibtex — accepts raw BibTeX text + library_id
+        if path == "/api/papers/import-bibtex" {
+            return await handleImportBibTeX(request)
+        }
+        // POST /api/papers/move
+        if path == "/api/papers/move" {
+            return await handleMovePublications(request)
+        }
+        // POST /api/papers/duplicate
+        if path == "/api/papers/duplicate" {
+            return await handleDuplicatePublications(request)
+        }
+        // POST /api/papers/find-by-identifiers
+        if path == "/api/papers/find-by-identifiers" {
+            return await handleFindByIdentifiers(request)
+        }
+        // POST /api/libraries/{id}/set-default
+        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/set-default") {
+            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/set-default".count))
+            guard let libraryID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid library ID")
+            }
+            return await handleSetLibraryDefault(libraryID: libraryID)
+        }
+        // POST /api/libraries/{id}/deduplicate
+        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/deduplicate") {
+            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/deduplicate".count))
+            guard let libraryID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid library ID")
+            }
+            return await handleDeduplicateLibrary(libraryID: libraryID)
+        }
+        // POST /api/collections/{id}/purge-dismissed
+        if path.hasPrefix("/api/collections/") && path.hasSuffix("/purge-dismissed") {
+            let segment = String(path.dropFirst("/api/collections/".count).dropLast("/purge-dismissed".count))
+            guard let collectionID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid collection ID")
+            }
+            return await handlePurgeDismissedFromCollection(collectionID: collectionID)
+        }
+        // POST /api/dismissed-papers — body has identifiers
+        if path == "/api/dismissed-papers" {
+            return await handleDismissPaper(request)
+        }
+        // POST /api/muted-items
+        if path == "/api/muted-items" {
+            return await handleCreateMutedItem(request)
+        }
+        // POST /api/tags
+        if path == "/api/tags" {
+            return await handleCreateTag(request)
+        }
+        // POST /api/smart-searches
+        if path == "/api/smart-searches" {
+            return await handleCreateSmartSearch(request)
+        }
+        // POST /api/papers/{citeKey}/files
+        if path.hasPrefix("/api/papers/") && path.hasSuffix("/files") {
+            let citeKey = String(path.dropFirst("/api/papers/".count).dropLast("/files".count))
+            return await handleAddLinkedFile(citeKey: citeKey, request: request)
+        }
+        // POST /api/files/{linkedFileId}/annotations
+        if path.hasPrefix("/api/files/") && path.hasSuffix("/annotations") {
+            let segment = String(path.dropFirst("/api/files/".count).dropLast("/annotations".count))
+            guard let fileID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid linked-file ID")
+            }
+            return await handleCreateAnnotationForFile(linkedFileID: fileID, request: request)
+        }
+        // POST /api/scix-libraries
+        if path == "/api/scix-libraries" {
+            return await handleCreateScixLibrary(request)
+        }
+        // POST /api/scix-libraries/{id}/papers — add publications
+        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
+            let segment = String(path.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid scix-library ID")
+            }
+            return await handleAddToScixLibrary(scixLibraryID: id, request: request)
+        }
+        // POST /api/undo/operation/{id}
+        if path.hasPrefix("/api/undo/operation/") {
+            let opID = String(path.dropFirst("/api/undo/operation/".count))
+            return await handleUndoOperation(operationID: opID)
+        }
+        // POST /api/undo/batch/{id}
+        if path.hasPrefix("/api/undo/batch/") {
+            let batchID = String(path.dropFirst("/api/undo/batch/".count))
+            return await handleUndoBatch(batchID: batchID)
         }
 
         if path == "/api/libraries" {
@@ -414,6 +670,31 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleEditComment(commentID: commentID, request: request)
         }
 
+        // ===== Phase D: tag CRUD + artifact update =====
+        // PUT /api/tags/{path}/rename
+        if path.hasPrefix("/api/tags/") && path.hasSuffix("/rename") {
+            let raw = String(originalPath.dropFirst("/api/tags/".count).dropLast("/rename".count))
+            let tagPath = raw.removingPercentEncoding ?? raw
+            return await handleRenameTag(oldPath: tagPath, request: request)
+        }
+        // PUT /api/tags/{path} — color update
+        if path.hasPrefix("/api/tags/") && !path.hasSuffix("/rename") {
+            let raw = String(originalPath.dropFirst("/api/tags/".count))
+            let tagPath = raw.removingPercentEncoding ?? raw
+            return await handleUpdateTag(path: tagPath, request: request)
+        }
+        // PUT /api/artifacts/{id} (NOT /tags) — update fields
+        if path.hasPrefix("/api/artifacts/")
+            && !path.hasSuffix("/tags")
+            && !path.contains("/tags/")
+        {
+            let segment = String(originalPath.dropFirst("/api/artifacts/".count))
+            guard let artifactID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid artifact ID")
+            }
+            return await handleUpdateArtifact(artifactID: artifactID, request: request)
+        }
+
         // PUT /api/artifacts/{id}/tags
         if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/tags") {
             let segment = String(originalPath.dropFirst("/api/artifacts/".count).dropLast("/tags".count))
@@ -454,6 +735,22 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid comment ID")
             }
             return await handleDeleteComment(commentID: commentID)
+        }
+
+        // ===== Phase D additions: tag delete, scix-library remove =====
+        // DELETE /api/tags/{path}
+        if path.hasPrefix("/api/tags/") {
+            let raw = String(originalPath.dropFirst("/api/tags/".count))
+            let tagPath = raw.removingPercentEncoding ?? raw
+            return await handleDeleteTag(path: tagPath)
+        }
+        // DELETE /api/scix-libraries/{id}/papers — remove publications
+        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
+            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
+            guard let id = UUID(uuidString: segment) else {
+                return .badRequest("Invalid scix-library ID")
+            }
+            return await handleRemoveFromScixLibrary(scixLibraryID: id, request: request)
         }
 
         // DELETE /api/annotations/{id}
@@ -2692,6 +2989,870 @@ public actor HTTPAutomationRouter: HTTPRouter {
             dict["annotationCount"] = paper.annotationCount
         }
 
+        return dict
+    }
+
+    // MARK: - ===== Phase D: helper dict converters =====
+
+    @MainActor
+    private func libraryModelToDict(_ lib: LibraryModel) -> [String: Any] {
+        return [
+            "id": lib.id.uuidString,
+            "name": lib.name,
+            "is_default": lib.isDefault,
+            "is_inbox": lib.isInbox,
+            "publication_count": lib.publicationCount,
+        ]
+    }
+
+    @MainActor
+    private func dismissedPaperToDict(_ d: DismissedPaper) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": d.id.uuidString,
+            "date_dismissed": Int(d.dateDismissed.timeIntervalSince1970 * 1000),
+        ]
+        if let v = d.doi { dict["doi"] = v }
+        if let v = d.arxivID { dict["arxiv_id"] = v }
+        if let v = d.bibcode { dict["bibcode"] = v }
+        if let v = d.citeKey { dict["cite_key"] = v }
+        return dict
+    }
+
+    @MainActor
+    private func mutedItemToDict(_ m: MutedItem) -> [String: Any] {
+        return [
+            "id": m.id.uuidString,
+            "mute_type": m.muteType,
+            "value": m.value,
+            "date_added": Int(m.dateAdded.timeIntervalSince1970 * 1000),
+        ]
+    }
+
+    @MainActor
+    private func linkedFileToDict(_ f: LinkedFileModel) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": f.id.uuidString,
+            "filename": f.filename,
+            "file_size": f.fileSize,
+            "is_pdf": f.isPDF,
+            "is_locally_materialized": f.isLocallyMaterialized,
+            "date_added": Int(f.dateAdded.timeIntervalSince1970 * 1000),
+        ]
+        if let p = f.relativePath { dict["relative_path"] = p }
+        return dict
+    }
+
+    @MainActor
+    private func smartSearchToDict(_ s: SmartSearch) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": s.id.uuidString,
+            "name": s.name,
+            "query": s.query,
+            "source_ids": s.sourceIDs,
+            "max_results": s.maxResults,
+            "feeds_to_inbox": s.feedsToInbox,
+            "auto_refresh_enabled": s.autoRefreshEnabled,
+            "refresh_interval_seconds": s.refreshIntervalSeconds,
+        ]
+        if let lid = s.libraryID { dict["library_id"] = lid.uuidString }
+        return dict
+    }
+
+    @MainActor
+    private func scixLibraryToDict(_ s: SciXLibrary) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": s.id.uuidString,
+            "remote_id": s.remoteID,
+            "name": s.name,
+            "is_public": s.isPublic,
+            "permission_level": s.permissionLevel,
+            "document_count": s.documentCount,
+            "publication_count": s.publicationCount,
+        ]
+        if let d = s.description { dict["description"] = d }
+        if let e = s.ownerEmail { dict["owner_email"] = e }
+        return dict
+    }
+
+    /// Resolve a cite-key string to a publication UUID. Returns nil if not
+    /// found. Used by handlers whose Swift methods expect UUIDs but whose
+    /// HTTP routes expose cite-keys.
+    @MainActor
+    private func uuidForCiteKey(_ citeKey: String) -> UUID? {
+        let decoded = citeKey.removingPercentEncoding ?? citeKey
+        do {
+            let maybeRow = try RustStoreAdapter.shared.imbibStore.findByCiteKey(
+                citeKey: decoded, libraryId: nil
+            )
+            guard let row = maybeRow else { return nil }
+            return UUID(uuidString: row.id)
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - ===== Phase D: dismissed/muted handlers =====
+
+    /// POST /api/dismissed-papers — body: {doi?, arxiv_id?, bibcode?, cite_key?}
+    @MainActor
+    private func handleDismissPaper(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        let doi = json["doi"] as? String
+        let arxiv = json["arxiv_id"] as? String ?? json["arxivId"] as? String
+        let bibcode = json["bibcode"] as? String
+        let citeKey = json["cite_key"] as? String ?? json["citeKey"] as? String
+        guard let dismissed = RustStoreAdapter.shared.dismissPaper(doi: doi, arxivId: arxiv, bibcode: bibcode, citeKey: citeKey) else {
+            return .json(["status": "ok", "dismissed": NSNull()])
+        }
+        return .json(["status": "ok", "dismissed": dismissedPaperToDict(dismissed)])
+    }
+
+    /// GET /api/dismissed-papers/check?doi=...&arxiv_id=...&bibcode=...&cite_key=...
+    @MainActor
+    private func handleIsPaperDismissed(_ request: HTTPRequest) async -> HTTPResponse {
+        let doi = request.queryParams["doi"]
+        let arxiv = request.queryParams["arxiv_id"] ?? request.queryParams["arxivId"]
+        let bibcode = request.queryParams["bibcode"]
+        let citeKey = request.queryParams["cite_key"] ?? request.queryParams["citeKey"]
+        let dismissed = RustStoreAdapter.shared.isPaperDismissed(doi: doi, arxivId: arxiv, bibcode: bibcode, citeKey: citeKey)
+        return .json(["status": "ok", "dismissed": dismissed])
+    }
+
+    /// GET /api/papers/{citeKey}/dismissed
+    @MainActor
+    private func handleIsPaperDismissedByCiteKey(citeKey: String) async -> HTTPResponse {
+        let decoded = citeKey.removingPercentEncoding ?? citeKey
+        let dismissed = RustStoreAdapter.shared.isPaperDismissed(citeKey: decoded)
+        return .json(["status": "ok", "dismissed": dismissed])
+    }
+
+    /// GET /api/dismissed-papers?limit=N&offset=M
+    @MainActor
+    private func handleListDismissedPapers(_ request: HTTPRequest) async -> HTTPResponse {
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) }
+        let offset = request.queryParams["offset"].flatMap { UInt32($0) }
+        let items = RustStoreAdapter.shared.listDismissedPapers(limit: limit, offset: offset)
+        return .json(["status": "ok", "papers": items.map { dismissedPaperToDict($0) }])
+    }
+
+    /// POST /api/muted-items — body: {mute_type, value}
+    @MainActor
+    private func handleCreateMutedItem(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let mt = (json["mute_type"] as? String) ?? (json["muteType"] as? String), !mt.isEmpty else {
+            return .badRequest("Missing 'mute_type'")
+        }
+        guard let value = json["value"] as? String, !value.isEmpty else {
+            return .badRequest("Missing 'value'")
+        }
+        guard let item = RustStoreAdapter.shared.createMutedItem(muteType: mt, value: value) else {
+            return .serverError("Failed to create muted item")
+        }
+        return .json(["status": "ok", "item": mutedItemToDict(item)])
+    }
+
+    /// GET /api/muted-items
+    @MainActor
+    private func handleListMutedItems(_ request: HTTPRequest) async -> HTTPResponse {
+        let filter = request.queryParams["mute_type"] ?? request.queryParams["muteType"]
+        let items = RustStoreAdapter.shared.listMutedItems(muteType: filter)
+        return .json(["status": "ok", "items": items.map { mutedItemToDict($0) }])
+    }
+
+    // MARK: - ===== Phase D: library lifecycle helpers =====
+
+    /// GET /api/libraries/default
+    @MainActor
+    private func handleGetDefaultLibrary() async -> HTTPResponse {
+        guard let lib = RustStoreAdapter.shared.getDefaultLibrary() else {
+            return .json(["status": "ok", "library": NSNull()])
+        }
+        return .json(["status": "ok", "library": libraryModelToDict(lib)])
+    }
+
+    /// POST /api/libraries/{id}/set-default
+    @MainActor
+    private func handleSetLibraryDefault(libraryID: UUID) async -> HTTPResponse {
+        RustStoreAdapter.shared.setLibraryDefault(id: libraryID)
+        return .json(["status": "ok"])
+    }
+
+    /// GET /api/libraries/inbox
+    @MainActor
+    private func handleGetInboxLibrary() async -> HTTPResponse {
+        guard let lib = RustStoreAdapter.shared.getInboxLibrary() else {
+            return .json(["status": "ok", "library": NSNull()])
+        }
+        return .json(["status": "ok", "library": libraryModelToDict(lib)])
+    }
+
+    // MARK: - ===== Phase D: tag CRUD =====
+
+    /// POST /api/tags — body: {path, color_light?, color_dark?}
+    @MainActor
+    private func handleCreateTag(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let p = json["path"] as? String, !p.isEmpty else { return .badRequest("Missing 'path'") }
+        let cl = json["color_light"] as? String ?? json["colorLight"] as? String
+        let cd = json["color_dark"] as? String ?? json["colorDark"] as? String
+        RustStoreAdapter.shared.createTag(path: p, colorLight: cl, colorDark: cd)
+        return .json(["status": "ok"])
+    }
+
+    /// DELETE /api/tags/{path}
+    @MainActor
+    private func handleDeleteTag(path: String) async -> HTTPResponse {
+        RustStoreAdapter.shared.deleteTag(path: path)
+        return .json(["status": "ok"])
+    }
+
+    /// PUT /api/tags/{path}/rename — body: {new_path}
+    @MainActor
+    private func handleRenameTag(oldPath: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let newPath = (json["new_path"] as? String) ?? (json["newPath"] as? String), !newPath.isEmpty else {
+            return .badRequest("Missing 'new_path'")
+        }
+        RustStoreAdapter.shared.renameTag(oldPath: oldPath, newPath: newPath)
+        return .json(["status": "ok"])
+    }
+
+    /// PUT /api/tags/{path} — body: {color_light?, color_dark?}
+    @MainActor
+    private func handleUpdateTag(path: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        let cl = json["color_light"] as? String ?? json["colorLight"] as? String
+        let cd = json["color_dark"] as? String ?? json["colorDark"] as? String
+        RustStoreAdapter.shared.updateTag(path: path, colorLight: cl, colorDark: cd)
+        return .json(["status": "ok"])
+    }
+
+    // MARK: - ===== Phase D: bulk publication mutations =====
+
+    /// POST /api/papers/move — body: {publication_ids:[uuid], to_library_id:uuid}
+    @MainActor
+    private func handleMovePublications(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let idsRaw = (json["publication_ids"] as? [String]) ?? (json["ids"] as? [String]) else {
+            return .badRequest("Missing 'publication_ids'")
+        }
+        guard let toRaw = (json["to_library_id"] as? String) ?? (json["toLibraryID"] as? String),
+              let toLib = UUID(uuidString: toRaw) else {
+            return .badRequest("Missing or invalid 'to_library_id'")
+        }
+        let ids = idsRaw.compactMap { UUID(uuidString: $0) }
+        RustStoreAdapter.shared.movePublications(ids: ids, toLibraryId: toLib)
+        return .json(["status": "ok", "moved": ids.count])
+    }
+
+    /// POST /api/papers/duplicate — body: {ids:[uuid], to_library_id:uuid}
+    @MainActor
+    private func handleDuplicatePublications(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let idsRaw = json["ids"] as? [String] else {
+            return .badRequest("Missing 'ids'")
+        }
+        guard let toRaw = (json["to_library_id"] as? String) ?? (json["toLibraryID"] as? String),
+              let toLib = UUID(uuidString: toRaw) else {
+            return .badRequest("Missing or invalid 'to_library_id'")
+        }
+        let ids = idsRaw.compactMap { UUID(uuidString: $0) }
+        let newIds = RustStoreAdapter.shared.duplicatePublications(ids: ids, toLibraryId: toLib)
+        return .json(["status": "ok", "ids": newIds.map { $0.uuidString }])
+    }
+
+    /// POST /api/libraries/{id}/deduplicate
+    @MainActor
+    private func handleDeduplicateLibrary(libraryID: UUID) async -> HTTPResponse {
+        let n = RustStoreAdapter.shared.deduplicateLibrary(id: libraryID)
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// POST /api/collections/{id}/purge-dismissed
+    @MainActor
+    private func handlePurgeDismissedFromCollection(collectionID: UUID) async -> HTTPResponse {
+        // Not yet on the Swift adapter; call via imbibStore which we know exposes it.
+        do {
+            try RustStoreAdapter.shared.imbibStore.purgeDismissedFromCollection(collectionId: collectionID.uuidString)
+            return .json(["status": "ok"])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - ===== Phase D: identifier batch =====
+
+    /// POST /api/papers/find-by-identifiers — body: {dois:[], arxiv_ids:[], bibcodes:[]}
+    @MainActor
+    private func handleFindByIdentifiers(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        let dois = (json["dois"] as? [String]) ?? []
+        let arxivs = (json["arxiv_ids"] as? [String]) ?? (json["arxivIds"] as? [String]) ?? []
+        let bibcodes = (json["bibcodes"] as? [String]) ?? []
+        // findByIdentifiers takes single Option each; iterate to gather.
+        var seen = Set<UUID>()
+        var papers: [PublicationRowData] = []
+        for d in dois {
+            for p in RustStoreAdapter.shared.findByIdentifiers(doi: d, arxivId: nil, bibcode: nil) {
+                if seen.insert(p.id).inserted { papers.append(p) }
+            }
+        }
+        for a in arxivs {
+            for p in RustStoreAdapter.shared.findByIdentifiers(doi: nil, arxivId: a, bibcode: nil) {
+                if seen.insert(p.id).inserted { papers.append(p) }
+            }
+        }
+        for b in bibcodes {
+            for p in RustStoreAdapter.shared.findByIdentifiers(doi: nil, arxivId: nil, bibcode: b) {
+                if seen.insert(p.id).inserted { papers.append(p) }
+            }
+        }
+        return .json(["status": "ok", "papers": papers.map { paperToDict($0) }])
+    }
+
+    // MARK: - ===== Phase D: undo =====
+
+    /// GET /api/undo/recent?max_entries=N
+    @MainActor
+    private func handleRecentUndoGroups(_ request: HTTPRequest) async -> HTTPResponse {
+        let n = request.queryParams["max_entries"].flatMap { Int($0) } ?? 25
+        let groups = RustStoreAdapter.shared.recentUndoGroups(maxEntries: n)
+        let groupDicts: [[String: Any]] = groups.map { g in
+            var d: [String: Any] = [
+                "operation_id": g.operationId,
+                "operation_count": g.operationCount,
+                "description": g.description,
+                "timestamp": g.timestamp,
+            ]
+            if let b = g.batchId { d["batch_id"] = b }
+            return d
+        }
+        return .json(["status": "ok", "groups": groupDicts])
+    }
+
+    /// POST /api/undo/operation/{operation_id}
+    @MainActor
+    private func handleUndoOperation(operationID: String) async -> HTTPResponse {
+        guard let info = RustStoreAdapter.shared.undoOperation(operationId: operationID) else {
+            return .notFound("Operation not found: \(operationID)")
+        }
+        return .json(["status": "ok", "operation_count": info.operationIds.count])
+    }
+
+    /// POST /api/undo/batch/{batch_id}
+    @MainActor
+    private func handleUndoBatch(batchID: String) async -> HTTPResponse {
+        guard let info = RustStoreAdapter.shared.undoBatch(batchId: batchID) else {
+            return .notFound("Batch not found: \(batchID)")
+        }
+        return .json(["status": "ok", "operation_count": info.operationIds.count])
+    }
+
+    // MARK: - ===== Phase D: BibTeX import =====
+
+    /// POST /api/papers/import-bibtex — body: {bibtex, library_id}
+    @MainActor
+    private func handleImportBibTeX(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let text = json["bibtex"] as? String, !text.isEmpty else {
+            return .badRequest("Missing 'bibtex'")
+        }
+        guard let libRaw = (json["library_id"] as? String) ?? (json["libraryID"] as? String),
+              let libID = UUID(uuidString: libRaw) else {
+            return .badRequest("Missing or invalid 'library_id'")
+        }
+        let ids = RustStoreAdapter.shared.importBibTeX(text, libraryId: libID)
+        return .json(["status": "ok", "ids": ids.map { $0.uuidString }])
+    }
+
+    /// POST /api/papers/import-batch — body: {papers: [PaperImport], library_id}
+    /// PaperImport = { bibtex, doi?, arxiv_id?, bibcode? }
+    @MainActor
+    private func handleImportPapersBatch(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let papersRaw = json["papers"] as? [[String: Any]] else {
+            return .badRequest("Missing 'papers' array")
+        }
+        guard let libRaw = (json["library_id"] as? String) ?? (json["libraryID"] as? String),
+              let libID = UUID(uuidString: libRaw) else {
+            return .badRequest("Missing or invalid 'library_id'")
+        }
+        var importedIds: [String] = []
+        var existingIds: [String] = []
+        var failedCount = 0
+        for p in papersRaw {
+            guard let bib = p["bibtex"] as? String, !bib.isEmpty else { failedCount += 1; continue }
+            // Dedup by identifier first.
+            let doi = p["doi"] as? String
+            let arxiv = p["arxiv_id"] as? String ?? p["arxivId"] as? String
+            let bibcode = p["bibcode"] as? String
+            let existing = RustStoreAdapter.shared.findByIdentifiers(doi: doi, arxivId: arxiv, bibcode: bibcode)
+            if let hit = existing.first {
+                existingIds.append(hit.id.uuidString)
+                continue
+            }
+            let imported = RustStoreAdapter.shared.importBibTeX(bib, libraryId: libID)
+            importedIds.append(contentsOf: imported.map { $0.uuidString })
+        }
+        return .json([
+            "status": "ok",
+            "imported_ids": importedIds,
+            "existing_ids": existingIds,
+            "dismissed_count": 0,
+            "failed_count": failedCount,
+        ])
+    }
+
+    /// GET /api/libraries/{id}/export-bibtex — returns text/plain
+    @MainActor
+    private func handleExportAllBibTeXForLibrary(libraryID: UUID) async -> HTTPResponse {
+        let text = RustStoreAdapter.shared.exportAllBibTeX(libraryId: libraryID)
+        return .text(text)
+    }
+
+    // MARK: - ===== Phase D: linked files / PDFs =====
+
+    /// GET /api/papers/{citeKey}/files
+    @MainActor
+    private func handleListLinkedFilesForPaper(citeKey: String) async -> HTTPResponse {
+        guard let pubID = uuidForCiteKey(citeKey) else {
+            return .notFound("Publication not found for cite key: \(citeKey)")
+        }
+        let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
+        return .json(["status": "ok", "files": files.map { linkedFileToDict($0) }])
+    }
+
+    /// GET /api/papers/{citeKey}/files/count
+    @MainActor
+    private func handleCountPdfsForPaper(citeKey: String) async -> HTTPResponse {
+        guard let pubID = uuidForCiteKey(citeKey) else {
+            return .notFound("Publication not found for cite key: \(citeKey)")
+        }
+        let n = RustStoreAdapter.shared.countPdfs(publicationId: pubID)
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// POST /api/papers/{citeKey}/files
+    @MainActor
+    private func handleAddLinkedFile(citeKey: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let pubID = uuidForCiteKey(citeKey) else {
+            return .notFound("Publication not found for cite key: \(citeKey)")
+        }
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let filename = json["filename"] as? String, !filename.isEmpty else {
+            return .badRequest("Missing 'filename'")
+        }
+        let relativePath = json["relative_path"] as? String ?? json["relativePath"] as? String
+        let fileType = json["file_type"] as? String ?? json["fileType"] as? String
+        let fileSize = (json["file_size"] as? Int64) ?? Int64((json["file_size"] as? Int) ?? 0)
+        let sha256 = json["sha256"] as? String
+        let isPdf = (json["is_pdf"] as? Bool) ?? (json["isPdf"] as? Bool) ?? false
+        guard let file = RustStoreAdapter.shared.addLinkedFile(
+            publicationId: pubID,
+            filename: filename,
+            relativePath: relativePath,
+            fileType: fileType,
+            fileSize: fileSize,
+            sha256: sha256,
+            isPdf: isPdf
+        ) else {
+            return .serverError("Failed to add linked file")
+        }
+        return .json(["status": "ok", "file": linkedFileToDict(file)])
+    }
+
+    // MARK: - ===== Phase D: annotations (file-scoped) =====
+
+    /// GET /api/files/{linkedFileId}/annotations?page=N
+    @MainActor
+    private func handleListAnnotationsForFile(linkedFileID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        let _ = request.queryParams["page"].flatMap { Int32($0) }
+        // RustStoreAdapter doesn't expose list_annotations directly — go through imbibStore.
+        do {
+            let anns = try RustStoreAdapter.shared.imbibStore.listAnnotations(linkedFileId: linkedFileID.uuidString, pageNumber: nil)
+            let dicts: [[String: Any]] = anns.map { a in
+                var d: [String: Any] = [
+                    "id": a.id,
+                    "annotation_type": a.annotationType,
+                    "page_number": a.pageNumber,
+                    "date_created": a.dateCreated,
+                    "date_modified": a.dateModified,
+                    "linked_file_id": a.linkedFileId,
+                ]
+                if let b = a.boundsJson { d["bounds_json"] = b }
+                if let c = a.color { d["color"] = c }
+                if let c = a.contents { d["contents"] = c }
+                if let s = a.selectedText { d["selected_text"] = s }
+                if let n = a.authorName { d["author_name"] = n }
+                return d
+            }
+            return .json(["status": "ok", "annotations": dicts])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    /// GET /api/files/{linkedFileId}/annotations/count
+    @MainActor
+    private func handleCountAnnotationsForFile(linkedFileID: UUID) async -> HTTPResponse {
+        let n = RustStoreAdapter.shared.countAnnotations(linkedFileId: linkedFileID)
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// POST /api/files/{linkedFileId}/annotations
+    @MainActor
+    private func handleCreateAnnotationForFile(linkedFileID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let type = json["type"] as? String ?? json["annotation_type"] as? String else {
+            return .badRequest("Missing 'type'")
+        }
+        guard let page = (json["page"] as? Int64) ?? (json["page"] as? Int).map({ Int64($0) }) else {
+            return .badRequest("Missing 'page'")
+        }
+        let bounds = json["bounds"] as? String ?? json["bounds_json"] as? String
+        let color = json["color"] as? String
+        let contents = json["contents"] as? String
+        let selected = json["selected_text"] as? String ?? json["selectedText"] as? String
+        do {
+            let ann = try RustStoreAdapter.shared.imbibStore.createAnnotation(
+                linkedFileId: linkedFileID.uuidString,
+                annotationType: type,
+                pageNumber: page,
+                boundsJson: bounds,
+                color: color,
+                contents: contents,
+                selectedText: selected
+            )
+            var d: [String: Any] = [
+                "id": ann.id,
+                "annotation_type": ann.annotationType,
+                "page_number": ann.pageNumber,
+                "date_created": ann.dateCreated,
+                "date_modified": ann.dateModified,
+                "linked_file_id": ann.linkedFileId,
+            ]
+            if let b = ann.boundsJson { d["bounds_json"] = b }
+            if let c = ann.color { d["color"] = c }
+            if let c = ann.contents { d["contents"] = c }
+            if let s = ann.selectedText { d["selected_text"] = s }
+            return .json(["status": "ok", "annotation": d])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - ===== Phase D: smart searches =====
+
+    /// GET /api/smart-searches?library_id=...
+    @MainActor
+    private func handleListSmartSearches(_ request: HTTPRequest) async -> HTTPResponse {
+        let libID = request.queryParams["library_id"].flatMap { UUID(uuidString: $0) }
+        let items = RustStoreAdapter.shared.listSmartSearches(libraryId: libID)
+        return .json(["status": "ok", "searches": items.map { smartSearchToDict($0) }])
+    }
+
+    /// GET /api/smart-searches/{id}
+    @MainActor
+    private func handleGetSmartSearch(id: UUID) async -> HTTPResponse {
+        guard let s = RustStoreAdapter.shared.getSmartSearch(id: id) else {
+            return .notFound("Smart search not found: \(id.uuidString)")
+        }
+        return .json(["status": "ok", "search": smartSearchToDict(s)])
+    }
+
+    /// POST /api/smart-searches
+    @MainActor
+    private func handleCreateSmartSearch(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let name = json["name"] as? String, !name.isEmpty else { return .badRequest("Missing 'name'") }
+        guard let query = json["query"] as? String else { return .badRequest("Missing 'query'") }
+        guard let libRaw = (json["library_id"] as? String) ?? (json["libraryID"] as? String),
+              let libID = UUID(uuidString: libRaw) else { return .badRequest("Missing or invalid 'library_id'") }
+        let sourceIds = json["source_ids_json"] as? String
+        let maxResults = (json["max_results"] as? Int64) ?? Int64((json["max_results"] as? Int) ?? 100)
+        let feeds = (json["feeds_to_inbox"] as? Bool) ?? false
+        let autoRefresh = (json["auto_refresh_enabled"] as? Bool) ?? false
+        let interval = (json["refresh_interval_seconds"] as? Int64) ?? Int64((json["refresh_interval_seconds"] as? Int) ?? 3600)
+        guard let s = RustStoreAdapter.shared.createSmartSearch(
+            name: name,
+            query: query,
+            libraryId: libID,
+            sourceIdsJson: sourceIds,
+            maxResults: maxResults,
+            feedsToInbox: feeds,
+            autoRefreshEnabled: autoRefresh,
+            refreshIntervalSeconds: interval
+        ) else {
+            return .serverError("Failed to create smart search")
+        }
+        return .json(["status": "ok", "search": smartSearchToDict(s)])
+    }
+
+    // MARK: - ===== Phase D: SciX libraries =====
+
+    /// GET /api/scix-libraries
+    @MainActor
+    private func handleListScixLibraries() async -> HTTPResponse {
+        let libs = RustStoreAdapter.shared.listScixLibraries()
+        return .json(["status": "ok", "libraries": libs.map { scixLibraryToDict($0) }])
+    }
+
+    /// GET /api/scix-libraries/{id}
+    @MainActor
+    private func handleGetScixLibrary(id: UUID) async -> HTTPResponse {
+        guard let s = RustStoreAdapter.shared.getScixLibrary(id: id) else {
+            return .notFound("SciX library not found: \(id.uuidString)")
+        }
+        return .json(["status": "ok", "library": scixLibraryToDict(s)])
+    }
+
+    /// POST /api/scix-libraries — body matches createScixLibrary args
+    @MainActor
+    private func handleCreateScixLibrary(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let remoteId = json["remote_id"] as? String else { return .badRequest("Missing 'remote_id'") }
+        guard let name = json["name"] as? String else { return .badRequest("Missing 'name'") }
+        let desc = json["description"] as? String
+        let isPublic = (json["is_public"] as? Bool) ?? false
+        let perm = (json["permission_level"] as? String) ?? "read"
+        let owner = json["owner_email"] as? String
+        guard let lib = RustStoreAdapter.shared.createScixLibrary(
+            remoteId: remoteId,
+            name: name,
+            description: desc,
+            isPublic: isPublic,
+            permissionLevel: perm,
+            ownerEmail: owner
+        ) else {
+            return .serverError("Failed to create SciX library")
+        }
+        return .json(["status": "ok", "library": scixLibraryToDict(lib)])
+    }
+
+    /// POST /api/scix-libraries/{id}/papers — body: {publication_ids:[uuid]}
+    @MainActor
+    private func handleAddToScixLibrary(scixLibraryID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let idsRaw = (json["publication_ids"] as? [String]) ?? (json["publicationIds"] as? [String]) else {
+            return .badRequest("Missing 'publication_ids'")
+        }
+        let ids = idsRaw.compactMap { UUID(uuidString: $0) }
+        RustStoreAdapter.shared.addToScixLibrary(publicationIds: ids, scixLibraryId: scixLibraryID)
+        return .json(["status": "ok", "added": ids.count])
+    }
+
+    /// DELETE /api/scix-libraries/{id}/papers — body: {publication_ids:[uuid]}
+    @MainActor
+    private func handleRemoveFromScixLibrary(scixLibraryID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        guard let idsRaw = (json["publication_ids"] as? [String]) ?? (json["publicationIds"] as? [String]) else {
+            return .badRequest("Missing 'publication_ids'")
+        }
+        let ids = idsRaw.compactMap { UUID(uuidString: $0) }
+        RustStoreAdapter.shared.removeFromScixLibrary(publicationIds: ids, scixLibraryId: scixLibraryID)
+        return .json(["status": "ok", "removed": ids.count])
+    }
+
+    /// GET /api/scix-libraries/{id}/papers?limit=N&offset=M
+    @MainActor
+    private func handleQueryScixLibraryPapers(scixLibraryID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) }
+        let offset = request.queryParams["offset"].flatMap { UInt32($0) }
+        let papers = RustStoreAdapter.shared.queryScixLibraryPublications(
+            scixLibraryId: scixLibraryID,
+            sort: "date_added",
+            ascending: false,
+            limit: limit,
+            offset: offset
+        )
+        return .json(["status": "ok", "papers": papers.map { paperToDict($0) }])
+    }
+
+    /// GET /api/scix-libraries/{id}/papers/count
+    @MainActor
+    private func handleCountScixLibraryPapers(scixLibraryID: UUID) async -> HTTPResponse {
+        let n = (try? Int(RustStoreAdapter.shared.imbibStore.countScixLibraryPublications(scixLibraryId: scixLibraryID.uuidString))) ?? 0
+        return .json(["status": "ok", "count": n])
+    }
+
+    // MARK: - ===== Phase D: count endpoints =====
+
+    /// GET /api/papers/count/unread?parent_id=...
+    @MainActor
+    private func handleCountUnread(_ request: HTTPRequest) async -> HTTPResponse {
+        let parentID = request.queryParams["parent_id"].flatMap { UUID(uuidString: $0) }
+        let n = RustStoreAdapter.shared.countUnread(parentId: parentID)
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// GET /api/papers/count/starred?parent_id=...
+    @MainActor
+    private func handleCountStarred(_ request: HTTPRequest) async -> HTTPResponse {
+        let parentID = request.queryParams["parent_id"].flatMap { UUID(uuidString: $0) }
+        let n = RustStoreAdapter.shared.countStarred(parentId: parentID)
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// GET /api/papers/count/flagged?color=...
+    @MainActor
+    private func handleCountFlagged(_ request: HTTPRequest) async -> HTTPResponse {
+        let color = request.queryParams["color"]
+        let n = (try? Int(RustStoreAdapter.shared.imbibStore.countFlagged(color: color))) ?? 0
+        return .json(["status": "ok", "count": n])
+    }
+
+    /// GET /api/papers/count/by-tag?tag=...&parent_id=...
+    @MainActor
+    private func handleCountByTag(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let tag = request.queryParams["tag"] else { return .badRequest("Missing 'tag'") }
+        let parent = request.queryParams["parent_id"]
+        let n = (try? Int(RustStoreAdapter.shared.imbibStore.countByTag(tagPath: tag, parentId: parent))) ?? 0
+        return .json(["status": "ok", "count": n])
+    }
+
+    // MARK: - ===== Phase D: paper queries (recent / starred) =====
+
+    /// GET /api/papers/recent?limit=N&parent_id=...
+    @MainActor
+    private func handleQueryRecent(_ request: HTTPRequest) async -> HTTPResponse {
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) } ?? 50
+        let parent = request.queryParams["parent_id"]
+        do {
+            let papers = try RustStoreAdapter.shared.imbibStore.queryRecent(limit: limit, parentId: parent)
+            return .json(["status": "ok", "papers": papers.map { bibToDict($0) }])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    /// GET /api/papers/starred?limit=N&parent_id=...
+    @MainActor
+    private func handleQueryStarred(_ request: HTTPRequest) async -> HTTPResponse {
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) } ?? 50
+        let parent = request.queryParams["parent_id"]
+        do {
+            let papers = try RustStoreAdapter.shared.imbibStore.queryStarred(
+                parentId: parent,
+                sortField: "date_added",
+                ascending: false,
+                limit: limit,
+                offset: nil
+            )
+            return .json(["status": "ok", "papers": papers.map { bibToDict($0) }])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - ===== Phase D: artifacts (update + relations) =====
+
+    /// PUT /api/artifacts/{id}
+    @MainActor
+    private func handleUpdateArtifact(artifactID: UUID, request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else { return .badRequest("Invalid JSON body") }
+        let title = json["title"] as? String
+        let sourceUrl = json["source_url"] as? String
+        let notes = json["notes"] as? String
+        let subtype = json["artifact_subtype"] as? String
+        let captureContext = json["capture_context"] as? String
+        let originalAuthor = json["original_author"] as? String
+        let eventName = json["event_name"] as? String
+        let eventDate = json["event_date"] as? String
+        RustStoreAdapter.shared.updateArtifact(
+            id: artifactID,
+            title: title,
+            sourceURL: sourceUrl,
+            notes: notes,
+            artifactSubtype: subtype,
+            captureContext: captureContext,
+            originalAuthor: originalAuthor,
+            eventName: eventName,
+            eventDate: eventDate
+        )
+        return .json(["status": "ok"])
+    }
+
+    /// GET /api/artifacts/{id}/relations
+    @MainActor
+    private func handleGetArtifactRelations(id: UUID) async -> HTTPResponse {
+        do {
+            let rels = try RustStoreAdapter.shared.imbibStore.getArtifactRelations(id: id.uuidString)
+            let dicts: [[String: Any]] = rels.map { r in
+                var d: [String: Any] = [
+                    "target_id": r.targetId,
+                    "edge_type": r.edgeType,
+                ]
+                if let s = r.targetSchema { d["target_schema"] = s }
+                if let t = r.targetTitle { d["target_title"] = t }
+                return d
+            }
+            return .json(["status": "ok", "relations": dicts])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - ===== Phase D: item-by-UUID =====
+
+    /// GET /api/items/{uuid} — generic item lookup; if publication, return summary.
+    @MainActor
+    private func handleGetItemByUUID(itemID: UUID) async -> HTTPResponse {
+        // Try as publication first. getPublication: throws -> BibliographyRow?
+        do {
+            if let row = try RustStoreAdapter.shared.imbibStore.getPublication(id: itemID.uuidString) {
+                var dict = bibToDict(row)
+                dict["cite_key"] = row.citeKey
+                dict["citeKey"] = row.citeKey // back-compat
+                return .json(["status": "ok"].merging(dict) { _, new in new })
+            }
+        } catch {
+            // fall through to 404
+        }
+        return .notFound("Item not found: \(itemID.uuidString)")
+    }
+
+    // MARK: - ===== Phase D: BibliographyRow → dict helper =====
+
+    @MainActor
+    private func bibToDict(_ row: ImbibRustCore.BibliographyRow) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": row.id,
+            "cite_key": row.citeKey,
+            "title": row.title,
+            "authors": row.authorString,
+            "is_read": row.isRead,
+            "is_starred": row.isStarred,
+            "has_pdf": row.hasDownloadedPdf,
+            "tags": row.tags.map { $0.path },
+        ]
+        if let y = row.year { dict["year"] = y }
+        if let v = row.venue { dict["venue"] = v }
+        if let d = row.doi { dict["doi"] = d }
+        if let a = row.arxivId { dict["arxiv_id"] = a }
+        if let f = row.flagColor { dict["flag_color"] = f }
+        return dict
+    }
+
+    /// Convert PublicationRowData (used by the adapter) → dict. Mirrors bibToDict
+    /// so the wire format is the same regardless of whether the data came from
+    /// adapter or imbibStore directly.
+    @MainActor
+    private func paperToDict(_ p: PublicationRowData) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": p.id.uuidString,
+            "cite_key": p.citeKey,
+            "title": p.title,
+            "authors": p.authorString,
+            "is_read": p.isRead,
+            "is_starred": p.isStarred,
+            "has_pdf": p.hasDownloadedPDF,
+            "tags": p.tagDisplays.map { $0.path },
+        ]
+        if let y = p.year { dict["year"] = y }
+        if let v = p.venue { dict["venue"] = v }
+        if let d = p.doi { dict["doi"] = d }
+        if let a = p.arxivID { dict["arxiv_id"] = a }
+        if let f = p.flag?.color { dict["flag_color"] = f }
         return dict
     }
 }

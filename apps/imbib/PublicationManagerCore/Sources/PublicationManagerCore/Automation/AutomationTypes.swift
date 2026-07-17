@@ -701,7 +701,7 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
 /// bibliographic fields parsed (e.g. imprint with a LaTeX `\bibitem` line).
 ///
 /// Fields are left unsanitized — the server is responsible for LaTeX → Unicode
-/// conversion (via `LaTeXDecoder`) and per-source query escaping. Provide as
+/// conversion (via `ImbibRustCore.decodeLatex`) and per-source query escaping. Provide as
 /// much as you know; empty fields are skipped when building queries.
 public struct CitationInput: Codable, Sendable {
     /// Author surnames or full names. Each entry becomes a separate

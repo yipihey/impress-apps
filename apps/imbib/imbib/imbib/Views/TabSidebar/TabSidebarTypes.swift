@@ -50,6 +50,129 @@ enum ImbibTab: Hashable {
     case editFeed(UUID)          // Navigate to search form to edit an existing feed
 }
 
+// MARK: - Content Routes
+
+/// Declarative route for the main imbib content area.
+///
+/// The sidebar resolves to one of these value routes, and
+/// `SectionContentView` renders the route. Keeping this as a small value type
+/// makes SwiftUI identity, search mode, and future route additions explicit
+/// instead of scattering them through view-body switches.
+enum ImbibContentRoute: Equatable {
+    case publicationList(PublicationSource)
+    case searchForm(ImbibSearchFormRoute)
+    case artifacts(ArtifactType?)
+    case feedFormPicker
+    case journal(ImbibJournalRoute)
+
+    /// Stable key for selection clearing and SwiftUI cache boundaries.
+    var stableID: String {
+        switch self {
+        case .publicationList(let source):
+            return "source-\(source.viewID)"
+        case .searchForm(let route):
+            return "search-\(route.stableID)"
+        case .artifacts(let type):
+            return "artifacts-\(type?.rawValue ?? "all")"
+        case .feedFormPicker:
+            return "feedFormPicker"
+        case .journal(let route):
+            return "journal-\(route.stableID)"
+        }
+    }
+
+    var publicationSource: PublicationSource? {
+        if case .publicationList(let source) = self { return source }
+        return nil
+    }
+
+    var isSearchForm: Bool {
+        if case .searchForm = self { return true }
+        return false
+    }
+
+    var isArtifactRoute: Bool {
+        if case .artifacts = self { return true }
+        return false
+    }
+}
+
+struct ImbibSearchFormRoute: Equatable {
+    let formType: SearchFormType
+    let mode: SearchFormMode
+    let editingFeedID: UUID?
+
+    init(
+        formType: SearchFormType,
+        mode: SearchFormMode,
+        editingFeedID: UUID? = nil
+    ) {
+        self.formType = formType
+        self.mode = mode
+        self.editingFeedID = editingFeedID
+    }
+
+    var stableID: String {
+        var parts = [formType.rawValue, mode.routeKey]
+        if let editingFeedID {
+            parts.append("edit-\(editingFeedID.uuidString)")
+        }
+        return parts.joined(separator: "-")
+    }
+}
+
+enum ImbibJournalRoute: Equatable {
+    case submissions
+    case all
+    case status(JournalManuscriptStatus)
+    case manuscript(String)
+
+    var stableID: String {
+        switch self {
+        case .submissions:
+            return "submissions"
+        case .all:
+            return "all"
+        case .status(let status):
+            return "status-\(status.rawValue)"
+        case .manuscript(let id):
+            return "manuscript-\(id)"
+        }
+    }
+}
+
+extension ImbibTab {
+    var journalRoute: ImbibJournalRoute? {
+        switch self {
+        case .journalSubmissions:
+            return .submissions
+        case .journalAll:
+            return .all
+        case .journalByStatus(let status):
+            return .status(status)
+        case .manuscript(let id):
+            return .manuscript(id)
+        default:
+            return nil
+        }
+    }
+}
+
+extension SearchFormMode {
+    var routeKey: String {
+        switch self {
+        case .librarySmartSearch(let id, _):
+            return "librarySmartSearch-\(id.uuidString)"
+        case .inboxFeed:
+            return "inboxFeed"
+        case .libraryFeed(let id, _):
+            return "libraryFeed-\(id.uuidString)"
+        case .explorationSearch:
+            return "explorationSearch"
+        }
+    }
+}
+
 // MARK: - Flag Counts
 
 /// Sidebar flag counts for badge display

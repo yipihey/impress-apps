@@ -39,8 +39,8 @@ struct IOSContentView: View {
     // Category search (for navigating from category chip tap)
     @State private var pendingCategorySearch: String?
 
-    // Global search palette
-    @State private var showGlobalSearch = false
+    // Cmd+F local find and Cmd+S online source search
+    @State private var searchPresenter = ImbibSearchPresenter()
 
     // Active detail tab (for search context)
     @State private var activeDetailTab: DetailTab = .info
@@ -77,9 +77,9 @@ struct IOSContentView: View {
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
             }
-            .fullScreenCover(isPresented: $showGlobalSearch) {
+            .fullScreenCover(isPresented: localFindPresented) {
                 GlobalSearchPaletteView(
-                    isPresented: $showGlobalSearch,
+                    isPresented: localFindPresented,
                     onSelect: { publicationID in
                         navigateToPublication(publicationID)
                     },
@@ -93,7 +93,7 @@ struct IOSContentView: View {
                         )
                     }
                 )
-                .environment(\.searchContext, currentSearchContext)
+                .environment(\.searchContext, searchPresenter.localFindContext)
             }
             .task {
                 await libraryViewModel.loadPublications()
@@ -121,12 +121,42 @@ struct IOSContentView: View {
                     activeDetailTab = tab
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .performSearchAction)) { notification in
+                guard let action = ImbibSearchAction.from(notification) else { return }
+                presentSearch(action)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showGlobalSearch)) { _ in
+                presentSearch(.localFind(context: currentSearchContext, source: .notificationBridge))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in
+                presentSearch(.localFind(context: currentSearchContext, source: .notificationBridge))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showNLSearch)) { _ in
+                presentSearch(.onlineSourceSearch(source: .notificationBridge))
+            }
             .background {
                 KeyboardShortcutButtons(
                     showImportPicker: $showImportPicker,
-                    showExportPicker: $showExportPicker
+                    showExportPicker: $showExportPicker,
+                    onLocalFind: {
+                        presentSearch(.localFind(context: currentSearchContext, source: .keyboardShortcut))
+                    },
+                    onOnlineSourceSearch: {
+                        presentSearch(.onlineSourceSearch(source: .keyboardShortcut))
+                    }
                 )
             }
+    }
+
+    private var localFindPresented: Binding<Bool> {
+        Binding(
+            get: { searchPresenter.isLocalFindPresented },
+            set: { isPresented in
+                if !isPresented {
+                    searchPresenter.dismiss(.localFind)
+                }
+            }
+        )
     }
 
     // MARK: - Main Split View
@@ -143,7 +173,7 @@ struct IOSContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showGlobalSearch = true
+                        presentSearch(.localFind(context: currentSearchContext, source: .toolbarButton))
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -176,6 +206,21 @@ struct IOSContentView: View {
             detailView
         }
         .navigationSplitViewStyle(.balanced)
+    }
+
+    private func presentSearch(_ action: ImbibSearchAction) {
+        switch action.workflow {
+        case .localFind:
+            searchPresenter.perform(action)
+
+        case .onlineSourceSearch:
+            searchPresenter.dismiss()
+            selectedSection = .searchForm(.adsModern)
+            Logger.search.infoCapture(
+                "Presenting iOS online source search fallback from \(action.source.rawValue)",
+                category: "search"
+            )
+        }
     }
 
     // MARK: - Content List
@@ -783,6 +828,8 @@ struct IOSSourceChip: View {
 struct KeyboardShortcutButtons: View {
     @Binding var showImportPicker: Bool
     @Binding var showExportPicker: Bool
+    let onLocalFind: () -> Void
+    let onOnlineSourceSearch: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -797,6 +844,14 @@ struct KeyboardShortcutButtons: View {
                 showExportPicker = true
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            // Find in Library (Cmd+F)
+            Button("Find in Library", action: onLocalFind)
+                .keyboardShortcut("f", modifiers: .command)
+
+            // Search Online Sources (Cmd+S)
+            Button("Search Online Sources", action: onOnlineSourceSearch)
+                .keyboardShortcut("s", modifiers: .command)
 
             // Show Library (Cmd+1)
             Button("Library") {

@@ -199,7 +199,23 @@ public final class AttachmentManager {
             }
 
             try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            Logger.files.infoCapture("Copied file to: \(resolvedFilename)", category: "files")
+            // Verify the copy actually landed where we asked. iCloud
+            // staging, race conditions, or path normalization issues
+            // can produce a no-error return without a real file on
+            // disk — surface that immediately so the bug doesn't hide
+            // behind a misleading "Copied file to:" success log.
+            let landed = fileManager.fileExists(atPath: destinationURL.path)
+            let landedSize = (try? fileManager.attributesOfItem(atPath: destinationURL.path)[.size] as? Int64) ?? -1
+            Logger.files.infoCapture(
+                "Copied file to: \(resolvedFilename) (exists=\(landed), size=\(landedSize))",
+                category: "files"
+            )
+            if !landed {
+                Logger.files.errorCapture(
+                    "Post-copy verification FAILED: file not at \(destinationURL.path)",
+                    category: "files"
+                )
+            }
         } catch {
             Logger.files.errorCapture("Failed to copy file: \(error.localizedDescription)", category: "files")
             throw AttachmentError.copyFailed(sourceURL, error)

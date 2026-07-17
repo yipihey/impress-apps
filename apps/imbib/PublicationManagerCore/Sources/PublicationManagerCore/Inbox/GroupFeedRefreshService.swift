@@ -254,6 +254,23 @@ public actor GroupFeedRefreshService {
                         allResults.append(result)
                     }
                 }
+            } catch let error as SourceError {
+                if case .rateLimited = error {
+                    // arXiv has rate-limited us at the IP level. Continuing the
+                    // loop just earns more 429s and extends the cool-down for
+                    // any user-initiated search the user might run in parallel.
+                    // Abandon the remaining authors; the next refresh cycle
+                    // will pick them up after arXiv resets.
+                    Logger.inbox.warningCapture(
+                        "Group feed aborted at '\(author)': arXiv rate limited. Remaining authors will be retried on the next refresh cycle.",
+                        category: "group-feed"
+                    )
+                    break
+                }
+                Logger.inbox.errorCapture(
+                    "Failed to search for author '\(author)': \(error.localizedDescription)",
+                    category: "group-feed"
+                )
             } catch {
                 Logger.inbox.errorCapture(
                     "Failed to search for author '\(author)': \(error.localizedDescription)",
@@ -378,12 +395,16 @@ public actor GroupFeedRefreshService {
         // Create new publications and add to Inbox
         var newPaperIDs: [UUID] = []
         if !newResults.isEmpty {
-            // Get default library for import
-            let defaultLibraryId = await withStore { store -> UUID? in
-                store.getDefaultLibrary()?.id ?? store.listLibraries().first?.id
+            // Import directly to the Inbox library. Using the default ("Save")
+            // library here is a bug — `addToInboxBatch` below then duplicates the
+            // paper into Inbox, leaving the original copy stranded in Save.
+            let inboxLibraryId = await withStore { store -> UUID? in
+                store.getInboxLibrary()?.id
+                    ?? store.getDefaultLibrary()?.id
+                    ?? store.listLibraries().first?.id
             }
-            guard let libraryId = defaultLibraryId else {
-                Logger.inbox.errorCapture("No library available for import", category: "group-feed")
+            guard let libraryId = inboxLibraryId else {
+                Logger.inbox.errorCapture("No Inbox library available for import", category: "group-feed")
                 return existingPubIDsToAdd.count
             }
 

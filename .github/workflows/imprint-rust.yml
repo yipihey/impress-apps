@@ -5,12 +5,16 @@ on:
     branches: [main]
     paths:
       - 'crates/imprint-core/**'
+      - 'crates/imprint-service/**'
+      - 'crates/imprint-selftest/**'
       - 'crates/impress-*/**'
       - '.github/workflows/imprint-rust.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/imprint-core/**'
+      - 'crates/imprint-service/**'
+      - 'crates/imprint-selftest/**'
       - 'crates/impress-*/**'
       - '.github/workflows/imprint-rust.yml'
 
@@ -51,6 +55,39 @@ jobs:
 
       - name: Run tests
         run: cargo test --features native
+
+  selftest:
+    name: Service + Self-Test (Tier A)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-imprint-selftest-${{ hashFiles('**/Cargo.lock') }}
+
+      # Exercises the imprint-service traits + the imprint-selftest harness.
+      # Tier A is pure-Rust and headless (no app, no UI). Tier B is skipped in
+      # CI since no imprint app is running — the harness reports those as
+      # skipped, not failed.
+      - name: Test service + self-test crates
+        run: cargo test -p imprint-service -p imprint-selftest
+
+      # Run the Tier A capability report and fail the build if any capability
+      # regresses. `--tier a` never touches the network; the binary exits
+      # non-zero if any capability fails.
+      - name: Run Tier A capability self-test
+        run: cargo run -p imprint-selftest --bin imprint-selftest -- --tier a
 
   generate-bindings:
     name: Generate Swift Bindings
