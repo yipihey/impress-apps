@@ -14,7 +14,11 @@
 pub mod convert;
 pub mod diagnostics;
 pub mod formatter;
+#[cfg(feature = "tectonic-render")]
+pub mod tectonic;
 
 pub use convert::*;
 pub use diagnostics::*;
 pub use formatter::*;
+#[cfg(feature = "tectonic-render")]
+pub use tectonic::{compile_latex_tectonic, TectonicResult};

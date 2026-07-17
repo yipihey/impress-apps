@@ -242,6 +242,111 @@ pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileR
     }
 }
 
+// ============================================================================
+// UniFFI Exports for Tectonic LaTeX Rendering (gated on `tectonic-render`)
+// ============================================================================
+
+/// A single LaTeX diagnostic surfaced to Swift. `severity` is
+/// `"error" | "warning" | "info"`.
+#[cfg(all(feature = "uniffi", feature = "tectonic-render"))]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiLatexDiagnostic {
+    pub severity: String,
+    pub file: String,
+    pub line: u32,
+    pub column: Option<u32>,
+    pub message: String,
+    pub context: Option<String>,
+}
+
+/// Result of compiling a LaTeX document with the embedded Tectonic engine.
+#[cfg(all(feature = "uniffi", feature = "tectonic-render"))]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LatexCompileResult {
+    /// PDF bytes if compilation produced a PDF.
+    pub pdf_data: Option<Vec<u8>>,
+    /// Raw `.synctex.gz` bytes if SyncTeX was requested and produced.
+    pub synctex_data: Option<Vec<u8>>,
+    /// Structured diagnostics (errors + warnings), in source order.
+    pub diagnostics: Vec<FfiLatexDiagnostic>,
+    /// Wall-clock compile time in milliseconds.
+    pub compile_ms: u64,
+    /// Fatal-error summary if no PDF was produced.
+    pub error: Option<String>,
+}
+
+/// Options for a Tectonic compile.
+#[cfg(all(feature = "uniffi", feature = "tectonic-render"))]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TectonicOptions {
+    /// Request SyncTeX output for source↔PDF sync.
+    pub synctex: bool,
+    /// Writable directory for Tectonic's on-demand package/format cache
+    /// (the sandbox container Caches dir, passed from Swift). `None` = default.
+    pub cache_dir: Option<String>,
+    /// Directory used to resolve on-disk references (figures, `\input`).
+    /// MUST be the document's working dir, else `\includegraphics` fails.
+    pub filesystem_root: Option<String>,
+}
+
+/// Compile a LaTeX source string to PDF using the embedded Tectonic engine.
+///
+/// Runs in-process (no external `pdflatex`, no toolbox). Fetches TeX packages
+/// on demand into `options.cache_dir` on first use. Panics are caught at the
+/// FFI boundary and returned as an error result.
+#[cfg(all(feature = "uniffi", feature = "tectonic-render"))]
+#[uniffi::export]
+pub fn compile_latex_tectonic(source: String, options: TectonicOptions) -> LatexCompileResult {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::latex::compile_latex_tectonic(
+            &source,
+            options.synctex,
+            options.cache_dir.as_deref(),
+            options.filesystem_root.as_deref(),
+        )
+    }));
+
+    match result {
+        Ok(r) => LatexCompileResult {
+            pdf_data: r.pdf_data,
+            synctex_data: r.synctex_data,
+            diagnostics: r
+                .diagnostics
+                .into_iter()
+                .map(|d| FfiLatexDiagnostic {
+                    severity: match d.severity {
+                        crate::latex::diagnostics::Severity::Error => "error",
+                        crate::latex::diagnostics::Severity::Warning => "warning",
+                        crate::latex::diagnostics::Severity::Info => "info",
+                    }
+                    .to_string(),
+                    file: d.file,
+                    line: d.line,
+                    column: d.column,
+                    message: d.message,
+                    context: d.context,
+                })
+                .collect(),
+            compile_ms: r.compile_ms,
+            error: r.error,
+        },
+        Err(panic_info) => {
+            let msg = panic_info
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic_info.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "Unknown panic during Tectonic compilation".to_string());
+            LatexCompileResult {
+                pdf_data: None,
+                synctex_data: None,
+                diagnostics: Vec::new(),
+                compile_ms: 0,
+                error: Some(format!("Internal error: {msg}")),
+            }
+        }
+    }
+}
+
 // Thread-local persistent renderer — fonts load once per thread, comemo caches persist.
 #[cfg(all(feature = "uniffi", feature = "typst-render"))]
 thread_local! {

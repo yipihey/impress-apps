@@ -2,6 +2,9 @@ import Foundation
 import ImpressLogging
 import ImpressToolbox
 import OSLog
+#if IMPRINT_TECTONIC
+import ImprintRustCore
+#endif
 
 /// Engine choices for LaTeX compilation.
 enum LaTeXEngine: String, CaseIterable, Codable, Sendable {
@@ -9,6 +12,12 @@ enum LaTeXEngine: String, CaseIterable, Codable, Sendable {
     case xelatex
     case lualatex
     case latexmk
+    // Embedded, self-contained Tectonic engine (in-process, no system TeX).
+    // Gated: only present in a Tectonic-enabled build (see IMPRINT_TECTONIC),
+    // which links imprint-core's `tectonic-render` feature.
+    #if IMPRINT_TECTONIC
+    case tectonic
+    #endif
 
     var displayName: String {
         switch self {
@@ -16,6 +25,9 @@ enum LaTeXEngine: String, CaseIterable, Codable, Sendable {
         case .xelatex: "XeLaTeX"
         case .lualatex: "LuaLaTeX"
         case .latexmk: "latexmk"
+        #if IMPRINT_TECTONIC
+        case .tectonic: "Tectonic"
+        #endif
         }
     }
 
@@ -25,6 +37,11 @@ enum LaTeXEngine: String, CaseIterable, Codable, Sendable {
             ["-pdf", "-interaction=nonstopmode", "-synctex=1", "-output-directory=\(outputDir)"]
         case .pdflatex, .xelatex, .lualatex:
             ["-interaction=nonstopmode", "-synctex=1", "-output-directory=\(outputDir)"]
+        #if IMPRINT_TECTONIC
+        case .tectonic:
+            // Tectonic runs in-process via imprint-core; no CLI args.
+            []
+        #endif
         }
     }
 }
@@ -85,6 +102,12 @@ actor LaTeXCompilationService {
     ///   - options: Compilation options.
     /// - Returns: A `LaTeXCompilationResult` with PDF data, diagnostics, etc.
     func compile(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+        #if IMPRINT_TECTONIC
+        if engine == .tectonic {
+            // Self-contained in-process engine — no toolbox / system TeX.
+            return try await compileViaTectonic(sourceURL: sourceURL, options: options)
+        }
+        #endif
         if await ToolboxClient.shared.isAvailable() {
             return try await compileViaToolbox(sourceURL: sourceURL, engine: engine, options: options)
         } else {
@@ -92,6 +115,95 @@ actor LaTeXCompilationService {
             return try await compileLocal(sourceURL: sourceURL, engine: engine, options: options)
         }
     }
+
+    #if IMPRINT_TECTONIC
+    /// Warm the Tectonic engine at launch: a trivial throwaway compile that
+    /// primes the on-demand package bundle (fetched into the sandbox cache) and
+    /// the LaTeX format cache, so the user's first real compile isn't slow.
+    /// Idempotent and cheap once warm. Runs off the main thread.
+    static func warmTectonic() async {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("tectonic", isDirectory: true)
+        if let cacheDir { try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true) }
+        let start = Date()
+        let opts = ImprintRustCore.TectonicOptions(synctex: false, cacheDir: cacheDir?.path, filesystemRoot: nil)
+        let src = "\\documentclass{article}\\begin{document}warm\\end{document}"
+        _ = await Task.detached(priority: .background) {
+            ImprintRustCore.compileLatexTectonic(source: src, options: opts)
+        }.value
+        Logger.compilation.infoCapture(
+            "Tectonic engine warmed in \(Int(Date().timeIntervalSince(start) * 1000))ms",
+            category: "latex"
+        )
+    }
+
+    /// Compile via the embedded Tectonic engine (imprint-core `tectonic-render`).
+    /// Runs in-process on a detached task; maps the Rust `LatexCompileResult`
+    /// into the shared `LaTeXCompilationResult`. Packages are fetched on demand
+    /// into the app's sandbox Caches dir.
+    private func compileViaTectonic(sourceURL: URL, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("tectonic", isDirectory: true)
+        if let cacheDir { try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true) }
+
+        let start = Date()
+        let rustOptions = ImprintRustCore.TectonicOptions(
+            synctex: options.synctex,
+            cacheDir: cacheDir?.path,
+            // Resolve figures/\input against the doc's temp compile dir (where the
+            // view model mirrors the Veusz figures/ before calling us).
+            filesystemRoot: sourceURL.deletingLastPathComponent().path
+        )
+        let result = await Task.detached(priority: .userInitiated) {
+            ImprintRustCore.compileLatexTectonic(source: source, options: rustOptions)
+        }.value
+        let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+
+        // Write SyncTeX bytes to a sibling file so SyncTeXService can load it.
+        var synctexURL: URL?
+        if let synctexBytes = result.synctexData {
+            let url = sourceURL.deletingPathExtension().appendingPathExtension("synctex.gz")
+            try? Data(synctexBytes).write(to: url)
+            synctexURL = url
+        }
+
+        let allDiagnostics = result.diagnostics.map { d in
+            LaTeXDiagnostic(
+                file: d.file,
+                line: Int(d.line),
+                column: d.column.map(Int.init),
+                message: d.message,
+                severity: LaTeXDiagnostic.DiagnosticSeverity(rawValue: d.severity) ?? .warning,
+                context: d.context
+            )
+        }
+        let errors = allDiagnostics.filter { $0.severity == .error }
+        let warnings = allDiagnostics.filter { $0.severity != .error }
+        // Surface the fatal-error summary if the engine produced no diagnostics.
+        var finalErrors = errors
+        if let err = result.error, errors.isEmpty {
+            finalErrors = [LaTeXDiagnostic(file: sourceURL.lastPathComponent, line: 0, column: nil,
+                                           message: err, severity: .error, context: nil)]
+        }
+
+        Logger.compilation.infoCapture(
+            "Tectonic compile: pdf=\(result.pdfData?.count ?? 0)b, synctex=\(result.synctexData?.count ?? 0)b, diags=\(allDiagnostics.count), \(result.compileMs)ms",
+            category: "latex"
+        )
+
+        return LaTeXCompilationResult(
+            pdfData: result.pdfData.map { Data($0) },
+            pdfURL: nil,
+            synctexURL: synctexURL,
+            logOutput: result.error ?? "",
+            errors: finalErrors,
+            warnings: warnings,
+            exitCode: result.pdfData == nil ? 1 : 0,
+            compilationTimeMs: result.compileMs > 0 ? Int(result.compileMs) : elapsedMs
+        )
+    }
+    #endif
 
     // MARK: - Toolbox Compilation
 

@@ -120,6 +120,15 @@ impl ImprintTextService for HttpImprintTextService {
         let default = imprint_service::text_service::DefaultImprintTextService;
         default.extract_cite_key_usages(source, syntax).await
     }
+    async fn compose_citation(&self, cite_key: String, format: String, append_space: bool) -> String {
+        // Pure/stateless — compute in-process (no HTTP route needed).
+        let default = imprint_service::text_service::DefaultImprintTextService;
+        default.compose_citation(cite_key, format, append_space).await
+    }
+    async fn compose_heading(&self, title: String, level: i64, format: String) -> String {
+        let default = imprint_service::text_service::DefaultImprintTextService;
+        default.compose_heading(title, level, format).await
+    }
 }
 
 // =====================================================================

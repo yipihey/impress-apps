@@ -6,6 +6,24 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Self-contained C dependencies for the Tectonic LaTeX engine, built statically
+# via `cargo vcpkg build` so a `tectonic-render` build links no Homebrew dylibs.
+# vcpkg's stock macOS triplets default to static linkage, so no custom triplet
+# overlay is needed here (unlike Windows). Mirrors tectonic's own manifest.
+# Usage: `cargo vcpkg build --manifest-path crates/imprint-core/Cargo.toml`
+# then build with VCPKG_ROOT=target/vcpkg TECTONIC_DEP_BACKEND=vcpkg.
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "a62ce77d56ee07513b4b67de1ec2daeaebfae51a"
+
+[package.metadata.vcpkg.target.aarch64-apple-darwin]
+triplet = "arm64-osx"
+install = ["freetype", "harfbuzz[graphite2]", "icu"]
+
+[package.metadata.vcpkg.target.x86_64-apple-darwin]
+triplet = "x64-osx"
+install = ["freetype", "harfbuzz[graphite2]", "icu"]
+
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
 
@@ -16,6 +34,10 @@ uniffi = ["dep:uniffi"]
 typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
 # Full native build with both UniFFI and Typst
 native = ["uniffi", "typst-render"]
+# Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
+# freetype2, graphite2, icu4c, libpng, zlib; harfbuzz vendored). Kept OUT of
+# `native` until proven — see Phase 0 build spike.
+tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_errors"]
 
 [dependencies]
 # Workspace crates
@@ -55,6 +77,15 @@ typst-pdf = { version = "0.14", optional = true }
 typst-svg = { version = "0.14", optional = true }
 typst-as-lib = { version = "0.15", optional = true, features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
 comemo = { version = "0.4", optional = true }
+
+# Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
+# Default features keep bundled HarfBuzz + reqwest-based bundle fetching.
+tectonic = { version = "0.16", optional = true }
+# StatusBackend trait for capturing structured diagnostics from the driver.
+tectonic_status_base = { version = "0.2", optional = true }
+# The `Error` type used in the StatusBackend::report signature (distinct from
+# tectonic::errors::Error, which is error_chain-based).
+tectonic_errors = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

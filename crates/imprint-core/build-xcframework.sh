@@ -22,20 +22,43 @@ XCFRAMEWORK_NAME="ImprintCore"
 MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
 
-echo "=== Building imprint-core Rust library ==="
+# Feature set + arch selection.
+#
+# IMPRINT_TECTONIC=1 adds the self-contained Tectonic LaTeX engine. Its C deps
+# (freetype/graphite2/harfbuzz/icu) are built statically via vcpkg so the result
+# links no Homebrew dylibs. This variant is **arm64-only** for now — building
+# the C-dep tree universally is future work — so it skips the x86_64 slice.
+CARGO_FEATURES="native"
+BUILD_X86=1
+if [ "${IMPRINT_TECTONIC:-0}" = "1" ]; then
+    CARGO_FEATURES="native,tectonic-render"
+    BUILD_X86=0
+    export VCPKG_ROOT="${VCPKG_ROOT:-$WORKSPACE_ROOT/target/vcpkg}"
+    export TECTONIC_DEP_BACKEND=vcpkg
+    echo "IMPRINT_TECTONIC=1 → features=$CARGO_FEATURES, arm64-only, vcpkg=$VCPKG_ROOT"
+    if [ ! -d "$VCPKG_ROOT/installed" ]; then
+        echo "ERROR: vcpkg static deps not found at $VCPKG_ROOT."
+        echo "Build them first: cargo vcpkg build --manifest-path crates/imprint-core/Cargo.toml"
+        exit 1
+    fi
+fi
+
+echo "=== Building imprint-core Rust library (features: $CARGO_FEATURES) ==="
 
 # Ensure required targets are installed
 echo "Installing Rust targets..."
 rustup target add $MACOS_TARGET $MACOS_X86_TARGET 2>/dev/null || true
 
-# Build for macOS with the native feature (uniffi + typst-render)
+# Build for macOS with the selected features
 echo ""
-echo "Building for macOS (arm64) with native features..."
-cargo build --release --target $MACOS_TARGET --features native
+echo "Building for macOS (arm64) with features: $CARGO_FEATURES ..."
+cargo build --release --target $MACOS_TARGET --features "$CARGO_FEATURES"
 
-echo ""
-echo "Building for macOS (x86_64) with native features..."
-cargo build --release --target $MACOS_X86_TARGET --features native
+if [ "$BUILD_X86" = "1" ]; then
+    echo ""
+    echo "Building for macOS (x86_64) with features: $CARGO_FEATURES ..."
+    cargo build --release --target $MACOS_X86_TARGET --features "$CARGO_FEATURES"
+fi
 
 # Create framework directory structure
 echo ""
@@ -47,21 +70,28 @@ mkdir -p "$FRAMEWORK_DIR"
 MACOS_UNIVERSAL_DIR="$FRAMEWORK_DIR/macos-universal"
 mkdir -p "$MACOS_UNIVERSAL_DIR"
 
-echo "Creating universal macOS binary..."
-lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimprint_core.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimprint_core.a"
+if [ "$BUILD_X86" = "1" ]; then
+    echo "Creating universal macOS binary (arm64 + x86_64)..."
+    lipo -create \
+        "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.a" \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimprint_core.a" \
+        -output "$MACOS_UNIVERSAL_DIR/libimprint_core.a"
+else
+    echo "Creating arm64-only macOS binary (Tectonic variant)..."
+    cp "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.a" \
+        "$MACOS_UNIVERSAL_DIR/libimprint_core.a"
+fi
 
 # Generate Swift bindings
 echo ""
 echo "Generating Swift bindings..."
 
 # First, build the uniffi-bindgen binary
-cargo build --release --target $MACOS_TARGET --features native --bin uniffi-bindgen
+cargo build --release --target $MACOS_TARGET --features "$CARGO_FEATURES" --bin uniffi-bindgen
 
-# Then use it to generate bindings
-cargo run --release --target $MACOS_TARGET --features native --bin uniffi-bindgen -- generate \
+# Then use it to generate bindings (features must match so Tectonic exports
+# like `compileLatexTectonic` appear when IMPRINT_TECTONIC=1)
+cargo run --release --target $MACOS_TARGET --features "$CARGO_FEATURES" --bin uniffi-bindgen -- generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.dylib" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"

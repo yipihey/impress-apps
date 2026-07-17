@@ -61,6 +61,18 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             PerfBucket.snapshot: 100,   // snapshot rebuilds
         ])
 
+        #if IMPRINT_TECTONIC
+        // Warm the Tectonic engine off the main thread: the first compile
+        // otherwise pays a large one-time cost fetching the TeX package bundle
+        // into the sandbox cache + building the LaTeX format. Doing a trivial
+        // throwaway compile at launch moves that cost off the user's first real
+        // compile. Delayed so it doesn't compete with startup.
+        Task.detached(priority: .background) {
+            try? await Task.sleep(for: .seconds(8))
+            await LaTeXCompilationService.warmTectonic()
+        }
+        #endif
+
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         logInfo("HTTP server starting on port \(port)", category: "http-server")
         // Start HTTP automation server for AI/MCP integration
