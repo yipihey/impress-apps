@@ -213,9 +213,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             let ruler = BracketRulerNSView(frame: .zero)
             ruler.textView = textView
             ruler.autoresizingMask = [.minXMargin, .height]
+            configureRulerAI(ruler)
             textView.bracketRuler = ruler
             textView.addSubview(ruler)
             textView.textContainerInset = NSSize(width: BracketRulerNSView.gutterWidth, height: 4)
+        }
+        // AI tasks on a plain text selection use the same catalog + handler.
+        textView.aiTasks = InlineAITaskCatalog.tasks()
+        textView.aiRequestHandler = { actionId, range in
+            InlineAITaskCatalog.post(actionId: actionId, range: range)
         }
 
         // Set initial text
@@ -354,6 +360,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                     width: BracketRulerNSView.gutterWidth, height: textView.bounds.height))
                 ruler.textView = textView
                 ruler.autoresizingMask = [.minXMargin, .height]
+                configureRulerAI(ruler)
                 textView.bracketRuler = ruler
                 textView.addSubview(ruler)
                 textView.textContainerInset = NSSize(width: BracketRulerNSView.gutterWidth, height: 4)
@@ -364,6 +371,16 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             ruler.removeFromSuperview()
             textView.bracketRuler = nil
             textView.textContainerInset = NSSize(width: 0, height: 4)
+        }
+    }
+
+    /// Wire the bracket ruler's AI submenu: the curated task list + a handler
+    /// that posts `.runInlineAITask` (observed by ContentView) with the picked
+    /// task and the bracket's source range.
+    private func configureRulerAI(_ ruler: BracketRulerNSView) {
+        ruler.aiTasks = InlineAITaskCatalog.tasks()
+        ruler.aiRequestHandler = { actionId, range in
+            InlineAITaskCatalog.post(actionId: actionId, range: range)
         }
     }
 
@@ -728,8 +745,36 @@ class TypstTextView: HelixTextView {
     /// cell brackets provide an explicit, always-bounded entry point.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let menu = super.menu(for: event) else { return nil }
-        menu.allowsContextMenuPlugIns = selectedRange().length > 0
+        let selection = selectedRange()
+        menu.allowsContextMenuPlugIns = selection.length > 0
+        // Offer the configurable AI author-tasks on a non-empty selection, the
+        // same entry the cell brackets provide (bounded to the selected range).
+        if selection.length > 0, !aiTasks.isEmpty {
+            menu.addItem(.separator())
+            let aiItem = NSMenuItem(title: "AI", action: nil, keyEquivalent: "")
+            aiItem.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+            let submenu = NSMenu()
+            submenu.allowsContextMenuPlugIns = false
+            for task in aiTasks {
+                let item = submenu.addItem(withTitle: task.title, action: #selector(runSelectionAITask(_:)), keyEquivalent: "")
+                item.target = self
+                item.image = NSImage(systemSymbolName: task.icon, accessibilityDescription: nil)
+                item.representedObject = SelectionAIMenuPayload(actionId: task.id, range: selection)
+            }
+            aiItem.submenu = submenu
+            menu.addItem(aiItem)
+        }
         return menu
+    }
+
+    /// Curated AI tasks for the selection context menu + the handler, both set
+    /// by the coordinator (mirrors the bracket ruler).
+    var aiTasks: [(id: String, title: String, icon: String)] = []
+    var aiRequestHandler: ((_ actionId: String, _ range: NSRange) -> Void)?
+
+    @objc private func runSelectionAITask(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? SelectionAIMenuPayload else { return }
+        aiRequestHandler?(payload.actionId, payload.range)
     }
 
     // MARK: - Key Handling
@@ -821,6 +866,59 @@ class TypstTextView: HelixTextView {
         if let font = self.font {
             ghostView.lineHeight = font.ascender - font.descender + font.leading
         }
+    }
+}
+
+/// Menu payload for the selection AI submenu (action id + selected range).
+private final class SelectionAIMenuPayload: NSObject {
+    let actionId: String
+    let range: NSRange
+    init(actionId: String, range: NSRange) {
+        self.actionId = actionId
+        self.range = range
+    }
+}
+
+/// Curated Phase-1 author tasks surfaced in the bracket + selection "AI" menus,
+/// plus the notification used to run one on a source range. Titles/icons are
+/// resolved from the live `AIContextMenuService` task set so they stay in sync.
+enum InlineAITaskCatalog {
+    /// Action ids (from `AIAction.allActions`) in menu order.
+    static let curatedIDs = [
+        "rewrite.improve_clarity",
+        "rewrite.make_concise",
+        "rewrite.expand_detail",
+        "structure.integrate",
+        "review.suggest_improvements",
+        "citations.find_supporting",
+    ]
+
+    /// Action ids whose output replaces the target range (vs. advisory
+    /// commentary like Review, which the preview shows read-only).
+    static let replacingIDs: Set<String> = [
+        "rewrite.improve_clarity", "rewrite.make_concise", "rewrite.make_formal",
+        "rewrite.expand_detail", "rewrite.fix_grammar",
+        "structure.integrate", "structure.to_bullets", "structure.to_paragraph",
+    ]
+
+    static func isReplacement(_ actionId: String) -> Bool { replacingIDs.contains(actionId) }
+
+    @MainActor
+    static func tasks() -> [(id: String, title: String, icon: String)] {
+        let actions = AIContextMenuService.shared.actions
+        return curatedIDs.compactMap { id in
+            guard let action = actions.first(where: { $0.id == id }) else { return nil }
+            return (id: action.id, title: action.title, icon: action.effectiveIcon)
+        }
+    }
+
+    static func post(actionId: String, range: NSRange) {
+        Logger.editor.infoCapture("InlineAITask post: \(actionId) range=\(range.location),\(range.length)", category: "ai")
+        NotificationCenter.default.post(
+            name: .runInlineAITask,
+            object: nil,
+            userInfo: ["actionId": actionId, "range": NSValue(range: range)]
+        )
     }
 }
 

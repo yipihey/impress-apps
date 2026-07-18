@@ -871,6 +871,9 @@ extension Notification.Name {
     static let presentVeuszPlotPicker = Notification.Name("presentVeuszPlotPicker")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
+    /// Run a specific AI author-task on a source range (from a cell bracket or
+    /// text selection). userInfo: ["actionId": String, "range": NSValue(range:)].
+    static let runInlineAITask = Notification.Name("imprint.runInlineAITask")
     static let showSymbolPalette = Notification.Name("showSymbolPalette")
     static let formatDocument = Notification.Name("formatDocument")
 

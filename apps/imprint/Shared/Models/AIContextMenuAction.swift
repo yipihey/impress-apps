@@ -318,6 +318,25 @@ extension AIAction {
         icon: "number"
     )
 
+    public static let integrateBetter = AIAction(
+        id: "structure.integrate",
+        category: .structure,
+        title: "Integrate better with the rest",
+        systemPrompt: """
+            Revise the following passage so it fits smoothly into the surrounding manuscript.
+            Match the terminology, notation, and tone of the section titled "{{section_heading}}"
+            in the document "{{document_title}}". Improve the transitions into and out of the
+            neighbouring text, remove redundancy with what surrounds it, and keep every claim,
+            citation key (\\cite{...} or @key), label, and equation intact.
+
+            Neighbouring context for reference (do not repeat it):
+            {{paragraph}}
+
+            Return only the revised passage, with no commentary.
+            """,
+        icon: "arrow.triangle.merge"
+    )
+
     // MARK: Review Actions
 
     public static let checkLogicalFlow = AIAction(
@@ -379,6 +398,7 @@ extension AIAction {
         .convertToParagraph,
         .addTransition,
         .suggestHeading,
+        .integrateBetter,
         // Review
         .checkLogicalFlow,
         .identifyWeakArguments,

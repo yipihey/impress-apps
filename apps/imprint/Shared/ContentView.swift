@@ -50,6 +50,8 @@ struct ContentView: View {
     @State private var showingAIContextMenu = false
     @State private var currentSuggestion: RewriteSuggestion?
     @State private var aiErrorMessage: String?
+    /// Running inline AI author-task (streaming into `currentSuggestion`).
+    @State private var inlineAITask: Task<Void, Never>?
 
     #if os(macOS)
     /// Comment service for this document (macOS only)
@@ -418,27 +420,15 @@ struct ContentView: View {
             )
             .frame(width: 300, height: 500)
         }
-        .sheet(item: $currentSuggestion) { suggestion in
-            RewriteSuggestionView(
-                suggestion: suggestion,
-                onAccept: { text in
-                    replaceSelection(with: text)
-                    currentSuggestion = nil
-                },
-                onReject: {
-                    currentSuggestion = nil
-                },
-                onEdit: {
-                    // Open in AI chat sidebar with the suggestion
-                    appState.showingAIAssistant = true
-                    currentSuggestion = nil
-                },
-                onCancel: suggestion.isStreaming ? {
-                    AIContextMenuService.shared.cancelCurrentAction()
-                    currentSuggestion = nil
-                } : nil
-            )
+        // Non-modal, flow-preserving AI result preview (replaces the old modal
+        // sheet). Driven from the cell brackets / selection AI menu and from the
+        // Cmd+Shift+A picker; streams the result and applies it undo-friendly.
+        .onReceive(NotificationCenter.default.publisher(for: .runInlineAITask)) { note in
+            guard let actionId = note.userInfo?["actionId"] as? String,
+                  let range = (note.userInfo?["range"] as? NSValue)?.rangeValue else { return }
+            startInlineAITask(actionId: actionId, range: range)
         }
+        .overlay(alignment: .topTrailing) { inlineAITaskOverlay }
         // External-candidate picker for "import missing cite key" flow.
         // Attached here (at `mainContent` level) rather than inside the
         // sidebar List Section — SwiftUI-on-macOS flickers sheets whose
@@ -465,17 +455,17 @@ struct ContentView: View {
             )
         }
         .environment(citationPicker)
-        .alert("AI Error", isPresented: Binding(
-            get: { aiErrorMessage != nil },
-            set: { if !$0 { aiErrorMessage = nil } }
-        )) {
-            Button("OK") {
-                aiErrorMessage = nil
-            }
+        .alert("AI Error", isPresented: aiErrorBinding) {
+            Button("OK") { aiErrorMessage = nil }
         } message: {
             Text(aiErrorMessage ?? "An unknown error occurred.")
         }
         #endif
+    }
+
+    /// Binding for the AI error alert presentation.
+    private var aiErrorBinding: Binding<Bool> {
+        Binding(get: { aiErrorMessage != nil }, set: { if !$0 { aiErrorMessage = nil } })
     }
 
     /// The mode-specific main pane (text-only / split-view / direct-pdf).
@@ -766,19 +756,136 @@ struct ContentView: View {
 
     /// Replace the current selection with new text
     private func replaceSelection(with text: String) {
-        guard let range = appState.selectedRange,
-              let swiftRange = Range(range, in: document.source) else {
-            // No selection, insert at cursor
+        guard let range = appState.selectedRange else {
             insertTextAtCursor(text)
             return
         }
+        applyAIResult(text, range: range)
+    }
 
-        document.source.replaceSubrange(swiftRange, with: text)
+    /// Apply AI-produced `text` over an explicit source `range` (from a cell
+    /// bracket, a selection, or the picker). Mutates the document's source of
+    /// truth; the editor re-syncs and re-highlights.
+    private func applyAIResult(_ text: String, range: NSRange) {
+        Logger.ai.infoCapture("applyAIResult: range=\(range.location),\(range.length) newLen=\(text.count) srcLen=\(document.source.count)", category: "ai")
+        // Read-modify-assign through a local so the @Binding setter definitely
+        // fires (nested mutation of a computed property can hit a temporary).
+        var newSource = document.source
+        guard let swiftRange = Range(range, in: newSource) else {
+            Logger.ai.errorCapture("applyAIResult: Range() nil for \(range.location),\(range.length) — inserting at cursor", category: "ai")
+            insertTextAtCursor(text)
+            return
+        }
+        newSource.replaceSubrange(swiftRange, with: text)
+        document.source = newSource
         cursorPosition = range.location + text.count
-
-        // Clear selection
         appState.selectedText = ""
         appState.selectedRange = NSRange(location: cursorPosition, length: 0)
+        Logger.ai.infoCapture("applyAIResult: applied; srcLen now \(document.source.count)", category: "ai")
+    }
+
+    // MARK: - Inline AI Author-Tasks
+
+    /// Non-modal preview card for the running/finished inline AI task.
+    @ViewBuilder
+    private var inlineAITaskOverlay: some View {
+        if let suggestion = currentSuggestion {
+            InlineAITaskCard(
+                suggestion: suggestion,
+                isAdvisory: !InlineAITaskCatalog.isReplacement(suggestion.action.id),
+                onAccept: { text in
+                    applyAIResult(text, range: suggestion.range)
+                    dismissInlineAITask()
+                },
+                onDiscard: { dismissInlineAITask() },
+                onRetry: { startInlineAITask(actionId: suggestion.action.id, range: suggestion.range) }
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Start an AI author-task on a source range: seed the non-modal preview
+    /// card and stream the model output into it. On-device by default (no key).
+    private func startInlineAITask(actionId: String, range: NSRange) {
+        Logger.ai.infoCapture("startInlineAITask: \(actionId) range=\(range.location),\(range.length) sourceLen=\(document.source.count)", category: "ai")
+        guard let action = AIContextMenuService.shared.actions.first(where: { $0.id == actionId }) else {
+            Logger.ai.errorCapture("startInlineAITask: unknown action \(actionId)", category: "ai")
+            return
+        }
+        let source = document.source as NSString
+        guard range.location >= 0, NSMaxRange(range) <= source.length else {
+            Logger.ai.errorCapture("startInlineAITask: range out of bounds \(range.location),\(range.length) vs \(source.length)", category: "ai")
+            return
+        }
+        let selectedText = source.substring(with: range)
+        let context = inlineTaskContext(for: range)
+
+        inlineAITask?.cancel()
+
+        // Citation search opens imbib rather than producing a rewrite card.
+        if action.opensImbib {
+            currentSuggestion = nil
+            inlineAITask = Task {
+                do {
+                    for try await _ in AIContextMenuService.shared.executeActionStreaming(
+                        action, selectedText: selectedText, range: range, context: context
+                    ) { /* imbib handles the flow; it signals completion by throwing */ }
+                } catch { /* handledByImbib / cancelled — nothing to show inline */ }
+            }
+            return
+        }
+
+        currentSuggestion = RewriteSuggestion(
+            originalText: selectedText,
+            suggestedText: "",
+            action: action,
+            range: range,
+            isStreaming: true
+        )
+
+        inlineAITask = Task {
+            do {
+                for try await partial in AIContextMenuService.shared.executeActionStreaming(
+                    action, selectedText: selectedText, range: range, context: context
+                ) {
+                    currentSuggestion = partial
+                }
+            } catch is CancellationError {
+                // dismissed by the user
+            } catch {
+                currentSuggestion = nil
+                aiErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func dismissInlineAITask() {
+        inlineAITask?.cancel()
+        inlineAITask = nil
+        AIContextMenuService.shared.cancelCurrentAction()
+        currentSuggestion = nil
+    }
+
+    /// Cheap prompt context for a range: containing section title + body +
+    /// document title. (Phase 2 replaces this with a richer PromptContextBuilder.)
+    private func inlineTaskContext(for range: NSRange) -> DocumentContext {
+        let source = document.source
+        let format: SectionFormat = appState.documentFormat == .latex ? .latex : .typst
+        let sections = SectionExtractor.extract(from: source, documentID: document.id, format: format)
+        let loc = range.location
+        let containing = sections.last(where: { $0.start <= loc && loc < $0.end })
+        let ns = source as NSString
+        let paragraph = containing.map { sec -> String in
+            let start = min(max(0, sec.bodyStart), ns.length)
+            let end = min(max(start, sec.end), ns.length)
+            return ns.substring(with: NSRange(location: start, length: end - start))
+        }
+        return DocumentContext(
+            documentTitle: document.title,
+            surroundingParagraph: paragraph,
+            sectionHeading: containing?.title,
+            fullSource: source
+        )
     }
 
     // MARK: - Auto-Compile

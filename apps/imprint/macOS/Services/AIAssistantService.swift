@@ -65,9 +65,12 @@ public final class AIAssistantService {
         }
     }
 
-    /// Synchronous check for UI (uses cached state)
+    /// Synchronous check for UI (uses cached state). On-device Apple needs no
+    /// key — it's configured whenever Apple Intelligence is available.
     public var isConfiguredSync: Bool {
         switch provider {
+        case .apple:
+            return completionService.isAppleOnDeviceAvailable
         case .claude:
             return UserDefaults.standard.bool(forKey: "ai.anthropic.hasKey")
         case .openai:
@@ -251,6 +254,7 @@ public final class AIAssistantService {
 
 /// AI provider options
 public enum AIProvider: String, CaseIterable, Identifiable {
+    case apple
     case claude
     case openai
 
@@ -258,13 +262,18 @@ public enum AIProvider: String, CaseIterable, Identifiable {
 
     public var displayName: String {
         switch self {
+        case .apple: return "Apple Intelligence (on-device)"
         case .claude: return "Claude (Anthropic)"
         case .openai: return "GPT (OpenAI)"
         }
     }
 
+    /// On-device Apple needs no API key.
+    public var requiresAPIKey: Bool { self != .apple }
+
     init(fromTextProvider provider: AITextProvider) {
         switch provider {
+        case .appleOnDevice: self = .apple
         case .anthropic: self = .claude
         case .openai: self = .openai
         }
@@ -272,6 +281,7 @@ public enum AIProvider: String, CaseIterable, Identifiable {
 
     var toTextProvider: AITextProvider {
         switch self {
+        case .apple: return .appleOnDevice
         case .claude: return .anthropic
         case .openai: return .openai
         }
