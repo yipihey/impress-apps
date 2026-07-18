@@ -907,7 +907,8 @@ enum InlineAITaskCatalog {
     static func tasks() -> [(id: String, title: String, icon: String)] {
         let actions = AIContextMenuService.shared.actions
         return curatedIDs.compactMap { id in
-            guard let action = actions.first(where: { $0.id == id }) else { return nil }
+            guard AITaskPreferences.isEnabled(id),
+                  let action = actions.first(where: { $0.id == id }) else { return nil }
             return (id: action.id, title: action.title, icon: action.effectiveIcon)
         }
     }

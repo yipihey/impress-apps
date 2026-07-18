@@ -31,6 +31,12 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.tabs.ai")
 
+            AITasksSettingsView()
+                .tabItem {
+                    Label("AI Tasks", systemImage: "sparkles.rectangle.stack")
+                }
+                .accessibilityIdentifier("settings.tabs.aiTasks")
+
             ImbibSettingsView()
                 .tabItem {
                     Label("Citations", systemImage: "books.vertical")
