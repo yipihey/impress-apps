@@ -48,26 +48,48 @@ public final class AITextCompletionService {
     private let credentialManager = AICredentialManager.shared
     private let anthropicProvider = AnthropicProvider()
     private let openAIProvider = OpenAIProvider()
+    private let appleProvider = AppleFoundationModelsProvider()
 
     // MARK: - Initialization
 
     private init() {
-        let stored = UserDefaults.standard.string(forKey: "impressai.selectedProvider") ?? "anthropic"
-        selectedProvider = AITextProvider(rawValue: stored) ?? .anthropic
+        // Respect a stored preference; otherwise default to the keyless
+        // on-device model when available, falling back to Claude.
+        if let stored = UserDefaults.standard.string(forKey: "impressai.selectedProvider"),
+           let provider = AITextProvider(rawValue: stored) {
+            selectedProvider = provider
+        } else {
+            selectedProvider = appleProvider.isAvailable ? .appleOnDevice : .anthropic
+        }
     }
 
     // MARK: - Configuration
 
-    /// Check if the current provider is configured with credentials.
+    /// Check if the current provider is configured with credentials. Reports
+    /// true when the on-device Apple model is available even if the selected
+    /// cloud provider has no key — calls transparently fall back to on-device.
     public var isConfigured: Bool {
         get async {
-            await credentialManager.hasCredential(for: selectedProvider.providerId, field: "apiKey")
+            if await isConfigured(provider: selectedProvider) { return true }
+            return appleProvider.isAvailable
         }
     }
 
-    /// Check if a specific provider is configured.
+    /// Resolve the provider a call should actually use: the requested one when
+    /// it's configured, otherwise the keyless on-device model when available.
+    /// This heals existing users whose stored preference is an unconfigured
+    /// cloud provider — the feature works out of the box instead of erroring.
+    private func resolveEffectiveProvider(_ requested: AITextProvider) async -> AITextProvider {
+        if await isConfigured(provider: requested) { return requested }
+        if appleProvider.isAvailable { return .appleOnDevice }
+        return requested
+    }
+
+    /// Check if a specific provider is configured. The on-device provider needs
+    /// no key — it's "configured" whenever Apple Intelligence is available.
     public func isConfigured(provider: AITextProvider) async -> Bool {
-        await credentialManager.hasCredential(for: provider.providerId, field: "apiKey")
+        if provider == .appleOnDevice { return appleProvider.isAvailable }
+        return await credentialManager.hasCredential(for: provider.providerId, field: "apiKey")
     }
 
     /// Set API key for a provider.
@@ -101,7 +123,7 @@ public final class AITextCompletionService {
         maxTokens: Int = 2000,
         provider: AITextProvider? = nil
     ) async throws -> String {
-        let targetProvider = provider ?? selectedProvider
+        let targetProvider = await resolveEffectiveProvider(provider ?? selectedProvider)
 
         guard await isConfigured(provider: targetProvider) else {
             throw AITextCompletionError.notConfigured
@@ -138,7 +160,7 @@ public final class AITextCompletionService {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let targetProvider = provider ?? self.selectedProvider
+                    let targetProvider = await self.resolveEffectiveProvider(provider ?? self.selectedProvider)
 
                     guard await self.isConfigured(provider: targetProvider) else {
                         throw AITextCompletionError.notConfigured
@@ -187,18 +209,24 @@ public final class AITextCompletionService {
 
     private func getProvider(for provider: AITextProvider) -> any AIProvider {
         switch provider {
+        case .appleOnDevice:
+            return appleProvider
         case .anthropic:
             return anthropicProvider
         case .openai:
             return openAIProvider
         }
     }
+
+    /// Whether the on-device Apple model is usable on this device right now.
+    public var isAppleOnDeviceAvailable: Bool { appleProvider.isAvailable }
 }
 
 // MARK: - Supporting Types
 
 /// Available text completion providers.
 public enum AITextProvider: String, CaseIterable, Identifiable, Sendable {
+    case appleOnDevice
     case anthropic
     case openai
 
@@ -206,13 +234,18 @@ public enum AITextProvider: String, CaseIterable, Identifiable, Sendable {
 
     public var displayName: String {
         switch self {
+        case .appleOnDevice: return "Apple Intelligence (on-device)"
         case .anthropic: return "Claude (Anthropic)"
         case .openai: return "GPT (OpenAI)"
         }
     }
 
+    /// Whether this provider needs an API key (on-device does not).
+    public var requiresAPIKey: Bool { self != .appleOnDevice }
+
     var providerId: String {
         switch self {
+        case .appleOnDevice: return appleOnDeviceProviderId
         case .anthropic: return "anthropic"
         case .openai: return "openai"
         }

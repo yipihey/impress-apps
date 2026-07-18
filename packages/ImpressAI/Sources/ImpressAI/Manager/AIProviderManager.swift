@@ -89,6 +89,11 @@ public actor AIProviderManager {
     /// This includes native Swift providers for common services.
     /// Call `registerExtendedProviders()` to add Rust-backed providers.
     public func registerBuiltInProviders() {
+        // On-device Apple Intelligence — keyless, private, offline. Registered
+        // first so it's the natural default when no cloud key is configured.
+        // The provider self-reports unavailability at call time on unsupported
+        // platforms, so registering it unconditionally is safe.
+        register(AppleFoundationModelsProvider())
         register(AnthropicProvider(credentialManager: credentialManager))
         register(OpenAIProvider(credentialManager: credentialManager))
         register(GoogleProvider(credentialManager: credentialManager))

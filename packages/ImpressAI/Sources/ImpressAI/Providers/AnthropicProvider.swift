@@ -13,8 +13,8 @@ public actor AnthropicProvider: AIProvider {
         models: [
             // Current models
             AIModel(
-                id: "claude-opus-4-6",
-                name: "Claude Opus 4.6",
+                id: "claude-opus-4-8",
+                name: "Claude Opus 4.8",
                 description: "Most intelligent model for agents and coding",
                 contextWindow: 200_000,
                 maxOutputTokens: 128_000,
@@ -22,8 +22,8 @@ public actor AnthropicProvider: AIProvider {
                 capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
             ),
             AIModel(
-                id: "claude-sonnet-4-5-20250929",
-                name: "Claude Sonnet 4.5",
+                id: "claude-sonnet-5",
+                name: "Claude Sonnet 5",
                 description: "Best combination of speed and intelligence",
                 contextWindow: 200_000,
                 maxOutputTokens: 64_000,
@@ -47,8 +47,8 @@ public actor AnthropicProvider: AIProvider {
                 capabilities: [.streaming, .vision, .tools, .systemPrompt, .jsonMode, .thinking]
             ),
             AIModel(
-                id: "claude-sonnet-4-20250514",
-                name: "Claude Sonnet 4",
+                id: "claude-sonnet-4-5-20250929",
+                name: "Claude Sonnet 4.5",
                 description: "Previous-gen balanced model",
                 contextWindow: 200_000,
                 maxOutputTokens: 64_000,
@@ -141,7 +141,7 @@ public actor AnthropicProvider: AIProvider {
         httpRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         var body: [String: Any] = [
-            "model": request.modelId ?? metadata.defaultModel?.id ?? "claude-opus-4-6",
+            "model": request.modelId ?? metadata.defaultModel?.id ?? "claude-opus-4-8",
             "max_tokens": request.maxTokens ?? 4096,
             "stream": stream
         ]
