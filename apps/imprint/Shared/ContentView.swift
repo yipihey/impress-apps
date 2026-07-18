@@ -912,11 +912,21 @@ struct ContentView: View {
                     )
                     added += 1
                 }
-                currentSuggestion = nil
                 if added > 0 {
                     appState.showingComments = true
+                    // Replace the progress spinner with a clear confirmation so the
+                    // card doesn't just vanish (the findings are anchored comments,
+                    // not inline text — see the Comments panel).
+                    currentSuggestion = RewriteSuggestion(
+                        originalText: passage,
+                        suggestedText: "Added \(added) review comment\(added == 1 ? "" : "s"). Open the Comments panel to see them.",
+                        action: action,
+                        range: range,
+                        isStreaming: false
+                    )
                     Logger.ai.infoCapture("Review: added \(added) comments (\(action.id))", category: "ai")
                 } else {
+                    currentSuggestion = nil
                     aiErrorMessage = "AI review found nothing specific to flag in this passage."
                 }
             } catch is CancellationError {
@@ -971,25 +981,16 @@ struct ContentView: View {
         currentSuggestion = nil
     }
 
-    /// Cheap prompt context for a range: containing section title + body +
-    /// document title. (Phase 2 replaces this with a richer PromptContextBuilder.)
+    /// Rich prompt context for a range (section body/heading, outline,
+    /// surrounding sections, cited papers) via the shared PromptContextBuilder.
     private func inlineTaskContext(for range: NSRange) -> DocumentContext {
-        let source = document.source
         let format: SectionFormat = appState.documentFormat == .latex ? .latex : .typst
-        let sections = SectionExtractor.extract(from: source, documentID: document.id, format: format)
-        let loc = range.location
-        let containing = sections.last(where: { $0.start <= loc && loc < $0.end })
-        let ns = source as NSString
-        let paragraph = containing.map { sec -> String in
-            let start = min(max(0, sec.bodyStart), ns.length)
-            let end = min(max(start, sec.end), ns.length)
-            return ns.substring(with: NSRange(location: start, length: end - start))
-        }
-        return DocumentContext(
+        return PromptContextBuilder.build(
+            range: range,
+            source: document.source,
             documentTitle: document.title,
-            surroundingParagraph: paragraph,
-            sectionHeading: containing?.title,
-            fullSource: source
+            documentID: document.id,
+            format: format
         )
     }
 

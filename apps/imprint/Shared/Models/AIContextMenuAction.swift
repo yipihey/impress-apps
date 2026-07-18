@@ -157,16 +157,32 @@ public struct DocumentContext {
     /// Full document source (for context-heavy operations).
     public let fullSource: String?
 
+    /// The document outline (indented heading list) — `{{outline}}`.
+    public let outline: String?
+
+    /// The titles/first-lines of the sections immediately before and after the
+    /// current one — `{{surrounding_sections}}`.
+    public let surroundingSections: String?
+
+    /// The papers cited in/near the selection (citeKey — title) — `{{cited_papers}}`.
+    public let citedPapers: String?
+
     public init(
         documentTitle: String? = nil,
         surroundingParagraph: String? = nil,
         sectionHeading: String? = nil,
-        fullSource: String? = nil
+        fullSource: String? = nil,
+        outline: String? = nil,
+        surroundingSections: String? = nil,
+        citedPapers: String? = nil
     ) {
         self.documentTitle = documentTitle
         self.surroundingParagraph = surroundingParagraph
         self.sectionHeading = sectionHeading
         self.fullSource = fullSource
+        self.outline = outline
+        self.surroundingSections = surroundingSections
+        self.citedPapers = citedPapers
     }
 }
 
@@ -364,13 +380,18 @@ extension AIAction {
         title: "Integrate better with the rest",
         systemPrompt: """
             Revise the following passage so it fits smoothly into the surrounding manuscript.
-            Match the terminology, notation, and tone of the section titled "{{section_heading}}"
-            in the document "{{document_title}}". Improve the transitions into and out of the
-            neighbouring text, remove redundancy with what surrounds it, and keep every claim,
-            citation key (\\cite{...} or @key), label, and equation intact.
+            Match the terminology, notation, and tone of the section "{{section_heading}}" in the
+            document "{{document_title}}". Improve the transitions into and out of the neighbouring
+            text, remove redundancy with what surrounds it, and keep every claim, citation key
+            (\\cite{...} or @key), label, and equation intact.
 
-            Neighbouring context for reference (do not repeat it):
-            {{paragraph}}
+            Document outline:
+            {{outline}}
+
+            Adjacent sections:
+            {{surrounding_sections}}
+
+            Papers already cited nearby: {{cited_papers}}
 
             Return only the revised passage, with no commentary.
             """,

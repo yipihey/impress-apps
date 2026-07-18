@@ -673,11 +673,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
         if action.outputMode == .proposeCitations {
             return (action.outputMode.rawValue, "Citation suggestions are interactive; run this task from the editor.")
         }
-        let context = DocumentContext(
-            documentTitle: nil,
-            surroundingParagraph: text,
-            sectionHeading: nil,
-            fullSource: source
+        // Same rich context the editor builds (outline, surrounding sections, …).
+        let format: SectionFormat = source.contains("\\documentclass") || source.contains("\\begin{document}") ? .latex : .typst
+        let context = PromptContextBuilder.build(
+            range: range, source: source, documentTitle: nil, documentID: UUID(), format: format
         )
         // runCollected frames the prompt correctly for every task type (system
         // prompt = the task instruction, user message = the text). The

@@ -341,6 +341,9 @@ public final class AIContextMenuService {
         prompt = prompt.replacingOccurrences(of: "{{paragraph}}", with: context.surroundingParagraph ?? selectedText)
         prompt = prompt.replacingOccurrences(of: "{{document_title}}", with: context.documentTitle ?? "Untitled")
         prompt = prompt.replacingOccurrences(of: "{{section_heading}}", with: context.sectionHeading ?? "")
+        prompt = prompt.replacingOccurrences(of: "{{outline}}", with: context.outline ?? "(outline unavailable)")
+        prompt = prompt.replacingOccurrences(of: "{{surrounding_sections}}", with: context.surroundingSections ?? "(none)")
+        prompt = prompt.replacingOccurrences(of: "{{cited_papers}}", with: context.citedPapers ?? "(none)")
 
         return prompt
     }
