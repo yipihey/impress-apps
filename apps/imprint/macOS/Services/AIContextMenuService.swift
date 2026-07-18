@@ -239,6 +239,25 @@ public final class AIContextMenuService {
         }
     }
 
+    /// Run an action and return only the final text, collecting the streamed
+    /// result. Uses the same correct prompting as the interactive path (system
+    /// prompt = task instruction, user message = text). Intended for headless
+    /// callers like the HTTP task endpoint / agents.
+    public func runCollected(
+        _ action: AIAction,
+        selectedText: String,
+        range: NSRange,
+        context: DocumentContext = DocumentContext()
+    ) async throws -> String {
+        var result = ""
+        for try await suggestion in executeActionStreaming(
+            action, selectedText: selectedText, range: range, context: context
+        ) {
+            result = suggestion.suggestedText
+        }
+        return result
+    }
+
     /// Clear the current suggestion state.
     public func clearSuggestion() {
         suggestionState = .idle

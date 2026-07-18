@@ -679,10 +679,14 @@ public actor ImprintHTTPRouter: HTTPRouter {
             sectionHeading: nil,
             fullSource: source
         )
-        let suggestion = try await AIContextMenuService.shared.executeAction(
+        // runCollected frames the prompt correctly for every task type (system
+        // prompt = the task instruction, user message = the text). The
+        // non-streaming executeAction treats the instruction itself as
+        // text-to-rewrite, which garbles non-rewrite tasks like Review.
+        let result = try await AIContextMenuService.shared.runCollected(
             action, selectedText: text, range: range, context: context
         )
-        return (action.outputMode.rawValue, suggestion.suggestedText)
+        return (action.outputMode.rawValue, result)
     }
 
     /// GET /api/documents/{id}/pdf
