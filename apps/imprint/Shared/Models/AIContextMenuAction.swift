@@ -43,6 +43,33 @@ public enum AIActionCategory: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+// MARK: - Task Output Mode
+
+/// How an AI author-task's result is applied to the manuscript.
+public enum TaskOutputMode: String, Codable, Hashable {
+    /// Replace the target range with the generated text.
+    case replace
+    /// Insert the generated text immediately after the target range.
+    case insertAfter
+    /// Read-only commentary — offered for Copy, never a destructive Accept.
+    case advisory
+    /// Structured findings become anchored comments (Review); buffer untouched.
+    case annotateAsComment
+    /// Ranked `\cite{}` suggestions, presented for confirmation (never auto-inserted).
+    case proposeCitations
+    /// Show a side-by-side diff preview, then replace on accept.
+    case sideBySideDiff
+
+    /// Whether accepting this mode writes text back into the manuscript buffer
+    /// (vs. commentary/annotations that leave the source untouched).
+    public var appliesToBuffer: Bool {
+        switch self {
+        case .replace, .insertAfter, .sideBySideDiff: return true
+        case .advisory, .annotateAsComment, .proposeCitations: return false
+        }
+    }
+}
+
 // MARK: - AI Action
 
 /// An individual AI action that can be performed on selected text.
@@ -90,6 +117,19 @@ public struct AIAction: Identifiable, Hashable, Codable {
     /// Get the effective icon (action-specific or category default).
     public var effectiveIcon: String {
         icon ?? category.icon
+    }
+
+    /// How this action's result is applied to the document. Derived from the
+    /// category/id so no per-action wiring or Codable changes are needed.
+    public var outputMode: TaskOutputMode {
+        if opensImbib { return .proposeCitations }
+        switch category {
+        case .review: return .annotateAsComment          // findings → anchored comments
+        case .explain: return .advisory                  // read-only commentary
+        case .structure: return id == "structure.integrate" ? .sideBySideDiff : .replace
+        case .citations: return .replace                 // format/insert-style helpers
+        case .rewrite: return .replace
+        }
     }
 
     public static func == (lhs: AIAction, rhs: AIAction) -> Bool {

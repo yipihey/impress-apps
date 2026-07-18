@@ -60,6 +60,12 @@ import AppKit
 /// - `POST /api/compile/typst` - Stateless: compile source bytes → PDF (journal pipeline)
 /// - `POST /api/compile/bundle` - Compile a manuscript bundle (typst or LaTeX) → PDF
 /// - `OPTIONS /*` - CORS preflight
+/// Error for the AI author-task HTTP endpoint (bad task id, etc.).
+private struct ImprintTaskError: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
+}
+
 public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - Initialization
@@ -83,6 +89,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
         if request.method == "GET" {
             if pathLower == "/api/status" {
                 return await handleStatus()
+            }
+
+            if pathLower == "/api/tasks" {
+                return await handleListTasks()
             }
 
             if pathLower == "/api/logs" {
@@ -343,6 +353,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     return await handleReplace(id: docId, request: request)
                 }
 
+                // POST /api/documents/{id}/task — run an AI author-task on a range.
+                if remainderLower.hasSuffix("/task") {
+                    let docId = String(remainder.dropLast("/task".count))
+                    return await handleRunTask(id: docId, request: request)
+                }
+
                 if remainderLower.hasSuffix("/insert") {
                     let docId = String(remainder.dropLast("/insert".count))
                     return await handleInsertText(id: docId, request: request)
@@ -586,6 +602,87 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ]
 
         return .json(response)
+    }
+
+    // MARK: - AI Author-Tasks
+
+    /// GET /api/tasks — list the available AI author-tasks.
+    private func handleListTasks() async -> HTTPResponse {
+        let actions = await AIContextMenuService.shared.actions
+        let tasks: [[String: Any]] = actions.map { action in
+            [
+                "id": action.id,
+                "title": action.title,
+                "category": action.category.rawValue,
+                "outputMode": action.outputMode.rawValue,
+                "requiresSelection": action.requiresSelection,
+            ]
+        }
+        return .json(["status": "ok", "tasks": tasks])
+    }
+
+    /// POST /api/documents/{id}/task — run an AI author-task on a source range.
+    /// Body: `{ "taskId": String, "start": Int?, "length": Int? }` (defaults to
+    /// the whole document). Returns the model output WITHOUT mutating the
+    /// document — the caller decides whether to apply it via `/replace`. Runs
+    /// on the on-device Apple model by default (no API key).
+    private func handleRunTask(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else { return .badRequest("Invalid document ID format") }
+        guard let body = request.body, let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let taskId = json["taskId"] as? String else { return .badRequest("Missing 'taskId' parameter") }
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
+            return .notFound("Document not found: \(id)")
+        }
+
+        let ns = doc.source as NSString
+        let start = json["start"] as? Int ?? 0
+        let length = json["length"] as? Int ?? max(0, ns.length - start)
+        guard start >= 0, length >= 0, start + length <= ns.length else {
+            return .badRequest("range out of bounds (source length \(ns.length))")
+        }
+        let range = NSRange(location: start, length: length)
+        let text = ns.substring(with: range)
+
+        do {
+            let (outputMode, result) = try await runAuthorTask(taskId: taskId, text: text, range: range, source: doc.source)
+            return .json([
+                "status": "ok",
+                "taskId": taskId,
+                "outputMode": outputMode,
+                "result": result,
+                "range": ["start": start, "length": length],
+                "applied": false,
+            ])
+        } catch let error as ImprintTaskError {
+            return .badRequest(error.message)
+        } catch {
+            return .json(["status": "error", "taskId": taskId, "error": error.localizedDescription])
+        }
+    }
+
+    /// Resolve + run a task via the @MainActor AI services (awaited across the
+    /// actor boundary). Returns (outputMode, resultText).
+    private func runAuthorTask(taskId: String, text: String, range: NSRange, source: String) async throws -> (String, String) {
+        let actions = await AIContextMenuService.shared.actions
+        guard let action = actions.first(where: { $0.id == taskId }) else {
+            throw ImprintTaskError("Unknown task: \(taskId)")
+        }
+        if action.outputMode == .proposeCitations {
+            return (action.outputMode.rawValue, "Citation suggestions are interactive; run this task from the editor.")
+        }
+        let context = DocumentContext(
+            documentTitle: nil,
+            surroundingParagraph: text,
+            sectionHeading: nil,
+            fullSource: source
+        )
+        let suggestion = try await AIContextMenuService.shared.executeAction(
+            action, selectedText: text, range: range, context: context
+        )
+        return (action.outputMode.rawValue, suggestion.suggestedText)
     }
 
     /// GET /api/documents/{id}/pdf

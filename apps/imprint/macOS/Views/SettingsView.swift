@@ -587,6 +587,18 @@ struct AIAssistantSettingsView: View {
                 Text("Choose which AI service to use for writing assistance")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if aiService.provider == .apple {
+                    Label("Runs on-device via Apple Intelligence — private, offline, no API key needed.",
+                          systemImage: "checkmark.seal")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else if !aiService.isConfiguredSync {
+                    Label("No key set for this provider — author tasks fall back to the on-device Apple model.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("API Keys") {

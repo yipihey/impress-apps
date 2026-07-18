@@ -455,17 +455,35 @@ struct ContentView: View {
             )
         }
         .environment(citationPicker)
-        .alert("AI Error", isPresented: aiErrorBinding) {
-            Button("OK") { aiErrorMessage = nil }
-        } message: {
-            Text(aiErrorMessage ?? "An unknown error occurred.")
-        }
+        .overlay(alignment: .top) { aiErrorBanner }
         #endif
     }
 
-    /// Binding for the AI error alert presentation.
-    private var aiErrorBinding: Binding<Bool> {
-        Binding(get: { aiErrorMessage != nil }, set: { if !$0 { aiErrorMessage = nil } })
+    /// Non-modal, auto-dismissing banner for AI errors (preserves flow — no alert).
+    @ViewBuilder
+    private var aiErrorBanner: some View {
+        if let message = aiErrorMessage {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(message).font(.callout).lineLimit(3)
+                Button {
+                    aiErrorMessage = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+            .shadow(radius: 8, y: 3)
+            .padding(.top, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .task(id: message) {
+                try? await Task.sleep(for: .seconds(6))
+                if aiErrorMessage == message { aiErrorMessage = nil }
+            }
+        }
     }
 
     /// The mode-specific main pane (text-only / split-view / direct-pdf).
@@ -792,7 +810,7 @@ struct ContentView: View {
         if let suggestion = currentSuggestion {
             InlineAITaskCard(
                 suggestion: suggestion,
-                isAdvisory: !InlineAITaskCatalog.isReplacement(suggestion.action.id),
+                isAdvisory: !suggestion.action.outputMode.appliesToBuffer,
                 onAccept: { text in
                     applyAIResult(text, range: suggestion.range)
                     dismissInlineAITask()
@@ -822,8 +840,9 @@ struct ContentView: View {
 
         inlineAITask?.cancel()
 
-        // Citation search opens imbib rather than producing a rewrite card.
-        if action.opensImbib {
+        switch action.outputMode {
+        case .proposeCitations:
+            // Citation search opens imbib (a ranked inline confirm is a follow-up).
             currentSuggestion = nil
             inlineAITask = Task {
                 do {
@@ -832,31 +851,117 @@ struct ContentView: View {
                     ) { /* imbib handles the flow; it signals completion by throwing */ }
                 } catch { /* handledByImbib / cancelled — nothing to show inline */ }
             }
-            return
+
+        case .annotateAsComment:
+            startReviewAnnotations(action: action, range: range, passage: selectedText, context: context)
+
+        default:
+            // replace / advisory / sideBySideDiff / insertAfter → streaming card
+            currentSuggestion = RewriteSuggestion(
+                originalText: selectedText,
+                suggestedText: "",
+                action: action,
+                range: range,
+                isStreaming: true
+            )
+            inlineAITask = Task {
+                do {
+                    for try await partial in AIContextMenuService.shared.executeActionStreaming(
+                        action, selectedText: selectedText, range: range, context: context
+                    ) {
+                        currentSuggestion = partial
+                    }
+                } catch is CancellationError {
+                    // dismissed by the user
+                } catch {
+                    currentSuggestion = nil
+                    aiErrorMessage = error.localizedDescription
+                }
+            }
         }
+    }
 
+    // MARK: Review → inline comments
+
+    /// Review output mode: ask the model for structured findings, then anchor
+    /// each as a comment on its quoted span (never mutates the buffer). A
+    /// lightweight streaming card shows progress while the model works.
+    private func startReviewAnnotations(action: AIAction, range: NSRange, passage: String, context: DocumentContext) {
         currentSuggestion = RewriteSuggestion(
-            originalText: selectedText,
-            suggestedText: "",
-            action: action,
-            range: range,
-            isStreaming: true
+            originalText: passage, suggestedText: "", action: action, range: range, isStreaming: true
         )
-
+        let heading = context.sectionHeading
         inlineAITask = Task {
             do {
-                for try await partial in AIContextMenuService.shared.executeActionStreaming(
-                    action, selectedText: selectedText, range: range, context: context
-                ) {
-                    currentSuggestion = partial
+                let system = Self.reviewFindingsPrompt(sectionHeading: heading)
+                var full = ""
+                for try await chunk in AIAssistantService.shared.streamMessage(systemPrompt: system, userMessage: passage) {
+                    try Task.checkCancellation()
+                    full += chunk
+                }
+                let findings = Self.parseReviewFindings(full)
+                let ns = document.source as NSString
+                var added = 0
+                for finding in findings {
+                    let target = Self.locate(quote: finding.quote, within: range, in: ns) ?? range
+                    _ = commentService.addComment(
+                        content: finding.commentBody,
+                        at: TextRange(nsRange: target),
+                        authorAgentId: "imprint-ai",
+                        authorName: "AI Review"
+                    )
+                    added += 1
+                }
+                currentSuggestion = nil
+                if added > 0 {
+                    appState.showingComments = true
+                    Logger.ai.infoCapture("Review: added \(added) comments (\(action.id))", category: "ai")
+                } else {
+                    aiErrorMessage = "AI review found nothing specific to flag in this passage."
                 }
             } catch is CancellationError {
-                // dismissed by the user
+                currentSuggestion = nil
             } catch {
                 currentSuggestion = nil
                 aiErrorMessage = error.localizedDescription
             }
         }
+    }
+
+    private struct ReviewFinding { let quote: String; let commentBody: String }
+
+    private static func reviewFindingsPrompt(sectionHeading: String?) -> String {
+        let whereClause = sectionHeading.map { " from the section \"\($0)\"" } ?? ""
+        return """
+        You are a critical peer reviewer of a scientific manuscript. Review the passage\(whereClause) and identify up to 5 specific issues: unsupported claims, weak or circular arguments, logical gaps, vague quantities, or missing evidence or citations.
+        For EACH issue output exactly one line, with no blank lines, in this pipe-delimited format:
+        QUOTE ||| ISSUE ||| SUGGESTION
+        - QUOTE: 4 to 12 words copied VERBATIM from the passage that the issue is about (it must appear exactly in the text).
+        - ISSUE: the problem, one sentence.
+        - SUGGESTION: a concrete fix, one sentence.
+        Output only these lines. If the passage has no substantive issues, output exactly: NONE
+        """
+    }
+
+    private static func parseReviewFindings(_ raw: String) -> [ReviewFinding] {
+        var out: [ReviewFinding] = []
+        for rawLine in raw.split(whereSeparator: \.isNewline) {
+            let parts = rawLine.components(separatedBy: "|||").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count >= 2 else { continue }
+            let quote = parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "\"'`- "))
+            if quote.isEmpty || quote.uppercased() == "NONE" { continue }
+            let issue = parts[1]
+            let suggestion = parts.count >= 3 ? parts[2] : ""
+            let body = suggestion.isEmpty ? issue : "\(issue)\n\nSuggested fix: \(suggestion)"
+            out.append(ReviewFinding(quote: quote, commentBody: body))
+        }
+        return out
+    }
+
+    private static func locate(quote: String, within range: NSRange, in ns: NSString) -> NSRange? {
+        guard !quote.isEmpty, NSMaxRange(range) <= ns.length else { return nil }
+        let found = ns.range(of: quote, options: [], range: range)
+        return found.location != NSNotFound ? found : nil
     }
 
     private func dismissInlineAITask() {
