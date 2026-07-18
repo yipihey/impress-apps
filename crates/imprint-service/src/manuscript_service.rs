@@ -17,8 +17,9 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use uuid::Uuid;
 
 use crate::handlers::{
-    CitationUsage, CompileOptions, CompileResult, DefaultImprintHttpHandlers, DocumentSummary,
-    ExportFormat, ImprintHttpHandlers, Outline, ReplaceResult, TextMatch,
+    compile_latex_dispatch, CitationUsage, CompileOptions, CompileResult,
+    DefaultImprintHttpHandlers, DocumentSummary, ExportFormat, ImprintHttpHandlers,
+    LatexCompileResultDto, Outline, ReplaceResult, TextMatch,
 };
 use crate::search::SearchHit;
 use crate::sections::{SectionMetadata, SectionRecord};
@@ -77,6 +78,13 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     // ---- Typst compile ----
     #[impress_method]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
+
+    // ---- LaTeX compile via embedded Tectonic (gated on tectonic-render) ----
+    /// Compile LaTeX to PDF with the self-contained Tectonic engine. Returns
+    /// PDF length + diagnostics (not raw bytes). `filesystem_root` resolves
+    /// on-disk `\includegraphics`/`\input`; pass "" for none.
+    #[impress_method]
+    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto;
 
     // ---- Cross-document search ----
     #[impress_method]
@@ -308,6 +316,26 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         }
     }
 
+    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto {
+        // Tectonic does blocking network I/O via its own runtime for the on-demand
+        // bundle fetch; run it on a blocking thread so it doesn't nest inside this
+        // async (tokio) context (which panics at runtime shutdown).
+        tokio::task::spawn_blocking(move || {
+            let root = if filesystem_root.is_empty() { None } else { Some(filesystem_root.as_str()) };
+            compile_latex_dispatch(&source, root)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            log_err("compile_latex", &e);
+            LatexCompileResultDto {
+                pdf_len: 0,
+                diagnostics: vec![],
+                error: Some(format!("compile task failed: {e}")),
+                compile_ms: 0,
+            }
+        })
+    }
+
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto> {
         let n = if limit == 0 { 50 } else { limit as usize };
         self.handlers
@@ -373,6 +401,7 @@ impress_service_impl! {
         document_citations(source: String) -> Vec<CitationUsage>,
         search_in_text(source: String, query: String, case_sensitive: bool) -> Vec<TextMatch>,
         compile_typst(source: String, options: CompileOptions) -> CompileResult,
+        compile_latex(source: String, filesystem_root: String) -> LatexCompileResultDto,
         search(query: String, limit: u32) -> Vec<SearchHitDto>,
         replace_in_section(doc_id: String, section_key: String, find: String, replace: String) -> ReplaceResult,
     ],

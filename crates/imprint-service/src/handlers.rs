@@ -151,6 +151,60 @@ pub struct CompileResult {
     pub page_count: u32,
 }
 
+/// Outcome of a LaTeX compile via the embedded Tectonic engine, shaped for
+/// MCP/CLI: we return the PDF *length* + diagnostics rather than raw bytes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LatexCompileResultDto {
+    /// Byte length of the produced PDF (0 on failure).
+    pub pdf_len: u32,
+    /// Diagnostics as `file:line: message` strings, in source order.
+    pub diagnostics: Vec<String>,
+    /// Fatal-error summary if no PDF was produced.
+    pub error: Option<String>,
+    /// Wall-clock compile time in milliseconds.
+    pub compile_ms: u64,
+}
+
+/// Compile LaTeX to PDF via the embedded Tectonic engine.
+///
+/// Gated on imprint-core's `tectonic-render` feature (heavy C deps). When the
+/// feature is off (the default service/CLI/MCP build), returns a structured
+/// "not enabled" result — mirrors `compile_typst_dispatch`.
+#[cfg(feature = "tectonic-render")]
+pub fn compile_latex_dispatch(source: &str, filesystem_root: Option<&str>) -> LatexCompileResultDto {
+    let r = imprint_core::latex::compile_latex_tectonic(source, false, None, filesystem_root);
+    LatexCompileResultDto {
+        pdf_len: r.pdf_data.as_ref().map(|d| d.len() as u32).unwrap_or(0),
+        diagnostics: r
+            .diagnostics
+            .iter()
+            .map(|d| {
+                if d.line > 0 {
+                    format!("{}:{}: {}", d.file, d.line, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .collect(),
+        error: r.error,
+        compile_ms: r.compile_ms,
+    }
+}
+
+#[cfg(not(feature = "tectonic-render"))]
+pub fn compile_latex_dispatch(_source: &str, _filesystem_root: Option<&str>) -> LatexCompileResultDto {
+    LatexCompileResultDto {
+        pdf_len: 0,
+        diagnostics: Vec::new(),
+        error: Some(
+            "Tectonic LaTeX rendering requires imprint-core's `tectonic-render` \
+             feature; build imprint-service with `--features tectonic-render`."
+                .into(),
+        ),
+        compile_ms: 0,
+    }
+}
+
 /// Outcome of a text search-and-replace inside a single section.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplaceResult {

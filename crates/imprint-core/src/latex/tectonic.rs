@@ -10,15 +10,87 @@
 //!
 //! [Tectonic]: https://tectonic-typesetting.github.io/
 
+use std::cell::RefCell;
 use std::fmt::Arguments;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 use tectonic::config::PersistentConfig;
 use tectonic::driver::{OutputFormat, PassSetting, ProcessingSessionBuilder};
 use tectonic::errors::Error as TectonicError;
+use tectonic::io::{DigestData, InputHandle, IoProvider, OpenResult};
+use tectonic_bundles::Bundle;
 // The StatusBackend trait's `report` uses `tectonic_errors::Error`, which is a
 // different (anyhow-based) type than `tectonic::errors::Error` (error_chain).
 use tectonic_errors::Error as StatusError;
 use tectonic_status_base::{MessageKind, StatusBackend};
+
+// ── Persistent bundle (perf) ─────────────────────────────────────────────────
+//
+// Profiling showed `config.default_bundle()` costs ~2.1s per compile — it
+// loads + parses the full TeXLive bundle index — while the actual TeX run is
+// only ~0.5s. The bundle is otherwise consumed by each `ProcessingSession`
+// (`create(self)` takes ownership), so we can't hand the same `Box<dyn Bundle>`
+// to two builders.
+//
+// `SharedBundle` wraps the real bundle in `Rc<RefCell<…>>` and itself implements
+// `Bundle`, so each compile gets a cheap fresh `Box<SharedBundle>` that all
+// point at one long-lived bundle. Cached thread-local (mirrors
+// `PersistentTypstRenderer`); the Swift layer pins Tectonic compiles to one
+// serial executor so the cache hits.
+
+thread_local! {
+    static CACHED_BUNDLE: RefCell<Option<Rc<RefCell<Box<dyn Bundle>>>>> =
+        const { RefCell::new(None) };
+}
+
+/// A cheap, clonable handle onto a single long-lived bundle.
+struct SharedBundle {
+    inner: Rc<RefCell<Box<dyn Bundle>>>,
+}
+
+impl IoProvider for SharedBundle {
+    fn input_open_name(
+        &mut self,
+        name: &str,
+        status: &mut dyn StatusBackend,
+    ) -> OpenResult<InputHandle> {
+        self.inner.borrow_mut().input_open_name(name, status)
+    }
+
+    fn input_open_name_with_abspath(
+        &mut self,
+        name: &str,
+        status: &mut dyn StatusBackend,
+    ) -> OpenResult<(InputHandle, Option<PathBuf>)> {
+        self.inner
+            .borrow_mut()
+            .input_open_name_with_abspath(name, status)
+    }
+}
+
+impl Bundle for SharedBundle {
+    fn get_digest(&mut self) -> tectonic_errors::Result<DigestData> {
+        self.inner.borrow_mut().get_digest()
+    }
+
+    fn all_files(&self) -> Vec<String> {
+        self.inner.borrow().all_files()
+    }
+}
+
+/// Get (or lazily build, paying the ~2s index load once) a shared handle onto
+/// the default bundle for this thread.
+fn shared_bundle(config: &PersistentConfig) -> Result<Box<dyn Bundle>, TectonicError> {
+    let rc = CACHED_BUNDLE.with(|cell| -> Result<_, TectonicError> {
+        if cell.borrow().is_none() {
+            let bundle = config.default_bundle(false)?;
+            *cell.borrow_mut() = Some(Rc::new(RefCell::new(bundle)));
+        }
+        Ok(cell.borrow().as_ref().unwrap().clone())
+    })?;
+    Ok(Box::new(SharedBundle { inner: rc }))
+}
 
 use crate::latex::diagnostics::{parse_log, LatexDiagnostic, Severity};
 
@@ -147,7 +219,8 @@ fn run_session(
 ) -> Result<tectonic::io::memory::MemoryFileCollection, TectonicError> {
     // `auto_create_config_file = false`: never write into the user's config.
     let config = PersistentConfig::open(false)?;
-    let bundle = config.default_bundle(false)?;
+    // Reuse the thread-local bundle handle so the ~2s index load is paid once.
+    let bundle = shared_bundle(&config)?;
     let format_cache_path = config.format_cache_path()?;
 
     let mut builder = ProcessingSessionBuilder::default();

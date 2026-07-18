@@ -32,6 +32,25 @@ fn compiles_to_pdf_with_synctex() {
 }
 
 #[test]
+fn second_compile_reuses_bundle_and_is_faster() {
+    // The bundle-index load (~2s) is paid on the first compile; the thread-local
+    // shared bundle makes subsequent compiles on the same thread much faster.
+    let first = compile_latex_tectonic(GOOD, false, None, None);
+    assert!(first.pdf_data.is_some(), "first compile failed: {:?}", first.error);
+    let second = compile_latex_tectonic(GOOD, false, None, None);
+    assert!(second.pdf_data.is_some(), "second compile failed: {:?}", second.error);
+    eprintln!("bundle-reuse: first={}ms second={}ms", first.compile_ms, second.compile_ms);
+    // The second compile should be materially faster (bundle already loaded).
+    // Generous bound to avoid CI flakiness; the real win is ~4x.
+    assert!(
+        second.compile_ms < first.compile_ms,
+        "expected 2nd compile faster (first={}ms second={}ms)",
+        first.compile_ms,
+        second.compile_ms
+    );
+}
+
+#[test]
 fn reports_error_on_broken_source() {
     // `\undefinedcommand` and a missing \end{document} → fatal error, no PDF.
     let broken = r"\documentclass{article}\begin{document}\undefinedmacro{x}";

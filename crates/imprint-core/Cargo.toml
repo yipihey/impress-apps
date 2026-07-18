@@ -37,7 +37,7 @@ native = ["uniffi", "typst-render"]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
 # freetype2, graphite2, icu4c, libpng, zlib; harfbuzz vendored). Kept OUT of
 # `native` until proven — see Phase 0 build spike.
-tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_errors"]
+tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_errors", "dep:tectonic_bundles"]
 
 [dependencies]
 # Workspace crates
@@ -86,6 +86,9 @@ tectonic_status_base = { version = "0.2", optional = true }
 # The `Error` type used in the StatusBackend::report signature (distinct from
 # tectonic::errors::Error, which is error_chain-based).
 tectonic_errors = { version = "0.2", optional = true }
+# The `Bundle` trait — implemented by a thread-local shared wrapper so the
+# expensive bundle-index load (~2s) is paid once and reused across compiles.
+tectonic_bundles = { version = "0.4", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

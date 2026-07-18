@@ -13,6 +13,7 @@ use imprint_service::handlers::{
     CitationUsage, CompileOptions, CompileResult, DocumentSummary, Outline, ReplaceResult,
     TextMatch,
 };
+use imprint_service::handlers::LatexCompileResultDto;
 use imprint_service::manuscript_service::{ImprintManuscriptService, SearchHitDto};
 use imprint_service::sections::{SectionMetadata, SectionRecord};
 use imprint_service::text_service::{CiteKeyUsageType as CiteKeyUsage, ImprintTextService};
@@ -81,6 +82,21 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
                 }
             }
         }
+    }
+    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto {
+        // Tectonic is self-contained → compile in-process (no HTTP route needed).
+        // Run on a blocking thread: Tectonic's bundle fetch uses its own runtime.
+        tokio::task::spawn_blocking(move || {
+            let root = if filesystem_root.is_empty() { None } else { Some(filesystem_root.as_str()) };
+            imprint_service::handlers::compile_latex_dispatch(&source, root)
+        })
+        .await
+        .unwrap_or_else(|e| LatexCompileResultDto {
+            pdf_len: 0,
+            diagnostics: vec![],
+            error: Some(format!("compile task failed: {e}")),
+            compile_ms: 0,
+        })
     }
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto> {
         self.client.search(&query, limit).await.unwrap_or_else(|e| { log_err("search", e); vec![] })

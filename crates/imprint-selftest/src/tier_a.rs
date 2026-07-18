@@ -47,8 +47,36 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_search_in_text().await);
     out.push(cap_section_roundtrip().await);
     out.push(cap_replace_in_section().await);
+    out.push(cap_compile_latex().await);
 
     out
+}
+
+async fn cap_compile_latex() -> CapabilityResult {
+    check(
+        "manuscript.compile_latex",
+        "LaTeX compiles to a PDF via Tectonic (or reports 'not enabled' when the feature is off)",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let src = r"\documentclass{article}\begin{document}Hello from Tectonic self-test.\end{document}";
+            let r = svc.manuscript.compile_latex(src.to_string(), String::new()).await;
+            // Feature off (default build): contract is the structured
+            // "requires tectonic-render" message from the dispatch shim.
+            if let Some(err) = &r.error {
+                if err.contains("tectonic-render") {
+                    return Ok("tectonic-render off — reported the not-enabled contract".to_string());
+                }
+                return Err(format!("compile error: {err}"));
+            }
+            if r.pdf_len > 100 {
+                Ok(format!("compiled {} byte PDF in {}ms", r.pdf_len, r.compile_ms))
+            } else {
+                Err(format!("PDF too small: {} bytes", r.pdf_len))
+            }
+        },
+    )
+    .await
 }
 
 async fn cap_format_latex() -> CapabilityResult {

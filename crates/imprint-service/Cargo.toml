@@ -9,6 +9,13 @@ repository.workspace = true
 [lib]
 crate-type = ["lib"]
 
+[features]
+default = []
+# Propagate imprint-core's embedded Tectonic LaTeX engine so `compile_latex`
+# actually compiles (off by default — heavy C deps; the method returns a
+# "not enabled" DTO otherwise).
+tectonic-render = ["imprint-core/tectonic-render"]
+
 [dependencies]
 # Shared impress workspace crates
 impress-store-ffi = { workspace = true }

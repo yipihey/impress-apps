@@ -13,6 +13,11 @@ crate-type = ["lib"]
 name = "imprint-selftest"
 path = "src/bin/main.rs"
 
+[features]
+default = []
+# Exercise the real Tectonic path in the compile_latex capability.
+tectonic-render = ["imprint-service/tectonic-render"]
+
 [dependencies]
 # Tier A: exercise the service traits directly.
 imprint-service = { workspace = true }

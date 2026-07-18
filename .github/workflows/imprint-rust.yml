@@ -89,6 +89,57 @@ jobs:
       - name: Run Tier A capability self-test
         run: cargo run -p imprint-selftest --bin imprint-selftest -- --tier a
 
+  tectonic:
+    name: Tectonic engine (self-contained, arm64 + vcpkg)
+    runs-on: macos-latest  # arm64 Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # ICU's vcpkg port needs autotools; cargo-vcpkg drives the static build.
+      - name: Install build tools
+        run: |
+          brew install autoconf automake autoconf-archive
+          cargo install cargo-vcpkg
+
+      # The vcpkg static C deps (freetype/graphite2/harfbuzz/icu) are slow to
+      # build; cache them keyed on the manifest that pins the vcpkg rev + list.
+      - name: Cache vcpkg static deps
+        uses: actions/cache@v4
+        with:
+          path: target/vcpkg
+          key: ${{ runner.os }}-vcpkg-tectonic-${{ hashFiles('crates/imprint-core/Cargo.toml') }}
+
+      - name: Build vcpkg dependencies
+        run: cargo vcpkg build --manifest-path crates/imprint-core/Cargo.toml
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-tectonic-${{ hashFiles('**/Cargo.lock') }}
+
+      # tectonic-render pulls its C deps from the vcpkg tree (static, no Homebrew
+      # dylibs). The tests fetch the TeX bundle on first run (needs network).
+      - name: Test tectonic-render (imprint-core)
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
+          TECTONIC_DEP_BACKEND: vcpkg
+        run: cargo test -p imprint-core --features tectonic-render
+
+      - name: Tier-A self-test with tectonic-render
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
+          TECTONIC_DEP_BACKEND: vcpkg
+        run: cargo run -p imprint-selftest --features tectonic-render --bin imprint-selftest -- --tier a
+
   generate-bindings:
     name: Generate Swift Bindings
     runs-on: macos-latest
