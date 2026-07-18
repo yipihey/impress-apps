@@ -17,6 +17,9 @@ struct SourceEditorView: View {
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
+    /// Mathematica-style cell brackets in the right margin (click to select
+    /// sections/paragraphs; right-click Copy/Cut/Delete).
+    @AppStorage("imprint.editor.showCellBrackets") private var showCellBrackets = true
 
     @State private var helixState = HelixState()
     private let inlineCompletionService = InlineCompletionService.shared
@@ -39,6 +42,7 @@ struct SourceEditorView: View {
                 syntaxMode: syntaxMode,
                 helixState: helixState,
                 helixEnabled: helixModeEnabled,
+                showCellBrackets: showCellBrackets,
                 inlineCompletionService: inlineCompletionService,
                 onSelectionChange: onSelectionChange
             )
@@ -126,6 +130,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     let syntaxMode: DocumentFormat
     let helixState: HelixState
     let helixEnabled: Bool
+    var showCellBrackets: Bool = true
     let inlineCompletionService: InlineCompletionService
     var onSelectionChange: ((String, NSRange) -> Void)?
 
@@ -157,6 +162,14 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Enable standard macOS find bar (Cmd+F, Cmd+G, Cmd+Option+F for replace)
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
+
+        // Writing Tools (Apple Intelligence): request the full experience. We
+        // always drive it from a *bounded* selection — a cell bracket's element
+        // (see BracketRulerNSView) or the user's own selection — never the whole
+        // markup document, which is what made it stall then fail.
+        if #available(macOS 15.0, *) {
+            textView.writingToolsBehavior = .complete
+        }
 
         // Accessibility
         textView.setAccessibilityIdentifier("sourceEditor.textView")
@@ -194,9 +207,21 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textView.hoverController = context.coordinator.hoverController
         textView.currentFormat = syntaxMode
 
+        // Cell-bracket ruler (right margin). Reserve space via the container
+        // inset so text never flows under the brackets.
+        if showCellBrackets {
+            let ruler = BracketRulerNSView(frame: .zero)
+            ruler.textView = textView
+            ruler.autoresizingMask = [.minXMargin, .height]
+            textView.bracketRuler = ruler
+            textView.addSubview(ruler)
+            textView.textContainerInset = NSSize(width: BracketRulerNSView.gutterWidth, height: 4)
+        }
+
         // Set initial text
         textView.string = source
         applySyntaxHighlighting(to: textView)
+        if showCellBrackets { rebuildBrackets(textView, context: context, force: true) }
 
         return scrollView
     }
@@ -249,6 +274,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 textView.setSelectedRange(selectedRange)
             }
         }
+
+        // Cell brackets: add/remove per the toggle, then refresh from the text.
+        syncBracketRuler(textView, context: context)
 
         // Handle programmatic cursor navigation (e.g., outline click)
         let requestedPosition = cursorPosition
@@ -316,10 +344,58 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         applySyntaxHighlighting(to: textView)
     }
 
+    /// Reconcile the bracket ruler with the `showCellBrackets` toggle (adding or
+    /// removing it + adjusting the text-container inset), then rebuild its nodes.
+    private func syncBracketRuler(_ textView: TypstTextView, context: Context) {
+        if showCellBrackets {
+            if textView.bracketRuler == nil {
+                let ruler = BracketRulerNSView(frame: NSRect(
+                    x: textView.bounds.width - BracketRulerNSView.gutterWidth, y: 0,
+                    width: BracketRulerNSView.gutterWidth, height: textView.bounds.height))
+                ruler.textView = textView
+                ruler.autoresizingMask = [.minXMargin, .height]
+                textView.bracketRuler = ruler
+                textView.addSubview(ruler)
+                textView.textContainerInset = NSSize(width: BracketRulerNSView.gutterWidth, height: 4)
+            }
+            rebuildBrackets(textView, context: context)
+            textView.bracketRuler?.needsDisplay = true
+        } else if let ruler = textView.bracketRuler {
+            ruler.removeFromSuperview()
+            textView.bracketRuler = nil
+            textView.textContainerInset = NSSize(width: 0, height: 4)
+        }
+    }
+
+    /// Rebuild the cell-bracket structure from the current text and hand it to
+    /// the ruler. Skips work when the source is unchanged (unless `force`).
+    private func rebuildBrackets(_ textView: TypstTextView, context: Context, force: Bool = false) {
+        guard let ruler = textView.bracketRuler else { return }
+        let src = textView.string
+        let fmt: SectionFormat = (syntaxMode == .latex) ? .latex : .typst
+        // Rebuild when the source OR the detected format changes. Format matters
+        // because it's often still the default (.typst) at first build and only
+        // flips to .latex after the document loads — without this the structure
+        // would stay stuck on the wrong heading grammar (0 headings → flat).
+        if !force,
+           context.coordinator.lastStructureSource == src,
+           context.coordinator.lastStructureFormat == syntaxMode {
+            return
+        }
+        context.coordinator.lastStructureSource = src
+        context.coordinator.lastStructureFormat = syntaxMode
+        ruler.update(nodes: DocumentStructure.build(source: src, format: fmt))
+    }
+
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TypstEditorRepresentable
         weak var textView: NSTextView?
         var helixAdaptor: NSTextViewHelixAdaptor?
+        /// Last source the bracket structure was computed from (debounce).
+        var lastStructureSource: String = ""
+        /// Last format the bracket structure was computed for — rebuild when the
+        /// document's detected format flips (e.g. default .typst → .latex on load).
+        var lastStructureFormat: DocumentFormat = .typst
         /// Tracks the last syntax mode to detect format changes (e.g. .typst → .latex after file load)
         var lastSyntaxMode: DocumentFormat = .typst
         /// Per-document tree-sitter highlighter (holds parser + tree for incremental parsing)
@@ -419,6 +495,10 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
             // Inline citation palette: show when the caret is inside `\cite{...}` or after `@`
             maybeShowCitationPalette(in: textView, at: selectedRange.location)
+
+            // Cell brackets: the structure + geometry changed — redraw. The node
+            // ranges are rebuilt shortly after via updateNSView.
+            if let typst = textView as? TypstTextView { typst.bracketRuler?.needsDisplay = true }
         }
 
         /// Detects if the current caret position is inside a citation trigger and
@@ -511,6 +591,22 @@ class TypstTextView: HelixTextView {
     /// Ghost text overlay view
     var ghostTextView: GhostTextNSView?
 
+    /// Cell-bracket ruler pinned to the right margin (nil when disabled).
+    var bracketRuler: BracketRulerNSView?
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // Keep the bracket ruler covering the full document height at the right.
+        if let ruler = bracketRuler {
+            ruler.frame = NSRect(
+                x: newSize.width - BracketRulerNSView.gutterWidth,
+                y: 0,
+                width: BracketRulerNSView.gutterWidth,
+                height: newSize.height
+            )
+        }
+    }
+
     // MARK: - Hover Preview
 
     /// Hover preview popover controller for cite keys.
@@ -574,6 +670,66 @@ class TypstTextView: HelixTextView {
             height: bounds.height
         )
         addCursorRect(insetBounds, cursor: .iBeam)
+    }
+
+    // MARK: - Find (Cmd+F and friends)
+
+    /// Route the standard Find shortcuts to the NSTextView find bar
+    /// (`usesFindBar = true`). SwiftUI's custom menu commands don't wire a
+    /// Find menu item, so Cmd+F never reaches the responder chain otherwise.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+
+        // Only claim these when Cmd is held (and not while Helix owns the keys
+        // in a modal, non-insert mode — Helix insert mode behaves like normal).
+        if mods == .command {
+            switch key {
+            case "f":
+                performTextFinderAction(tag: NSTextFinder.Action.showFindInterface.rawValue)
+                return true
+            case "g":
+                performTextFinderAction(tag: NSTextFinder.Action.nextMatch.rawValue)
+                return true
+            case "e":
+                performTextFinderAction(tag: NSTextFinder.Action.setSearchString.rawValue)
+                return true
+            default:
+                break
+            }
+        } else if mods == [.command, .shift], key == "g" {
+            performTextFinderAction(tag: NSTextFinder.Action.previousMatch.rawValue)
+            return true
+        } else if mods == [.command, .option], key == "f" {
+            performTextFinderAction(tag: NSTextFinder.Action.showReplaceInterface.rawValue)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Invoke a text-finder action via a lightweight sender carrying the tag,
+    /// since `performTextFinderAction(_:)` reads `sender.tag`.
+    private func performTextFinderAction(tag: Int) {
+        let item = NSMenuItem()
+        item.tag = tag
+        performTextFinderAction(item)
+    }
+
+    // MARK: - Context menu
+
+    /// Gate the system context-menu plug-ins (Writing Tools, Summarize,
+    /// Services, AutoFill) on there being a selection.
+    ///
+    /// Those items are injected by AppKit *at display time*, after `menu(for:)`
+    /// returns, and are all governed by `allowsContextMenuPlugIns`. With an
+    /// empty selection, Writing Tools runs against the WHOLE markup document —
+    /// which stalls for a long time and then fails. Restricting the plug-ins to
+    /// a non-empty selection keeps Writing Tools bounded (and fast), while the
+    /// cell brackets provide an explicit, always-bounded entry point.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event) else { return nil }
+        menu.allowsContextMenuPlugIns = selectedRange().length > 0
+        return menu
     }
 
     // MARK: - Key Handling

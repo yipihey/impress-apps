@@ -136,6 +136,7 @@
 		A3B07AB109D0DA157E63F22A /* EditorGutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42B11534B4185303A2B35E29 /* EditorGutterView.swift */; };
 		A3B13ABCF73FF545E92BE9CA /* TemplateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F37193D340E4137221365D /* TemplateService.swift */; };
 		A5F81421BA3EC378004EC503 /* sample.typ in Resources */ = {isa = PBXBuildFile; fileRef = CBB80F6AE251B4E779BA8E7B /* sample.typ */; };
+		A70760AADFF270DAFF811004 /* TectonicStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0929AB02F577E690DE9E1F4 /* TectonicStatus.swift */; };
 		A785E899D27579E0E336E9D2 /* SourceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476B0A4725E3758A6C900A80 /* SourceEditorView.swift */; };
 		AA3CB1E714EE196C41F34357 /* IOSSketchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1B9A8AA6F165168E7234E4 /* IOSSketchView.swift */; };
 		AA53FA22AA5487DBC2A3B63F /* ContentPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E661FA9B3646D094B8277571 /* ContentPage.swift */; };
@@ -184,8 +185,10 @@
 		D447ED1A65EC9D92301B1EAA /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDF284236A0E8F7BE5071DB /* ShareViewController.swift */; };
 		D4DA6D72B673A728F197EFE1 /* ai-prompts.yaml in Resources */ = {isa = PBXBuildFile; fileRef = C05846299E3149698C8BB0F7 /* ai-prompts.yaml */; };
 		D4DC9B24147706D80898571B /* ImprintiOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006826C614F8C9636F82EB2B /* ImprintiOSTests.swift */; };
+		D539139AC6834CB977C398D9 /* DocumentStructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC17705AC5B395573C1927A /* DocumentStructure.swift */; };
 		D6FC472D3E359687DCE06E5C /* TemplateDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA59DCE2DD41E56BE03141A8 /* TemplateDetailView.swift */; };
 		D76A3C25A0E37658E125889C /* LaTeXProjectService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8D449F865C928745EE3A17 /* LaTeXProjectService.swift */; };
+		D7A2E919E4B44B32107D5774 /* BracketRulerNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4393F1956BBEE84D63E62DB3 /* BracketRulerNSView.swift */; };
 		D7DA570669E1C6EF0D31A33F /* ImpressKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = 47103214B81DBA66D7DA993E /* ImpressKeyboard */; };
 		D84DBD2F75A69AA6A7848255 /* ImprintUndoCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E655FA9FC40366610B78CC /* ImprintUndoCoordinator.swift */; };
 		DA54B3F0970D4053C2870CC8 /* AIChatSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DE2F80D1FC07D771919786 /* AIChatSidebar.swift */; };
@@ -313,6 +316,7 @@
 		41495F6911A6C11C5C143E17 /* imprintTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = imprintTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		41E65260B72CFD8912646A90 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		42B11534B4185303A2B35E29 /* EditorGutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGutterView.swift; sourceTree = "<group>"; };
+		4393F1956BBEE84D63E62DB3 /* BracketRulerNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketRulerNSView.swift; sourceTree = "<group>"; };
 		43D2CB1A0DD560ED01A37CAD /* CommentBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentBubbleView.swift; sourceTree = "<group>"; };
 		4454A76639DBB55A8DC9ABF8 /* CommentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentRegistry.swift; sourceTree = "<group>"; };
 		44B3CAFDBA4E2E6525159725 /* ImpressSpotlight */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressSpotlight; path = ../../packages/ImpressSpotlight; sourceTree = SOURCE_ROOT; };
@@ -382,6 +386,7 @@
 		9AF995C3C162DD72C23DD936 /* Logger+Imprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Logger+Imprint.swift"; sourceTree = "<group>"; };
 		9C3610132CADA69D99F3382D /* GhostTextOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTextOverlay.swift; sourceTree = "<group>"; };
 		A027F6A1C5C0EF10B151554D /* CitationPickerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CitationPickerPage.swift; sourceTree = "<group>"; };
+		A0929AB02F577E690DE9E1F4 /* TectonicStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TectonicStatus.swift; sourceTree = "<group>"; };
 		A0DAB117F96B8B3C170E116C /* BibliographyProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BibliographyProjector.swift; sourceTree = "<group>"; };
 		A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectPDFView.swift; sourceTree = "<group>"; };
 		A1CBEDB69C295FB1AF60A7A0 /* VeuszPlotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeuszPlotStoreTests.swift; sourceTree = "<group>"; };
@@ -427,6 +432,7 @@
 		DBA0188A43B19C3BD8429D82 /* PresenceCursorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceCursorView.swift; sourceTree = "<group>"; };
 		DBDC260C6E37AEF6403DD688 /* CrossDocumentSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossDocumentSearchView.swift; sourceTree = "<group>"; };
 		DBFCCA710A22557D8024EC92 /* VeuszPlotInsertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeuszPlotInsertion.swift; sourceTree = "<group>"; };
+		DCC17705AC5B395573C1927A /* DocumentStructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStructure.swift; sourceTree = "<group>"; };
 		DF26A32857F722AE6C47B453 /* ImprintCloudKitSharingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintCloudKitSharingService.swift; sourceTree = "<group>"; };
 		E06933CA97FE87657645C985 /* SharedWorkspaceCopyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedWorkspaceCopyService.swift; sourceTree = "<group>"; };
 		E3D908F781474FC474F91A9F /* CompilationErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompilationErrorView.swift; sourceTree = "<group>"; };
@@ -548,6 +554,7 @@
 				3F8D449F865C928745EE3A17 /* LaTeXProjectService.swift */,
 				825126E8D7F5265830ECC378 /* ManuscriptLibraryCoordinator.swift */,
 				F50EEF217EAA2566F269BDED /* SyncTeXService.swift */,
+				A0929AB02F577E690DE9E1F4 /* TectonicStatus.swift */,
 				15F37193D340E4137221365D /* TemplateService.swift */,
 				BD2961A208419F2986DFB9D8 /* TeXDistributionManager.swift */,
 				DBFCCA710A22557D8024EC92 /* VeuszPlotInsertion.swift */,
@@ -845,6 +852,7 @@
 			children = (
 				83DE2F80D1FC07D771919786 /* AIChatSidebar.swift */,
 				D6CAB3AACFDE45512C3F473C /* AIContextMenuView.swift */,
+				4393F1956BBEE84D63E62DB3 /* BracketRulerNSView.swift */,
 				595F94A1218ED61637FB8107 /* CitationPaletteController.swift */,
 				200DAE86D2EC4D99498A8D46 /* CitationPickerView.swift */,
 				8BB637BF76FC8B2F78F6DD3D /* CitedPapersSection.swift */,
@@ -856,6 +864,7 @@
 				DBDC260C6E37AEF6403DD688 /* CrossDocumentSearchView.swift */,
 				A19FFC90CA624B7D3B64393F /* DirectPDFView.swift */,
 				CEAAC6E8DB572798AF29D88F /* DocumentOutlineView.swift */,
+				DCC17705AC5B395573C1927A /* DocumentStructure.swift */,
 				42B11534B4185303A2B35E29 /* EditorGutterView.swift */,
 				D9F6F36AF788172F212FE757 /* ExternalCitationPicker.swift */,
 				6D0529920CDD3DAE47B66AF6 /* FocusModeView.swift */,
@@ -1309,6 +1318,7 @@
 				976BF77D5B871B61C5DA7622 /* AIContextMenuView.swift in Sources */,
 				7E90E564D651C63C161D3455 /* BibliographyGenerator.swift in Sources */,
 				10EB0560625F8AB1FEF68183 /* BibliographyProjector.swift in Sources */,
+				D7A2E919E4B44B32107D5774 /* BracketRulerNSView.swift in Sources */,
 				65585EEE730B74A282BAC99F /* CRDTHealthValidator.swift in Sources */,
 				7C33C3BE334AAA511C8FB890 /* CitationClient.swift in Sources */,
 				37084712DA1429B15F595D2C /* CitationPaletteController.swift in Sources */,
@@ -1333,6 +1343,7 @@
 				FC2E6F0207D9D1699AAF4CD1 /* DocumentOutlineView.swift in Sources */,
 				27E745D12903BCDC837DA835 /* DocumentRegistry.swift in Sources */,
 				BA0AA31C41F9B14CEE890B6A /* DocumentSchemaVersion.swift in Sources */,
+				D539139AC6834CB977C398D9 /* DocumentStructure.swift in Sources */,
 				A3B07AB109D0DA157E63F22A /* EditorGutterView.swift in Sources */,
 				E0241F3410AA20E292D86632 /* ExternalCitationPicker.swift in Sources */,
 				754EC6D3771E2B27AD633401 /* FocusModeView.swift in Sources */,
@@ -1392,6 +1403,7 @@
 				A785E899D27579E0E336E9D2 /* SourceEditorView.swift in Sources */,
 				D1DB1496B694A651D8181D5B /* SyncTeXService.swift in Sources */,
 				55765A7276F73E2019B19C32 /* TeXDistributionManager.swift in Sources */,
+				A70760AADFF270DAFF811004 /* TectonicStatus.swift in Sources */,
 				69BD9583B3246D8F5AC50467 /* TemplateBrowserView.swift in Sources */,
 				D6FC472D3E359687DCE06E5C /* TemplateDetailView.swift in Sources */,
 				BD59776A65E459DB6AE50748 /* TemplateEditorView.swift in Sources */,

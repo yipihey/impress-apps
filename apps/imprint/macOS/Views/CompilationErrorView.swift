@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Displays Typst/LaTeX compilation errors and warnings below the PDF preview.
 ///
@@ -78,6 +79,14 @@ struct CompilationErrorView: View {
                     .font(.headline)
                     .foregroundStyle(accent)
                 Spacer()
+                Button {
+                    Self.copyToClipboard(items.map(Self.formatDiagnostic).joined(separator: "\n"))
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .help("Copy all \(items.count) message\(items.count == 1 ? "" : "s")")
+                .accessibilityIdentifier("compilation.diagnostics.copyAll")
             }
 
             ScrollView(.vertical) {
@@ -93,6 +102,21 @@ struct CompilationErrorView: View {
         .padding(8)
         .background(accent.opacity(0.08))
         .accessibilityIdentifier("compilation.diagnostics.panel")
+    }
+
+    // MARK: - Clipboard
+
+    /// Format a diagnostic as `file:line: message` (line omitted when unknown).
+    static func formatDiagnostic(_ diag: LaTeXDiagnostic) -> String {
+        if diag.line > 0 {
+            return "\(diag.file):\(diag.line): \(diag.message)"
+        }
+        return diag.message
+    }
+
+    static func copyToClipboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
     }
 
     private func diagnosticRow(_ diag: LaTeXDiagnostic, accent: Color) -> some View {
@@ -124,6 +148,12 @@ struct CompilationErrorView: View {
         }
         .buttonStyle(.plain)
         .help(diag.context ?? diag.message)
+        .contextMenu {
+            Button("Copy Message") { Self.copyToClipboard(diag.message) }
+            Button("Copy \(fileLabel(for: diag))\(diag.line > 0 ? ":\(diag.line)" : ""): Message") {
+                Self.copyToClipboard(Self.formatDiagnostic(diag))
+            }
+        }
     }
 
     private func fileLabel(for diag: LaTeXDiagnostic) -> String {
@@ -143,6 +173,9 @@ struct CompilationErrorView: View {
                     .font(.headline)
                     .foregroundStyle(.red)
                 Spacer()
+                Button { Self.copyToClipboard(errorText) } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.plain)
+                    .help("Copy error text")
             }
 
             ScrollView(.vertical) {
@@ -169,6 +202,9 @@ struct CompilationErrorView: View {
                     .font(.headline)
                     .foregroundStyle(.orange)
                 Spacer()
+                Button { Self.copyToClipboard(warnings.joined(separator: "\n")) } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.plain)
+                    .help("Copy all warnings")
             }
 
             ScrollView(.vertical) {
@@ -206,6 +242,9 @@ struct CompilationErrorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Copy Line") { Self.copyToClipboard(line) }
+        }
     }
 
     private func parseErrorLines(_ text: String) -> [String] {

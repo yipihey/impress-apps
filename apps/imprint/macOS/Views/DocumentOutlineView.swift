@@ -23,6 +23,9 @@ struct DocumentOutlineView: View {
     var documentID: UUID?
     /// Called when the user clicks an outline item — parameter is the 1-based line number.
     var onNavigateToLine: ((Int) -> Void)?
+    /// Current caret line (0-based) in the source. When set, the outline row for
+    /// the section containing the caret is highlighted.
+    var cursorLine: Int?
 
     @State private var collapsedIDs: Set<String> = []
     @State private var isOutlineCollapsed = false
@@ -54,6 +57,16 @@ struct DocumentOutlineView: View {
         case .latex: items = Self.parseLaTeXItems(source)
         }
         return Self.buildFlatTree(from: items)
+    }
+
+    /// The outline item whose section contains the current caret line: the
+    /// item with the greatest `lineNumber` that is still ≤ `cursorLine`.
+    private var activeItemID: String? {
+        guard let cursorLine else { return nil }
+        return flatItems
+            .filter { $0.lineNumber <= cursorLine }
+            .max(by: { $0.lineNumber < $1.lineNumber })?
+            .id
     }
 
     var body: some View {
@@ -140,9 +153,16 @@ struct DocumentOutlineView: View {
                 Spacer()
             }
             .padding(.vertical, 2)
+            .padding(.horizontal, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background(
+            item.id == activeItemID
+                ? Color.accentColor.opacity(0.15)
+                : Color.clear,
+            in: RoundedRectangle(cornerRadius: 4)
+        )
         .accessibilityIdentifier("outline.item.\(item.lineNumber)")
     }
 

@@ -575,7 +575,8 @@ struct ContentView: View {
                 source: document.source,
                 format: appState.documentFormat,
                 documentID: document.id,
-                onNavigateToLine: { line in navigateToLine(line) }
+                onNavigateToLine: { line in navigateToLine(line) },
+                cursorLine: currentCursorLine
             )
             .accessibilityIdentifier("sidebar.outline")
 
@@ -897,6 +898,13 @@ struct ContentView: View {
             if let found = findPDFView(in: subview) { return found }
         }
         return nil
+    }
+
+    /// The caret's current 0-based line number, derived from `cursorPosition`.
+    /// Read in `body` so the outline highlight tracks the caret reactively.
+    private var currentCursorLine: Int {
+        let end = min(max(0, cursorPosition), document.source.count)
+        return document.source.prefix(end).reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
     }
 
     /// Navigate cursor to a specific line number in source.
