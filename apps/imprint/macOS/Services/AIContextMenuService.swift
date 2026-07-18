@@ -116,7 +116,7 @@ public final class AIContextMenuService {
 
         do {
             // Build the prompt with variable substitution
-            let prompt = buildPrompt(action.systemPrompt, selectedText: selectedText, context: context)
+            let prompt = buildPrompt(Self.effectivePrompt(for: action), selectedText: selectedText, context: context)
 
             Logger.ai.infoCapture("Executing action: \(action.id)", category: "ai-context-menu")
 
@@ -181,7 +181,7 @@ public final class AIContextMenuService {
                         suggestionState = .loading(action)
                     }
 
-                    let prompt = buildPrompt(action.systemPrompt, selectedText: selectedText, context: context)
+                    let prompt = buildPrompt(Self.effectivePrompt(for: action), selectedText: selectedText, context: context)
 
                     // Create initial streaming suggestion
                     var suggestion = RewriteSuggestion(
@@ -327,6 +327,12 @@ public final class AIContextMenuService {
     }
 
     // MARK: - Prompt Building
+
+    /// The prompt template for an action: a user override from Settings ▸ AI
+    /// Tasks, or the built-in template.
+    static func effectivePrompt(for action: AIAction) -> String {
+        AITaskPreferences.promptOverride(for: action.id) ?? action.systemPrompt
+    }
 
     /// Substitute variables in a prompt template.
     private func buildPrompt(
