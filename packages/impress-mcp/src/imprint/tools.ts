@@ -761,6 +761,30 @@ export const IMPRINT_TOOLS: Tool[] = [
       required: ["documentId", "name"],
     },
   },
+  {
+    name: "imprint_list_tasks",
+    description:
+      "List the AI author-tasks imprint can run (id, title, category, output mode). Use an id with imprint_run_task.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "imprint_run_task",
+    description:
+      "Run an AI author-task (e.g. rewrite.make_concise, review.weak_arguments, structure.integrate) on a character range of a document. Runs on-device by default and returns the model's output WITHOUT modifying the document — apply it yourself with imprint_replace if you want to keep it. Omit start/length to run on the whole document.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "The UUID of the document" },
+        taskId: { type: "string", description: "Task id from imprint_list_tasks" },
+        start: { type: "number", description: "Start character offset (default 0)" },
+        length: { type: "number", description: "Length in characters (default: to end of document)" },
+      },
+      required: ["documentId", "taskId"],
+    },
+  },
 ];
 
 export class ImprintTools {
@@ -863,10 +887,42 @@ export class ImprintTools {
         return this.insertVeuszPlot(args);
       case "imprint_create_veusz_plot":
         return this.createVeuszPlot(args);
+      case "imprint_list_tasks":
+        return this.listTasks();
+      case "imprint_run_task":
+        return this.runTask(args);
       default:
         return {
           content: [{ type: "text", text: `Unknown imprint tool: ${name}` }],
         };
+    }
+  }
+
+  private async listTasks() {
+    const tasks = await this.client.listTasks();
+    if (tasks.length === 0) return textContent("No AI author-tasks available.");
+    const lines = tasks.map(
+      (t) => `- ${t.id} — ${t.title} [${t.category} · ${t.outputMode}]`
+    );
+    return textContent(`# AI author-tasks (${tasks.length})\n\n${lines.join("\n")}`);
+  }
+
+  private async runTask(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    const taskId = String(args?.taskId || "");
+    if (!documentId) return errText("documentId is required");
+    if (!taskId) return errText("taskId is required");
+    const opts: { start?: number; length?: number } = {};
+    if (typeof args?.start === "number") opts.start = args.start;
+    if (typeof args?.length === "number") opts.length = args.length;
+    try {
+      const r = await this.client.runTask(documentId, taskId, opts);
+      return textContent(
+        `# ${r.taskId} (${r.outputMode}) · range ${r.range.start}–${r.range.start + r.range.length}\n` +
+          `Not applied to the document. Apply with imprint_replace if desired.\n\n${r.result}`
+      );
+    } catch (e) {
+      return errText(`Run task failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

@@ -834,6 +834,56 @@ export class ImprintClient {
     }
     return data.plot;
   }
+
+  /**
+   * List the available AI author-tasks (id, title, category, output mode).
+   */
+  async listTasks(): Promise<AuthorTaskInfo[]> {
+    const res = await fetch(`${this.baseURL}/api/tasks`);
+    if (!res.ok) throw new Error(`List tasks failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; tasks?: AuthorTaskInfo[] };
+    return data.tasks ?? [];
+  }
+
+  /**
+   * Run an AI author-task on a document range (on-device by default). Returns
+   * the model output WITHOUT mutating the document — apply it via replaceText.
+   */
+  async runTask(
+    documentId: string,
+    taskId: string,
+    opts: { start?: number; length?: number } = {}
+  ): Promise<AuthorTaskResult> {
+    const body: Record<string, unknown> = { taskId };
+    if (opts.start !== undefined) body.start = opts.start;
+    if (opts.length !== undefined) body.length = opts.length;
+    const res = await fetch(`${this.baseURL}/api/documents/${documentId}/task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as AuthorTaskResult & { status: string; error?: string };
+    if (!res.ok || data.status !== "ok") {
+      throw new Error(data.error || `Run task failed: ${res.statusText}`);
+    }
+    return data;
+  }
+}
+
+export interface AuthorTaskInfo {
+  id: string;
+  title: string;
+  category: string;
+  outputMode: string;
+  requiresSelection: boolean;
+}
+
+export interface AuthorTaskResult {
+  taskId: string;
+  outputMode: string;
+  result: string;
+  range: { start: number; length: number };
+  applied: boolean;
 }
 
 // MARK: - v2 / comment response types
