@@ -102,39 +102,146 @@ actor LaTeXCompilationService {
     ///   - options: Compilation options.
     /// - Returns: A `LaTeXCompilationResult` with PDF data, diagnostics, etc.
     func compile(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+        // Ensure the compile copy links the projected `main.bib` (imprint writes
+        // it next to main.tex). Returns whether a classic bibtex pass is needed.
+        let needsBibtex = ensureBibliographyLink(in: sourceURL)
+
         #if IMPRINT_TECTONIC
         if engine == .tectonic {
-            // Self-contained in-process engine — no toolbox / system TeX.
+            // Self-contained in-process engine — runs bibtex itself; the link
+            // injected above is all it needs.
             return try await compileViaTectonic(sourceURL: sourceURL, options: options)
         }
         #endif
         if await ToolboxClient.shared.isAvailable() {
-            return try await compileViaToolbox(sourceURL: sourceURL, engine: engine, options: options)
+            return try await compileViaToolbox(sourceURL: sourceURL, engine: engine, options: options, runBibtex: needsBibtex)
         } else {
             Logger.compilation.warningCapture("Toolbox unavailable, falling back to local Process", category: "latex")
-            return try await compileLocal(sourceURL: sourceURL, engine: engine, options: options)
+            return try await compileLocal(sourceURL: sourceURL, engine: engine, options: options, runBibtex: needsBibtex)
+        }
+    }
+
+    // MARK: - Bibliography linking (bibtex)
+
+    /// Cite-command prefixes for LaTeX + natbib + biblatex.
+    private static let citeCommands = ["\\cite", "\\parencite", "\\textcite",
+                                       "\\citep", "\\citet", "\\autocite", "\\footcite"]
+    /// Ways a document declares where its bibliography comes from.
+    private static let bibDeclarations = ["\\bibliography{", "\\addbibresource",
+                                          "\\printbibliography", "\\begin{thebibliography}"]
+
+    /// Make the compile copy of `main.tex` link the sidecar `main.bib` so
+    /// citations resolve. This is intentionally non-destructive to the user's
+    /// in-app source: it edits only the temp compile copy (which is rewritten
+    /// from the user's source on every compile, so this re-applies each time).
+    ///
+    /// Behavior:
+    /// - No citations, or no `main.bib` on disk → do nothing.
+    /// - Document already declares a bibliography (`\bibliography{…}`,
+    ///   `\addbibresource`, `\printbibliography`, or a manual `thebibliography`)
+    ///   → leave it alone.
+    /// - Otherwise inject `\bibliographystyle{plain}` (if absent) +
+    ///   `\bibliography{main}` just before `\end{document}`.
+    ///
+    /// - Returns: `true` when the resulting document uses a classic
+    ///   `\bibliography{…}` (bibtex) bibliography that needs a bibtex pass.
+    ///   `false` for biblatex/biber, manual `thebibliography`, or no bibliography.
+    private func ensureBibliographyLink(in sourceURL: URL) -> Bool {
+        guard let src = try? String(contentsOf: sourceURL, encoding: .utf8) else { return false }
+        guard Self.citeCommands.contains(where: { src.contains($0) }) else { return false }
+
+        let bibURL = sourceURL.deletingLastPathComponent().appendingPathComponent("main.bib")
+        guard FileManager.default.fileExists(atPath: bibURL.path) else { return false }
+
+        if Self.bibDeclarations.contains(where: { src.contains($0) }) {
+            // Already declared. Only the classic \bibliography{…} route needs a
+            // bibtex pass; biber (\addbibresource) and manual thebibliography
+            // resolve without one.
+            return src.contains("\\bibliography{") && !src.contains("\\addbibresource")
+        }
+
+        // Inject a bibtex bibliography just before the last \end{document}.
+        guard let endRange = src.range(of: "\\end{document}", options: .backwards) else { return false }
+        let style = src.contains("\\bibliographystyle{") ? "" : "\\bibliographystyle{plain}\n"
+        let injection = "\n% --- bibliography (auto-linked by imprint for compilation) ---\n\(style)\\bibliography{main}\n\n"
+        let newSrc = src.replacingCharacters(in: endRange, with: injection + "\\end{document}")
+        try? newSrc.write(to: sourceURL, atomically: true, encoding: .utf8)
+        Logger.compilation.infoCapture("Auto-linked main.bib (\\bibliography{main}) into compile copy", category: "latex")
+        return true
+    }
+
+    /// Run a single `bibtex main` pass in `buildDir`, then copy the resulting
+    /// `main.bbl` next to `main.tex` so the follow-up LaTeX passes (which run
+    /// with the source dir as their cwd) can `\input` it. `BIBINPUTS` points at
+    /// the source dir so bibtex finds the sidecar `main.bib`.
+    private func runBibtexPass(bibtexURL: URL, sourceDir: URL, buildDir: URL, extraPATH: String?) async {
+        var env: [String: String] = ["BIBINPUTS": "\(sourceDir.path):"]
+        if let extraPATH { env["PATH"] = extraPATH }
+        let request = ProcessRequest(
+            executable: bibtexURL.path,
+            arguments: ["main"],
+            workingDirectory: buildDir.path,
+            environment: env,
+            timeoutMs: 60_000
+        )
+        do {
+            let result = try await ToolboxClient.shared.execute(request)
+            Logger.compilation.infoCapture("bibtex pass: exit=\(result.exitCode)", category: "latex")
+        } catch {
+            Logger.compilation.warningCapture("bibtex pass failed to launch: \(error.localizedDescription)", category: "latex")
+        }
+        // Make the generated .bbl visible to the source-dir cwd of later passes.
+        let generated = buildDir.appendingPathComponent("main.bbl")
+        let dest = sourceDir.appendingPathComponent("main.bbl")
+        if FileManager.default.fileExists(atPath: generated.path) {
+            try? FileManager.default.removeItem(at: dest)
+            try? FileManager.default.copyItem(at: generated, to: dest)
         }
     }
 
     #if IMPRINT_TECTONIC
+    /// Dedicated serial queue for ALL Tectonic FFI calls. Two reasons:
+    /// (1) correctness — the Rust engine caches the bundle in thread-local
+    /// state, so calls must be serialized; (2) performance — running them on
+    /// one queue keeps the thread-local bundle cache warm (the ~2s index load
+    /// is then paid only once). See `latex/tectonic.rs`.
+    private static let tectonicQueue = DispatchQueue(label: "com.imprint.tectonic", qos: .userInitiated)
+
+    /// Run a Tectonic FFI call on the dedicated serial queue.
+    private static func onTectonicQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { cont in
+            tectonicQueue.async { cont.resume(returning: work()) }
+        }
+    }
+
     /// Warm the Tectonic engine at launch: a trivial throwaway compile that
     /// primes the on-demand package bundle (fetched into the sandbox cache) and
-    /// the LaTeX format cache, so the user's first real compile isn't slow.
-    /// Idempotent and cheap once warm. Runs off the main thread.
+    /// the LaTeX format cache + thread-local bundle handle, so the user's first
+    /// real compile isn't slow. Idempotent and cheap once warm.
     static func warmTectonic() async {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("tectonic", isDirectory: true)
-        if let cacheDir { try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true) }
+        let cacheDir = Self.tectonicCacheDir()
+        TectonicStatus.shared.begin(.warming)
+        Logger.compilation.infoCapture(
+            "Warming Tectonic (first run fetches the TeX package bundle — may take ~30–60s)…",
+            category: "latex"
+        )
         let start = Date()
         let opts = ImprintRustCore.TectonicOptions(synctex: false, cacheDir: cacheDir?.path, filesystemRoot: nil)
         let src = "\\documentclass{article}\\begin{document}warm\\end{document}"
-        _ = await Task.detached(priority: .background) {
-            ImprintRustCore.compileLatexTectonic(source: src, options: opts)
-        }.value
+        _ = await onTectonicQueue { ImprintRustCore.compileLatexTectonic(source: src, options: opts) }
+        TectonicStatus.shared.finish()
         Logger.compilation.infoCapture(
             "Tectonic engine warmed in \(Int(Date().timeIntervalSince(start) * 1000))ms",
             category: "latex"
         )
+    }
+
+    /// The sandbox-legal Tectonic cache directory (container Caches/tectonic).
+    private static func tectonicCacheDir() -> URL? {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("tectonic", isDirectory: true)
+        if let dir { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        return dir
     }
 
     /// Compile via the embedded Tectonic engine (imprint-core `tectonic-render`).
@@ -143,9 +250,15 @@ actor LaTeXCompilationService {
     /// into the app's sandbox Caches dir.
     private func compileViaTectonic(sourceURL: URL, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("tectonic", isDirectory: true)
-        if let cacheDir { try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true) }
+        let cacheDir = Self.tectonicCacheDir()
+
+        // If the bundle isn't cached yet, this compile will fetch it (slow).
+        let cold = !TectonicStatus.bundleCacheExists(in: cacheDir)
+        if cold {
+            TectonicStatus.shared.begin(.fetchingBundle)
+            Logger.compilation.infoCapture("Fetching TeX package bundle (first run)…", category: "latex")
+        }
+        defer { if cold { TectonicStatus.shared.finish() } }
 
         let start = Date()
         let rustOptions = ImprintRustCore.TectonicOptions(
@@ -155,9 +268,9 @@ actor LaTeXCompilationService {
             // view model mirrors the Veusz figures/ before calling us).
             filesystemRoot: sourceURL.deletingLastPathComponent().path
         )
-        let result = await Task.detached(priority: .userInitiated) {
+        let result = await Self.onTectonicQueue {
             ImprintRustCore.compileLatexTectonic(source: source, options: rustOptions)
-        }.value
+        }
         let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
 
         // Write SyncTeX bytes to a sibling file so SyncTeXService can load it.
@@ -207,7 +320,7 @@ actor LaTeXCompilationService {
 
     // MARK: - Toolbox Compilation
 
-    private func compileViaToolbox(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+    private func compileViaToolbox(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions, runBibtex: Bool = false) async throws -> LaTeXCompilationResult {
         let start = CFAbsoluteTimeGetCurrent()
 
         let texDistribution = await TeXDistributionManager.shared
@@ -267,9 +380,20 @@ actor LaTeXCompilationService {
             timeoutMs: 60_000
         )
 
+        // Bibliography resolution: a classic bibtex bibliography needs
+        // latex → bibtex → latex → latex so `\cite` references resolve. Only
+        // runs when the doc cites and a main.bib exists (see
+        // ensureBibliographyLink) and bibtex is present in the distribution.
+        if runBibtex, let bibtexURL = await texDistribution.auxiliaryToolURL("bibtex") {
+            _ = try? await ToolboxClient.shared.execute(request) // pass 1: .aux gets \citation + \bibdata
+            await runBibtexPass(bibtexURL: bibtexURL, sourceDir: sourceDir, buildDir: buildDir, extraPATH: env["PATH"])
+            _ = try? await ToolboxClient.shared.execute(request) // pass 2: reads .bbl, writes \bibcite
+            Logger.compilation.infoCapture("Ran bibtex + reruns for citation resolution", category: "latex")
+        }
+
         let (processResult, pdfData) = try await ToolboxClient.shared.executeAndRetrieveFile(
             request, outputFile: pdfURL.path
-        )
+        ) // final pass: resolves \cite against \bibcite
 
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
 
@@ -303,7 +427,7 @@ actor LaTeXCompilationService {
 
     // MARK: - Local Fallback (for unsandboxed debug builds)
 
-    private func compileLocal(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions) async throws -> LaTeXCompilationResult {
+    private func compileLocal(sourceURL: URL, engine: LaTeXEngine, options: LaTeXCompileOptions, runBibtex: Bool = false) async throws -> LaTeXCompilationResult {
         let start = CFAbsoluteTimeGetCurrent()
 
         let texDistribution = await TeXDistributionManager.shared
@@ -347,6 +471,38 @@ actor LaTeXCompilationService {
         let capturedArguments = envArguments
         let capturedSourceDir = sourceDir
         let capturedEnv = env
+
+        // Classic bibtex bibliography: latex → bibtex → latex before the final
+        // pass below (see compileViaToolbox for the rationale). Only when the
+        // doc cites + main.bib exists and bibtex is present.
+        if runBibtex, await texDistribution.auxiliaryToolURL("bibtex") != nil {
+            func runProcess(_ args: [String], cwd: URL, env: [String: String]) async {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    DispatchQueue.global().async {
+                        let p = Process()
+                        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                        p.arguments = args
+                        p.currentDirectoryURL = cwd
+                        p.environment = env
+                        p.standardOutput = Pipe(); p.standardError = Pipe()
+                        try? p.run(); p.waitUntilExit()
+                        cont.resume()
+                    }
+                }
+            }
+            var bibEnv = env
+            bibEnv["BIBINPUTS"] = "\(sourceDir.path):"
+            await runProcess(envArguments, cwd: sourceDir, env: env)            // pass 1
+            await runProcess(["bibtex", "main"], cwd: buildDir, env: bibEnv)    // bibtex
+            let bbl = buildDir.appendingPathComponent("main.bbl")
+            let dest = sourceDir.appendingPathComponent("main.bbl")
+            if FileManager.default.fileExists(atPath: bbl.path) {
+                try? FileManager.default.removeItem(at: dest)
+                try? FileManager.default.copyItem(at: bbl, to: dest)
+            }
+            await runProcess(envArguments, cwd: sourceDir, env: env)            // pass 2
+            Logger.compilation.infoCapture("Ran bibtex + reruns for citation resolution (local)", category: "latex")
+        }
 
         let task = Task.detached {
             let process = Process()

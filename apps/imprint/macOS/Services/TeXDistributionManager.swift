@@ -209,6 +209,15 @@ final class TeXDistributionManager {
         return exists ? url : nil
     }
 
+    /// Get the full URL for an auxiliary TeX tool (e.g. `bibtex`, `biber`,
+    /// `makeindex`) that isn't a compile engine. Returns nil if the tool isn't
+    /// present in the distribution's bin directory.
+    func auxiliaryToolURL(_ name: String) -> URL? {
+        guard let dir = distributionPath else { return nil }
+        let url = dir.appendingPathComponent(name)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     // MARK: - User Selection (NSOpenPanel)
 
     /// Show an open panel to let the user select the TeX distribution directory.

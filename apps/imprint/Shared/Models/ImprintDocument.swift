@@ -426,7 +426,7 @@ struct ImprintDocument: FileDocument, Equatable {
     Start writing here, or use Cmd+Shift+K to insert citations from imbib.
 
     \\bibliographystyle{plain}
-    % \\bibliography{main}
+    \\bibliography{main}
 
     \\end{document}
     """
