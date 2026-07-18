@@ -64,20 +64,72 @@ final class CitationSuggestionService {
             Logger.ai.warningCapture("Citation claim extraction failed: \(error.localizedDescription)", category: "ai")
             return []
         }
+        Logger.ai.infoCapture("Citation raw output (\(full.count) chars): \(full.prefix(400).replacingOccurrences(of: "\n", with: " ⏎ "))", category: "ai")
         return Self.parseClaims(full, max: max)
     }
 
+    /// Lenient parse handling both the single-line `CLAIM ||| QUERY` format and
+    /// the labeled two-line format small models actually emit:
+    /// `CLAIM: …` then `SEARCH QUERY: …`.
     static func parseClaims(_ raw: String, max: Int) -> [(claim: String, query: String)] {
         var out: [(String, String)] = []
-        for line in raw.split(whereSeparator: \.isNewline) {
-            let parts = line.components(separatedBy: "|||").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count >= 2 else { continue }
-            let claim = parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "\"'`- "))
-            let query = parts[1]
-            if claim.isEmpty || claim.uppercased() == "NONE" || query.isEmpty { continue }
-            out.append((claim, query))
-            if out.count >= max { break }
+        var pendingClaim: String?
+
+        func emit(_ claim: String, _ query: String) {
+            guard out.count < max, claim.count >= 8, claim.uppercased() != "NONE" else { return }
+            let q = query.isEmpty ? deriveQuery(from: claim) : query
+            guard !q.isEmpty else { return }
+            out.append((claim, q))
         }
+
+        for rawLine in raw.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "^\\s*(?:[-*•]|\\d+[.)])\\s*", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.uppercased() == "NONE" { continue }
+            if out.count >= max { break }
+
+            // Single-line "CLAIM ||| QUERY".
+            if line.contains("|||") {
+                let parts = line.components(separatedBy: "|||")
+                emit(stripLabel(parts[0]), parts.count >= 2 ? stripLabel(parts[1]) : "")
+                pendingClaim = nil
+                continue
+            }
+
+            // Labeled two-line format.
+            let upper = line.uppercased()
+            if upper.hasPrefix("CLAIM") {
+                pendingClaim = stripLabel(line)
+            } else if upper.hasPrefix("SEARCH QUERY") || upper.hasPrefix("QUERY") {
+                if let claim = pendingClaim {
+                    emit(claim, stripLabel(line))
+                    pendingClaim = nil
+                }
+            }
+        }
+        if let claim = pendingClaim { emit(claim, "") }  // trailing claim, no query line
         return out
+    }
+
+    /// Strip a leading "LABEL:" prefix (e.g. "CLAIM:", "SEARCH QUERY:") + quotes.
+    private static func stripLabel(_ s: String) -> String {
+        var text = s
+        if let colon = text.firstIndex(of: ":"),
+           text.distance(from: text.startIndex, to: colon) < 16,
+           text[..<colon].allSatisfy({ $0.isLetter || $0.isWhitespace }) {
+            text = String(text[text.index(after: colon)...])
+        }
+        return text.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`"))
+    }
+
+    /// Derive a keyword search query from a claim when the model omitted one.
+    private static func deriveQuery(from claim: String) -> String {
+        let stop: Set<String> = ["the","a","an","of","and","or","to","in","on","for","with","that",
+                                  "this","are","is","be","by","as","from","which","using","used",
+                                  "been","has","have","its","their","such","than","then","also"]
+        let words = claim.lowercased().split { !$0.isLetter }.map(String.init)
+            .filter { $0.count > 3 && !stop.contains($0) }
+        return words.prefix(5).joined(separator: " ")
     }
 }
