@@ -75,17 +75,26 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         logInfo("HTTP server starting on port \(port)", category: "http-server")
-        // Start HTTP automation server for AI/MCP integration
-        Task {
+        // Start HTTP automation server for AI/MCP integration on a DETACHED task.
+        // ImprintHTTPServer is an actor (not @MainActor), so this runs off the
+        // main thread — the server still binds even if the main thread is blocked
+        // during launch (e.g. the shared-store open awaiting a TCC prompt).
+        Task.detached(priority: .userInitiated) {
             await ImprintHTTPServer.shared.start()
         }
+
+        // Warm the shared store OFF the main thread up front, so its open (and
+        // any "access data from other apps" TCC prompt) never blocks launch.
+        Task { @MainActor in ManuscriptWorkspaceLoader.shared.begin() }
 
         // Ensure default workspace exists for any one-shot migration
         // that still reads from the legacy Core Data store. The
         // metadata-cache refresh was retired in Phase F2 — the unified
         // store carries authoritative title/authors on each manuscript
         // item, so there's no separate cache to refresh.
+        // Gated on the store being open so it never blocks the main thread.
         Task { @MainActor in
+            await ManuscriptWorkspaceLoader.shared.whenReady()
             ImprintPersistenceController.shared.ensureDefaultWorkspace()
         }
 
@@ -97,8 +106,9 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 
         // Touch the shared store adapter to trigger its setup (opens shared workspace directory).
         // Non-fatal: if the app group container is unavailable, isReady stays false
-        // and all storeSection() calls are no-ops.
+        // and all storeSection() calls are no-ops. Gated so it never blocks main.
         Task { @MainActor in
+            await ManuscriptWorkspaceLoader.shared.whenReady()
             _ = ImprintStoreAdapter.shared.isReady
         }
 
@@ -116,7 +126,9 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 
         // Open the shared publication database (imbib's publications) for direct SQL access.
         // Enables citation palette, hover preview, .bib projection, paper panel — all without HTTP.
+        // Gated on the store being open so it never blocks the main thread at launch.
         Task { @MainActor in
+            await ManuscriptWorkspaceLoader.shared.whenReady()
             ImprintPublicationService.shared.start()
         }
 
@@ -432,7 +444,9 @@ struct ImprintApp: App {
         // preserved so external integrations (URL scheme, openWindow
         // callers) keep working without a transition step.
         WindowGroup("imprint", id: "project-browser") {
-            ManuscriptLibraryView()
+            // Gate opens the shared store OFF the main thread so launch never
+            // blocks on the App Group store's TCC prompt / slow open.
+            ManuscriptLibraryGate()
                 .withAppearance()
                 .onReceive(
                     NotificationCenter.default.publisher(for: .openManuscriptInEditor)
