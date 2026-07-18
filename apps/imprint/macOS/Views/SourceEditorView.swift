@@ -698,6 +698,14 @@ class TypstTextView: HelixTextView {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let key = event.charactersIgnoringModifiers?.lowercased()
 
+        // AI Assist shortcuts (⌃⌘<letter>) — run the task on the selection, or
+        // on the caret's paragraph when there's no selection. Same grammar shown
+        // in the bracket / selection "AI Assist" menu section.
+        if let key, let actionID = InlineAITaskCatalog.actionID(forKey: key, modifiers: mods) {
+            InlineAITaskCatalog.post(actionId: actionID, range: aiTargetRange())
+            return true
+        }
+
         // Only claim these when Cmd is held (and not while Helix owns the keys
         // in a modal, non-insert mode — Helix insert mode behaves like normal).
         if mods == .command {
@@ -747,34 +755,50 @@ class TypstTextView: HelixTextView {
         guard let menu = super.menu(for: event) else { return nil }
         let selection = selectedRange()
         menu.allowsContextMenuPlugIns = selection.length > 0
-        // Offer the configurable AI author-tasks on a non-empty selection, the
-        // same entry the cell brackets provide (bounded to the selected range).
-        if selection.length > 0, !aiTasks.isEmpty {
-            menu.addItem(.separator())
-            let aiItem = NSMenuItem(title: "AI", action: nil, keyEquivalent: "")
-            aiItem.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
-            let submenu = NSMenu()
-            submenu.allowsContextMenuPlugIns = false
-            for task in aiTasks {
-                let item = submenu.addItem(withTitle: task.title, action: #selector(runSelectionAITask(_:)), keyEquivalent: "")
-                item.target = self
-                item.image = NSImage(systemSymbolName: task.icon, accessibilityDescription: nil)
-                item.representedObject = SelectionAIMenuPayload(actionId: task.id, range: selection)
-            }
-            aiItem.submenu = submenu
-            menu.addItem(aiItem)
+        // Offer the configurable AI author-tasks as a flat "AI Assist" section on
+        // a non-empty selection — the same tasks (and shortcuts) the cell
+        // brackets provide, bounded to the selected range.
+        if selection.length > 0 {
+            InlineAITaskCatalog.appendSection(to: menu, tasks: aiTasks, range: selection,
+                                              target: self, action: #selector(runSelectionAITask(_:)))
         }
         return menu
     }
 
     /// Curated AI tasks for the selection context menu + the handler, both set
     /// by the coordinator (mirrors the bracket ruler).
-    var aiTasks: [(id: String, title: String, icon: String)] = []
+    var aiTasks: [AITaskDescriptor] = []
     var aiRequestHandler: ((_ actionId: String, _ range: NSRange) -> Void)?
 
     @objc private func runSelectionAITask(_ sender: NSMenuItem) {
-        guard let payload = sender.representedObject as? SelectionAIMenuPayload else { return }
+        guard let payload = sender.representedObject as? AITaskMenuPayload else { return }
         aiRequestHandler?(payload.actionId, payload.range)
+    }
+
+    /// The range an AI keyboard shortcut acts on: the selection if any, else the
+    /// blank-line-delimited paragraph containing the caret.
+    private func aiTargetRange() -> NSRange {
+        let sel = selectedRange()
+        if sel.length > 0 { return sel }
+        let ns = string as NSString
+        let len = ns.length
+        guard len > 0 else { return NSRange(location: 0, length: 0) }
+        let caret = min(max(0, sel.location), len)
+        // Walk back to the start of the paragraph (after a blank line / doc start).
+        var start = min(caret, len - 1)
+        while start > 0 {
+            if ns.character(at: start - 1) == 10,
+               start - 1 == 0 || ns.character(at: start - 2) == 10 { break }
+            start -= 1
+        }
+        // Walk forward to the end of the paragraph (before a blank line / doc end).
+        var end = caret
+        while end < len {
+            if ns.character(at: end) == 10,
+               end + 1 >= len || ns.character(at: end + 1) == 10 { break }
+            end += 1
+        }
+        return NSRange(location: start, length: max(0, end - start))
     }
 
     // MARK: - Key Handling
@@ -869,8 +893,9 @@ class TypstTextView: HelixTextView {
     }
 }
 
-/// Menu payload for the selection AI submenu (action id + selected range).
-private final class SelectionAIMenuPayload: NSObject {
+/// Menu payload: an AI task's action id + the source range it targets. Shared
+/// by the cell-bracket menu and the text-selection menu.
+final class AITaskMenuPayload: NSObject {
     let actionId: String
     let range: NSRange
     init(actionId: String, range: NSRange) {
@@ -879,37 +904,76 @@ private final class SelectionAIMenuPayload: NSObject {
     }
 }
 
-/// Curated Phase-1 author tasks surfaced in the bracket + selection "AI" menus,
-/// plus the notification used to run one on a source range. Titles/icons are
-/// resolved from the live `AIContextMenuService` task set so they stay in sync.
+/// A curated AI task ready to render in a context menu (resolved title/icon +
+/// its keyboard shortcut). Plain value type so AppKit menu code can use it off
+/// the main-actor-isolated services.
+struct AITaskDescriptor {
+    let id: String
+    let title: String
+    let icon: String
+    let key: String
+    let modifiers: NSEvent.ModifierFlags
+}
+
+/// Curated author tasks surfaced as a flat "AI Assist" section in the bracket +
+/// selection context menus, each bound to a keyboard shortcut. The ⌃⌘<letter>
+/// grammar is the shared impress-suite convention for AI assistance — the same
+/// keys should map to the same intent across imbib/imprint/impart/etc.
 enum InlineAITaskCatalog {
-    /// Action ids (from `AIAction.allActions`) in menu order.
-    static let curatedIDs = [
-        "rewrite.improve_clarity",
-        "rewrite.make_concise",
-        "rewrite.expand_detail",
-        "structure.integrate",
-        "review.suggest_improvements",
-        "citations.find_supporting",
+    struct Curated {
+        let id: String
+        let key: String                    // key-equivalent letter (lowercased)
+        let modifiers: NSEvent.ModifierFlags
+    }
+
+    /// Shared AI shortcut modifier for the whole suite: Control+Command.
+    static let modifier: NSEvent.ModifierFlags = [.command, .control]
+
+    /// Curated tasks in menu order, each bound to ⌃⌘<letter>.
+    static let curated: [Curated] = [
+        Curated(id: "rewrite.improve_clarity",     key: "c", modifiers: modifier), // Clarity
+        Curated(id: "rewrite.make_concise",        key: "s", modifiers: modifier), // Shorten
+        Curated(id: "rewrite.expand_detail",       key: "e", modifiers: modifier), // Expand
+        Curated(id: "structure.integrate",         key: "i", modifiers: modifier), // Integrate
+        Curated(id: "review.suggest_improvements", key: "r", modifiers: modifier), // Review
+        Curated(id: "citations.find_supporting",   key: "k", modifiers: modifier), // Cite
     ]
 
-    /// Action ids whose output replaces the target range (vs. advisory
-    /// commentary like Review, which the preview shows read-only).
-    static let replacingIDs: Set<String> = [
-        "rewrite.improve_clarity", "rewrite.make_concise", "rewrite.make_formal",
-        "rewrite.expand_detail", "rewrite.fix_grammar",
-        "structure.integrate", "structure.to_bullets", "structure.to_paragraph",
-    ]
-
-    static func isReplacement(_ actionId: String) -> Bool { replacingIDs.contains(actionId) }
-
+    /// Enabled tasks resolved to display metadata + shortcut (main-actor: reads
+    /// the live task set).
     @MainActor
-    static func tasks() -> [(id: String, title: String, icon: String)] {
+    static func tasks() -> [AITaskDescriptor] {
         let actions = AIContextMenuService.shared.actions
-        return curatedIDs.compactMap { id in
-            guard AITaskPreferences.isEnabled(id),
-                  let action = actions.first(where: { $0.id == id }) else { return nil }
-            return (id: action.id, title: action.title, icon: action.effectiveIcon)
+        return curated.compactMap { c in
+            guard AITaskPreferences.isEnabled(c.id),
+                  let action = actions.first(where: { $0.id == c.id }) else { return nil }
+            return AITaskDescriptor(id: action.id, title: action.title, icon: action.effectiveIcon,
+                                    key: c.key, modifiers: c.modifiers)
+        }
+    }
+
+    /// The enabled action id bound to a key-equivalent, for editor keyboard
+    /// handling. Non-isolated (reads static config + UserDefaults only).
+    static func actionID(forKey key: String, modifiers: NSEvent.ModifierFlags) -> String? {
+        let mods = modifiers.intersection([.command, .control, .option, .shift])
+        guard let c = curated.first(where: { $0.key == key.lowercased() && $0.modifiers == mods }) else { return nil }
+        return AITaskPreferences.isEnabled(c.id) ? c.id : nil
+    }
+
+    /// Append a flat "AI Assist" section (header + task items with visible
+    /// shortcuts) to `menu` from already-resolved `tasks`. Items target
+    /// `target`/`action`, each carrying an `AITaskMenuPayload` for `range`.
+    static func appendSection(to menu: NSMenu, tasks: [AITaskDescriptor], range: NSRange,
+                              target: AnyObject, action: Selector) {
+        guard !tasks.isEmpty else { return }
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: "AI Assist"))
+        for t in tasks {
+            let item = menu.addItem(withTitle: t.title, action: action, keyEquivalent: t.key)
+            item.keyEquivalentModifierMask = t.modifiers
+            item.target = target
+            item.image = NSImage(systemSymbolName: t.icon, accessibilityDescription: nil)
+            item.representedObject = AITaskMenuPayload(actionId: t.id, range: range)
         }
     }
 

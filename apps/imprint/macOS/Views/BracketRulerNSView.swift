@@ -29,10 +29,10 @@ final class BracketRulerNSView: NSView {
     /// Deepest nesting level present, used to compress indentation to fit.
     private var maxLevel: Int = 0
 
-    /// Curated AI author-tasks shown in the bracket's "AI" submenu, as
-    /// (actionId, title, SF Symbol). Set by the editor coordinator so the ruler
+    /// Curated AI author-tasks shown as a flat "AI Assist" section in the
+    /// bracket's context menu. Set by the editor coordinator so the ruler
     /// (AppKit) needn't reach into the @MainActor task service.
-    var aiTasks: [(id: String, title: String, icon: String)] = []
+    var aiTasks: [AITaskDescriptor] = []
     /// Invoked when the user picks an AI task on a bracket, with the task's
     /// action id and the node's source range.
     var aiRequestHandler: ((_ actionId: String, _ range: NSRange) -> Void)?
@@ -151,29 +151,16 @@ final class BracketRulerNSView: NSView {
         }
         for item in menu.items { item.target = self; item.representedObject = NSValue(range: node.range) }
 
-        // Configurable AI author-tasks on exactly this element. Built from the
-        // curated list the coordinator supplies; each carries its own payload
-        // (added AFTER the loop above so subitems keep their action id + range).
-        if !aiTasks.isEmpty {
-            menu.addItem(.separator())
-            let aiItem = NSMenuItem(title: "AI", action: nil, keyEquivalent: "")
-            aiItem.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
-            let submenu = NSMenu()
-            submenu.allowsContextMenuPlugIns = false
-            for task in aiTasks {
-                let item = submenu.addItem(withTitle: task.title, action: #selector(runAITask(_:)), keyEquivalent: "")
-                item.target = self
-                item.image = NSImage(systemSymbolName: task.icon, accessibilityDescription: nil)
-                item.representedObject = BracketAIMenuPayload(actionId: task.id, range: node.range)
-            }
-            aiItem.submenu = submenu
-            menu.addItem(aiItem)
-        }
+        // Configurable AI author-tasks as a flat "AI Assist" section on exactly
+        // this element (added AFTER the loop above so its items keep their own
+        // payload). Each item shows its ⌃⌘ shortcut so it's learnable.
+        InlineAITaskCatalog.appendSection(to: menu, tasks: aiTasks, range: node.range,
+                                          target: self, action: #selector(runAITask(_:)))
         return menu
     }
 
     @objc private func runAITask(_ sender: NSMenuItem) {
-        guard let payload = sender.representedObject as? BracketAIMenuPayload else { return }
+        guard let payload = sender.representedObject as? AITaskMenuPayload else { return }
         aiRequestHandler?(payload.actionId, payload.range)
     }
 
@@ -211,16 +198,5 @@ final class BracketRulerNSView: NSView {
             tv.textStorage?.replaceCharacters(in: r, with: "")
             tv.didChangeText()
         }
-    }
-}
-
-/// Menu payload carrying an AI action id together with the target source range,
-/// so a bracket's "AI ▸ <task>" item knows both what to run and where.
-private final class BracketAIMenuPayload: NSObject {
-    let actionId: String
-    let range: NSRange
-    init(actionId: String, range: NSRange) {
-        self.actionId = actionId
-        self.range = range
     }
 }
