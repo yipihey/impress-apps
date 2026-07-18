@@ -785,6 +785,20 @@ export const IMPRINT_TOOLS: Tool[] = [
       required: ["documentId", "taskId"],
     },
   },
+  {
+    name: "imprint_suggest_citations",
+    description:
+      "For a range of a document, extract claims that should be supported by a citation and return ranked candidate papers from the imbib library for each. Does NOT modify the document — use imprint_insert_citation (or imprint_add_citation) to add a chosen citeKey. Omit start/length to scan the whole document.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "The UUID of the document" },
+        start: { type: "number", description: "Start character offset (default 0)" },
+        length: { type: "number", description: "Length in characters (default: to end of document)" },
+      },
+      required: ["documentId"],
+    },
+  },
 ];
 
 export class ImprintTools {
@@ -891,6 +905,8 @@ export class ImprintTools {
         return this.listTasks();
       case "imprint_run_task":
         return this.runTask(args);
+      case "imprint_suggest_citations":
+        return this.suggestCitations(args);
       default:
         return {
           content: [{ type: "text", text: `Unknown imprint tool: ${name}` }],
@@ -923,6 +939,31 @@ export class ImprintTools {
       );
     } catch (e) {
       return errText(`Run task failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private async suggestCitations(args: Record<string, unknown> | undefined) {
+    const documentId = String(args?.documentId || "");
+    if (!documentId) return errText("documentId is required");
+    const opts: { start?: number; length?: number } = {};
+    if (typeof args?.start === "number") opts.start = args.start;
+    if (typeof args?.length === "number") opts.length = args.length;
+    try {
+      const suggestions = await this.client.suggestCitations(documentId, opts);
+      if (suggestions.length === 0) {
+        return textContent("No citation-worthy claims found in this range.");
+      }
+      const blocks = suggestions.map((s) => {
+        const cands = s.candidates.length
+          ? s.candidates
+              .map((c) => `    - ${c.citeKey}: ${c.title} (${c.authors}, ${c.year})${c.hasPDF ? " [PDF]" : ""}`)
+              .join("\n")
+          : "    (no matching papers in the imbib library)";
+        return `- Claim: ${s.claim}\n  Query: ${s.query}\n${cands}`;
+      });
+      return textContent(`# Citation suggestions (${suggestions.length})\n\n${blocks.join("\n\n")}`);
+    } catch (e) {
+      return errText(`Suggest citations failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

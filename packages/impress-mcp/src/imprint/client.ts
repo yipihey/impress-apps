@@ -868,6 +868,43 @@ export class ImprintClient {
     }
     return data;
   }
+
+  /**
+   * Extract citation-worthy claims from a document range and return ranked
+   * imbib candidates per claim. Does not modify the document.
+   */
+  async suggestCitations(
+    documentId: string,
+    opts: { start?: number; length?: number } = {}
+  ): Promise<CitationSuggestion[]> {
+    const body: Record<string, unknown> = {};
+    if (opts.start !== undefined) body.start = opts.start;
+    if (opts.length !== undefined) body.length = opts.length;
+    const res = await fetch(`${this.baseURL}/api/documents/${documentId}/suggest-citations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as { status: string; suggestions?: CitationSuggestion[]; error?: string };
+    if (!res.ok || data.status !== "ok") {
+      throw new Error(data.error || `Suggest citations failed: ${res.statusText}`);
+    }
+    return data.suggestions ?? [];
+  }
+}
+
+export interface CitationCandidate {
+  citeKey: string;
+  title: string;
+  authors: string;
+  year: number;
+  hasPDF: boolean;
+}
+
+export interface CitationSuggestion {
+  claim: string;
+  query: string;
+  candidates: CitationCandidate[];
 }
 
 export interface AuthorTaskInfo {

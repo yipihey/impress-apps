@@ -359,6 +359,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     return await handleRunTask(id: docId, request: request)
                 }
 
+                // POST /api/documents/{id}/suggest-citations — ranked citation
+                // candidates for the claims in a range (no mutation).
+                if remainderLower.hasSuffix("/suggest-citations") {
+                    let docId = String(remainder.dropLast("/suggest-citations".count))
+                    return await handleSuggestCitations(id: docId, request: request)
+                }
+
                 if remainderLower.hasSuffix("/insert") {
                     let docId = String(remainder.dropLast("/insert".count))
                     return await handleInsertText(id: docId, request: request)
@@ -661,6 +668,41 @@ public actor ImprintHTTPRouter: HTTPRouter {
         } catch {
             return .json(["status": "error", "taskId": taskId, "error": error.localizedDescription])
         }
+    }
+
+    /// POST /api/documents/{id}/suggest-citations — extract citation-worthy
+    /// claims from a range and return ranked imbib candidates per claim. Does
+    /// not mutate the document (the caller confirms + inserts).
+    private func handleSuggestCitations(id: String, request: HTTPRequest) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else { return .badRequest("Invalid document ID format") }
+        let json = (request.body?.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        guard let doc = await findDocumentSnapshot(by: uuid) else {
+            return .notFound("Document not found: \(id)")
+        }
+        let ns = doc.source as NSString
+        let start = json["start"] as? Int ?? 0
+        let length = json["length"] as? Int ?? max(0, ns.length - start)
+        guard start >= 0, length >= 0, start + length <= ns.length else {
+            return .badRequest("range out of bounds (source length \(ns.length))")
+        }
+        let text = ns.substring(with: NSRange(location: start, length: length))
+        let suggestions = await CitationSuggestionService.shared.suggest(text: text)
+        let payload: [[String: Any]] = suggestions.map { s in
+            [
+                "claim": s.claim,
+                "query": s.query,
+                "candidates": s.candidates.map { c in
+                    [
+                        "citeKey": c.citeKey,
+                        "title": c.title,
+                        "authors": c.authors,
+                        "year": c.year,
+                        "hasPDF": c.hasPDF,
+                    ] as [String: Any]
+                },
+            ]
+        }
+        return .json(["status": "ok", "suggestions": payload])
     }
 
     /// Resolve + run a task via the @MainActor AI services (awaited across the

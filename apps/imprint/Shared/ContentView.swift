@@ -52,6 +52,11 @@ struct ContentView: View {
     @State private var aiErrorMessage: String?
     /// Running inline AI author-task (streaming into `currentSuggestion`).
     @State private var inlineAITask: Task<Void, Never>?
+    /// Ranked citation suggestions panel state (nil = hidden).
+    @State private var citationSuggestions: [CitationSuggestionService.ClaimSuggestion]?
+    @State private var citationSuggestLoading = false
+    @State private var citationSuggestRange: NSRange?
+    @State private var citationSuggestTask: Task<Void, Never>?
 
     #if os(macOS)
     /// Comment service for this document (macOS only)
@@ -429,6 +434,7 @@ struct ContentView: View {
             startInlineAITask(actionId: actionId, range: range)
         }
         .overlay(alignment: .topTrailing) { inlineAITaskOverlay }
+        .overlay(alignment: .top) { citationSuggestionOverlay }
         // External-candidate picker for "import missing cite key" flow.
         // Attached here (at `mainContent` level) rather than inside the
         // sidebar List Section — SwiftUI-on-macOS flickers sheets whose
@@ -804,6 +810,21 @@ struct ContentView: View {
 
     // MARK: - Inline AI Author-Tasks
 
+    /// Non-modal ranked-citation confirm panel.
+    @ViewBuilder
+    private var citationSuggestionOverlay: some View {
+        if citationSuggestLoading || citationSuggestions != nil {
+            CitationSuggestionPanel(
+                suggestions: citationSuggestions ?? [],
+                isLoading: citationSuggestLoading,
+                onInsert: { applyCitations($0) },
+                onDismiss: { dismissCitationSuggestions() }
+            )
+            .padding(.top, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     /// Non-modal preview card for the running/finished inline AI task.
     @ViewBuilder
     private var inlineAITaskOverlay: some View {
@@ -842,15 +863,9 @@ struct ContentView: View {
 
         switch action.outputMode {
         case .proposeCitations:
-            // Citation search opens imbib (a ranked inline confirm is a follow-up).
+            // Extract claims → search imbib → show a ranked confirm panel.
             currentSuggestion = nil
-            inlineAITask = Task {
-                do {
-                    for try await _ in AIContextMenuService.shared.executeActionStreaming(
-                        action, selectedText: selectedText, range: range, context: context
-                    ) { /* imbib handles the flow; it signals completion by throwing */ }
-                } catch { /* handledByImbib / cancelled — nothing to show inline */ }
-            }
+            startCitationSuggestions(range: range, text: selectedText)
 
         case .annotateAsComment:
             startReviewAnnotations(action: action, range: range, passage: selectedText, context: context)
@@ -936,6 +951,52 @@ struct ContentView: View {
                 aiErrorMessage = error.localizedDescription
             }
         }
+    }
+
+    // MARK: Suggest citations
+
+    /// Extract citation-worthy claims from the passage, search imbib for each,
+    /// and show a non-modal confirm panel. Nothing is inserted automatically.
+    private func startCitationSuggestions(range: NSRange, text: String) {
+        citationSuggestTask?.cancel()
+        citationSuggestRange = range
+        citationSuggestions = nil
+        citationSuggestLoading = true
+        citationSuggestTask = Task {
+            let result = await CitationSuggestionService.shared.suggest(text: text)
+            if Task.isCancelled { return }
+            citationSuggestLoading = false
+            citationSuggestions = result
+            if result.allSatisfy({ $0.candidates.isEmpty }) && !result.isEmpty {
+                Logger.ai.infoCapture("Citation suggest: claims found but no library matches", category: "ai")
+            }
+        }
+    }
+
+    private func dismissCitationSuggestions() {
+        citationSuggestTask?.cancel()
+        citationSuggestTask = nil
+        citationSuggestions = nil
+        citationSuggestLoading = false
+        citationSuggestRange = nil
+    }
+
+    /// Insert the chosen citations at the end of the target range (grouped),
+    /// and register each in the document's bibliography.
+    private func applyCitations(_ selected: [CitationResult]) {
+        guard !selected.isEmpty, let range = citationSuggestRange else { dismissCitationSuggestions(); return }
+        // Register bib entries so the .bib projection + compile pick them up.
+        for c in selected where !c.bibtex.isEmpty {
+            document.addCitation(key: c.citeKey, bibtex: c.bibtex)
+        }
+        let keys = selected.map(\.citeKey)
+        let isLatex = appState.documentFormat == .latex
+        let citeText = isLatex ? "\\cite{\(keys.joined(separator: ","))}" : keys.map { "@\($0)" }.joined(separator: " ")
+        // Insert at the end of the range (author can reposition).
+        let insertAt = min(NSMaxRange(range), (document.source as NSString).length)
+        applyAIResult(citeText, range: NSRange(location: insertAt, length: 0))
+        Logger.ai.infoCapture("Inserted \(keys.count) citation(s): \(keys.joined(separator: ","))", category: "ai")
+        dismissCitationSuggestions()
     }
 
     private struct ReviewFinding { let quote: String; let commentBody: String }
