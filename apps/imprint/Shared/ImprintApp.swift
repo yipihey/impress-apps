@@ -319,6 +319,13 @@ struct ImprintApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var appState = AppState()
 
+    /// Per-surface appearance (View ▸ Appearance). "appearanceMode" is the
+    /// long-standing app-wide key read by AppearanceModifier; the editor and
+    /// PDF keys are read by their NSViewRepresentables.
+    @AppStorage("appearanceMode") private var appAppearanceMode = "system"
+    @AppStorage("editorAppearance") private var editorAppearance = "follow"
+    @AppStorage("pdfAppearance") private var pdfAppearance = "follow"
+
     /// Whether running in UI testing mode
     private static let isUITesting = CommandLine.arguments.contains("--ui-testing")
 
@@ -510,6 +517,28 @@ struct ImprintApp: App {
         #endif
 
         #if os(macOS)
+        // Detached compiled-PDF preview — for reading the typeset output on a
+        // second display while editing on the first (same pattern as imbib's
+        // detached PDF tab). Content observes CompiledPDFStore, so it live-
+        // updates on every recompile. Declarative placement: maximized on the
+        // secondary screen when one exists, otherwise the right half of the
+        // main screen.
+        WindowGroup("PDF Preview", id: "pdf-preview", for: UUID.self) { $manuscriptID in
+            DetachedPDFWindowView(manuscriptID: manuscriptID)
+                .withAppearance()
+        }
+        .defaultWindowPlacement { _, context in
+            if let secondary = NSScreen.screens.first(where: { $0 != NSScreen.main }) {
+                let frame = secondary.visibleFrame
+                return WindowPlacement(frame.origin, size: frame.size)
+            }
+            let main = context.defaultDisplay.visibleRect
+            return WindowPlacement(
+                CGPoint(x: main.midX, y: main.minY),
+                size: CGSize(width: main.width / 2, height: main.height)
+            )
+        }
+
         // Cross-document search window — indexed from the shared store
         // by `ManuscriptSearchService`. Opened with Cmd+Shift+F.
         Window("Search Across Manuscripts", id: "cross-document-search") {
@@ -544,6 +573,13 @@ struct ImprintApp: App {
             ConsoleView(appName: "imprint")
         }
         .defaultSize(width: 800, height: 400)
+
+        // Keyboard shortcuts reference (⌘/, same chord as imbib)
+        Window("Keyboard Shortcuts", id: "shortcuts-help") {
+            ShortcutsHelpView()
+                .withAppearance()
+        }
+        .defaultSize(width: 520, height: 560)
         #endif
     }
 
@@ -552,6 +588,95 @@ struct ImprintApp: App {
     // Lifted out of the (eventually retiring) `DocumentGroup` scene so
     // they survive when that scene is gated off on macOS — see Phase 4b
     // of /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md.
+    /// View ▸ Appearance: dark mode for the app, the text editor, and the PDF
+    /// viewer — together (leave surfaces on "Follow App") or separately.
+    /// Backed by three AppStorage keys; the editor and PDF representables and
+    /// AppearanceModifier react live.
+    private var appearanceMenu: some View {
+        Menu("Appearance") {
+            Picker("Application", selection: $appAppearanceMode) {
+                Text("System").tag("system")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+            }
+            Picker("Editor", selection: $editorAppearance) {
+                Text("Follow App").tag("follow")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+            }
+            Picker("PDF Viewer", selection: $pdfAppearance) {
+                Text("Follow App").tag("follow")
+                Text("Light").tag("light")
+                Text("Dark (inverted)").tag("dark")
+            }
+
+            Divider()
+
+            // One-chord "everything dark / everything light" toggle: resets
+            // per-surface overrides so all surfaces follow the app switch.
+            Button(appAppearanceMode == "dark" ? "All Light" : "All Dark") {
+                let target = appAppearanceMode == "dark" ? "light" : "dark"
+                appAppearanceMode = target
+                editorAppearance = "follow"
+                pdfAppearance = "follow"
+            }
+            .keyboardShortcut("D", modifiers: [.command, .control])
+        }
+    }
+
+    /// View ▸ Layouts: user-named pane arrangements (declarative layout
+    /// system, PaneLayout.swift). First nine get ⌃⌘1-9 so switching a saved
+    /// layout is one chord.
+    private var layoutsMenu: some View {
+        Menu("Layouts") {
+            ForEach(Array(LayoutStore.shared.layouts.enumerated()), id: \.element.id) { index, layout in
+                let button = Button(layout.name) {
+                    LayoutStore.shared.apply(layout, to: appState)
+                }
+                if index < 9 {
+                    button.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
+                } else {
+                    button
+                }
+            }
+
+            Divider()
+
+            Button("Save Current Layout…") {
+                promptForLayoutName()
+            }
+
+            if !LayoutStore.shared.layouts.isEmpty {
+                Menu("Delete Layout") {
+                    ForEach(LayoutStore.shared.layouts) { layout in
+                        Button(layout.name) {
+                            LayoutStore.shared.delete(layout)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Name prompt for "Save Current Layout…". NSAlert keeps this dependency-
+    /// free inside a Commands context (no window to present a SwiftUI sheet on).
+    private func promptForLayoutName() {
+        let alert = NSAlert()
+        alert.messageText = "Save Current Layout"
+        alert.informativeText = "Name this pane arrangement. Saving under an existing name replaces it."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "e.g. Writing, Review, Two-up"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { return }
+            LayoutStore.shared.saveCurrent(named: name, from: appState)
+        }
+    }
+
     // Attached to the project-browser `WindowGroup` above, which is the
     // always-present scene.
     @CommandsBuilder
@@ -626,21 +751,56 @@ struct ImprintApp: App {
             .keyboardShortcut("F", modifiers: [.command, .shift])
         }
 
-        // View menu additions
+        // View menu additions.
+        // Shortcut grammar is coordinated with imbib (see docs/keyboard-grammar.md):
+        // ⌘1-3 switch the primary view, ⌃⌘S toggles the sidebar, ⌘0 toggles the
+        // secondary (preview/detail) pane, ⌘\ splits the editor.
         CommandGroup(after: .sidebar) {
-            Picker("Edit Mode", selection: $appState.editMode) {
-                Text("Direct PDF").tag(EditMode.directPdf)
-                Text("Split View").tag(EditMode.splitView)
-                Text("Text Only").tag(EditMode.textOnly)
+            Button("Text Only") { appState.editMode = .textOnly }
+                .keyboardShortcut("1", modifiers: [.command])
+            Button("Split View") { appState.editMode = .splitView }
+                .keyboardShortcut("2", modifiers: [.command])
+            Button("Direct PDF") { appState.editMode = .directPdf }
+                .keyboardShortcut("3", modifiers: [.command])
+            Button("Cycle Edit Mode") { appState.editMode.cycle() }
+                .keyboardShortcut(.tab)
+
+            Divider()
+
+            Button(appState.showingOutline ? "Hide Outline" : "Show Outline") {
+                withAnimation { appState.showingOutline.toggle() }
             }
-            .keyboardShortcut(.tab)
+            .keyboardShortcut("S", modifiers: [.command, .control])
+
+            Button(appState.editMode == .textOnly ? "Show Preview Pane" : "Hide Preview Pane") {
+                appState.editMode = appState.editMode == .textOnly ? .splitView : .textOnly
+            }
+            .keyboardShortcut("0", modifiers: [.command])
+
+            Button(appState.isEditorSplit ? "Close Split Editor" : "Split Editor") {
+                withAnimation { appState.isEditorSplit.toggle() }
+            }
+            .keyboardShortcut("\\", modifiers: [.command])
+
+            Button(appState.editorSplitSideBySide ? "Split Editor: Stack Vertically" : "Split Editor: Side by Side") {
+                appState.editorSplitSideBySide.toggle()
+                appState.isEditorSplit = true
+            }
+            .keyboardShortcut("\\", modifiers: [.command, .option])
+
+            Button("Open PDF on Second Display") {
+                NotificationCenter.default.post(name: .openDetachedPDF, object: nil)
+            }
+            .keyboardShortcut("P", modifiers: [.command, .control])
+
+            layoutsMenu
 
             Divider()
 
             Button(appState.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
                 NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
             }
-            .keyboardShortcut("F", modifiers: [.command, .shift])
+            .keyboardShortcut("F", modifiers: [.command, .option])
 
             Divider()
 
@@ -654,6 +814,8 @@ struct ImprintApp: App {
             }
             .keyboardShortcut("K", modifiers: [.command, .option])
 
+            appearanceMenu
+
             Divider()
 
             Button("Show Console") {
@@ -665,13 +827,19 @@ struct ImprintApp: App {
                 NotificationCenter.default.post(name: .toggleVeuszPlotsPanel, object: nil)
             }
             .keyboardShortcut("P", modifiers: [.command, .option])
+
+            Button("Keyboard Shortcuts…") {
+                openWindow(id: "shortcuts-help")
+            }
+            .keyboardShortcut("/", modifiers: [.command])
         }
 
         CommandGroup(after: .pasteboard) {
             Button("Insert Veusz Plot…") {
                 NotificationCenter.default.post(name: .presentVeuszPlotPicker, object: nil)
             }
-            .keyboardShortcut("I", modifiers: [.command, .shift])
+            // ⌃⌘V — was ⌘⇧I, which collided with "Import to Manuscript Library…"
+            .keyboardShortcut("V", modifiers: [.command, .control])
         }
 
         // Format menu
@@ -808,6 +976,15 @@ class AppState {
 
     /// Whether the Veusz plots inspector panel is visible
     var showingVeuszPlots = false
+
+    /// Whether the outline/project sidebar is visible (⌃⌘S, matches imbib)
+    var showingOutline = true
+
+    /// Whether the source editor is split into two views of the same document
+    var isEditorSplit = false
+
+    /// Split-editor orientation: `true` = side by side, `false` = stacked
+    var editorSplitSideBySide = false
 
     /// Currently selected text (for AI actions)
     var selectedText = ""

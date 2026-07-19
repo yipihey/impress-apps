@@ -15,8 +15,12 @@ import ImpressPublicationUI
 struct ContentView: View {
     @Binding var document: ImprintDocument
     @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
 
     @State private var cursorPosition: Int = 0
+
+    /// Cursor for the second split-editor view (independent of the primary)
+    @State private var secondaryCursorPosition: Int = 0
 
     /// Owns the compile/preview output state + compile orchestration. The view
     /// reads `vm.pdfData` / `vm.isCompiling` / … declaratively and drives it via
@@ -109,13 +113,22 @@ struct ContentView: View {
         // centered in the window — a regression introduced in b826461
         // when the layout was rewritten away from NavigationSplitView.
         HSplitView {
-            outlineSidebar
+            if appState.showingOutline {
+                outlineSidebar
+            }
 
-            modeContent
+            centerPane
 
             paperPanel
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(LayoutSystemModifier(
+            appState: appState,
+            documentID: document.id,
+            documentTitle: document.title,
+            pdfData: vm.pdfData,
+            isCompiling: vm.isCompiling
+        ))
         .onChange(of: appState.editMode) { _, _ in
             // When switching modes, scroll the new views to the current position.
             // Bump cursorPosition to force the editor to re-scroll, then trigger SyncTeX.
@@ -465,6 +478,50 @@ struct ContentView: View {
         #endif
     }
 
+    /// Declarative layout system + detached-PDF plumbing, extracted from the
+    /// `mainContent` modifier chain (ContentView.body is at the type-checker's
+    /// "reasonable time" limit — keep new modifiers out of the main chain).
+    private struct LayoutSystemModifier: ViewModifier {
+        let appState: AppState
+        let documentID: UUID
+        let documentTitle: String
+        let pdfData: Data?
+        let isCompiling: Bool
+        @Environment(\.openWindow) private var openWindow
+
+        func body(content: Content) -> some View {
+            content
+                .task {
+                    // Restore the last pane arrangement (named-layout system).
+                    // AppState is app-global, so re-applying per window is
+                    // idempotent.
+                    LayoutStore.shared.lastState().apply(to: appState)
+                }
+                .onChange(of: PaneLayoutState.capture(from: appState)) { _, _ in
+                    // Remember the live arrangement so new windows and the
+                    // next launch start from it (tiny JSON in UserDefaults).
+                    LayoutStore.shared.rememberCurrent(appState)
+                }
+                // Publish compiled output so the detached PDF window (second
+                // display) observes it without coupling to this view model.
+                .onChange(of: pdfData) { _, data in
+                    CompiledPDFStore.shared.publish(
+                        documentID: documentID, title: documentTitle,
+                        pdfData: data, isCompiling: isCompiling
+                    )
+                }
+                .onChange(of: isCompiling) { _, compiling in
+                    CompiledPDFStore.shared.publish(
+                        documentID: documentID, title: documentTitle,
+                        pdfData: pdfData, isCompiling: compiling
+                    )
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .openDetachedPDF)) { _ in
+                    openWindow(id: "pdf-preview", value: documentID)
+                }
+        }
+    }
+
     /// Non-modal, auto-dismissing banner for AI errors (preserves flow — no alert).
     @ViewBuilder
     private var aiErrorBanner: some View {
@@ -492,6 +549,105 @@ struct ContentView: View {
         }
     }
 
+    /// Center pane: the mode content flanked by the optional Comments (left)
+    /// and AI Chat (right) sidebars. This is the render path for the
+    /// `showingComments` / `showingAIAssistant` toggles — panes are described
+    /// by AppState (the declarative layout state), never hard-wired.
+    @ViewBuilder
+    private var centerPane: some View {
+        HStack(spacing: 0) {
+            #if os(macOS)
+            if appState.showingComments {
+                CommentsSidebarView(
+                    commentService: commentService,
+                    onNavigateToRange: { range in
+                        cursorPosition = range.start
+                    }
+                )
+                .transition(.move(edge: .leading))
+
+                Divider()
+            }
+            #endif
+
+            modeContent
+                .frame(maxWidth: .infinity)
+
+            #if os(macOS)
+            if appState.showingAIAssistant {
+                Divider()
+
+                AIChatSidebar(
+                    selectedText: Binding(
+                        get: { appState.selectedText },
+                        set: { appState.selectedText = $0 }
+                    ),
+                    documentSource: $document.source,
+                    onInsertText: { text in
+                        insertTextAtCursor(text)
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            }
+            #endif
+        }
+        .animation(.easeInOut(duration: 0.15), value: appState.showingComments)
+        .animation(.easeInOut(duration: 0.15), value: appState.showingAIAssistant)
+    }
+
+    /// The source editor area: one editor, or two views into the same document
+    /// (split stacked or side by side). Both bind the same `$document.source`;
+    /// each has its own cursor, so one part can be read/edited while another
+    /// part stays in view.
+    @ViewBuilder
+    private var editorArea: some View {
+        if appState.isEditorSplit {
+            if appState.editorSplitSideBySide {
+                HSplitView {
+                    primaryEditor
+                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                    secondaryEditor
+                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                VSplitView {
+                    primaryEditor
+                        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: .infinity)
+                    secondaryEditor
+                        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: .infinity)
+                }
+            }
+        } else {
+            primaryEditor
+        }
+    }
+
+    private var primaryEditor: some View {
+        SourceEditorView(
+            source: $document.source,
+            cursorPosition: $cursorPosition,
+            syntaxMode: appState.documentFormat,
+            onSelectionChange: { selectedText, selectedRange in
+                appState.selectedText = selectedText
+                appState.selectedRange = selectedRange
+            }
+        )
+    }
+
+    /// Second view into the same buffer. Own cursor; selection changes still
+    /// feed AppState so AI tasks work from whichever editor was touched last.
+    private var secondaryEditor: some View {
+        SourceEditorView(
+            source: $document.source,
+            cursorPosition: $secondaryCursorPosition,
+            syntaxMode: appState.documentFormat,
+            onSelectionChange: { selectedText, selectedRange in
+                appState.selectedText = selectedText
+                appState.selectedRange = selectedRange
+            }
+        )
+    }
+
     /// The mode-specific main pane (text-only / split-view / direct-pdf).
     /// Extracted to keep `mainContent` simple enough for the type-checker.
     @ViewBuilder
@@ -499,16 +655,8 @@ struct ContentView: View {
         @Bindable var appState = appState
         switch appState.editMode {
         case .textOnly:
-            SourceEditorView(
-                source: $document.source,
-                cursorPosition: $cursorPosition,
-                syntaxMode: appState.documentFormat,
-                onSelectionChange: { selectedText, selectedRange in
-                    appState.selectedText = selectedText
-                    appState.selectedRange = selectedRange
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            editorArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .splitView:
             splitViewMode
@@ -532,16 +680,8 @@ struct ContentView: View {
         @Bindable var appState = appState
         HSplitView {
             VStack(spacing: 0) {
-                SourceEditorView(
-                    source: $document.source,
-                    cursorPosition: $cursorPosition,
-                    syntaxMode: appState.documentFormat,
-                    onSelectionChange: { selectedText, selectedRange in
-                        appState.selectedText = selectedText
-                        appState.selectedRange = selectedRange
-                    }
-                )
-                .frame(maxHeight: .infinity)
+                editorArea
+                    .frame(maxHeight: .infinity)
 
                 CompilationErrorView(
                     diagnostics: vm.latexDiagnostics,
@@ -616,133 +756,6 @@ struct ContentView: View {
         .focusEffectDisabled()
         .keyboardGuarded { press in
             handleVimNavigation(press)
-        }
-    }
-
-    @ViewBuilder
-    private var editorView: some View {
-        @Bindable var appState = appState
-
-        HStack(spacing: 0) {
-            // Comments sidebar (left)
-            if appState.showingComments {
-                #if os(macOS)
-                CommentsSidebarView(
-                    commentService: commentService,
-                    onNavigateToRange: { range in
-                        cursorPosition = range.start
-                    }
-                )
-                .transition(.move(edge: .leading))
-
-                Divider()
-                #endif
-            }
-
-            // Main editor content
-            mainEditorContent
-                .frame(maxWidth: .infinity)
-
-            // AI Assistant sidebar (right)
-            if appState.showingAIAssistant {
-                Divider()
-
-                #if os(macOS)
-                AIChatSidebar(
-                    selectedText: $appState.selectedText,
-                    documentSource: $document.source,
-                    onInsertText: { text in
-                        insertTextAtCursor(text)
-                    }
-                )
-                .transition(.move(edge: .trailing))
-                #endif
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var mainEditorContent: some View {
-        switch appState.editMode {
-        case .directPdf:
-            DirectPDFView(
-                document: $document,
-                pdfData: vm.pdfData,
-                sourceMapEntries: vm.sourceMapEntries,
-                cursorPosition: $cursorPosition
-            )
-
-        case .splitView:
-            HStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    // Gutter with line numbers and diagnostics
-                    if !vm.latexDiagnostics.isEmpty || appState.documentFormat == .latex {
-                        EditorGutterView(
-                            lineCount: document.source.reduce(1) { count, char in char == "\n" ? count + 1 : count },
-                            diagnosticsByLine: EditorGutterView.diagnosticsMap(from: vm.latexDiagnostics),
-                            onTapLine: { line in navigateToLine(line) }
-                        )
-                    }
-
-                    SourceEditorView(
-                        source: $document.source,
-                        cursorPosition: $cursorPosition,
-                        syntaxMode: appState.documentFormat,
-                        onSelectionChange: { selectedText, selectedRange in
-                            appState.selectedText = selectedText
-                            appState.selectedRange = selectedRange
-                        }
-                    )
-                }
-                .frame(minWidth: 300, maxHeight: .infinity)
-
-                Divider()
-
-                VStack(spacing: 0) {
-                    if previewFormat == "svg" && !vm.svgPages.isEmpty && appState.documentFormat == .typst {
-                        SVGPreviewView(
-                            svgPages: vm.svgPages,
-                            isCompiling: vm.isCompiling,
-                            sourceMapEntries: vm.sourceMapEntries,
-                            cursorPosition: cursorPosition
-                        )
-                        .frame(maxHeight: .infinity)
-                    } else {
-                        PDFPreviewView(
-                            pdfData: vm.pdfData,
-                            isCompiling: vm.isCompiling,
-                            sourceMapEntries: vm.sourceMapEntries,
-                            cursorPosition: cursorPosition,
-                            onInverseSync: appState.documentFormat == .latex ? { _, line, _ in
-                                navigateToLine(line)
-                            } : nil,
-                            syncTeXHighlight: syncTeXHighlight
-                        )
-                        .frame(maxHeight: .infinity)
-                    }
-
-                    CompilationErrorView(
-                        diagnostics: vm.latexDiagnostics,
-                        errors: vm.compilationError,
-                        warnings: vm.compilationWarnings,
-                        onNavigateToLine: { line in
-                            navigateToLine(line)
-                        }
-                    )
-                }
-                .frame(minWidth: 300, maxHeight: .infinity)
-            }
-
-        case .textOnly:
-            SourceEditorView(
-                source: $document.source,
-                cursorPosition: $cursorPosition,
-                syntaxMode: appState.documentFormat,
-                onSelectionChange: { selectedText, selectedRange in
-                    appState.selectedText = selectedText
-                    appState.selectedRange = selectedRange
-                }
-            )
         }
     }
 

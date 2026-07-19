@@ -125,6 +125,19 @@ struct SourceEditorView: View {
 
 /// NSTextView wrapper for Typst/LaTeX editing with inline AI completions
 struct TypstEditorRepresentable: NSViewRepresentable {
+    /// Per-surface appearance override ("follow" | "light" | "dark") — lets
+    /// the editor be dark while the rest of the app is light, or vice versa.
+    /// AppStorage is a DynamicProperty, so changes re-run updateNSView.
+    @AppStorage("editorAppearance") private var editorAppearance = "follow"
+
+    static func appearanceOverride(_ raw: String) -> NSAppearance? {
+        switch raw {
+        case "light": NSAppearance(named: .aqua)
+        case "dark": NSAppearance(named: .darkAqua)
+        default: nil  // inherit the app/window appearance
+        }
+    }
+
     @Binding var source: String
     @Binding var cursorPosition: Int
     let syntaxMode: DocumentFormat
@@ -140,6 +153,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.appearance = Self.appearanceOverride(editorAppearance)
 
         let textView = TypstTextView()
         textView.delegate = context.coordinator
@@ -233,6 +247,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        scrollView.appearance = Self.appearanceOverride(editorAppearance)
         guard let textView = scrollView.documentView as? TypstTextView else { return }
 
         // Refresh the coordinator's view of the latest SwiftUI struct so

@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import CoreImage
 import ImpressLogging
 import ImprintCore
 
@@ -158,6 +159,11 @@ struct SyncablePDFKitView: NSViewRepresentable {
     /// Callback when user clicks on PDF: (page 1-indexed, x in points, y in points).
     var onClickPosition: ((Int, Double, Double) -> Void)?
 
+    /// Per-surface appearance override ("follow" | "light" | "dark"). "dark"
+    /// inverts the rendered pages (invert + 180° hue keeps colors sane), so
+    /// the PDF can be dark while the app is light — or vice versa.
+    @AppStorage("pdfAppearance") private var pdfAppearance = "follow"
+
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
@@ -165,6 +171,7 @@ struct SyncablePDFKitView: NSViewRepresentable {
         view.displaysPageBreaks = true
         view.backgroundColor = .windowBackgroundColor
         view.setAccessibilityIdentifier("pdfPreview.document")
+        applyAppearance(to: view)
 
         // Add click gesture for SyncTeX inverse sync
         let clickGesture = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleClick(_:)))
@@ -180,6 +187,7 @@ struct SyncablePDFKitView: NSViewRepresentable {
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
         context.coordinator.onClickPosition = onClickPosition
+        applyAppearance(to: pdfView)
         // Only replace the document when data actually changes (avoid re-parsing on every SwiftUI state change)
         guard context.coordinator.lastDataCount != data.count || context.coordinator.lastDataPrefix != data.prefix(64) else { return }
         context.coordinator.lastDataCount = data.count
@@ -191,6 +199,26 @@ struct SyncablePDFKitView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onClickPosition: onClickPosition)
+    }
+
+    private func applyAppearance(to pdfView: PDFView) {
+        switch pdfAppearance {
+        case "light":
+            pdfView.appearance = NSAppearance(named: .aqua)
+            pdfView.layer?.filters = nil
+        case "dark":
+            pdfView.appearance = NSAppearance(named: .darkAqua)
+            pdfView.wantsLayer = true
+            if (pdfView.layer?.filters ?? []).isEmpty {
+                let invert = CIFilter(name: "CIColorInvert")
+                let hue = CIFilter(name: "CIHueAdjust")
+                hue?.setValue(CGFloat.pi, forKey: kCIInputAngleKey)
+                pdfView.layer?.filters = [invert, hue].compactMap { $0 }
+            }
+        default:
+            pdfView.appearance = nil
+            pdfView.layer?.filters = nil
+        }
     }
 
     class Coordinator: NSObject {
