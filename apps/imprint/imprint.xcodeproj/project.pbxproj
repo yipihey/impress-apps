@@ -1064,6 +1064,7 @@
 				E6AECFF4C503F1344D485DB2 /* Sources */,
 				F1A149B628AC8B54ECF9B79B /* Resources */,
 				509C26566FD7CBB2F0F24061 /* Frameworks */,
+				B8EAEC48784F779C8AA58FF3 /* Install to ~/Applications (Debug) */,
 			);
 			buildRules = (
 			);
@@ -1241,6 +1242,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B8EAEC48784F779C8AA58FF3 /* Install to ~/Applications (Debug) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Install to ~/Applications (Debug)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" = \"Debug\" ] && [ \"$PLATFORM_NAME\" = \"macosx\" ]; then\n  DEST=\"$HOME/Applications\"\n  LSREG=\"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister\"\n  mkdir -p \"$DEST\"\n  rm -rf \"$DEST/$FULL_PRODUCT_NAME\"\n  /usr/bin/ditto \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" \"$DEST/$FULL_PRODUCT_NAME\"\n  # Script phases run BEFORE Xcode's final product codesign, so the copy is\n  # unsigned at this point — sign it ourselves or launchd refuses to spawn it.\n  ENT=$(/usr/bin/find \"$TARGET_TEMP_DIR\" -name \"*.xcent\" -print -quit 2>/dev/null)\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    # The debug dylib (Xcode 16 previews) is also only signed during final\n    # product signing — sign nested dylibs first or the outer sign fails.\n    for dl in \"$DEST/$FULL_PRODUCT_NAME/Contents/MacOS/\"*.dylib; do\n      [ -e \"$dl\" ] && /usr/bin/codesign --force --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$dl\"\n    done\n    /usr/bin/codesign --force ${ENT:+--entitlements \"$ENT\"} --options runtime --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$DEST/$FULL_PRODUCT_NAME\" || echo \"warning: re-sign of installed copy failed\"\n  fi\n  /usr/bin/chflags nohidden \"$DEST/$FULL_PRODUCT_NAME\"\n  \"$LSREG\" -f \"$DEST/$FULL_PRODUCT_NAME\" || true\n  # Keep the DerivedData copy out of Spotlight so ~/Applications is the only hit\n  \"$LSREG\" -u \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" 2>/dev/null || true\n  /usr/bin/chflags hidden \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" || true\n  echo \"note: installed $FULL_PRODUCT_NAME to $DEST\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		07D4B824CA7C07A7672B0B4A /* Sources */ = {

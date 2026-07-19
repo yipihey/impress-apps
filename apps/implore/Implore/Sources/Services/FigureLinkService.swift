@@ -12,7 +12,12 @@ public final class FigureLinkService {
     public static let shared = FigureLinkService()
 
     /// App group identifier for shared container
+    /// (Team-ID prefix on macOS avoids the app-group TCC prompt.)
+    #if os(macOS)
+    public static let appGroupIdentifier = "QG3MEYVHMS.com.impress.shared"
+    #else
     public static let appGroupIdentifier = "group.com.impress.shared"
+    #endif
 
     /// Currently pending link requests
     public private(set) var pendingLinks: [PendingLink] = []

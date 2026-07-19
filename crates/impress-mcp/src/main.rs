@@ -32,7 +32,7 @@ fn default_embeddings_path() -> PathBuf {
 fn default_main_store_path() -> PathBuf {
     dirs::home_dir()
         .expect("Could not determine home directory")
-        .join("Library/Group Containers/group.com.impress.suite/workspace/impress.sqlite")
+        .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -13,7 +13,16 @@ public struct SiblingDiscovery: Sendable {
     private init() {}
 
     /// The unified app group identifier shared by all Impress suite apps.
+    ///
+    /// macOS uses the Team-ID-prefixed form: development provisioning profiles
+    /// authorize `QG3MEYVHMS.*` app groups, so group-container access never
+    /// triggers the "access data from other apps" TCC prompt — even after
+    /// rebuilds. iOS requires the `group.` prefix (and never prompts).
+    #if os(macOS)
+    public static let suiteGroupID = "QG3MEYVHMS.com.impress.suite"
+    #else
     public static let suiteGroupID = "group.com.impress.suite"
+    #endif
 
     /// Checks whether a sibling app is installed on this device.
     public func isInstalled(_ app: SiblingApp) -> Bool {

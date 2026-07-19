@@ -4,7 +4,9 @@
 <dict>
     <!--
         Grants impress-mcp access to the shared imbib/imprint workspace
-        directory at ~/Library/Group Containers/group.com.impress.suite/.
+        directory at ~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/.
+        (Team-ID prefix: authorized by the QG3MEYVHMS.* profile wildcard, so
+        access never triggers the app-group TCC prompt.)
 
         The binary must be codesigned with an Apple Developer identity on
         team QG3MEYVHMS (the team that registered this group). For a fresh
@@ -17,7 +19,7 @@
     -->
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.com.impress.suite</string>
+        <string>QG3MEYVHMS.com.impress.suite</string>
     </array>
     <key>com.apple.security.network.client</key>
     <true/>

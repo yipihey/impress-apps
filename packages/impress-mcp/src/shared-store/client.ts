@@ -1,8 +1,8 @@
 /**
  * SharedStoreClient — read-only access to the shared impress-core SQLite database.
  *
- * Opens the shared database at the group.com.impress.suite app group container path
- * and provides structured queries over the items table.
+ * Opens the shared database at the QG3MEYVHMS.com.impress.suite app group
+ * container path and provides structured queries over the items table.
  */
 
 import Database from "better-sqlite3";
@@ -45,7 +45,7 @@ export class SharedStoreClient {
       home,
       "Library",
       "Group Containers",
-      "group.com.impress.suite",
+      "QG3MEYVHMS.com.impress.suite",
       "workspace"
     );
     return path.join(containerBase, "impress.sqlite");

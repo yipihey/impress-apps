@@ -53,7 +53,12 @@ struct ManuscriptWorkingDirectory {
     /// Falls back to the per-app Application Support when the app-group
     /// container is unavailable (UI tests, headless contexts).
     static func defaultContainerRoot() -> URL {
+        // Team-ID prefix on macOS avoids the app-group TCC prompt.
+        #if os(macOS)
+        let groupID = "QG3MEYVHMS.com.impress.suite"
+        #else
         let groupID = "group.com.impress.suite"
+        #endif
         if let groupContainer = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: groupID
         ) {

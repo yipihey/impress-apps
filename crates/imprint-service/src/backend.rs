@@ -41,7 +41,7 @@ fn default_workspace_root() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Library/Group Containers/group.com.impress.suite/workspace/")
+    PathBuf::from(home).join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/")
 }
 
 /// Lazy-init the default handlers (SectionStore + ManuscriptSearchIndex)

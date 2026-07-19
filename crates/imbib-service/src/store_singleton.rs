@@ -19,7 +19,7 @@ fn default_store_path() -> PathBuf {
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     PathBuf::from(home).join(
-        "Library/Group Containers/group.com.impress.suite/workspace/impress.sqlite",
+        "Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite",
     )
 }
 

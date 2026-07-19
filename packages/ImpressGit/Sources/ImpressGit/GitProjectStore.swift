@@ -15,7 +15,13 @@ public final class GitProjectStore {
     private let key = "impress.gitProjects"
 
     private init() {
-        self.defaults = UserDefaults(suiteName: "group.com.impress.suite") ?? .standard
+        // Team-ID prefix on macOS avoids the app-group TCC prompt.
+        #if os(macOS)
+        let suiteID = "QG3MEYVHMS.com.impress.suite"
+        #else
+        let suiteID = "group.com.impress.suite"
+        #endif
+        self.defaults = UserDefaults(suiteName: suiteID) ?? .standard
         load()
     }
 

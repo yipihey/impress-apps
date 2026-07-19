@@ -16,8 +16,8 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.impress.imbib</string>
-		<string>group.com.impress.suite</string>
+		<string>QG3MEYVHMS.com.impress.imbib</string>
+		<string>QG3MEYVHMS.com.impress.suite</string>
 	</array>
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>

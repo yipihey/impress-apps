@@ -65,6 +65,36 @@ targets:
   imbib:
     type: application
     platform: macOS
+    postBuildScripts:
+      # Debug macOS builds install a fresh copy into ~/Applications so Spotlight
+      # always launches the latest build (not a stale DerivedData/Archive copy).
+      - name: Install to ~/Applications (Debug)
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ]; then
+            DEST="$HOME/Applications"
+            LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+            mkdir -p "$DEST"
+            rm -rf "$DEST/$FULL_PRODUCT_NAME"
+            /usr/bin/ditto "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" "$DEST/$FULL_PRODUCT_NAME"
+            # Script phases run BEFORE Xcode's final product codesign, so the copy is
+            # unsigned at this point — sign it ourselves or launchd refuses to spawn it.
+            ENT=$(/usr/bin/find "$TARGET_TEMP_DIR" -name "*.xcent" -print -quit 2>/dev/null)
+            if [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+              # The debug dylib (Xcode 16 previews) is also only signed during final
+              # product signing — sign nested dylibs first or the outer sign fails.
+              for dl in "$DEST/$FULL_PRODUCT_NAME/Contents/MacOS/"*.dylib; do
+                [ -e "$dl" ] && /usr/bin/codesign --force --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$dl"
+              done
+              /usr/bin/codesign --force ${ENT:+--entitlements "$ENT"} --options runtime --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$DEST/$FULL_PRODUCT_NAME" || echo "warning: re-sign of installed copy failed"
+            fi
+            /usr/bin/chflags nohidden "$DEST/$FULL_PRODUCT_NAME"
+            "$LSREG" -f "$DEST/$FULL_PRODUCT_NAME" || true
+            # Keep the DerivedData copy out of Spotlight so ~/Applications is the only hit
+            "$LSREG" -u "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" 2>/dev/null || true
+            /usr/bin/chflags hidden "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" || true
+            echo "note: installed $FULL_PRODUCT_NAME to $DEST"
+          fi
     sources:
       - path: imbib
         excludes:
@@ -164,8 +194,10 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         com.apple.security.application-groups:
-          - group.com.impress.imbib
-          - group.com.impress.suite
+          # Team-ID prefix on macOS: authorized by the QG3MEYVHMS.* profile
+          # wildcard, so access never triggers the app-group TCC prompt.
+          - QG3MEYVHMS.com.impress.imbib
+          - QG3MEYVHMS.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.impress.imbib
         com.apple.developer.icloud-services:
@@ -336,7 +368,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.impress.imbib
+          - QG3MEYVHMS.com.impress.imbib
 
   # iOS Share Extension
   imbib-iOS-ShareExtension:
@@ -409,7 +441,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.impress.imbib
+          - QG3MEYVHMS.com.impress.imbib
 
   # iOS Safari Extension
   imbib-iOS-SafariExtension:
@@ -480,7 +512,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.impress.imbib
+          - QG3MEYVHMS.com.impress.imbib
 
   # iOS File Provider Extension
   imbib-iOS-FileProvider:

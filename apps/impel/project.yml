@@ -116,7 +116,8 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         com.apple.security.application-groups:
-          - group.com.impress.suite
+          # Team-ID prefix on macOS avoids the app-group TCC prompt.
+          - QG3MEYVHMS.com.impress.suite
 
   impel-Widgets:
     type: app-extension

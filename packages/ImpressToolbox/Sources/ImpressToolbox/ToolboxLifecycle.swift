@@ -93,8 +93,14 @@ public final class ToolboxLifecycle: Sendable {
 
     /// The app group container directory for the toolbox binary.
     public static var appGroupBinaryURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.impress.suite")?
+        // Team-ID prefix on macOS avoids the app-group TCC prompt.
+        #if os(macOS)
+        let groupID = "QG3MEYVHMS.com.impress.suite"
+        #else
+        let groupID = "group.com.impress.suite"
+        #endif
+        return FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: groupID)?
             .appendingPathComponent("bin/impress-toolbox")
     }
 

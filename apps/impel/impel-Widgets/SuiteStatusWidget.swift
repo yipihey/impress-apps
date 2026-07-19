@@ -37,7 +37,7 @@ struct SuiteStatusProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SuiteStatusEntry>) -> Void) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: "QG3MEYVHMS.com.impress.suite")
 
         let appConfigs: [(id: String, name: String, icon: String)] = [
             ("imbib", "imbib", "book"),

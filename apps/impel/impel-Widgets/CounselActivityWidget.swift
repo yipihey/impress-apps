@@ -43,7 +43,7 @@ struct CounselActivityProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<CounselActivityEntry>) -> Void) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: "QG3MEYVHMS.com.impress.suite")
 
         let activeThreads = defaults?.integer(forKey: "widget.impel.activeThreadCount") ?? 0
         let escalations = defaults?.integer(forKey: "widget.impel.pendingEscalations") ?? 0

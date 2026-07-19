@@ -43,7 +43,7 @@ struct UnreadMessagesProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<UnreadMessagesEntry>) -> Void) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: "QG3MEYVHMS.com.impress.suite")
 
         let unreadCount = defaults?.integer(forKey: "widget.impart.unreadCount") ?? 0
         let latestSubject = defaults?.string(forKey: "widget.impart.latestSubject") ?? ""
