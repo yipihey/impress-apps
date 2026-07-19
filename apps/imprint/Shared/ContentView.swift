@@ -193,6 +193,26 @@ struct ContentView: View {
                 .help("Insert Citation (Cmd+Shift+K)")
                 .accessibilityIdentifier("toolbar.citationButton")
 
+                // Pane toggles — every surface is one visible click, and the
+                // filled/unfilled icon shows its state at a glance. These
+                // mirror the View menu items.
+                Button {
+                    withAnimation { appState.showingOutline.toggle() }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                        .symbolVariant(appState.showingOutline ? .fill : .none)
+                }
+                .help(appState.showingOutline ? "Hide Outline" : "Show Outline")
+                .accessibilityIdentifier("toolbar.outlineButton")
+
+                Button {
+                    withAnimation { appState.isEditorSplit.toggle() }
+                } label: {
+                    Image(systemName: appState.isEditorSplit ? "rectangle.split.2x1.fill" : "rectangle.split.2x1")
+                }
+                .help(appState.isEditorSplit ? "Close Split Editor" : "Split Editor")
+                .accessibilityIdentifier("toolbar.splitEditorButton")
+
                 // AI Assistant button
                 Button {
                     withAnimation {
@@ -215,6 +235,27 @@ struct ContentView: View {
                 .help("Comments (Cmd+Opt+K)")
                 .accessibilityIdentifier("toolbar.commentsButton")
 
+                #if os(macOS)
+                // Veusz plots inspector
+                Button {
+                    withAnimation { appState.showingVeuszPlots.toggle() }
+                } label: {
+                    Image(systemName: "chart.xyaxis.line")
+                        .symbolVariant(appState.showingVeuszPlots ? .fill : .none)
+                }
+                .help(appState.showingVeuszPlots ? "Hide Plots Panel" : "Show Plots Panel")
+                .accessibilityIdentifier("toolbar.plotsButton")
+
+                // Detached PDF window (second display / separate window)
+                Button {
+                    NotificationCenter.default.post(name: .openDetachedPDF, object: nil)
+                } label: {
+                    Image(systemName: "rectangle.on.rectangle")
+                }
+                .help("Open PDF in Separate Window")
+                .accessibilityIdentifier("toolbar.detachedPDFButton")
+                #endif
+
                 // Git status badge
                 #if os(macOS)
                 GitStatusBadge(
@@ -230,22 +271,30 @@ struct ContentView: View {
                 CollaboratorAvatarsView()
                 #endif
 
-                // Debug status (only in debug builds)
-                #if DEBUG
-                Text("pdf=\(vm.pdfData?.count ?? 0)b")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("debug.pdfSize")
-                Text(vm.debugHistory)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("debug.history")
-                Text("err=\(vm.compilationError?.prefix(100) ?? "none")")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
-                    .accessibilityIdentifier("debug.error")
-                #endif
+                // Compile status — one glanceable badge instead of the old
+                // debug text dump. Errors click through to the inline
+                // CompilationErrorView panel; details live in the tooltip.
+                if let err = vm.compilationError, !err.isEmpty {
+                    Button {
+                        // The error panel renders under the editor in split
+                        // view — make sure it's on screen.
+                        if appState.editMode == .textOnly {
+                            withAnimation { appState.editMode = .splitView }
+                        }
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    .help("Compilation failed — click to show errors.\n\(err.prefix(300))")
+                    .accessibilityIdentifier("toolbar.compileStatus")
+                    .accessibilityValue("pdf=\(vm.pdfData?.count ?? 0)b")
+                } else if let pdf = vm.pdfData {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green)
+                        .help("Compiled OK — PDF \(ByteCountFormatter.string(fromByteCount: Int64(pdf.count), countStyle: .file))\(debugCompileDetail)")
+                        .accessibilityIdentifier("toolbar.compileStatus")
+                        .accessibilityValue("pdf=\(pdf.count)b")
+                }
             }
         }
         .sheet(isPresented: $appState.showingCitationPicker) {
@@ -671,6 +720,16 @@ struct ContentView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// Extra compile detail appended to the status-badge tooltip in debug
+    /// builds (the old toolbar debug string, now out of the visible chrome).
+    private var debugCompileDetail: String {
+        #if DEBUG
+        return vm.debugHistory.isEmpty ? "" : "\n\(vm.debugHistory)"
+        #else
+        return ""
+        #endif
     }
 
     /// Editor + PDF preview side by side (the .splitView edit mode).

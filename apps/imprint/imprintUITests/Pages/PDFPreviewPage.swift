@@ -37,9 +37,9 @@ struct PDFPreviewPage {
         app.staticTexts["Compiling..."].firstMatch
     }
 
-    /// Debug label showing PDF size (only in DEBUG builds)
+    /// Compile status badge — carries "pdf=Nb" in its accessibility value.
     var debugPdfSize: XCUIElement {
-        app.staticTexts["debug.pdfSize"].firstMatch
+        app.descendants(matching: .any)["toolbar.compileStatus"].firstMatch
     }
 
     // MARK: - State Checks
