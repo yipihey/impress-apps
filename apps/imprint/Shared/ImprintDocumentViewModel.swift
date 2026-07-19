@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 import Foundation
 import OSLog
@@ -183,6 +182,11 @@ final class ImprintDocumentViewModel {
     // MARK: - LaTeX Compilation
 
     private func compileLaTeX(_ inputs: CompileInputs) async {
+        #if !os(macOS)
+        // LaTeX compilation spawns a local TeX distribution via Process —
+        // desktop-only. Typst is the cross-platform path.
+        compilationError = "LaTeX compilation is only available on macOS. Use Typst format on this device."
+        #else
         // LaTeX requires a file URL — the document must be saved to disk first.
         // For unsaved documents, write to a temp directory.
         let sourceText = inputs.source
@@ -305,6 +309,6 @@ final class ImprintDocumentViewModel {
             Logger.compilation.errorCapture("LaTeX compile threw: \(error)", category: "latex")
             debugHistory += "X:\(error) "
         }
+        #endif // os(macOS)
     }
 }
-#endif

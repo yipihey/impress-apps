@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import PDFKit
 
 // MARK: - iOS Source Editor View
 
@@ -238,27 +239,83 @@ class SourceTextView: UITextView {
     }
 }
 
-// MARK: - iOS PDF Preview View (Placeholder)
+// MARK: - iOS PDF Preview View
 
+/// Live PDF preview backed by PDFKit, fed from the shared compile pipeline
+/// (`ImprintDocumentViewModel.pdfData`).
 struct IOSPDFPreviewView: View {
-    let document: ImprintDocument
+    let pdfData: Data?
+    let isCompiling: Bool
 
     var body: some View {
-        VStack {
-            Image(systemName: "doc.text")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+        ZStack {
+            if let data = pdfData {
+                IOSPDFKitView(data: data)
+            } else {
+                VStack {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
 
-            Text("PDF Preview")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+                    Text("PDF Preview")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
 
-            Text("Compile the document to see the preview")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                    Text(isCompiling ? "Compiling…" : "Compile the document to see the preview")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            if isCompiling {
+                ProgressView()
+                    .controlSize(.large)
+                    .padding(20)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
+    }
+}
+
+/// PDFKit wrapper. Reloads only when the data actually changes (guarded by
+/// a byte-count + first-bytes fingerprint in the coordinator) so SwiftUI
+/// re-renders don't reset the scroll position.
+private struct IOSPDFKitView: UIViewRepresentable {
+    let data: Data
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var lastFingerprint: Int = 0
+    }
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.backgroundColor = .systemGroupedBackground
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {
+        var hasher = Hasher()
+        hasher.combine(data.count)
+        hasher.combine(data.prefix(64))
+        let fingerprint = hasher.finalize()
+        guard fingerprint != context.coordinator.lastFingerprint else { return }
+        context.coordinator.lastFingerprint = fingerprint
+
+        // Preserve the page the user was reading across recompiles.
+        let currentPageIndex = view.currentPage.flatMap { view.document?.index(for: $0) }
+        view.document = PDFDocument(data: data)
+        if let idx = currentPageIndex,
+           let doc = view.document, idx < doc.pageCount,
+           let page = doc.page(at: idx) {
+            view.go(to: page)
+        }
     }
 }
 
