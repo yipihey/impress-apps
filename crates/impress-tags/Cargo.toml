@@ -24,3 +24,4 @@ uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = "0.18"
+proptest = "1.4"

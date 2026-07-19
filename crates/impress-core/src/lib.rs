@@ -7,6 +7,7 @@ pub mod registry;
 pub mod schema;
 pub mod schemas;
 pub mod store;
+pub mod task;
 
 #[cfg(feature = "sqlite")]
 pub mod sql_query;

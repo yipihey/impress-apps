@@ -6,3 +6,5 @@
 # everyone who runs the test benefits from these saved cases.
 cc 97fd38b50f20c6b7c94b0a3a53e165c32bf65f540f2ae926112bbcf78e6efc7a # shrinks to title = " a AA"
 cc 02a9ec142622d8d947ca53680990de9593a962f78ac61f1e3afdf4fc41d634ef # shrinks to title = "     "
+cc e81ac29cff5dfb8a588b7ab9887a00a8a9a82b5a1e53444cb138233b6a73c9c1 # shrinks to ya = -1877961761, yb = 269521887
+cc 4d3cdb8e3f8c61ac224702d747046ddebfa32f18d1f1258c2f76ee779784f638 # shrinks to surnames_a = ["Li"], surnames_b = ["Li", "Li"], title_a = "a a ", title_b = "a   "

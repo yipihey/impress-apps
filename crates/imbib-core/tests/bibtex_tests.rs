@@ -358,3 +358,85 @@ fn test_parse_comments_only() {
     let result = parse(input.to_string()).unwrap();
     assert!(result.entries.is_empty());
 }
+
+// === Property-Based Tests ===
+//
+// Round-trip fidelity through the imbib-core wrapper layer (ADR-002).
+// The parser/formatter internals are property-tested in `im-bibtex` itself
+// (crates/im-bibtex/tests/property_tests.rs); these properties guard the
+// imbib-core <-> impress-bibtex <-> im-bibtex type-conversion layers, which
+// must be lossless in both directions.
+
+use imbib_core::bibtex::{format_entry, parse_entry, BibTeXEntry};
+use proptest::prelude::*;
+
+fn arb_core_entry() -> impl Strategy<Value = BibTeXEntry> {
+    (
+        "[A-Za-z0-9][A-Za-z0-9&:./_-]{0,15}",
+        prop_oneof![
+            Just(BibTeXEntryType::Article),
+            Just(BibTeXEntryType::Book),
+            Just(BibTeXEntryType::InProceedings),
+            Just(BibTeXEntryType::Misc),
+            Just(BibTeXEntryType::PhdThesis),
+        ],
+        prop::collection::vec(
+            (
+                "[a-zA-Z][a-zA-Z0-9_-]{0,10}",
+                prop_oneof![
+                    "[A-Za-z0-9 .,;:!?'()-]{0,20}",
+                    Just("Müller, José and 中文".to_string()),
+                    Just("A {B}ook about {LaTeX}".to_string()),
+                    Just("$E = mc^2$".to_string()),
+                    Just("50\\% \\& \\$100".to_string()),
+                    Just("line one\nline two".to_string()),
+                    Just("email@example.org".to_string()),
+                ],
+            ),
+            0..6,
+        ),
+    )
+        .prop_map(|(cite_key, entry_type, fields)| {
+            let mut entry = BibTeXEntry::new(cite_key, entry_type);
+            for (key, value) in fields {
+                entry.add_field(key, value);
+            }
+            entry
+        })
+}
+
+proptest! {
+    // The wrapper round-trip must preserve cite key, entry type, and the
+    // exact ordered field list (raw_bibtex is set by the parser by design).
+    #[test]
+    fn prop_wrapper_roundtrip_preserves_entry(entry in arb_core_entry()) {
+        let formatted = format_entry(entry.clone());
+        let reparsed = parse_entry(formatted.clone());
+        prop_assert!(reparsed.is_ok(), "unparseable formatter output:\n{}", formatted);
+        let reparsed = reparsed.unwrap();
+        prop_assert_eq!(&reparsed.cite_key, &entry.cite_key);
+        prop_assert_eq!(&reparsed.entry_type, &entry.entry_type);
+        let got: Vec<(&str, &str)> = reparsed.fields.iter()
+            .map(|f| (f.key.as_str(), f.value.as_str())).collect();
+        let want: Vec<(&str, &str)> = entry.fields.iter()
+            .map(|f| (f.key.as_str(), f.value.as_str())).collect();
+        prop_assert_eq!(got, want);
+    }
+
+    // Formatting is deterministic and stable across a parse cycle even after
+    // crossing the FFI-facing type conversions twice.
+    #[test]
+    fn prop_wrapper_format_byte_stable(entry in arb_core_entry()) {
+        let first = format_entry(entry.clone());
+        prop_assert_eq!(&first, &format_entry(entry.clone()));
+        let reparsed = parse_entry(first.clone()).expect("must reparse");
+        prop_assert_eq!(format_entry(reparsed), first);
+    }
+
+    // Totality through the wrapper: arbitrary input never panics.
+    #[test]
+    fn prop_wrapper_parse_total(input in any::<String>()) {
+        let _ = parse(input.clone());
+        let _ = parse_entry(input);
+    }
+}

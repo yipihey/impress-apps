@@ -363,3 +363,114 @@ fn test_extract_from_large_text() {
     let dois = extract_dois(text);
     assert_eq!(dois.len(), 1000);
 }
+
+// === Property-Based Tests: Cite Key Generation ===
+//
+// Cite keys follow the {LastName}{Year}{TitleWord} scheme and are embedded
+// verbatim in BibTeX files, so they must be deterministic, non-empty, and
+// ASCII-safe no matter what unicode the author/title metadata contains.
+
+use imbib_core::identifiers::{
+    generate_cite_key, generate_unique_cite_key, make_cite_key_unique, sanitize_cite_key,
+};
+use proptest::prelude::*;
+
+proptest! {
+    // Determinism: the same metadata always yields the same key.
+    #[test]
+    fn prop_cite_key_deterministic(
+        author in proptest::option::of(any::<String>()),
+        year in proptest::option::of(any::<String>()),
+        title in proptest::option::of(any::<String>()),
+    ) {
+        let a = generate_cite_key(author.clone(), year.clone(), title.clone());
+        let b = generate_cite_key(author, year, title);
+        prop_assert_eq!(a, b);
+    }
+
+    // ASCII safety + totality: arbitrary unicode metadata never panics and
+    // always produces a non-empty, purely ASCII-alphanumeric key.
+    #[test]
+    fn prop_cite_key_ascii_safe_and_nonempty(
+        author in proptest::option::of(any::<String>()),
+        year in proptest::option::of(any::<String>()),
+        title in proptest::option::of(any::<String>()),
+    ) {
+        let key = generate_cite_key(author, year, title);
+        prop_assert!(!key.is_empty(), "cite key must never be empty");
+        prop_assert!(
+            key.chars().all(|c| c.is_ascii_alphanumeric()),
+            "cite key must be ASCII alphanumeric, got {:?}", key
+        );
+    }
+
+    // Spec pin: {LastName}{Year}{TitleWord} for simple well-formed input.
+    #[test]
+    fn prop_cite_key_lastname_year_titleword(
+        last in "[A-Z][a-z]{1,10}",
+        first in "[A-Z][a-z]{1,8}",
+        year in 1900u32..2100,
+        word in "[A-Z][a-z]{3,10}",
+    ) {
+        let key = generate_cite_key(
+            Some(format!("{}, {}", last, first)),
+            Some(year.to_string()),
+            Some(format!("{} dynamics", word)),
+        );
+        prop_assert_eq!(key, format!("{}{}{}", last, year, word));
+    }
+
+    // Uniquification: the returned key never collides with existing keys.
+    #[test]
+    fn prop_unique_cite_key_avoids_collisions(
+        author in proptest::option::of("[A-Za-z ,]{0,20}"),
+        year in proptest::option::of("[0-9]{4}"),
+        title in proptest::option::of("[A-Za-z ]{0,20}"),
+        existing in prop::collection::vec("[A-Za-z0-9]{1,12}", 0..20),
+    ) {
+        let key = generate_unique_cite_key(author, year, title, existing.clone());
+        prop_assert!(
+            !existing.contains(&key),
+            "unique key {:?} collides with existing keys", key
+        );
+    }
+
+    // With no existing keys, generate_unique_cite_key equals generate_cite_key.
+    #[test]
+    fn prop_unique_cite_key_matches_base_when_no_conflict(
+        author in proptest::option::of(any::<String>()),
+        year in proptest::option::of(any::<String>()),
+        title in proptest::option::of(any::<String>()),
+    ) {
+        let base = generate_cite_key(author.clone(), year.clone(), title.clone());
+        let unique = generate_unique_cite_key(author, year, title, vec![]);
+        prop_assert_eq!(base, unique);
+    }
+
+    // make_cite_key_unique: identity when no conflict; never returns a
+    // member of the existing set; suffixed results still start with base.
+    #[test]
+    fn prop_make_cite_key_unique_legal(
+        base in "[A-Za-z][A-Za-z0-9]{0,12}",
+        existing in prop::collection::vec("[A-Za-z][A-Za-z0-9]{0,12}", 0..30),
+    ) {
+        let result = make_cite_key_unique(base.clone(), existing.clone());
+        prop_assert!(!existing.contains(&result));
+        prop_assert!(result.starts_with(&base));
+        if !existing.contains(&base) {
+            prop_assert_eq!(result, base);
+        }
+    }
+
+    // sanitize_cite_key: total, idempotent, and restricted to the safe alphabet.
+    #[test]
+    fn prop_sanitize_cite_key_idempotent_and_safe(key in any::<String>()) {
+        let once = sanitize_cite_key(key);
+        prop_assert!(
+            once.chars().all(|c| c.is_ascii_alphanumeric() || "_-:".contains(c)),
+            "sanitized key contains illegal char: {:?}", once
+        );
+        let twice = sanitize_cite_key(once.clone());
+        prop_assert_eq!(twice, once);
+    }
+}

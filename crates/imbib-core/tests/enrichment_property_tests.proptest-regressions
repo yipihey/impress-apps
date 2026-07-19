@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7ae80d891313db022297828ea172410b416eede4026f9f37e189ef542e708ece # shrinks to policy = RetryPolicy { max_attempts: 1, base_backoff: 1ms, max_backoff: 1ms, jitter_factor: 0.0 }, n = 2147483648
+cc 7dbc55383b52886c3a3c75c7408f4b77a1113fce173d62ba4d008607e175572e # shrinks to policy = RetryPolicy { max_attempts: 1, base_backoff: 1ms, max_backoff: 1ms, jitter_factor: 0.9872310928997787 }, n = 2, sample = NaN
