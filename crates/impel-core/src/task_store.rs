@@ -179,46 +179,8 @@ impl TaskStoreApi for SqliteItemStore {
     }
 
     fn ready_tasks(&self, limit: usize) -> Result<Vec<Item>, TaskStoreError> {
-        // Candidate pass: pending tasks. (Single-SQL readiness lands with
-        // ADR-0015 D2's store-native query; this N+1 is behind the trait,
-        // so callers won't notice the swap.)
-        let q = ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
-            predicates: vec![Predicate::Eq(
-                "payload.state".into(),
-                Value::String(TaskState::Pending.as_str().into()),
-            )],
-            limit: Some(limit.max(1) * 4),
-            ..Default::default()
-        };
-        let mut ready = Vec::new();
-        for task in ItemStore::query(self, &q)? {
-            // Read the task's OWN outgoing DependsOn references — the
-            // store's neighbors() traversal is bidirectional, which would
-            // make mutual blocking ambiguous here.
-            let mut all_done = true;
-            for r in task
-                .references
-                .iter()
-                .filter(|r| r.edge_type == EdgeType::DependsOn)
-            {
-                let dep_done = ItemStore::get(self, r.target)?.is_some_and(|d| {
-                    matches!(d.payload.get("state"),
-                             Some(Value::String(s)) if TaskState::parse_compat(s) == Some(TaskState::Done))
-                });
-                if !dep_done {
-                    all_done = false;
-                    break;
-                }
-            }
-            if all_done {
-                ready.push(task);
-                if ready.len() >= limit {
-                    break;
-                }
-            }
-        }
-        Ok(ready)
+        // Store-native single-SQL readiness (ADR-0015 D2).
+        Ok(SqliteItemStore::ready_tasks(self, limit)?)
     }
 
     fn transition(

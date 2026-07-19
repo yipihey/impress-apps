@@ -626,11 +626,66 @@ impl SqliteItemStore {
     /// gone or unreadable — callers deliver unfiltered in that case.
     fn schema_of(conn: &Connection, id: &str) -> Option<String> {
         conn.query_row(
-            "SELECT schema FROM items WHERE id = ?1",
+            "SELECT schema_ref FROM items WHERE id = ?1",
             params![id],
             |row| row.get::<_, String>(0),
         )
         .ok()
+    }
+
+    /// DAG readiness in one SQL statement (ADR-0005 §4, ADR-0015 D2):
+    /// pending `task@1.0.0` items with no `DependsOn` edge whose target is
+    /// missing or not `done`. A dangling dependency blocks (matching the
+    /// executor-side semantics: an unreadable prerequisite is not done).
+    /// `'completed'` is accepted alongside `'done'` for bridge-written
+    /// items (`TaskState::parse_compat`). Oldest tasks first.
+    pub fn ready_tasks(&self, limit: usize) -> Result<Vec<Item>, StoreError> {
+        self.with_read(|conn| {
+            let sql = format!(
+                "SELECT {ITEM_COLUMNS} FROM items t
+                 WHERE t.schema_ref = 'task@1.0.0'
+                   AND json_extract(t.payload, '$.state') IN ('pending', 'queued')
+                   AND NOT EXISTS (
+                       SELECT 1 FROM item_references r
+                       LEFT JOIN items dep ON dep.id = r.target_id
+                       WHERE r.source_id = t.id
+                         AND r.edge_type = '\"DependsOn\"'
+                         AND (dep.id IS NULL
+                              OR COALESCE(json_extract(dep.payload, '$.state'), '')
+                                 NOT IN ('done', 'completed'))
+                   )
+                 ORDER BY t.created ASC
+                 LIMIT ?1"
+            );
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| StoreError::Storage(format!("prepare ready_tasks: {}", e)))?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(Self::row_to_item_partial(row))
+                })
+                .map_err(|e| StoreError::Storage(format!("ready_tasks: {}", e)))?;
+            let mut items = Vec::new();
+            for row_result in rows {
+                items.push(row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))??);
+            }
+            if items.is_empty() {
+                return Ok(items);
+            }
+            // Schedulers need the references (OperatesOn targets).
+            let id_strings: Vec<String> = items.iter().map(|i| i.id.to_string()).collect();
+            let mut refs_map = Self::batch_load_references(conn, &id_strings)?;
+            let mut tags_map = Self::batch_load_tags(conn, &id_strings)?;
+            for (item, id_str) in items.iter_mut().zip(id_strings.iter()) {
+                if let Some(refs) = refs_map.remove(id_str) {
+                    item.references = refs;
+                }
+                if let Some(tags) = tags_map.remove(id_str) {
+                    item.tags = tags;
+                }
+            }
+            Ok(items)
+        })
     }
 
     /// Insert a single item into the database.
@@ -3550,7 +3605,7 @@ mod tests {
             .unwrap();
         let everything = store.subscribe(ItemQuery::default()).unwrap();
 
-        store.insert(make_item("note@1.0.0", "A Note")).unwrap();
+        let note_id = store.insert(make_item("note@1.0.0", "A Note")).unwrap();
         let task_id = store.insert(make_item("task@1.0.0", "A Task")).unwrap();
 
         // Filtered subscriber sees only the task…
@@ -3564,14 +3619,25 @@ mod tests {
         assert!(matches!(everything.try_recv().unwrap(), ItemEvent::Created(_)));
         assert!(matches!(everything.try_recv().unwrap(), ItemEvent::Created(_)));
 
-        // Operations on the task reach the filtered subscriber too.
+        // Operations on the NOTE must NOT reach the filtered subscriber —
+        // this guards the schema lookup in the OperationApplied path
+        // (a silently-failing lookup degrades to broadcast).
+        store
+            .update(note_id, vec![FieldMutation::SetRead(true)])
+            .unwrap();
+        assert!(
+            tasks_only.try_recv().is_err(),
+            "note operation leaked through the task@ filter"
+        );
+
+        // Operations on the task reach the filtered subscriber.
         store
             .update(task_id, vec![FieldMutation::SetRead(true)])
             .unwrap();
-        assert!(matches!(
-            tasks_only.try_recv().unwrap(),
-            ItemEvent::OperationApplied { .. }
-        ));
+        match tasks_only.try_recv().unwrap() {
+            ItemEvent::OperationApplied { target_id, .. } => assert_eq!(target_id, task_id),
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 
     #[test]
