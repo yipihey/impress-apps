@@ -1,6 +1,11 @@
 # ADR-0015: Task Kernel Completion and the Enrichment Reference Implementation
 
-**Status:** Proposed (implemented in the same change series that introduces this document)
+**Status:** Implemented (2026-07-20 session) — D1/D4 in `impress-core/src/task.rs`;
+D3 in the store's broadcast bus; D5 in impel-core's four task modules;
+D6 in `crates/impel-enrichment` with the §9 gate passing. D2's single-SQL
+readiness remains an optimization behind `TaskStoreApi::ready_tasks`
+(currently a correct N+1 walk). Swift-side bridge convergence (D7 note)
+is follow-up work.
 **Date:** 2026-07-20
 **Authors:** Claude (Opus 4.8 deep-work session), for Tom's review
 **Depends on:** ADR-0001, ADR-0002, ADR-0005
