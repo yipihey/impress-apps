@@ -104,8 +104,8 @@ impl TagHierarchy {
             }
         }
 
-        // Walk up ancestors
-        for ancestor in self.ancestors_of(path) {
+        // Walk up ancestors, nearest first (ancestors_of orders root → parent)
+        for ancestor in self.ancestors_of(path).into_iter().rev() {
             if ancestor.color.is_some() {
                 return ancestor.color.as_ref();
             }

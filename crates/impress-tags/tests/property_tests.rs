@@ -116,22 +116,18 @@ proptest! {
 
     /// Idempotence of segment normalization.
     ///
-    /// BUG (found 2026-07-20): hyphen trimming (step 4) runs after whitespace
-    /// trimming (step 1), so stripping a trailing hyphen can expose non-space
-    /// whitespace (e.g. `\t`, `\u{b}`) that a second pass then trims.
-    /// Minimal counterexample: `normalize_tag_segment("a\t-")` → `"a\t"`,
-    /// but `normalize_tag_segment("a\t")` → `"a"`.
+    /// Regression (fixed 2026-07-20): hyphen trimming used to expose non-space
+    /// whitespace that only a second pass would trim (`"a\t-"` → `"a\t"` →
+    /// `"a"`); the trim now loops to a fixpoint.
     #[test]
-    #[ignore = "BUG: normalize_tag_segment not idempotent — trailing-hyphen trim exposes whitespace, e.g. \"a\\t-\" → \"a\\t\" → \"a\""]
     fn normalize_segment_idempotent(input in ".*") {
         let once = normalize_tag_segment(&input);
         let twice = normalize_tag_segment(&once);
         prop_assert_eq!(twice, once);
     }
 
-    /// Idempotence restricted to printable ASCII (holds today: the only ASCII
-    /// whitespace in range, ' ', is always replaced by '-', so the hyphen-trim
-    /// bug above cannot re-expose whitespace).
+    /// Idempotence restricted to printable ASCII (narrower companion to the
+    /// full-Unicode property above).
     #[test]
     fn normalize_segment_idempotent_ascii_printable(input in "[ -~]*") {
         let once = normalize_tag_segment(&input);
@@ -140,9 +136,7 @@ proptest! {
     }
 
     /// Totality + structural invariants for path normalization: no empty
-    /// segments survive. (The stronger claim "every output segment is a
-    /// fixpoint of normalize_tag_segment" is false today — see the
-    /// idempotence BUG above.)
+    /// segments survive.
     #[test]
     fn normalize_path_total_and_well_formed(input in ".*") {
         let p = normalize_tag_path(&input);
@@ -157,12 +151,7 @@ proptest! {
     }
 
     /// Idempotence of path normalization.
-    ///
-    /// Same root cause as `normalize_segment_idempotent` above.
-    /// Minimal counterexample (proptest-shrunk): `"¡\u{b}-"` →
-    /// `"¡\u{b}"` → `"¡"`.
     #[test]
-    #[ignore = "BUG: normalize_tag_path not idempotent — segment hyphen-trim exposes whitespace, e.g. \"¡\\u{b}-\" → \"¡\\u{b}\" → \"¡\""]
     fn normalize_path_idempotent(input in ".*") {
         let once = normalize_tag_path(&input);
         let twice = normalize_tag_path(&once);
@@ -349,14 +338,9 @@ proptest! {
 
     /// effective_color resolves to the nearest self-or-ancestor color.
     ///
-    /// BUG (found 2026-07-20): the doc comment promises "the nearest ancestor
-    /// with a color", but the implementation iterates `ancestors_of` (ordered
-    /// root → parent) and returns the FIRST colored one, i.e. the root-most /
-    /// farthest colored ancestor. Minimal counterexample: tags `r` (red),
-    /// `r/g` (green), `r/g/x` (no color) → `effective_color("r/g/x")` returns
-    /// red, but the nearest colored ancestor is `r/g` (green).
+    /// Regression (fixed 2026-07-20): the implementation used to iterate
+    /// `ancestors_of` root-first and return the FARTHEST colored ancestor.
     #[test]
-    #[ignore = "BUG: TagHierarchy::effective_color returns the root-most colored ancestor, not the nearest (doc contract violated)"]
     fn hierarchy_effective_color_nearest_ancestor(
         paths in closed_path_set(),
         colors in prop::collection::vec(prop::option::of(arb_color()), 32),
@@ -491,24 +475,24 @@ proptest! {
 }
 
 // ===========================================================================
-// Minimized regression tripwires for the bugs flagged above
+// Minimized regression tests for bugs fixed 2026-07-20
 // ===========================================================================
 
-/// BUG tripwire: hyphen trimming exposes non-space whitespace, breaking
-/// idempotence of normalize_tag_segment / normalize_tag_path.
+/// Regression: hyphen trimming used to expose non-space whitespace
+/// (`"a\t-"` → `"a\t"`), breaking idempotence. One pass must now reach the
+/// fixpoint directly.
 #[test]
-#[ignore = "BUG: normalize_tag_segment(\"a\\t-\") = \"a\\t\" but normalizing again gives \"a\" — hyphen trim exposes whitespace"]
-fn normalize_segment_hyphen_trim_exposes_whitespace_tripwire() {
+fn normalize_segment_hyphen_trim_whitespace_regression() {
+    assert_eq!(normalize_tag_segment("a\t-"), "a");
     let once = normalize_tag_segment("a\t-");
     let twice = normalize_tag_segment(&once);
-    assert_eq!(twice, once, "normalize_tag_segment is not idempotent on \"a\\t-\"");
+    assert_eq!(twice, once, "normalize_tag_segment must be idempotent on \"a\\t-\"");
 }
 
-/// BUG tripwire: effective_color picks the farthest colored ancestor instead
-/// of the nearest one promised by its documentation.
+/// Regression: effective_color used to return the farthest colored ancestor;
+/// the documented contract is the NEAREST colored self-or-ancestor.
 #[test]
-#[ignore = "BUG: TagHierarchy::effective_color(\"r/g/x\") returns the root color instead of the nearest ancestor color"]
-fn hierarchy_effective_color_farthest_ancestor_tripwire() {
+fn hierarchy_effective_color_nearest_ancestor_unit() {
     let red = TagColor { light: "#f00".to_string(), dark: "#f00".to_string() };
     let green = TagColor { light: "#0f0".to_string(), dark: "#0f0".to_string() };
 

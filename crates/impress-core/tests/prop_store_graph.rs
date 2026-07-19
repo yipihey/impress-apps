@@ -499,14 +499,14 @@ proptest! {
     }
 }
 
-/// BUG TRIPWIRE: the FTS index is written only by `insert_item` and cleared
-/// only by `delete` — `materialize_operation(SetPayload)` never refreshes
-/// `items_fts`. After updating an FTS-indexed field (e.g. title) via a
-/// SetPayload operation (the canonical ADR-0002 mutation path, also used by
-/// `ItemStore::update`), full-text search still matches the OLD title and
-/// does not match the NEW one.
+/// REGRESSION TRIPWIRE: `materialize_operation` must refresh `items_fts`
+/// whenever a payload-mutating operation touches an FTS-indexed field.
+/// After updating such a field (e.g. title) via a SetPayload operation (the
+/// canonical ADR-0002 mutation path, also used by `ItemStore::update`),
+/// full-text search must match the NEW title and no longer match the OLD
+/// one. Historically FTS was written only on insert and cleared on delete,
+/// so payload updates left stale tokens behind.
 #[test]
-#[ignore = "BUG: items_fts not updated on SetPayload/update — FTS matches stale title after payload mutation (update_fts only called from insert_item)"]
 fn fts_reflects_payload_updates() {
     let store = SqliteItemStore::open_in_memory().expect("open store");
     let item = task_item("aardvarkzz original", "pending");

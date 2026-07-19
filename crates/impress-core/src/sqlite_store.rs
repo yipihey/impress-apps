@@ -1539,6 +1539,58 @@ impl SqliteItemStore {
                 .map_err(|e| StoreError::Storage(format!("custom op: {}", e)))?;
             }
         }
+
+        // Keep full-text search in sync: payload-mutating operations may have
+        // changed an FTS-indexed field, so rebuild the item's FTS row from the
+        // freshly materialized payload. Gated on the touched fields so
+        // envelope-only operations (tags, flags, read state, …) skip it.
+        if Self::op_touches_fts_field(op_type) {
+            Self::refresh_fts(conn, target_id_str)?;
+        }
+
+        Ok(())
+    }
+
+    /// Whether an operation mutates a payload field indexed in `items_fts`.
+    /// Keep the field list in sync with `update_fts` / `refresh_fts`.
+    fn op_touches_fts_field(op_type: &OperationType) -> bool {
+        const FTS_FIELDS: [&str; 5] =
+            ["title", "author_text", "abstract_text", "note", "body_content"];
+        match op_type {
+            OperationType::SetPayload(field, _) | OperationType::RemovePayload(field) => {
+                FTS_FIELDS.contains(&field.as_str())
+            }
+            OperationType::PatchPayload(fields) => {
+                fields.keys().any(|f| FTS_FIELDS.contains(&f.as_str()))
+            }
+            _ => false,
+        }
+    }
+
+    /// Rebuild the FTS row for an item from its current payload in `items`.
+    /// Mirrors the field set used by `update_fts`; like insert, an item with
+    /// no FTS-indexed fields gets no row.
+    fn refresh_fts(conn: &Connection, target_id_str: &str) -> Result<(), StoreError> {
+        Self::delete_fts(conn, target_id_str)?;
+        conn.execute(
+            "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+             SELECT
+                 id,
+                 COALESCE(json_extract(payload, '$.title'), ''),
+                 COALESCE(json_extract(payload, '$.author_text'), ''),
+                 COALESCE(json_extract(payload, '$.abstract_text'), ''),
+                 COALESCE(json_extract(payload, '$.note'), ''),
+                 COALESCE(json_extract(payload, '$.body_content'), '')
+             FROM items
+             WHERE id = ?1
+               AND (json_extract(payload, '$.title') IS NOT NULL
+                    OR json_extract(payload, '$.author_text') IS NOT NULL
+                    OR json_extract(payload, '$.abstract_text') IS NOT NULL
+                    OR json_extract(payload, '$.note') IS NOT NULL
+                    OR json_extract(payload, '$.body_content') IS NOT NULL)",
+            params![target_id_str],
+        )
+        .map_err(|e| StoreError::Storage(format!("refresh_fts: {}", e)))?;
         Ok(())
     }
 

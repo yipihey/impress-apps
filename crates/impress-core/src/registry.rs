@@ -92,8 +92,19 @@ impl SchemaRegistry {
                         });
                     }
                 }
+                Some(Value::Null) => {
+                    // Explicit null is only legal on optional fields; a
+                    // required field with a null value is as unusable as a
+                    // missing one.
+                    if field_def.required {
+                        errors.push(ValidationError {
+                            field: field_def.name.clone(),
+                            message: "required field cannot be null".into(),
+                        });
+                    }
+                }
                 Some(value) => {
-                    if !matches!(value, Value::Null) && !type_matches(&field_def.field_type, value) {
+                    if !type_matches(&field_def.field_type, value) {
                         errors.push(ValidationError {
                             field: field_def.name.clone(),
                             message: format!(

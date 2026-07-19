@@ -192,10 +192,7 @@ proptest! {
     }
 
     // Non-ASCII content inside quoted values must survive parsing unchanged.
-    // FAILS: parse_quoted_value pushes raw UTF-8 bytes as chars
-    // (`result.push(bytes[pos] as char)`), so "Müller" becomes "MÃ¼ller".
     #[test]
-    #[ignore = "BUG: quoted values mangle non-ASCII UTF-8 — parser.rs parse_quoted_value casts bytes to char (Müller -> MÃ¼ller)"]
     fn prop_quoted_unicode_values_parse_exactly(
         value in "[A-Za-zÀ-ÖØ-öø-ÿΑ-Ωα-ωА-Яа-я ]{1,16}"
     ) {
@@ -237,10 +234,9 @@ proptest! {
 // === Minimized regression tripwires (hand-reduced from property failures) ===
 
 /// Minimized counterexample for `prop_quoted_unicode_values_parse_exactly`.
-/// The parser reads quoted values byte-by-byte and casts each byte to `char`,
-/// so any multi-byte UTF-8 sequence is decoded as Latin-1 mojibake.
+/// The parser used to read quoted values byte-by-byte and cast each byte to
+/// `char`, decoding multi-byte UTF-8 sequences as Latin-1 mojibake.
 #[test]
-#[ignore = "BUG: quoted values mangle non-ASCII UTF-8 — 'ü' (0xC3 0xBC) parses as 'Ã¼'"]
 fn regression_quoted_value_utf8_mojibake() {
     let input = "@article{k,\n    title = \"ü\",\n}".to_string();
     let entry = parse_entry(input).expect("entry must parse");

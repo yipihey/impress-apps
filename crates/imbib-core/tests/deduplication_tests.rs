@@ -718,7 +718,6 @@ proptest! {
     /// Minimal counterexample: a.authors=[Wang, Wang], b.authors=[Wang],
     /// distinct titles => scores 0.476 vs 0.326.
     #[test]
-    #[ignore = "BUG: calculate_publication_similarity asymmetric when a surname repeats in one author list (pub_author_similarity counts matches one-sided but divides by max len)"]
     fn publication_similarity_symmetric_with_repeated_surnames(
         surnames_a in prop::collection::vec(prop::sample::select(vec!["Wang", "Li", "Kim"]), 0..4),
         surnames_b in prop::collection::vec(prop::sample::select(vec!["Wang", "Li", "Kim"]), 0..4),
@@ -744,7 +743,6 @@ proptest! {
     /// (debug builds) for widely separated values.
     /// Minimal counterexample: a.year=Some(i32::MAX), b.year=Some(-2).
     #[test]
-    #[ignore = "BUG: calculate_publication_similarity panics on extreme years ((y1 - y2) i32 overflow in year bonus)"]
     fn publication_similarity_total_over_years(
         ya in prop::num::i32::ANY,
         yb in prop::num::i32::ANY,

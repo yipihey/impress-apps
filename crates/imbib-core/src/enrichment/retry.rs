@@ -85,7 +85,11 @@ impl RetryPolicy {
         if n <= 1 {
             return Duration::ZERO;
         }
-        let exponent = (n as i32) - 2; // n=2 → 0, n=3 → 1, …
+        // n=2 → 0, n=3 → 1, … Saturate and cap the exponent so the delay
+        // stays finite, monotone, and bounded for every u32 attempt number
+        // (2^1023 is the largest finite power of two in f64; anything past
+        // it clamps to max_backoff anyway).
+        let exponent = n.saturating_sub(2).min(1023) as i32;
         let factor = 2f64.powi(exponent);
         let base_secs = self.base_backoff.as_secs_f64();
         let scaled = base_secs * factor;
@@ -106,13 +110,19 @@ impl RetryPolicy {
         if base.is_zero() || self.jitter_factor <= 0.0 {
             return base;
         }
-        let sample = jitter_sample.clamp(-1.0, 1.0);
+        // Non-finite samples (NaN survives `clamp`) are treated as "no jitter"
+        // so a broken RNG can never panic `Duration::from_secs_f64`.
+        let sample = if jitter_sample.is_finite() {
+            jitter_sample.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         let base_secs = base.as_secs_f64();
         let jittered = base_secs + base_secs * self.jitter_factor * sample;
-        if jittered <= 0.0 {
-            Duration::ZERO
-        } else {
+        if jittered.is_finite() && jittered > 0.0 {
             Duration::from_secs_f64(jittered)
+        } else {
+            Duration::ZERO
         }
     }
 }

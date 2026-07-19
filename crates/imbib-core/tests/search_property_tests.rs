@@ -349,18 +349,16 @@ fn conjunctive_query_string() -> impl Strategy<Value = String> {
 proptest! {
     /// Totality: the parser must never panic, whatever the input.
     ///
-    /// BUG (found 2026-07-20): `strip_prefix_ci` slices `token[..prefix.len()]`
-    /// at a byte offset, which panics on non-ASCII input whose first char is
-    /// 3+ bytes wide. Minimal counterexample: `parse("€")` panics with
-    /// "byte index 2 is not a char boundary".
+    /// Regression guard (bug fixed 2026-07-20): `strip_prefix_ci` used to
+    /// slice `token[..prefix.len()]` at a byte offset, panicking on non-ASCII
+    /// input whose first char is 3+ bytes wide (e.g. `parse("€")`).
     #[test]
-    #[ignore = "BUG: smart_query::parse panics on multi-byte input, e.g. parse(\"€\") — strip_prefix_ci slices at a non-char boundary"]
     fn smart_query_parse_is_total(input in ".*") {
         let _ = parse(&input);
     }
 
-    /// Totality restricted to ASCII (holds today; guards the non-Unicode part
-    /// of the contract while the boundary bug above is open).
+    /// Totality restricted to ASCII (fast-shrinking subset of the property
+    /// above).
     #[test]
     fn smart_query_parse_is_total_ascii(input in "[ -~\t\r\n]*") {
         let _ = parse(&input);
@@ -381,9 +379,8 @@ proptest! {
     }
 }
 
-// Minimized regression tripwire for the totality bug above.
+// Minimized regression tripwire for the (fixed) totality bug above.
 #[test]
-#[ignore = "BUG: smart_query::parse panics on parse(\"€\") — byte index 2 is not a char boundary in strip_prefix_ci"]
 fn smart_query_parse_euro_sign_tripwire() {
     let _ = parse("€");
 }
@@ -553,13 +550,12 @@ fn ads_like_query() -> impl Strategy<Value = String> {
 proptest! {
     /// Totality on arbitrary input: normalize must never panic.
     ///
-    /// BUG (found 2026-07-20): `remove_spaces_after_colons` computes
-    /// `last_end = full_match.end() - 1`, but the final regex char `[^\s]`
-    /// may be multi-byte, so `last_end` can fall inside a UTF-8 sequence and
-    /// the subsequent slice panics. Minimal counterexample:
-    /// `normalize("title: é")` → "byte index 8 is not a char boundary".
+    /// Regression guard (bug fixed 2026-07-20): `remove_spaces_after_colons`
+    /// used to compute `last_end = full_match.end() - 1`, but the final regex
+    /// char `[^\s]` may be multi-byte, so `last_end` could fall inside a
+    /// UTF-8 sequence and the subsequent slice panicked (e.g.
+    /// `normalize("title: é")`).
     #[test]
-    #[ignore = "BUG: ads_normalizer::normalize panics on normalize(\"title: é\") — remove_spaces_after_colons slices mid-UTF-8 (full_match.end() - 1)"]
     fn ads_normalize_is_total(
         input in prop_oneof![
             ".*",
@@ -571,8 +567,8 @@ proptest! {
         let _ = normalize(&input);
     }
 
-    /// Totality restricted to ASCII (holds today; guards the non-Unicode part
-    /// of the contract while the boundary bug above is open).
+    /// Totality restricted to ASCII (fast-shrinking subset of the property
+    /// above).
     #[test]
     fn ads_normalize_is_total_ascii(input in "[ -~\t\r\n]*") {
         let _ = normalize(&input);
@@ -613,9 +609,9 @@ proptest! {
     }
 }
 
-// Minimized regression tripwire for the totality bug above.
+// Minimized regression tripwire for the (fixed) totality bug above.
 #[test]
-#[ignore = "BUG: ads_normalizer::normalize panics on normalize(\"title: é\") — byte index not a char boundary in remove_spaces_after_colons"]
 fn ads_normalize_multibyte_value_tripwire() {
-    let _ = normalize("title: é");
+    let r = normalize("title: é");
+    assert_eq!(r.corrected_query, "title:é");
 }

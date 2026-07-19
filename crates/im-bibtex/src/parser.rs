@@ -420,36 +420,36 @@ fn parse_quoted_value(input: &str) -> IResult<&str, String> {
     }
 
     let mut result = String::new();
-    let mut pos = 1; // Skip opening quote
-    let bytes = input.as_bytes();
     let mut brace_depth = 0;
+    let mut chars = input.char_indices();
+    chars.next(); // Skip opening quote
 
-    while pos < bytes.len() {
-        match bytes[pos] {
-            b'"' if brace_depth == 0 => {
+    while let Some((pos, c)) = chars.next() {
+        match c {
+            '"' if brace_depth == 0 => {
                 return Ok((&input[pos + 1..], result));
             }
-            b'{' => {
+            '{' => {
                 brace_depth += 1;
                 result.push('{');
             }
-            b'}' => {
+            '}' => {
                 if brace_depth > 0 {
                     brace_depth -= 1;
                 }
                 result.push('}');
             }
-            b'\\' if pos + 1 < bytes.len() => {
+            '\\' => {
                 // Handle escape sequences
                 result.push('\\');
-                pos += 1;
-                result.push(bytes[pos] as char);
+                if let Some((_, escaped)) = chars.next() {
+                    result.push(escaped);
+                }
             }
             c => {
-                result.push(c as char);
+                result.push(c);
             }
         }
-        pos += 1;
     }
 
     Err(nom::Err::Error(nom::error::Error::new(

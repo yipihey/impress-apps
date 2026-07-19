@@ -333,7 +333,10 @@ fn try_parse_token(token: &str, q: &mut SmartQuery) -> bool {
 /// Case-insensitive prefix strip. Returns `Some(rest)` if the prefix matched.
 fn strip_prefix_ci<'a>(token: &'a str, prefix: &str) -> Option<&'a str> {
     let plen = prefix.len();
-    if token.len() < plen {
+    // All prefixes used here are ASCII, so a match requires the first `plen`
+    // bytes of `token` to be ASCII too — if `plen` isn't a char boundary the
+    // prefix cannot match (and slicing there would panic on multi-byte input).
+    if token.len() < plen || !token.is_char_boundary(plen) {
         return None;
     }
     if token[..plen].eq_ignore_ascii_case(prefix) {

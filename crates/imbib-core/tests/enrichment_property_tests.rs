@@ -491,7 +491,6 @@ proptest! {
     /// delay back toward zero, breaking monotonicity.
     /// Minimal counterexample: `RetryPolicy::default().next_delay(2_147_483_648)`.
     #[test]
-    #[ignore = "BUG: next_delay panics (debug) / loses monotonicity for n > i32::MAX due to `n as i32` wrap"]
     fn next_delay_total_over_u32(policy in arb_policy(), n in prop::num::u32::ANY) {
         let d = policy.next_delay(n);
         prop_assert!(d <= policy.max_backoff);
@@ -511,7 +510,6 @@ proptest! {
     /// Minimal counterexample:
     /// `RetryPolicy::default().next_delay_with_jitter(2, f64::NAN)`.
     #[test]
-    #[ignore = "BUG: next_delay_with_jitter panics on NaN jitter_sample (Duration::from_secs_f64(NaN))"]
     fn jitter_total_over_f64(
         policy in arb_policy(),
         n in 1u32..=64,

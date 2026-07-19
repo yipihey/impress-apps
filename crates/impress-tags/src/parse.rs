@@ -62,7 +62,8 @@ pub fn tag_depth(path: &str) -> u32 {
 /// 2. Lowercase (Unicode-aware)
 /// 3. Replace spaces (`' '`) and underscores (`'_'`) with hyphens (`'-'`)
 /// 4. Collapse runs of consecutive hyphens to a single hyphen
-/// 5. Trim leading/trailing hyphens
+/// 5. Trim leading/trailing hyphens and any whitespace the hyphen trim
+///    exposes, repeating until stable (normalization is idempotent)
 ///
 /// Returns the empty string for input that reduces to nothing (e.g. `"   "`,
 /// `"---"`, `""`). Callers are expected to guard against empty output before
@@ -91,8 +92,21 @@ pub fn normalize_tag_segment(segment: &str) -> String {
         result = result.replace("--", "-");
     }
 
-    // 4. Trim leading/trailing hyphens.
-    result.trim_matches('-').to_string()
+    // 4. Trim leading/trailing hyphens and whitespace until stable. Trimming a
+    //    hyphen can expose non-space whitespace that survived step 2 (e.g.
+    //    "a\t-" → "a\t"), so loop the trims to reach the fixpoint and keep
+    //    normalization idempotent.
+    let mut trimmed = result.as_str();
+    loop {
+        let next = trimmed
+            .trim_matches(|c: char| c.is_whitespace())
+            .trim_matches('-');
+        if next == trimmed {
+            break;
+        }
+        trimmed = next;
+    }
+    trimmed.to_string()
 }
 
 /// Normalize a full hierarchical tag path (e.g. `"ai/Dark Energy/Sub Topic"`

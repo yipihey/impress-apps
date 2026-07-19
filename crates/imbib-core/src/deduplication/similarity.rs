@@ -269,7 +269,7 @@ pub(crate) fn calculate_publication_similarity_internal(
         (Some(y1), Some(y2)) => {
             if y1 == y2 {
                 0.2
-            } else if (y1 - y2).abs() <= 1 {
+            } else if (i64::from(y1) - i64::from(y2)).abs() <= 1 {
                 0.1
             } else {
                 0.0
@@ -352,21 +352,30 @@ fn pub_title_similarity(a: &str, b: &str) -> f64 {
 
 /// Calculate author similarity for Publications
 ///
-/// Uses lowercase comparison without allocating new strings by comparing
-/// case-insensitively.
+/// Uses the multiset intersection of case-insensitive surnames divided by
+/// the larger list length, so the score is symmetric even when a surname
+/// repeats on one side (e.g. [Wang, Wang] vs [Wang]).
 fn pub_author_similarity(a: &[Author], b: &[Author]) -> f64 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
 
-    // Count matches using case-insensitive comparison without allocating
-    let matches = a
-        .iter()
-        .filter(|auth_a| {
-            b.iter()
-                .any(|auth_b| auth_a.family_name.eq_ignore_ascii_case(&auth_b.family_name))
-        })
-        .count();
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for auth_b in b {
+        *counts
+            .entry(auth_b.family_name.to_ascii_lowercase())
+            .or_insert(0) += 1;
+    }
+
+    let mut matches = 0usize;
+    for auth_a in a {
+        if let Some(count) = counts.get_mut(&auth_a.family_name.to_ascii_lowercase()) {
+            if *count > 0 {
+                *count -= 1;
+                matches += 1;
+            }
+        }
+    }
 
     let total = a.len().max(b.len());
 

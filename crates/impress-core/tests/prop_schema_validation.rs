@@ -105,9 +105,9 @@ fn arb_task_payload() -> impl Strategy<Value = BTreeMap<String, Value>> {
 ///  - every schema-declared field that is present with a non-null value
 ///    has the declared type (String for all except due_at: Int).
 ///
-/// Note: the registry deliberately skips type-checking of explicit Nulls;
-/// this oracle mirrors that documented behavior for OPTIONAL fields. The
-/// required-field/Null interaction is probed by the tripwire test below.
+/// Note: the registry deliberately skips type-checking of explicit Nulls on
+/// OPTIONAL fields; an explicit Null on a REQUIRED field is rejected just
+/// like absence (see `required_field_explicit_null_is_rejected` below).
 fn oracle_is_valid(payload: &BTreeMap<String, Value>) -> bool {
     let declared: &[(&str, FieldType, bool)] = &[
         ("title", FieldType::String, true),
@@ -125,7 +125,13 @@ fn oracle_is_valid(payload: &BTreeMap<String, Value>) -> bool {
                     return false;
                 }
             }
-            Some(Value::Null) => {} // registry skips type check for Null
+            Some(Value::Null) => {
+                // Null is only legal on optional fields; on required fields
+                // it is as unusable as absence.
+                if *required {
+                    return false;
+                }
+            }
             Some(v) => {
                 let matches = match ftype {
                     FieldType::String => matches!(v, Value::String(_)),
@@ -194,11 +200,11 @@ proptest! {
     }
 
     /// Property: the hand-rolled `Value` Deserialize impl round-trips every
-    /// non-float value through JSON text exactly. Floats are excluded — they
-    /// do NOT round-trip exactly; see the BUG tripwire
-    /// `float_value_json_round_trip_is_exact` below.
+    /// value — floats included — through JSON text exactly. Exact float
+    /// round-tripping requires serde_json's `float_roundtrip` feature (see
+    /// the regression tripwire `float_value_json_round_trip_is_exact` below).
     #[test]
-    fn value_json_round_trip_non_float(v in arb_value_with(false)) {
+    fn value_json_round_trip(v in arb_value()) {
         let json = serde_json::to_string(&v).expect("serialize");
         let back: Value = serde_json::from_str(&json).expect("deserialize");
         prop_assert_eq!(v, back);
@@ -220,16 +226,14 @@ proptest! {
 // Deterministic tripwires
 // ---------------------------------------------------------------------------
 
-/// BUG TRIPWIRE (found by proptest, counterexample minimized by hand):
-/// `Value::Float` does not survive a JSON round-trip exactly. serde_json is
-/// built without its `float_roundtrip` feature, so its fast float parser can
-/// be off by 1 ULP: 1.7938901934754837e174 serializes to
-/// "1.7938901934754837e+174" but parses back as 1.7938901934754835e174.
-/// Every payload float persisted through the store's JSON columns (or synced
-/// as JSON) can therefore drift silently. Fix: enable serde_json's
-/// `float_roundtrip` feature in the workspace.
+/// REGRESSION TRIPWIRE (found by proptest, counterexample minimized by
+/// hand): without serde_json's `float_roundtrip` feature its fast float
+/// parser can be off by 1 ULP: 1.7938901934754837e174 serializes to
+/// "1.7938901934754837e+174" but parses back as 1.7938901934754835e174,
+/// silently drifting every payload float persisted through the store's JSON
+/// columns (or synced as JSON). The workspace serde_json dependency now
+/// enables `float_roundtrip`; this test guards against losing it.
 #[test]
-#[ignore = "BUG: Value::Float JSON round-trip loses 1 ULP (serde_json built without float_roundtrip feature); payload floats drift through persistence/sync"]
 fn float_value_json_round_trip_is_exact() {
     let v = Value::Float(1.7938901934754837e174);
     let json = serde_json::to_string(&v).expect("serialize");
@@ -237,14 +241,12 @@ fn float_value_json_round_trip_is_exact() {
     assert_eq!(v, back, "float changed value through JSON round-trip (json text: {})", json);
 }
 
-/// GAP TRIPWIRE: ADR-0005 declares `title` and `state` as *required* fields
-/// of task@1.0.0, but the registry accepts an explicit `Value::Null` for a
-/// required field (it only rejects *absent* required fields — the Null
-/// type-check skip in `SchemaRegistry::validate` applies to required fields
-/// too). A task with `state: null` therefore validates, yet has no usable
-/// state for the ADR-0005 section 2 state machine.
+/// REGRESSION TRIPWIRE: ADR-0005 declares `title` and `state` as *required*
+/// fields of task@1.0.0. `SchemaRegistry::validate` rejects an explicit
+/// `Value::Null` on a required field the same way it rejects absence — a
+/// task with `state: null` has no usable state for the ADR-0005 section 2
+/// state machine. (Null on OPTIONAL fields remains legal.)
 #[test]
-#[ignore = "BUG: registry accepts Value::Null for required fields (title/state) — ADR-0005 marks them required, but only absence is rejected"]
 fn required_field_explicit_null_is_rejected() {
     let reg = task_registry();
     let mut payload = BTreeMap::new();

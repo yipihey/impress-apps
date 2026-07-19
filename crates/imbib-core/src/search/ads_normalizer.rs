@@ -175,7 +175,7 @@ fn utf8_char_len(first_byte: u8) -> usize {
 // --- Rule 1: remove space after colon -------------------------------------
 
 lazy_static! {
-    static ref FIELD_COLON_SPACE_RE: Regex = Regex::new(r"(\w+):\s+(?:[^\s])").unwrap();
+    static ref FIELD_COLON_SPACE_RE: Regex = Regex::new(r"(\w+):\s+([^\s])").unwrap();
 }
 
 fn remove_spaces_after_colons(query: &str) -> (String, Vec<String>) {
@@ -188,8 +188,8 @@ fn remove_spaces_after_colons(query: &str) -> (String, Vec<String>) {
     let captures: Vec<_> = FIELD_COLON_SPACE_RE.captures_iter(query).collect();
 
     for cap in captures {
-        let full_match = cap.get(0).unwrap();
         let field_match = cap.get(1).unwrap();
+        let value_match = cap.get(2).unwrap();
         let field = field_match.as_str();
         if !ALL_KNOWN_FIELDS.contains(field.to_lowercase().as_str()) {
             continue;
@@ -200,8 +200,9 @@ fn remove_spaces_after_colons(query: &str) -> (String, Vec<String>) {
         // Append "field:" (drop the trailing whitespace before the value char).
         out.push_str(field);
         out.push(':');
-        // Resume right at the first non-space char (full_match.end()-1: regex consumed 1 char of the value).
-        last_end = full_match.end() - 1;
+        // Resume right at the first non-space char (start of the captured
+        // value char — a char boundary even for multi-byte values).
+        last_end = value_match.start();
         corrections.push(format!("Removed space after {}:", field));
     }
     out.push_str(&query[last_end..]);
