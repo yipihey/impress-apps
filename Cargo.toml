@@ -20,6 +20,8 @@ members = [
     "crates/implore-selection",
     # impel - agent orchestration for autonomous research
     "crates/impel-core",
+    # impel-enrichment - ADR-0005 §9 reference implementation (task executors)
+    "crates/impel-enrichment",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
@@ -73,7 +75,7 @@ repository = "https://github.com/yipihey/impress-apps"
 [workspace.dependencies]
 # Shared dependencies across crates
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "1.0"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -112,6 +114,7 @@ imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
+impress-sources = { path = "crates/impress-sources" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }

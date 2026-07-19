@@ -1,0 +1,21 @@
+[package]
+name = "impel-enrichment"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-0005 §9 reference implementation: the imbib enrichment pipeline as impel TaskExecutors over the impress-core item graph (ADR-0015 D6)."
+
+[dependencies]
+impress-core = { workspace = true, features = ["sqlite"] }
+impel-core = { workspace = true }
+impress-sources = { workspace = true }
+imbib-core = { workspace = true, features = ["native"] }
+impress-domain = { workspace = true }
+
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+chrono = { workspace = true }
+sha2 = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true }
