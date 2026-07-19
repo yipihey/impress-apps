@@ -5,7 +5,9 @@
 //  Registry for tracking open documents and their pending automation operations.
 //
 
+#if canImport(AppKit)
 import AppKit
+#endif
 import Foundation
 import ImpressLogging
 import ImpressOperationQueue
@@ -56,8 +58,10 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
 
     /// Update the dock badge to show the number of open manuscripts.
     private func updateDockBadge() {
+        #if os(macOS)
         let count = allDocuments.count
         NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+        #endif
     }
 
     /// Find document by ID (convenience accessor).

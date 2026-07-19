@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build script for imprint-core Rust library
-# Creates an XCFramework for macOS (iOS support can be added later)
+# Creates a multi-platform XCFramework: macOS + iOS device + iOS Simulator.
 
 set -e
 
@@ -9,8 +9,10 @@ cd "$SCRIPT_DIR"
 
 # Set deployment targets (can be overridden by environment)
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 
 echo "Using MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
+echo "Using IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
 
 # Output directories
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -18,9 +20,14 @@ BUILD_DIR="$WORKSPACE_ROOT/target"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
 XCFRAMEWORK_NAME="ImprintCore"
 
-# Rust targets (macOS only for now - Typst has heavy dependencies)
+# Rust targets. iOS slices always build with plain `native` features —
+# Typst cross-compiles cleanly; Tectonic's C-dep tree stays desktop-only.
 MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
+IOS_TARGET="aarch64-apple-ios"
+IOS_SIM_TARGET="aarch64-apple-ios-sim"
+IOS_SIM_X86_TARGET="x86_64-apple-ios"
+IOS_FEATURES="native"
 
 # Feature set + arch selection.
 #
@@ -30,9 +37,14 @@ MACOS_X86_TARGET="x86_64-apple-darwin"
 # the C-dep tree universally is future work — so it skips the x86_64 slice.
 CARGO_FEATURES="native"
 BUILD_X86=1
+# iOS slices are on by default (skip with IMPRINT_SKIP_IOS=1). The Tectonic
+# variant is macOS-arm64-only: its bindings would reference LaTeX FFI symbols
+# the iOS libs don't have, so it produces a desktop-only xcframework.
+BUILD_IOS=$([ "${IMPRINT_SKIP_IOS:-0}" = "1" ] && echo 0 || echo 1)
 if [ "${IMPRINT_TECTONIC:-0}" = "1" ]; then
     CARGO_FEATURES="native,tectonic-render"
     BUILD_X86=0
+    BUILD_IOS=0
     export VCPKG_ROOT="${VCPKG_ROOT:-$WORKSPACE_ROOT/target/vcpkg}"
     export TECTONIC_DEP_BACKEND=vcpkg
     echo "IMPRINT_TECTONIC=1 → features=$CARGO_FEATURES, arm64-only, vcpkg=$VCPKG_ROOT"
@@ -48,6 +60,9 @@ echo "=== Building imprint-core Rust library (features: $CARGO_FEATURES) ==="
 # Ensure required targets are installed
 echo "Installing Rust targets..."
 rustup target add $MACOS_TARGET $MACOS_X86_TARGET 2>/dev/null || true
+if [ "$BUILD_IOS" = "1" ]; then
+    rustup target add $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
+fi
 
 # Build for macOS with the selected features
 echo ""
@@ -58,6 +73,18 @@ if [ "$BUILD_X86" = "1" ]; then
     echo ""
     echo "Building for macOS (x86_64) with features: $CARGO_FEATURES ..."
     cargo build --release --target $MACOS_X86_TARGET --features "$CARGO_FEATURES"
+fi
+
+if [ "$BUILD_IOS" = "1" ]; then
+    echo ""
+    echo "Building for iOS device (arm64) with features: $IOS_FEATURES ..."
+    cargo build --release --target $IOS_TARGET --features "$IOS_FEATURES" -p imprint-core
+    echo ""
+    echo "Building for iOS Simulator (arm64) with features: $IOS_FEATURES ..."
+    cargo build --release --target $IOS_SIM_TARGET --features "$IOS_FEATURES" -p imprint-core
+    echo ""
+    echo "Building for iOS Simulator (x86_64) with features: $IOS_FEATURES ..."
+    cargo build --release --target $IOS_SIM_X86_TARGET --features "$IOS_FEATURES" -p imprint-core
 fi
 
 # Create framework directory structure
@@ -135,9 +162,29 @@ echo ""
 echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
+XCFRAMEWORK_ARGS=(
+    -library "$MACOS_UNIVERSAL_DIR/libimprint_core.a"
+    -headers "$FRAMEWORK_DIR/headers"
+)
+if [ "$BUILD_IOS" = "1" ]; then
+    # Simulator slice must be universal (arm64 + x86_64) — the generic
+    # "iOS Simulator" destination links both architectures.
+    IOS_SIM_UNIVERSAL_DIR="$FRAMEWORK_DIR/ios-simulator-universal"
+    mkdir -p "$IOS_SIM_UNIVERSAL_DIR"
+    lipo -create \
+        "$BUILD_DIR/$IOS_SIM_TARGET/release/libimprint_core.a" \
+        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimprint_core.a" \
+        -output "$IOS_SIM_UNIVERSAL_DIR/libimprint_core.a"
+    XCFRAMEWORK_ARGS+=(
+        -library "$BUILD_DIR/$IOS_TARGET/release/libimprint_core.a"
+        -headers "$FRAMEWORK_DIR/headers"
+        -library "$IOS_SIM_UNIVERSAL_DIR/libimprint_core.a"
+        -headers "$FRAMEWORK_DIR/headers"
+    )
+fi
+
 xcodebuild -create-xcframework \
-    -library "$MACOS_UNIVERSAL_DIR/libimprint_core.a" \
-    -headers "$FRAMEWORK_DIR/headers" \
+    "${XCFRAMEWORK_ARGS[@]}" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 echo ""

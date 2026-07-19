@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Panel for reviewing and resolving git merge conflicts.
@@ -137,3 +138,5 @@ public struct GitConflictPanel: View {
         isResolving = false
     }
 }
+
+#endif // os(macOS)

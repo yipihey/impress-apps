@@ -368,6 +368,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.share-extension
+        # Override the project-wide PRODUCT_NAME=imprint — otherwise this
+        # target and imprint-iOS both emit imprint.swiftmodule into the same
+        # simulator products dir ("Multiple commands produce" build failure).
+        PRODUCT_NAME: imprint-ShareExtension
+        PRODUCT_MODULE_NAME: ImprintShareExtension
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: imprint-ShareExtension/Info.plist
         MARKETING_VERSION: "1.0.0"
@@ -393,6 +398,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.iostests
+        PRODUCT_NAME: imprint-iOSTests
+        PRODUCT_MODULE_NAME: imprintiOSTests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:

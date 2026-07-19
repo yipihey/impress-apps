@@ -91,8 +91,7 @@ public final class ImprintStoreAdapter {
     ///
     /// Files are named `{sha256}` (no extension) and contain raw UTF-8 Typst source.
     public var contentStoreDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/impress/content", isDirectory: true)
+        ImpressContentStore.directory
     }
 
     // MARK: - Shared Store

@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Sheet for creating a new GitHub repository from a local project.
@@ -239,3 +240,5 @@ public struct GitCreateSheet: View {
         isCreating = false
     }
 }
+
+#endif // os(macOS)

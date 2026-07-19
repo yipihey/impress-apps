@@ -109,6 +109,9 @@ public final class ToolboxLifecycle: Sendable {
     /// From within the sandbox, only the app group container is accessible.
     /// Use `ToolboxLifecycle.installToAppGroup(from:)` to stage the binary.
     public func findBinary() -> URL? {
+        // iOS cannot spawn external processes — the toolbox binary is a
+        // macOS-only helper.
+        #if os(macOS)
         // App group container (sandbox-accessible)
         if let groupURL = Self.appGroupBinaryURL,
            FileManager.default.isExecutableFile(atPath: groupURL.path) {
@@ -132,6 +135,9 @@ public final class ToolboxLifecycle: Sendable {
             }
         }
         return nil
+        #else
+        return nil
+        #endif
     }
 
     /// Copy the toolbox binary into the shared app group container so sandboxed

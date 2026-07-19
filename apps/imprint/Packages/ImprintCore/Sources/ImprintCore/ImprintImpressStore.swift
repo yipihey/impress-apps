@@ -348,8 +348,7 @@ public actor ImprintImpressStore {
     /// Directory containing content-addressed section bodies. Must
     /// match what `ImprintStoreAdapter.writeContentAddressed` writes to.
     private nonisolated static var contentStoreDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/impress/content", isDirectory: true)
+        ImpressContentStore.directory
     }
 
     #endif // canImport(ImpressRustCore)

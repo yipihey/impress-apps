@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Sheet for cloning a remote repo or linking an existing local git repo.
@@ -290,3 +291,5 @@ public struct GitLinkSheet: View {
         }
     }
 }
+
+#endif // os(macOS)

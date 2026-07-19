@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Sheet for composing a git commit with diff preview and file selection.
@@ -215,3 +216,5 @@ public struct GitCommitSheet: View {
         }
     }
 }
+
+#endif // os(macOS)

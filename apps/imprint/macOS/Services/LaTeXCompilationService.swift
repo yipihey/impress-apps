@@ -69,20 +69,8 @@ struct LaTeXCompilationResult: Sendable {
     var isSuccess: Bool { exitCode == 0 && pdfData != nil }
 }
 
-/// A single diagnostic from LaTeX compilation.
-struct LaTeXDiagnostic: Identifiable, Sendable {
-    let id = UUID()
-    var file: String
-    var line: Int
-    var column: Int?
-    var message: String
-    var severity: DiagnosticSeverity
-    var context: String?
-
-    enum DiagnosticSeverity: String, Sendable {
-        case error, warning, info
-    }
-}
+// LaTeXDiagnostic moved to Shared/Models/LaTeXDiagnostic.swift so the
+// cross-platform view model and registry can reference it on iOS too.
 
 /// Compiles LaTeX documents using the local TeX distribution via Process.
 actor LaTeXCompilationService {

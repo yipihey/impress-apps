@@ -1,3 +1,7 @@
+// The imprint automation HTTP surface is desktop-only for now — it
+// drives macOS-only services (Process, AI tasks, intents). A slim iOS
+// router for simulator testing is future work (Phase 4).
+#if os(macOS)
 //
 //  ImprintHTTPServer.swift
 //  imprint
@@ -117,3 +121,5 @@ public actor ImprintHTTPServer {
         }
     }
 }
+
+#endif // os(macOS)

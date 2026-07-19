@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Commit history browser for a git repository.
@@ -135,3 +136,5 @@ extension LogEntry: Hashable {
         hasher.combine(hash)
     }
 }
+
+#endif // os(macOS)

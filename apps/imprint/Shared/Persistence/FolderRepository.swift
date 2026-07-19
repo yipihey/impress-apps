@@ -156,9 +156,16 @@ public actor FolderRepository {
     ) throws -> CDDocumentReference {
         let context = persistence.viewContext
 
-        // Create bookmark for sandbox access
+        // Create bookmark for sandbox access. iOS bookmarks are implicitly
+        // security-scoped for document-picker URLs; .withSecurityScope is
+        // macOS-only.
+        #if os(macOS)
+        let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
+        #else
+        let bookmarkOptions: URL.BookmarkCreationOptions = []
+        #endif
         let bookmarkData = try? url.bookmarkData(
-            options: .withSecurityScope,
+            options: bookmarkOptions,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )

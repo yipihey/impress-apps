@@ -327,9 +327,14 @@ public enum ManuscriptMigrationRunner {
     private static func resolveURL(for ref: CDDocumentReference) -> URL? {
         if let bookmark = ref.fileBookmark {
             var isStale = false
+            #if os(macOS)
+            let resolutionOptions: URL.BookmarkResolutionOptions = [.withSecurityScope]
+            #else
+            let resolutionOptions: URL.BookmarkResolutionOptions = []
+            #endif
             if let url = try? URL(
                 resolvingBookmarkData: bookmark,
-                options: [.withSecurityScope],
+                options: resolutionOptions,
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             ) {
