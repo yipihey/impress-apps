@@ -133,12 +133,24 @@ impl Default for StoreConfig {
 pub struct SqliteItemStore {
     conn: Mutex<Connection>,
     readers: Option<ReaderPool>,
-    event_tx: Sender<ItemEvent>,
-    event_rx: Mutex<Option<Receiver<ItemEvent>>>,
+    /// Broadcast event bus (ADR-0015 D3): every subscriber gets an
+    /// independent channel, optionally filtered by schema-ref prefix.
+    /// Dead subscribers (dropped receivers) are pruned on emit.
+    subscribers: Mutex<Vec<EventSubscriber>>,
     default_author: String,
     default_author_kind: ActorKind,
     origin_id: String,
     tag_namespace: String,
+}
+
+/// One live subscription on the event bus.
+struct EventSubscriber {
+    /// `None` = all events. `Some(p)` = only events whose affected item's
+    /// schema starts with `p` (exact refs like `"task@1.0.0"` and family
+    /// prefixes like `"task@"` both work). Events whose schema cannot be
+    /// determined (e.g. already-deleted items) are delivered to everyone.
+    schema_prefix: Option<String>,
+    tx: Sender<ItemEvent>,
 }
 
 /// The full SELECT column list for the items table.
@@ -196,12 +208,10 @@ impl SqliteItemStore {
         // Initialize or read store metadata
         let origin_id = Self::init_store_metadata(&conn, &config)?;
 
-        let (tx, rx) = mpsc::channel();
         Ok(Self {
             conn: Mutex::new(conn),
             readers: None,
-            event_tx: tx,
-            event_rx: Mutex::new(Some(rx)),
+            subscribers: Mutex::new(Vec::new()),
             default_author: config.author,
             default_author_kind: config.author_kind,
             origin_id,
@@ -593,8 +603,34 @@ impl SqliteItemStore {
         Ok(new_val)
     }
 
-    fn emit(&self, event: ItemEvent) {
-        let _ = self.event_tx.send(event);
+    /// Fan an event out to every live subscriber whose filter matches
+    /// `schema` (None = undeterminable → deliver to all). Subscribers with
+    /// dropped receivers are pruned here.
+    fn emit(&self, schema: Option<&str>, event: ItemEvent) {
+        let Ok(mut subs) = self.subscribers.lock() else {
+            return;
+        };
+        subs.retain(|sub| {
+            let matches = match (&sub.schema_prefix, schema) {
+                (None, _) | (_, None) => true,
+                (Some(prefix), Some(s)) => s.starts_with(prefix.as_str()),
+            };
+            if !matches {
+                return true; // filtered out, but still alive
+            }
+            sub.tx.send(event.clone()).is_ok()
+        });
+    }
+
+    /// Schema of an item, for event filtering. `None` when the item is
+    /// gone or unreadable — callers deliver unfiltered in that case.
+    fn schema_of(conn: &Connection, id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT schema FROM items WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
     }
 
     /// Insert a single item into the database.
@@ -827,11 +863,15 @@ impl SqliteItemStore {
         let now = Utc::now().timestamp_millis();
         Self::materialize_operation(&conn, &spec.target_id.to_string(), &spec.op_type, now)?;
 
+        let target_schema = Self::schema_of(&conn, &spec.target_id.to_string());
         drop(conn);
-        self.emit(ItemEvent::OperationApplied {
-            operation_id: op_id,
-            target_id: spec.target_id,
-        });
+        self.emit(
+            target_schema.as_deref(),
+            ItemEvent::OperationApplied {
+                operation_id: op_id,
+                target_id: spec.target_id,
+            },
+        );
 
         Ok(op_id)
     }
@@ -851,6 +891,7 @@ impl SqliteItemStore {
 
         let batch_id = Uuid::new_v4().to_string();
         let mut op_ids = Vec::with_capacity(specs.len());
+        let mut targets = Vec::with_capacity(op_ids.capacity());
 
         for mut spec in specs {
             spec.batch_id = Some(batch_id.clone());
@@ -914,19 +955,27 @@ impl SqliteItemStore {
             Self::materialize_operation(&tx, &target_str, &spec.op_type, now)?;
 
             op_ids.push(op_id);
+            targets.push(spec.target_id);
         }
 
         tx.commit()
             .map_err(|e| StoreError::Storage(format!("commit batch: {}", e)))?;
 
-        // Emit events after commit
+        // Emit events after commit — real target ids, schemas looked up
+        // for subscriber filtering.
+        let schemas: Vec<Option<String>> = targets
+            .iter()
+            .map(|t| Self::schema_of(&conn, &t.to_string()))
+            .collect();
         drop(conn);
-        for op_id in &op_ids {
-            // We don't have target_ids here easily; emit a generic event
-            self.emit(ItemEvent::OperationApplied {
-                operation_id: *op_id,
-                target_id: Uuid::nil(), // batch events — listeners should re-query
-            });
+        for ((op_id, target_id), schema) in op_ids.iter().zip(targets.iter()).zip(schemas.iter()) {
+            self.emit(
+                schema.as_deref(),
+                ItemEvent::OperationApplied {
+                    operation_id: *op_id,
+                    target_id: *target_id,
+                },
+            );
         }
 
         Ok(op_ids)
@@ -2625,7 +2674,8 @@ impl ItemStore for SqliteItemStore {
         let id = item.id;
         Self::insert_item(&conn, &item, &self.origin_id)?;
         drop(conn);
-        self.emit(ItemEvent::Created(Box::new(item)));
+        let schema = item.schema.clone();
+        self.emit(Some(&schema), ItemEvent::Created(Box::new(item)));
         Ok(id)
     }
 
@@ -2649,7 +2699,8 @@ impl ItemStore for SqliteItemStore {
 
         drop(conn);
         for item in items {
-            self.emit(ItemEvent::Created(Box::new(item)));
+            let schema = item.schema.clone();
+            self.emit(Some(&schema), ItemEvent::Created(Box::new(item)));
         }
         Ok(ids)
     }
@@ -2707,6 +2758,9 @@ impl ItemStore for SqliteItemStore {
             .map_err(|e| StoreError::Storage(e.to_string()))?;
         let id_str = id.to_string();
 
+        // Capture the schema before the row disappears (event filtering).
+        let schema = Self::schema_of(&conn, &id_str);
+
         // Delete FTS entry first
         Self::delete_fts(&conn, &id_str)?;
 
@@ -2727,7 +2781,7 @@ impl ItemStore for SqliteItemStore {
         }
 
         drop(conn);
-        self.emit(ItemEvent::Deleted(id));
+        self.emit(schema.as_deref(), ItemEvent::Deleted(id));
         Ok(())
     }
 
@@ -2828,15 +2882,20 @@ impl ItemStore for SqliteItemStore {
         self.with_read(|conn| Self::neighbors_on(conn, id, edge_types, depth))
     }
 
-    fn subscribe(&self, _q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError> {
-        let rx = self
-            .event_rx
+    /// Subscribe to store events (ADR-0015 D3). Any number of subscribers;
+    /// each gets an independent channel. The query's `schema` field acts as
+    /// a schema-ref prefix filter (`"task@"` matches all task versions);
+    /// other query predicates are not yet honored. Dropping the receiver
+    /// unsubscribes implicitly (pruned on the next emit).
+    fn subscribe(&self, q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError> {
+        let (tx, rx) = mpsc::channel();
+        self.subscribers
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?
-            .take()
-            .ok_or_else(|| {
-                StoreError::Storage("subscribe: receiver already taken".to_string())
-            })?;
+            .push(EventSubscriber {
+                schema_prefix: q.schema,
+                tx,
+            });
         Ok(rx)
     }
 }
@@ -3466,6 +3525,68 @@ mod tests {
         store.delete(id).unwrap();
         let event = rx.try_recv().unwrap();
         assert!(matches!(event, ItemEvent::Deleted(_)));
+    }
+
+    #[test]
+    fn event_bus_supports_multiple_subscribers() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let rx1 = store.subscribe(ItemQuery::default()).unwrap();
+        let rx2 = store.subscribe(ItemQuery::default()).unwrap();
+
+        store.insert(make_item("test", "Both See This")).unwrap();
+
+        assert!(matches!(rx1.try_recv().unwrap(), ItemEvent::Created(_)));
+        assert!(matches!(rx2.try_recv().unwrap(), ItemEvent::Created(_)));
+    }
+
+    #[test]
+    fn event_bus_filters_by_schema_prefix() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let tasks_only = store
+            .subscribe(ItemQuery {
+                schema: Some("task@".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let everything = store.subscribe(ItemQuery::default()).unwrap();
+
+        store.insert(make_item("note@1.0.0", "A Note")).unwrap();
+        let task_id = store.insert(make_item("task@1.0.0", "A Task")).unwrap();
+
+        // Filtered subscriber sees only the task…
+        match tasks_only.try_recv().unwrap() {
+            ItemEvent::Created(item) => assert_eq!(item.id, task_id),
+            other => panic!("unexpected: {other:?}"),
+        }
+        assert!(tasks_only.try_recv().is_err(), "no second event expected");
+
+        // …the unfiltered one sees both.
+        assert!(matches!(everything.try_recv().unwrap(), ItemEvent::Created(_)));
+        assert!(matches!(everything.try_recv().unwrap(), ItemEvent::Created(_)));
+
+        // Operations on the task reach the filtered subscriber too.
+        store
+            .update(task_id, vec![FieldMutation::SetRead(true)])
+            .unwrap();
+        assert!(matches!(
+            tasks_only.try_recv().unwrap(),
+            ItemEvent::OperationApplied { .. }
+        ));
+    }
+
+    #[test]
+    fn event_bus_prunes_dropped_subscribers() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let dead = store.subscribe(ItemQuery::default()).unwrap();
+        let alive = store.subscribe(ItemQuery::default()).unwrap();
+        drop(dead);
+
+        store.insert(make_item("test", "Survivor")).unwrap();
+        assert!(matches!(alive.try_recv().unwrap(), ItemEvent::Created(_)));
+
+        // The dead subscriber was pruned during emit.
+        let subs = store.subscribers.lock().unwrap();
+        assert_eq!(subs.len(), 1);
     }
 
     #[test]
