@@ -324,10 +324,22 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private func contentBody(_ route: ImbibContentRoute) -> some View {
-        ImpressSplitView(listMinWidth: 200, listIdealWidth: 300, detailMinWidth: 300) {
-            leftPane(route)
-        } detail: {
-            detailView
+        // Declarative pane layout: the detail pane's visibility is part of
+        // PaneLayoutStore.current (⌘0, saved layouts, HTTP /api/layout). The
+        // toolbar stays attached to the Group so its fragile positioning
+        // (see CLAUDE.md "macOS Detail Pane Layout") is untouched when the
+        // pane is visible.
+        Group {
+            if PaneLayoutStore.shared.current.detailPaneVisible {
+                ImpressSplitView(listMinWidth: 200, listIdealWidth: 300, detailMinWidth: 300) {
+                    leftPane(route)
+                } detail: {
+                    detailView
+                }
+            } else {
+                leftPane(route)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         #if os(macOS)
         .toolbar {
@@ -419,6 +431,16 @@ struct SectionContentView: View {
         .onChange(of: searchViewModel.isSearching) { wasSearching, isSearching in
             if wasSearching && !isSearching {
                 showSearchForm = false
+            }
+        }
+        // Two-way mirror between the local detail-tab selection and the
+        // declarative layout state (saved layouts + HTTP /api/layout).
+        .onChange(of: selectedDetailTab) { _, tab in
+            PaneLayoutStore.shared.current.detailTab = tab.rawValue
+        }
+        .onChange(of: PaneLayoutStore.shared.current.detailTab) { _, raw in
+            if let tab = DetailTab(rawValue: raw), tab != selectedDetailTab {
+                selectedDetailTab = tab
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .resetSearchFormView)) { _ in

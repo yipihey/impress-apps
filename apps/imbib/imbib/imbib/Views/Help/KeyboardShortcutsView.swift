@@ -72,6 +72,16 @@ struct KeyboardShortcutsView: View {
 
                 // Additional hardcoded sections for shortcuts not in settings
 
+                // Layout & Appearance (universal impress grammar —
+                // docs/keyboard-grammar.md; same chords in imprint)
+                ShortcutSection(title: "Layout & Appearance (universal)", shortcuts: [
+                    ("Toggle Sidebar", "⌃⌘s"),
+                    ("Toggle Detail Pane", "⌘0"),
+                    ("Apply Saved Layout 1–9", "⌃⌘1…9"),
+                    ("Open PDF on Second Display", "⌃⌘p"),
+                    ("All Dark / All Light", "⌃⌘d"),
+                ])
+
                 // PDF Annotations (handled separately in PDF viewer)
                 ShortcutSection(title: "PDF Annotations", shortcuts: [
                     ("Highlight Selection", "⌃h"),

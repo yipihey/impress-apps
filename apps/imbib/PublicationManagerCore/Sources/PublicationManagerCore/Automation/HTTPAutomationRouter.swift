@@ -100,11 +100,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let path = request.path.lowercased()
         let originalPath = request.path
 
+        // PerfMetrics: every request lands in the "http" bucket (budget
+        // breaches self-flag in the Console); surfaced at GET /api/performance.
         switch request.method {
         case "GET":
-            return await routeGET(path: path, originalPath: originalPath, request: request)
+            return await PerfMetrics.shared.measureAsync(PerfBucket.http, detail: path) {
+                await routeGET(path: path, originalPath: originalPath, request: request)
+            }
         case "POST":
-            return await routePOST(path: path, request: request)
+            return await PerfMetrics.shared.measureAsync(PerfBucket.http, detail: path) {
+                await routePOST(path: path, request: request)
+            }
         case "PUT":
             return await routePUT(path: path, originalPath: originalPath, request: request)
         case "DELETE":
@@ -122,7 +128,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
 
         if path == "/api/search" {
-            return await handleSearch(request)
+            return await PerfMetrics.shared.measureAsync(PerfBucket.search, detail: "http") {
+                await handleSearch(request)
+            }
         }
 
         if path == "/api/search/external" {
@@ -407,6 +415,18 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return handleResetStoreTimings()
         }
 
+        if path == "/api/performance" {
+            return handlePerformance()
+        }
+
+        if path == "/api/layout" {
+            return await handleGetLayout()
+        }
+
+        if path == "/api/appearance" {
+            return await handleGetAppearance()
+        }
+
         if path == "/api/commands" {
             return handleCommands()
         }
@@ -438,6 +458,27 @@ public actor HTTPAutomationRouter: HTTPRouter {
     private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/papers/add" {
             return await handleAddPapers(request)
+        }
+
+        if path == "/api/performance/reset" {
+            PerfMetrics.shared.reset()
+            return .json(["status": "ok"])
+        }
+
+        if path == "/api/layout" {
+            return await handleSetLayout(request)
+        }
+
+        if path == "/api/layout/apply" {
+            return await handleApplyLayout(request)
+        }
+
+        if path == "/api/layout/save" {
+            return await handleSaveLayout(request)
+        }
+
+        if path == "/api/appearance" {
+            return await handleSetAppearance(request)
         }
 
         if path == "/api/papers/resolve" {
@@ -1136,6 +1177,148 @@ public actor HTTPAutomationRouter: HTTPRouter {
     private func handleResetStoreTimings() -> HTTPResponse {
         StoreTimings.shared.reset()
         return .json(["status": "ok", "reset": true])
+    }
+
+    // MARK: - Performance (PerfMetrics)
+
+    /// GET /api/performance — PerfMetrics snapshot (same shape as imprint's).
+    private func handlePerformance() -> HTTPResponse {
+        let snap = PerfMetrics.shared.snapshot()
+        let buckets: [[String: Any]] = snap.buckets.map { b in
+            var dict: [String: Any] = [
+                "name": b.name,
+                "count": b.count,
+                "mainThreadCount": b.mainThreadCount,
+                "mainThreadShare": round(b.mainThreadShare * 10000) / 10000,
+                "minMillis": round(b.minMillis * 1000) / 1000,
+                "meanMillis": round(b.meanMillis * 1000) / 1000,
+                "p50Millis": round(b.p50Millis * 1000) / 1000,
+                "p95Millis": round(b.p95Millis * 1000) / 1000,
+                "maxMillis": round(b.maxMillis * 1000) / 1000,
+                "breachCount": b.breachCount,
+                "totalNanos": b.totalNanos
+            ]
+            if let budget = b.budgetMillis {
+                dict["budgetMillis"] = round(budget * 1000) / 1000
+            }
+            return dict
+        }
+        return .json([
+            "status": "ok",
+            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
+            "bucketCount": snap.buckets.count,
+            "buckets": buckets
+        ])
+    }
+
+    // MARK: - Layout & Appearance (declarative pane-layout system)
+
+    private func layoutStateDict(_ state: PaneLayoutState) -> [String: Any] {
+        [
+            "sidebarVisible": state.sidebarVisible,
+            "detailPaneVisible": state.detailPaneVisible,
+            "detailTab": state.detailTab,
+            "appAppearance": state.appAppearance,
+            "pdfDarkMode": state.pdfDarkMode
+        ]
+    }
+
+    /// GET /api/layout — live pane arrangement + saved layouts.
+    private func handleGetLayout() async -> HTTPResponse {
+        let (current, layouts) = await MainActor.run {
+            (PaneLayoutStore.shared.current,
+             PaneLayoutStore.shared.layouts)
+        }
+        return .json([
+            "status": "ok",
+            "current": layoutStateDict(current),
+            "layouts": layouts.map { ["name": $0.name, "state": layoutStateDict($0.state)] }
+        ])
+    }
+
+    /// POST /api/layout — set any subset of the live pane arrangement.
+    /// Body: {"sidebarVisible"?, "detailPaneVisible"?, "detailTab"?,
+    ///        "appAppearance"?, "pdfDarkMode"?}
+    private func handleSetLayout(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        // Extract Sendable values before hopping to the MainActor.
+        let sidebar = json["sidebarVisible"] as? Bool
+        let detailPane = json["detailPaneVisible"] as? Bool
+        let tab = json["detailTab"] as? String
+        let app = json["appAppearance"] as? String
+        let pdfDark = json["pdfDarkMode"] as? Bool
+        let keys = json.keys.sorted().joined(separator: ",")
+
+        let updated = await MainActor.run {
+            let store = PaneLayoutStore.shared
+            var state = store.current
+            if let v = sidebar { state.sidebarVisible = v }
+            if let v = detailPane { state.detailPaneVisible = v }
+            if let v = tab { state.detailTab = v }
+            if let v = app { state.appAppearance = v }
+            if let v = pdfDark { state.pdfDarkMode = v }
+            store.current = state
+            if app != nil || pdfDark != nil {
+                store.pushAppearance()
+            }
+            return state
+        }
+        logInfo("HTTP layout update: \(keys)", category: "layout")
+        return .json(["status": "ok", "current": layoutStateDict(updated)])
+    }
+
+    /// POST /api/layout/apply {"name": "Reading"} — apply a saved layout.
+    private func handleApplyLayout(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request), let name = json["name"] as? String else {
+            return .badRequest("Expected {\"name\": ...}")
+        }
+        let (applied, current) = await MainActor.run {
+            (PaneLayoutStore.shared.applyLayout(named: name),
+             PaneLayoutStore.shared.current)
+        }
+        guard applied else { return .notFound("No saved layout named '\(name)'") }
+        return .json(["status": "ok", "applied": name, "current": layoutStateDict(current)])
+    }
+
+    /// POST /api/layout/save {"name": "My Setup"} — save the live arrangement.
+    private func handleSaveLayout(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request), let name = json["name"] as? String,
+              !name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return .badRequest("Expected {\"name\": ...}")
+        }
+        let names = await MainActor.run {
+            PaneLayoutStore.shared.saveCurrent(named: name)
+            return PaneLayoutStore.shared.layouts.map(\.name)
+        }
+        return .json(["status": "ok", "saved": name, "layouts": names])
+    }
+
+    /// GET /api/appearance — per-surface appearance (authoritative stores).
+    private func handleGetAppearance() async -> HTTPResponse {
+        let app = await ThemeSettingsStore.shared.settings.appearanceMode.rawValue
+        let pdfDark = await PDFSettingsStore.shared.settings.darkModeEnabled
+        return .json(["status": "ok", "appAppearance": app, "pdfDarkMode": pdfDark])
+    }
+
+    /// POST /api/appearance {"appAppearance"?: "system|light|dark", "pdfDarkMode"?: bool}
+    private func handleSetAppearance(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        if let raw = json["appAppearance"] as? String {
+            guard let mode = AppearanceMode(rawValue: raw) else {
+                return .badRequest("appAppearance must be system|light|dark")
+            }
+            await ThemeSettingsStore.shared.updateAppearanceMode(mode)
+            await MainActor.run { PaneLayoutStore.shared.current.appAppearance = raw }
+        }
+        if let dark = json["pdfDarkMode"] as? Bool {
+            await PDFSettingsStore.shared.updateDarkMode(enabled: dark)
+            await MainActor.run { PaneLayoutStore.shared.current.pdfDarkMode = dark }
+        }
+        return await handleGetAppearance()
     }
 
     private func iconForCategory(_ category: ShortcutCategory) -> String {

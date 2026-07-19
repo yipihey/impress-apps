@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreSpotlight
 import PublicationManagerCore
+import ImpressLogging
 import ImpressKit
 import ImpressAI
 import ImpressStoreKit
@@ -36,6 +37,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugLog("AppDelegate.applicationDidFinishLaunching called")
+
+        // Performance budgets (PerfMetrics, shared with imprint): breaches
+        // log a warning to the Console; live numbers at GET /api/performance.
+        PerfMetrics.shared.setBudgets([
+            PerfBucket.search: 500,   // HTTP + local search
+            PerfBucket.http: 250,     // automation API requests
+        ])
 
         // Disable window restoration — prevents macOS from reopening
         // dozens of windows if the previous session had many open
@@ -803,6 +811,91 @@ struct AppCommands: Commands {
         CommandLine.arguments.contains("--edit-default-set")
     }
 
+    /// View ▸ Layouts — user-named pane arrangements (PaneLayoutStore, same
+    /// system as imprint). First nine get ⌃⌘1-9 (universal grammar).
+    private var layoutsMenu: some View {
+        Menu("Layouts") {
+            ForEach(Array(PaneLayoutStore.shared.layouts.enumerated()), id: \.element.id) { index, layout in
+                let button = Button(layout.name) {
+                    PaneLayoutStore.shared.apply(layout)
+                }
+                if index < 9 {
+                    button.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
+                } else {
+                    button
+                }
+            }
+
+            Divider()
+
+            Button("Save Current Layout…") {
+                promptForLayoutName()
+            }
+
+            if !PaneLayoutStore.shared.layouts.isEmpty {
+                Menu("Delete Layout") {
+                    ForEach(PaneLayoutStore.shared.layouts) { layout in
+                        Button(layout.name) {
+                            PaneLayoutStore.shared.delete(layout)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// View ▸ Appearance — app + PDF dark mode, together or separately.
+    /// ⌃⌘D flips everything at once (universal grammar; same as imprint).
+    private var appearanceMenu: some View {
+        Menu("Appearance") {
+            Button("App: System") { setAppAppearance(.system) }
+            Button("App: Light") { setAppAppearance(.light) }
+            Button("App: Dark") { setAppAppearance(.dark) }
+
+            Divider()
+
+            Button("Toggle PDF Dark Mode") {
+                let newValue = !PaneLayoutStore.shared.current.pdfDarkMode
+                PaneLayoutStore.shared.current.pdfDarkMode = newValue
+                Task { await PDFSettingsStore.shared.updateDarkMode(enabled: newValue) }
+            }
+
+            Divider()
+
+            Button("All Dark / All Light") {
+                let toDark = PaneLayoutStore.shared.current.appAppearance != "dark"
+                setAppAppearance(toDark ? .dark : .light)
+                PaneLayoutStore.shared.current.pdfDarkMode = toDark
+                Task { await PDFSettingsStore.shared.updateDarkMode(enabled: toDark) }
+            }
+            .keyboardShortcut("d", modifiers: [.control, .command])
+        }
+    }
+
+    private func setAppAppearance(_ mode: AppearanceMode) {
+        PaneLayoutStore.shared.current.appAppearance = mode.rawValue
+        Task { await ThemeSettingsStore.shared.updateAppearanceMode(mode) }
+    }
+
+    /// Name prompt for "Save Current Layout…" (NSAlert: no window available
+    /// for a SwiftUI sheet in a Commands context).
+    private func promptForLayoutName() {
+        let alert = NSAlert()
+        alert.messageText = "Save Current Layout"
+        alert.informativeText = "Name this pane arrangement. Saving under an existing name replaces it."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "e.g. Triage, Reading, Full"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { return }
+            PaneLayoutStore.shared.saveCurrent(named: name)
+        }
+    }
+
     var body: some Commands {
         // Note: Settings menu is handled automatically by the Settings { } scene
         // Do not add a custom CommandGroup(replacing: .appSettings) as it creates duplicates
@@ -958,15 +1051,26 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Declarative layout state: these mutate PaneLayoutStore directly
+            // (previously these posted notifications nothing handled).
             Button("Toggle Detail Pane") {
-                NotificationCenter.default.post(name: .toggleDetailPane, object: nil)
+                PaneLayoutStore.shared.current.detailPaneVisible.toggle()
             }
             .keyboardShortcut("0", modifiers: .command)
 
             Button("Toggle Sidebar") {
-                NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+                PaneLayoutStore.shared.current.sidebarVisible.toggle()
             }
             .keyboardShortcut("s", modifiers: [.control, .command])
+
+            layoutsMenu
+
+            Button("Open PDF on Second Display") {
+                NotificationCenter.default.post(name: .detachPDFTab, object: nil)
+            }
+            .keyboardShortcut("p", modifiers: [.control, .command])
+
+            appearanceMenu
 
             Divider()
 

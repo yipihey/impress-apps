@@ -14,9 +14,9 @@ them.
 | ⌃⌘S | Toggle leading sidebar | Sidebar | Outline sidebar |
 | ⌘0 | Toggle secondary pane | Detail pane | Preview pane |
 | ⌘\ | Split editor | — | Two views of the same document |
-| ⌃⌘P | Open on second display | (Shift+P, guarded) | Detached PDF window |
-| ⌃⌘D | All dark / all light | — (adopt) | App+editor+PDF together |
-| ⌃⌘1…9 | Apply saved layout N | — (adopt) | Layouts menu |
+| ⌃⌘P | Open on second display | Detached PDF window (also Shift+P, guarded) | Detached PDF window |
+| ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
+| ⌃⌘1…9 | Apply saved layout N | Layouts menu | Layouts menu |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts |
 

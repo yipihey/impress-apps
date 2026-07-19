@@ -29,13 +29,20 @@ struct TabContentView: View {
     @State private var viewModel = ImbibSidebarViewModel()
     @State private var scixViewModel = SciXLibraryViewModel()
 
+    /// NavigationSplitView column state, driven by the declarative layout
+    /// (PaneLayoutStore.current.sidebarVisible ↔ ⌃⌘S / saved layouts /
+    /// HTTP /api/layout). Two-way: the split view's own toolbar toggle and
+    /// drag-collapse mirror back into the store.
+    @State private var columnVisibility: NavigationSplitViewVisibility =
+        PaneLayoutStore.shared.current.sidebarVisible ? .all : .detailOnly
+
     /// SciX library repository for conditional SciX section and content
     private let scixRepository = SciXLibraryRepository.shared
 
     // MARK: - Body
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             #if os(macOS)
             VStack(spacing: 0) {
                 SidebarOutlineView<ImbibSidebarNode>(
@@ -56,6 +63,16 @@ struct TabContentView: View {
             // of whether NavigationSplitView re-evaluates this closure.
             SectionContentView(viewModel: viewModel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onChange(of: PaneLayoutStore.shared.current.sidebarVisible) { _, visible in
+            let target: NavigationSplitViewVisibility = visible ? .all : .detailOnly
+            if columnVisibility != target { columnVisibility = target }
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            let visible = visibility != .detailOnly
+            if PaneLayoutStore.shared.current.sidebarVisible != visible {
+                PaneLayoutStore.shared.current.sidebarVisible = visible
+            }
         }
         .task {
             // Wire up dependencies
