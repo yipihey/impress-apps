@@ -655,6 +655,27 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.uitests
         GENERATE_INFOPLIST_FILE: YES
 
+  # iOS XCUITest target — the first real UI-test guard for the revived
+  # imbib-iOS views (previously only an install-smoke existed in CI).
+  # NOTE: does NOT depend on ImpressTestKit — that package is macOS-only
+  # (Package.swift: platforms: [.macOS(.v26)]) and the macOS imbibUITests
+  # target does not use it either. Accessibility-id anchors are declared
+  # locally in the test target (see IOSAccessibility.swift) so the bundle
+  # stays lightweight and doesn't link the whole core into the test runner.
+  imbib-iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: imbib-iOSUITests
+        optional: true
+    dependencies:
+      - target: imbib-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.iosuitests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   imbib:
     build:
@@ -718,10 +739,13 @@ schemes:
     build:
       targets:
         imbib-iOS: all
+        imbib-iOSUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
+      targets:
+        - imbib-iOSUITests
     profile:
       config: Release
     analyze:

@@ -42,7 +42,7 @@ Modes:
   performance  Run deterministic Swift perf smoke; opt into Criterion with IMBIB_AUTONOMOUS_RUN_CARGO_BENCH=1
   full         Full no-human gate: swift-core + rust-core + build
   ui-smoke     Runs the existing basic XCUITest smoke; launches the app
-  ios          Boot a simulator, build+install imbib-iOS, launch smoke
+  ios          Boot a simulator, build+install imbib-iOS, launch smoke + XCUITests (local only)
   all          Full no-human gate plus ui-smoke + ios
 
 Environment:
@@ -284,6 +284,23 @@ run_ios() {
             sleep 5
             xcrun simctl spawn '$udid' launchctl list 2>/dev/null | grep -q com.impress.imbib
         "
+
+    # XCUITest guard for the revived imbib-iOS views (runs against a seeded
+    # in-memory store). Kept out of CI on purpose — XCUITests are flakier in
+    # CI, and the install-smoke above already guards there. This lane exercises
+    # the real UI locally: launch -> sidebar, settings sheet, list -> detail.
+    run_step \
+        "imbib iOS XCUITests (imbib-iOSUITests)" \
+        "$RUN_DIR/ios-xcuitests.log" \
+        env HOME="$xcode_home" TMPDIR="$TMPDIR" \
+        xcodebuild test \
+        -project "$XCODE_PROJECT" \
+        -scheme imbib-iOS \
+        -destination "id=$udid" \
+        -only-testing:imbib-iOSUITests \
+        -derivedDataPath "$DERIVED_DATA/ios-sim" \
+        -clonedSourcePackagesDirPath "$source_packages" \
+        CODE_SIGNING_ALLOWED=NO
 }
 
 run_performance() {

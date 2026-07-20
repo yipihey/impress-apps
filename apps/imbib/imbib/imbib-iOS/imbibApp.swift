@@ -57,6 +57,23 @@ struct imbibApp: App {
 
         appLogger.info("ViewModels initialized")
 
+        // UI-testing: seed a deterministic in-memory store *synchronously* so
+        // XCUITests have stable anchors before any view queries the store.
+        // Gated on launch args (`--ui-testing --uitesting-seed`); a no-op in
+        // production. `RustStoreAdapter.shared` already routes to an in-memory
+        // store under `--ui-testing`, so this never touches real user data.
+        // (The iOS app previously had no UI-test seeding path at all — the
+        // `shouldSeedTestData` flag existed but nothing consumed it.)
+        Self.seedUITestDataIfNeeded()
+
+        // UI-testing: skip the first-run onboarding sheet so the main split
+        // view is reachable immediately. The in-memory store starts fresh on
+        // every launch, so onboarding would otherwise always present and cover
+        // the UI. Gated on `--ui-testing`; a no-op in production.
+        if UITestingEnvironment.isUITesting {
+            OnboardingManager.shared.completeOnboarding()
+        }
+
         // Capture libraryManager for use in Task (can't capture self in struct)
         let capturedLibraryManager = libraryManager
 
@@ -107,8 +124,12 @@ struct imbibApp: App {
             await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
         }
 
-        // Request notification permissions for badge
-        requestNotificationPermissions()
+        // Request notification permissions for badge.
+        // Skipped under UI testing so the system permission alert doesn't
+        // block the automation session.
+        if !UITestingEnvironment.isUITesting {
+            requestNotificationPermissions()
+        }
 
         appLogger.info("imbib iOS app initialization complete")
     }
@@ -129,7 +150,12 @@ struct imbibApp: App {
                     // imports land in the same place as inbox-triage `s`.
                     smartSearchService.libraryManager = libraryManager
 
-                    setupBadgeObserver()
+                    // Skip badge setup under UI testing: `setBadgeCount` triggers
+                    // the notification-authorization system alert on iOS 17+,
+                    // which would block the automation session.
+                    if !UITestingEnvironment.isUITesting {
+                        setupBadgeObserver()
+                    }
                     // Initialize share extension handler
                     if shareExtensionHandler == nil {
                         shareExtensionHandler = ShareExtensionHandler(
@@ -169,6 +195,50 @@ struct imbibApp: App {
     /// This ensures the intents are linked into the app binary.
     @available(iOS 16.0, *)
     private static let _shortcutsProvider: any AppShortcutsProvider.Type = ImbibShortcuts.self
+
+    // MARK: - UI Testing Seed
+
+    /// Seed a small deterministic library for XCUITests.
+    ///
+    /// Only runs when launched with `--ui-testing --uitesting-seed`. The
+    /// in-memory store (enabled by `--ui-testing`) starts empty, so this
+    /// gives the UI-test target stable anchors: a library named
+    /// "Test Library" with two well-known publications. Runs synchronously
+    /// during `init()` so the store is populated before any view's `.task`
+    /// reads it (avoiding a load/seed race).
+    @MainActor
+    private static func seedUITestDataIfNeeded() {
+        guard UITestingEnvironment.isUITesting, UITestingEnvironment.shouldSeedTestData else { return }
+        let store = RustStoreAdapter.shared
+        // Idempotent: never double-seed an already-populated store.
+        guard store.listLibraries().isEmpty else {
+            appLogger.info("UI-testing seed: store already populated, skipping")
+            return
+        }
+        guard let library = store.createLibrary(name: "Test Library") else {
+            appLogger.error("UI-testing seed: failed to create Test Library")
+            return
+        }
+        store.setLibraryDefault(id: library.id)
+
+        let bibtex = """
+        @article{Einstein1905,
+            author = {Albert Einstein},
+            title = {On the Electrodynamics of Moving Bodies},
+            journal = {Annalen der Physik},
+            year = {1905}
+        }
+
+        @article{Hubble1929,
+            author = {Edwin Hubble},
+            title = {A Relation between Distance and Radial Velocity among Extra-Galactic Nebulae},
+            journal = {Proceedings of the National Academy of Sciences},
+            year = {1929}
+        }
+        """
+        let ids = store.importBibTeX(bibtex, libraryId: library.id)
+        appLogger.info("UI-testing seed: imported \(ids.count) papers into '\(library.name)'")
+    }
 
     // MARK: - Badge Management
 
