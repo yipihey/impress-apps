@@ -40,11 +40,24 @@ impl Default for AnnIndexConfig {
     }
 }
 
+/// Below this size, `search` uses an exact brute-force scan instead of the
+/// HNSW graph. hnsw_rs 0.3.4's layered search probabilistically drops
+/// reachable points on small graphs (measured: ~7% of 3-point indexes
+/// return <3 results at k=3 regardless of ef; the loss rate grows sharply
+/// as k approaches n). Exact scan is both correct and faster at this
+/// scale; the HNSW path takes over where its log-scaling actually pays.
+#[cfg(feature = "native")]
+const EXACT_SEARCH_THRESHOLD: usize = 1024;
+
 /// HNSW index for fast similarity search
 #[cfg(feature = "native")]
 pub struct AnnIndex {
     hnsw: RwLock<Hnsw<'static, f32, DistCosine>>,
     id_map: RwLock<Vec<String>>,
+    /// Vector copies for the exact-search path (and eventual rebuild-on-load;
+    /// `save()` currently persists only the id_map). Kept in insertion order,
+    /// parallel to `id_map`.
+    vectors: RwLock<Vec<Vec<f32>>>,
     config: AnnIndexConfig,
 }
 
@@ -67,6 +80,7 @@ impl AnnIndex {
         Self {
             hnsw: RwLock::new(hnsw),
             id_map: RwLock::new(Vec::new()),
+            vectors: RwLock::new(Vec::new()),
             config,
         }
     }
@@ -87,6 +101,7 @@ impl AnnIndex {
         let idx = id_map.len();
         id_map.push(publication_id.to_string());
         drop(id_map);
+        self.vectors.write().unwrap().push(embedding.to_vec());
 
         let hnsw = self.hnsw.read().unwrap();
         hnsw.insert((embedding, idx));
@@ -111,6 +126,12 @@ impl AnnIndex {
             .collect();
 
         drop(id_map);
+        {
+            let mut vectors = self.vectors.write().unwrap();
+            for (_, emb) in &items {
+                vectors.push(emb.clone());
+            }
+        }
 
         let hnsw = self.hnsw.read().unwrap();
         for (emb, idx) in data {
@@ -120,6 +141,9 @@ impl AnnIndex {
 
     /// Find k most similar publications
     pub fn search(&self, query: &[f32], k: usize) -> Vec<AnnSimilarityResult> {
+        if self.len() <= EXACT_SEARCH_THRESHOLD {
+            return self.search_exact(query, k);
+        }
         let ef_search = (k * 2).max(50); // Search beam width
         let hnsw = self.hnsw.read().unwrap();
         let id_map = self.id_map.read().unwrap();
@@ -133,6 +157,36 @@ impl AnnIndex {
                 similarity: 1.0 - neighbour.distance, // Convert distance to similarity
             })
             .collect()
+    }
+
+    /// Exact top-k by cosine similarity over the stored vectors. Used for
+    /// small indexes where HNSW recall is unreliable (see
+    /// `EXACT_SEARCH_THRESHOLD`); O(n·d) but n is bounded by the threshold.
+    fn search_exact(&self, query: &[f32], k: usize) -> Vec<AnnSimilarityResult> {
+        let vectors = self.vectors.read().unwrap();
+        let id_map = self.id_map.read().unwrap();
+        let q_norm = query.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+        let mut scored: Vec<AnnSimilarityResult> = vectors
+            .iter()
+            .zip(id_map.iter())
+            .map(|(v, id)| {
+                let dot: f32 = v.iter().zip(query).map(|(a, b)| a * b).sum();
+                let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+                let denom = q_norm * v_norm;
+                AnnSimilarityResult {
+                    publication_id: id.clone(),
+                    similarity: if denom > 0.0 { dot / denom } else { 0.0 },
+                }
+            })
+            .collect();
+        scored.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scored.truncate(k);
+        scored
     }
 
     /// Serialize index to bytes
@@ -297,6 +351,42 @@ pub fn ann_index_handle_count() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression for the small-index recall flake: hnsw_rs's layered
+    /// search dropped reachable points ~7% of the time on a 3-point index
+    /// (random layer assignment), which made `chunk_index`'s
+    /// test_scoped_search fail intermittently and silently weakened scoped
+    /// RAG search. The exact-scan path below EXACT_SEARCH_THRESHOLD must
+    /// return complete results every time.
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_small_index_recall_is_complete_and_deterministic() {
+        for _ in 0..50 {
+            let index = AnnIndex::new();
+            index.add("a", &[1.0, 0.0, 0.0]);
+            index.add("b", &[0.9, 0.1, 0.0]);
+            index.add("c", &[0.95, 0.05, 0.0]);
+            let results = index.search(&[1.0, 0.0, 0.0], 3);
+            assert_eq!(results.len(), 3, "small-index search must be exhaustive");
+            assert_eq!(results[0].publication_id, "a");
+            assert_eq!(results[1].publication_id, "c");
+            assert_eq!(results[2].publication_id, "b");
+            assert!(results[0].similarity > 0.999);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn test_add_batch_feeds_exact_path() {
+        let index = AnnIndex::new();
+        index.add_batch(vec![
+            ("a".into(), vec![1.0, 0.0, 0.0]),
+            ("b".into(), vec![0.0, 1.0, 0.0]),
+        ]);
+        let results = index.search(&[0.0, 1.0, 0.0], 2);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].publication_id, "b");
+    }
 
     #[test]
     #[cfg(feature = "native")]
