@@ -29,8 +29,6 @@ struct IOSPDFTab: View {
     let libraryID: UUID
     @Binding var isFullscreen: Bool
 
-    @Environment(LibraryManager.self) private var libraryManager
-
     @State private var state: PDFTabState = .loading
     @State private var showPDFBrowser = false
     @State private var downloadTask: Task<Void, Never>?
@@ -83,7 +81,7 @@ struct IOSPDFTab: View {
             IOSPDFBrowserView(
                 publicationID: publicationID,
                 libraryID: libraryID,
-                onPDFSaved: {
+                onPDFSaved: { _ in
                     Task {
                         loadPublication()
                         await checkPDFState()
@@ -303,14 +301,23 @@ struct IOSPDFTab: View {
     }
 
     private func pdfFileExists(linkedFile: LinkedFileModel) -> Bool {
-        guard let library = libraryManager.find(id: libraryID),
-              let path = linkedFile.relativePath else {
-            return false
-        }
+        guard let path = linkedFile.relativePath else { return false }
 
         let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        return FileManager.default.fileExists(atPath: containerURL.path)
+        let fileManager = FileManager.default
+
+        // Primary: container-based path (mirrors PDFViewerWithControls resolution)
+        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
+            .appendingPathComponent(normalizedPath)
+        if fileManager.fileExists(atPath: containerURL.path) { return true }
+
+        // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("imbib") {
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: legacyURL.path) { return true }
+        }
+        return false
     }
 
     private func attemptAutoDownload() async {
@@ -350,14 +357,12 @@ struct IOSPDFTab: View {
 
                 state = .downloading(progress: 0.8)
 
-                // Import via AttachmentManager
-                if let library = libraryManager.find(id: libraryID) {
-                    try AttachmentManager.shared.importPDF(
-                        data: data,
-                        publicationID: publicationID,
-                        in: library
-                    )
-                }
+                // Import via AttachmentManager (value-type store: keyed by UUIDs)
+                try AttachmentManager.shared.importPDF(
+                    data: data,
+                    for: publicationID,
+                    in: libraryID
+                )
 
                 pdfLogger.info("PDF saved successfully")
 

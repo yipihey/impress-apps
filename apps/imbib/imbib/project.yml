@@ -221,8 +221,14 @@ targets:
           - "Views/IOSSidebarView.swift"
           - "Views/IOSPDFBrowserView.swift"
           - "Views/IOSUnifiedPublicationListWrapper.swift"
+          # IOSNoPDFView.swift (real, CDPublication-based) stays excluded;
+          # IOSNoPDFViewStub.swift provides the (publicationID:libraryID:)
+          # shape that the revived IOSPDFTab needs.
           - "Views/Detail/IOSNoPDFView.swift"
-          - "Views/Detail/IOSPDFTab.swift"
+          # IOSPDFTab.swift REVIVED — ported to RustStoreAdapter/PublicationModel
+          # (getPublicationDetail + LinkedFileModel + PDFViewerWithControls +
+          # AttachmentManager). Its stub is excluded so the type is unique.
+          - "Views/Detail/IOSPDFTabStub.swift"
           - "Views/IOSSettingsView.swift"
           - "Views/Sharing/IOSMailComposer.swift"
           - "Views/Detail/IOSInfoTab.swift"
