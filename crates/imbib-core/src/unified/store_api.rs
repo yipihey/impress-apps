@@ -369,6 +369,47 @@ impl ImbibStore {
         })
     }
 
+    /// Delete a collection and its membership edges.
+    ///
+    /// Collection membership is stored as outgoing `EdgeType::Contains` references
+    /// on the collection item, so deleting the item removes those rows via the
+    /// `item_references` foreign-key CASCADE (same as `delete_library`). Publications
+    /// themselves are untouched — only the collection and its edges go away.
+    ///
+    /// Not idempotent: deleting a missing collection returns `NotFound`, matching
+    /// the crate convention (`delete_library` / `delete_item`).
+    pub fn delete_collection(&self, id: String) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        self.store.delete(uuid)?;
+        Ok(())
+    }
+
+    /// Rename a collection by updating its `payload.name`.
+    ///
+    /// Mirrors `update_field`'s `SetPayload` shape but guards that the target item
+    /// is actually a collection, returning `NotFound` otherwise.
+    pub fn rename_collection(
+        &self,
+        id: String,
+        new_name: String,
+    ) -> Result<CollectionRow, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            Some(item) if item.schema == "imbib/collection" => {}
+            _ => return Err(StoreApiError::NotFound(id)),
+        }
+        self.store.update_with_undo(
+            uuid,
+            vec![FieldMutation::SetPayload("name".into(), Value::String(new_name))],
+        )?;
+        let updated = self
+            .store
+            .get(uuid)?
+            .ok_or_else(|| StoreApiError::NotFound(id))?;
+        let pub_count = self.count_collection_members(updated.id)?;
+        Ok(item_to_collection_row(&updated, pub_count as i32))
+    }
+
     /// Add publications to a library as members WITHOUT duplicating them.
     ///
     /// Multi-library membership uses `EdgeType::Contains` edges from the library
@@ -1521,6 +1562,17 @@ impl ImbibStore {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Delete a smart search.
+    ///
+    /// Smart searches are stored as `imbib/smart-search` items with no membership
+    /// edges, so deletion is a plain item delete (same shape as `delete_collection`).
+    /// Not idempotent: deleting a missing smart search returns `NotFound`.
+    pub fn delete_smart_search(&self, id: String) -> Result<(), StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        self.store.delete(uuid)?;
+        Ok(())
     }
 
     // --- Inbox & triage ---
@@ -3757,6 +3809,93 @@ mod tests {
 
         let colls = store.list_collections(lib.id.clone()).unwrap();
         assert_eq!(colls.len(), 1);
+    }
+
+    #[test]
+    fn rename_collection_updates_name() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let coll = store
+            .create_collection("Old Name".into(), lib.id.clone(), false, None)
+            .unwrap();
+
+        let renamed = store
+            .rename_collection(coll.id.clone(), "New Name".into())
+            .unwrap();
+        assert_eq!(renamed.name, "New Name");
+
+        // Persisted: list reflects the new name.
+        let colls = store.list_collections(lib.id.clone()).unwrap();
+        assert_eq!(colls.len(), 1);
+        assert_eq!(colls[0].name, "New Name");
+
+        // Renaming a non-existent collection is NotFound.
+        let missing = uuid::Uuid::new_v4().to_string();
+        assert!(matches!(
+            store.rename_collection(missing, "X".into()),
+            Err(StoreApiError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn delete_collection_removes_it_and_membership() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = "@article{X, title={Test}}";
+        let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+
+        let coll = store
+            .create_collection("Favorites".into(), lib.id.clone(), false, None)
+            .unwrap();
+        store
+            .add_to_collection(ids.clone(), coll.id.clone())
+            .unwrap();
+        assert_eq!(store.count_collection_members_public(coll.id.clone()).unwrap(), 1);
+
+        store.delete_collection(coll.id.clone()).unwrap();
+
+        // Collection is gone.
+        let colls = store.list_collections(lib.id.clone()).unwrap();
+        assert!(colls.is_empty());
+
+        // Publication itself survives (only the membership edge was removed).
+        let pub_row = store.get_publication(ids[0].clone()).unwrap();
+        assert!(pub_row.is_some());
+
+        // Deleting a missing collection is NotFound.
+        assert!(matches!(
+            store.delete_collection(coll.id.clone()),
+            Err(StoreApiError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn delete_smart_search_removes_it() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ss = store
+            .create_smart_search(
+                "Dark Matter".into(),
+                "dark matter galaxies".into(),
+                lib.id.clone(),
+                None,
+                50,
+                false,
+                false,
+                3600,
+            )
+            .unwrap();
+        assert_eq!(store.list_smart_searches(Some(lib.id.clone())).unwrap().len(), 1);
+
+        store.delete_smart_search(ss.id.clone()).unwrap();
+        assert!(store.list_smart_searches(Some(lib.id.clone())).unwrap().is_empty());
+        assert!(store.get_smart_search(ss.id.clone()).unwrap().is_none());
+
+        // Deleting a missing smart search is NotFound.
+        assert!(matches!(
+            store.delete_smart_search(ss.id.clone()),
+            Err(StoreApiError::NotFound(_))
+        ));
     }
 
     #[test]

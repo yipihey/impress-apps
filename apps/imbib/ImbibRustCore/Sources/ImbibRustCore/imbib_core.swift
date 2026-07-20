@@ -719,6 +719,19 @@ public protocol ImbibStoreProtocol : AnyObject {
     func deleteArtifact(id: String) throws 
     
     /**
+     * Delete a collection and its membership edges.
+     *
+     * Collection membership is stored as outgoing `EdgeType::Contains` references
+     * on the collection item, so deleting the item removes those rows via the
+     * `item_references` foreign-key CASCADE (same as `delete_library`). Publications
+     * themselves are untouched — only the collection and its edges go away.
+     *
+     * Not idempotent: deleting a missing collection returns `NotFound`, matching
+     * the crate convention (`delete_library` / `delete_item`).
+     */
+    func deleteCollection(id: String) throws 
+    
+    /**
      * Delete any item by ID.
      */
     func deleteItem(id: String) throws 
@@ -738,6 +751,15 @@ public protocol ImbibStoreProtocol : AnyObject {
     func deletePublicationsUndoable(ids: [String]) throws  -> [ItemSnapshot]
     
     func deleteRecommendationProfile(libraryId: String) throws 
+    
+    /**
+     * Delete a smart search.
+     *
+     * Smart searches are stored as `imbib/smart-search` items with no membership
+     * edges, so deletion is a plain item delete (same shape as `delete_collection`).
+     * Not idempotent: deleting a missing smart search returns `NotFound`.
+     */
+    func deleteSmartSearch(id: String) throws 
     
     /**
      * Delete a tag definition and remove the tag from all publications.
@@ -944,6 +966,14 @@ public protocol ImbibStoreProtocol : AnyObject {
     func removeFromScixLibrary(publicationIds: [String], scixLibraryId: String) throws  -> UndoInfo
     
     func removeTag(ids: [String], tagPath: String) throws  -> UndoInfo
+    
+    /**
+     * Rename a collection by updating its `payload.name`.
+     *
+     * Mirrors `update_field`'s `SetPayload` shape but guards that the target item
+     * is actually a collection, returning `NotFound` otherwise.
+     */
+    func renameCollection(id: String, newName: String) throws  -> CollectionRow
     
     /**
      * Rename a tag (definition + all assignments on publications).
@@ -1501,6 +1531,24 @@ open func deleteArtifact(id: String)throws  {try rustCallWithError(FfiConverterT
 }
     
     /**
+     * Delete a collection and its membership edges.
+     *
+     * Collection membership is stored as outgoing `EdgeType::Contains` references
+     * on the collection item, so deleting the item removes those rows via the
+     * `item_references` foreign-key CASCADE (same as `delete_library`). Publications
+     * themselves are untouched — only the collection and its edges go away.
+     *
+     * Not idempotent: deleting a missing collection returns `NotFound`, matching
+     * the crate convention (`delete_library` / `delete_item`).
+     */
+open func deleteCollection(id: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+    /**
      * Delete any item by ID.
      */
 open func deleteItem(id: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -1549,6 +1597,20 @@ open func deletePublicationsUndoable(ids: [String])throws  -> [ItemSnapshot] {
 open func deleteRecommendationProfile(libraryId: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_delete_recommendation_profile(self.uniffiClonePointer(),
         FfiConverterString.lower(libraryId),$0
+    )
+}
+}
+    
+    /**
+     * Delete a smart search.
+     *
+     * Smart searches are stored as `imbib/smart-search` items with no membership
+     * edges, so deletion is a plain item delete (same shape as `delete_collection`).
+     * Not idempotent: deleting a missing smart search returns `NotFound`.
+     */
+open func deleteSmartSearch(id: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_smart_search(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
     )
 }
 }
@@ -2191,6 +2253,21 @@ open func removeTag(ids: [String], tagPath: String)throws  -> UndoInfo {
     uniffi_imbib_core_fn_method_imbibstore_remove_tag(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(tagPath),$0
+    )
+})
+}
+    
+    /**
+     * Rename a collection by updating its `payload.name`.
+     *
+     * Mirrors `update_field`'s `SetPayload` shape but guards that the target item
+     * is actually a collection, returning `NotFound` otherwise.
+     */
+open func renameCollection(id: String, newName: String)throws  -> CollectionRow {
+    return try  FfiConverterTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_rename_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(newName),$0
     )
 })
 }
@@ -21909,6 +21986,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_artifact() != 55877) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_collection() != 9910) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_item() != 44423) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21925,6 +22005,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_recommendation_profile() != 13961) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_smart_search() != 20858) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_tag() != 4864) {
@@ -22114,6 +22197,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 29440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_rename_collection() != 15254) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_rename_tag() != 556) {

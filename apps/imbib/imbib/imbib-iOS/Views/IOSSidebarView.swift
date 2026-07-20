@@ -7,9 +7,10 @@
 //  CDSmartSearch / CDPublication) to the value-type + RustStoreAdapter
 //  world. Navigation is complete (inbox subtree, libraries with smart
 //  searches + collections, exploration, flagged, SciX, cited, search
-//  forms). Mutating operations that lack a RustStoreAdapter API are
-//  degraded to logged no-ops — see the `iOS: … not yet supported`
-//  warningCapture calls and docs/adr/ios-migration-debt.md.
+//  forms). Delete/rename collection and delete smart search are now wired
+//  through RustStoreAdapter. Remaining degraded ops (nested subcollection
+//  creation) still lack a RustStoreAdapter API — see the `iOS: … not yet
+//  supported` warningCapture calls and docs/adr/ios-migration-debt.md.
 //
 
 import SwiftUI
@@ -895,12 +896,7 @@ struct IOSSidebarView: View {
         if case .smartSearch(let id) = selection, id == search.id {
             selection = nil
         }
-        // DEGRADED: RustStoreAdapter exposes no deleteSmartSearch. Needs
-        // deleteSmartSearch(id:).
-        Logger.library.warningCapture(
-            "iOS: delete smart search '\(search.name)' not yet supported by RustStoreAdapter",
-            category: "sidebar"
-        )
+        store.deleteSmartSearch(id: search.id)
     }
 
     private func deleteCollection(_ collection: CollectionModel) {
@@ -910,12 +906,7 @@ struct IOSSidebarView: View {
         if case .inboxCollection(let id) = selection, id == collection.id {
             selection = nil
         }
-        // DEGRADED: RustStoreAdapter exposes no deleteCollection. Needs
-        // deleteCollection(id:).
-        Logger.library.warningCapture(
-            "iOS: delete collection '\(collection.name)' not yet supported by RustStoreAdapter",
-            category: "sidebar"
-        )
+        store.deleteCollection(id: collection.id)
     }
 
     // MARK: - Collection Tree Helpers
@@ -1241,10 +1232,6 @@ struct IOSArXivCategoryPickerSheet: View {
 // MARK: - Collection Rename Sheet
 
 /// Sheet for renaming a collection.
-///
-/// DEGRADED: RustStoreAdapter exposes no renameCollection/updateCollection
-/// API, so Save logs a warning and dismisses without persisting. Needs
-/// renameCollection(id:name:).
 struct CollectionRenameSheet: View {
     let collection: CollectionModel
     var onDismiss: (() -> Void)?
@@ -1280,10 +1267,10 @@ struct CollectionRenameSheet: View {
     }
 
     private func saveChanges() {
-        Logger.library.warningCapture(
-            "iOS: rename collection '\(collection.name)' → '\(name)' not yet supported by RustStoreAdapter",
-            category: "sidebar"
-        )
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != collection.name {
+            RustStoreAdapter.shared.renameCollection(id: collection.id, name: trimmed)
+        }
         onDismiss?()
         dismiss()
     }
