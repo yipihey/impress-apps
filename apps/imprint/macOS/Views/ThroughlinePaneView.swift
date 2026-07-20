@@ -65,6 +65,7 @@ struct ThroughlinePaneView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            proposalsSection
             if editingSource {
                 sourceEditor
             } else {
@@ -73,6 +74,81 @@ struct ThroughlinePaneView: View {
             Divider()
             coverageFooter
         }
+    }
+
+    // MARK: - Sync proposals (Accept ⏎ / Discard — never auto-applied)
+
+    private var proposals: [ThroughlineCoordinator.SyncProposal] {
+        _ = derivationTick
+        return ThroughlineCoordinator.pendingProposals(documentID: document.id)
+    }
+
+    @ViewBuilder
+    private var proposalsSection: some View {
+        let pending = proposals
+        if !pending.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    "\(pending.count) sync proposal\(pending.count == 1 ? "" : "s") awaiting review",
+                    systemImage: "tray.full")
+                    .font(.caption.bold())
+                ForEach(pending) { proposal in
+                    proposalCard(proposal)
+                }
+            }
+            .padding(10)
+            .background(Color.accentColor.opacity(0.06))
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private func proposalCard(_ proposal: ThroughlineCoordinator.SyncProposal) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                stateBadge(proposal.direction)
+                Text("<\(proposal.anchor)>")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            Text(proposal.question)
+                .font(.callout)
+            if let note = proposal.note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let proposed = proposal.proposedParagraph {
+                Text(proposed)
+                    .font(.callout)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.08)))
+                    .textSelection(.enabled)
+            }
+            HStack {
+                Button("Accept") {
+                    ThroughlineCoordinator.resolveProposal(id: proposal.id, approved: true)
+                    derivationTick += 1
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .keyboardShortcut(.return, modifiers: [])
+                .help("Approve — the sync agent applies it and rebaselines the ledger")
+
+                Button("Discard") {
+                    ThroughlineCoordinator.resolveProposal(id: proposal.id, approved: false)
+                    derivationTick += 1
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.escape, modifiers: [])
+                .help("Reject — the anchor stays visibly stale; nothing changes")
+                Spacer()
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.05)))
     }
 
     private var header: some View {
@@ -121,7 +197,9 @@ struct ThroughlinePaneView: View {
                     document.throughlineSource = newValue
                     // The ledger is deliberately untouched — edited
                     // paragraphs surface as throughline-ahead (D5/D6).
-                    ThroughlineCoordinator.mirror(document: document)
+                    // Mirroring is debounced: one store write per typing
+                    // pause, throughline row only (never the sections).
+                    ThroughlineCoordinator.scheduleThroughlineMirror(document: document)
                     derivationTick += 1
                 }
             )

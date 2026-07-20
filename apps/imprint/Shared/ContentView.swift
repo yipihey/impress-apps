@@ -364,6 +364,12 @@ struct ContentView: View {
                 )
             }
 
+            // Opted-in documents additionally mirror per-heading sections
+            // (slug keys, debounced) so headless throughline derivation
+            // (Rust service / HTTP / agents) tracks the live buffer.
+            // No-op for documents without a throughline (ADR-0016 D1).
+            ThroughlineCoordinator.scheduleSectionMirror(document: document)
+
             // Live bibliography file projection: regenerate `main.bib` in the same
             // temp compilation directory that pdflatex uses, so biber/bibtex can
             // pick it up automatically. Sandbox-friendly (temp dir is writable).

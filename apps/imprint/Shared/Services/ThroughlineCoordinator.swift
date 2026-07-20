@@ -191,14 +191,34 @@ enum ThroughlineCoordinator {
 
     // MARK: - Store mirror
 
-    /// Mirror the sidecars into the shared store so headless surfaces
-    /// (Rust service, MCP, CLI, agents) see the same state. Also mirrors
-    /// the document's heading sections under the same slug keys so the
-    /// Rust-side derivation compares against matching section rows.
-    /// Only ever called for opted-in documents.
+    /// Skip all store mirroring under UI testing: `ManuscriptStoreAdapter`
+    /// runs in-memory there, but `ImprintStoreAdapter` always opens the
+    /// on-disk workspace — mirroring would pollute the real user store.
+    /// (Adapter unification is the proper fix; tracked as follow-up.)
+    private static var mirroringDisabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-testing")
+    }
+
+    /// Debounce handles. Static on a @MainActor enum; each schedule call
+    /// captures a VALUE SNAPSHOT of the document (struct copy), never the
+    /// live binding (CLAUDE.md: capture before async work).
+    private static var pendingThroughlineMirror: Task<Void, Never>?
+    private static var pendingSectionMirror: Task<Void, Never>?
+
+    /// Full mirror: throughline row + per-heading section rows. Used by
+    /// creation and ledger mutations (rare, deliberate acts). Editor
+    /// keystrokes use the debounced variants instead.
     static func mirror(document: ImprintDocument) {
+        mirrorThroughlineOnly(document: document)
+        mirrorSections(document: document)
+    }
+
+    /// Mirror ONLY the throughline row (one upsert). The manuscript's
+    /// section rows can't change from a throughline edit.
+    static func mirrorThroughlineOnly(document: ImprintDocument) {
         guard let source = document.throughlineSource,
-              let anchorsJSON = document.throughlineAnchorsJSON else { return }
+              let anchorsJSON = document.throughlineAnchorsJSON,
+              !mirroringDisabled else { return }
         #if os(macOS)
         let paragraphs = ThroughlineText.extractParagraphs(source)
         let itemID = ThroughlineIdentity.itemID(documentID: document.id).uuidString.lowercased()
@@ -210,8 +230,15 @@ enum ThroughlineCoordinator {
             anchorMapJSON: anchorsJSON,
             paragraphCount: paragraphs.count
         )
-        // Per-heading section mirror (slug keys). Deterministic ids come
-        // from the section key so repeated mirrors are idempotent.
+        #endif
+    }
+
+    /// Mirror the document's heading sections under their slug keys so
+    /// headless derivation (Rust service, HTTP, agents) compares against
+    /// current manuscript state. Opted-in documents only.
+    static func mirrorSections(document: ImprintDocument) {
+        guard document.hasThroughline, !mirroringDisabled else { return }
+        #if os(macOS)
         let sections = extractSections(of: document)
         for (index, section) in sections.enumerated() {
             ImprintStoreAdapter.shared.storeSection(
@@ -225,9 +252,36 @@ enum ThroughlineCoordinator {
             )
         }
         logInfo(
-            "Mirror saved: throughline + \(sections.count) sections doc=\(document.id)",
+            "Mirror saved: \(sections.count) sections doc=\(document.id)",
             category: "throughline")
         #endif
+    }
+
+    /// Debounced throughline-row mirror for editor keystrokes (single
+    /// upsert after the typing pause; one `try? await Task.sleep`, never
+    /// in a loop, so cancellation propagates).
+    static func scheduleThroughlineMirror(document: ImprintDocument) {
+        let snapshot = document
+        pendingThroughlineMirror?.cancel()
+        pendingThroughlineMirror = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            mirrorThroughlineOnly(document: snapshot)
+        }
+    }
+
+    /// Debounced per-heading section mirror for manuscript-source edits of
+    /// opted-in documents (keeps HTTP/agent staleness derivation fresh
+    /// without per-keystroke store writes).
+    static func scheduleSectionMirror(document: ImprintDocument) {
+        guard document.hasThroughline else { return }
+        let snapshot = document
+        pendingSectionMirror?.cancel()
+        pendingSectionMirror = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            mirrorSections(document: snapshot)
+        }
     }
 
     /// Deterministic mirror id for a (document, slug-key) section — the
@@ -236,6 +290,68 @@ enum ThroughlineCoordinator {
     static func sectionMirrorID(documentID: UUID, sectionKey: String) -> String {
         ThroughlineIdentity.sectionItemID(documentID: documentID, sectionKey: sectionKey)
             .uuidString.lowercased()
+    }
+
+    // MARK: - Sync proposals (review-request checkpoints, ADR-0016 D6)
+
+    /// A pending `throughline-sync` review checkpoint for this document.
+    struct SyncProposal: Identifiable, Equatable {
+        let id: String            // review-request item id
+        let question: String
+        let direction: String     // manuscript-ahead | throughline-ahead | broken
+        let anchor: String
+        let proposedParagraph: String?
+        let currentParagraph: String?
+        let note: String?
+    }
+
+    /// Pending (unresolved) sync proposals for a document, newest first.
+    /// Read-only; resolution is the only write, and application happens in
+    /// the task executor when the suspended task resumes — the UI never
+    /// applies edits directly (one apply path, ADR-0016 D6).
+    static func pendingProposals(documentID: UUID) -> [SyncProposal] {
+        let docID = documentID.uuidString.lowercased()
+        let rows = (try? ManuscriptStoreAdapter.shared.sharedStore.queryBySchema(
+            schemaRef: "review-request@1.0.0", limit: 200, offset: 0)) ?? []
+        var out: [SyncProposal] = []
+        for row in rows {
+            guard let data = row.payloadJson.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (payload["context_document_id"] as? String)?.lowercased() == docID,
+                  (payload["resolution"] as? String ?? "").isEmpty,
+                  let anchor = payload["context_anchor"] as? String else { continue }
+            out.append(
+                SyncProposal(
+                    id: row.id,
+                    question: payload["question"] as? String ?? "Apply proposed sync?",
+                    direction: payload["context_direction"] as? String ?? "unknown",
+                    anchor: anchor,
+                    proposedParagraph: payload["context_proposed_paragraph"] as? String,
+                    currentParagraph: payload["context_current_paragraph"] as? String,
+                    note: payload["context_note"] as? String
+                ))
+        }
+        return out
+    }
+
+    /// Resolve a proposal. `approved: true` → the suspended sync task
+    /// applies + rebaselines on its next scheduler pass; `false` → the
+    /// anchor stays visibly stale (staleness is a state, not an error).
+    static func resolveProposal(id: String, approved: Bool) {
+        let actor = "human:\(NSUserName())@imprint"
+        let resolution = approved ? "approved" : "rejected"
+        logInfo(
+            "Proposal \(id) resolved '\(resolution)' by \(actor)",
+            category: "throughline")
+        do {
+            try ManuscriptStoreAdapter.shared.sharedStore.resolveReview(
+                id: id, resolution: resolution, resolvedBy: actor)
+            logInfo("Proposal \(id) resolution saved", category: "throughline")
+        } catch {
+            logWarning(
+                "Proposal \(id) resolution failed: \(error.localizedDescription)",
+                category: "throughline")
+        }
     }
 
     private static func slice(_ source: String, from start: Int, to end: Int) -> String {

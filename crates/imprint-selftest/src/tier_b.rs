@@ -60,6 +60,18 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
                 Tier::B,
                 "app not running",
             ),
+            skipped(
+                "throughline.opt_in_live",
+                "Non-opted documents 404 with has_throughline=false over live HTTP",
+                Tier::B,
+                "app not running",
+            ),
+            skipped(
+                "throughline.live_round_trip",
+                "Live create → anchors → mark-supporting → delete leaves no residue",
+                Tier::B,
+                "app not running",
+            ),
         ];
     }
     let info = info.unwrap();
@@ -115,6 +127,8 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     );
 
     out.push(compile_capability(&client).await);
+    out.push(throughline_opt_in_capability(&client).await);
+    out.push(throughline_round_trip_capability(&client).await);
 
     out
 }
@@ -157,5 +171,106 @@ async fn compile_capability(client: &ImprintClient) -> CapabilityResult {
             Tier::B,
             &format!("client compile transport/decode issue: {e}"),
         ),
+    }
+}
+
+/// Opt-in invariant over live HTTP (ADR-0016 D1): a document that never
+/// opted in must 404 with `has_throughline: false` on every throughline
+/// route. Read-only — probes a random UUID that cannot exist.
+async fn throughline_opt_in_capability(client: &ImprintClient) -> CapabilityResult {
+    let id = "throughline.opt_in_live";
+    let desc = "Non-opted documents 404 with has_throughline=false over live HTTP";
+    let doc = uuid::Uuid::new_v4().to_string();
+    match (
+        client.get_throughline(&doc).await,
+        client.get_throughline_anchors(&doc).await,
+        client.get_throughline_coverage(&doc).await,
+    ) {
+        (Ok(None), Ok(None), Ok(None)) => {
+            check(id, desc, Tier::B, || async {
+                Ok("all three GETs 404 for a non-opted document".to_string())
+            })
+            .await
+        }
+        (a, b, c) => {
+            check(id, desc, Tier::B, || async move {
+                Err(format!("expected three 404s, got {a:?} / {b:?} / {c:?}"))
+            })
+            .await
+        }
+    }
+}
+
+/// Full mutation round-trip against the live store, self-cleaning: create
+/// a throughline for a synthetic document id, verify the scaffold anchor
+/// derives synced, exercise mark-supporting (no sections exist, so it's a
+/// pure ledger write), then delete and verify the 404 returns. Leaves no
+/// residue in the live store.
+async fn throughline_round_trip_capability(client: &ImprintClient) -> CapabilityResult {
+    let id = "throughline.live_round_trip";
+    let desc = "Live create → anchors → mark-supporting → delete leaves no residue";
+    let doc = uuid::Uuid::new_v4().to_string();
+
+    let body = async {
+        let created = client
+            .create_throughline(&doc, "Selftest throughline")
+            .await
+            .map_err(|e| format!("create: {e}"))?;
+        if created.get("has_throughline").and_then(|v| v.as_bool()) != Some(true) {
+            // Best-effort cleanup before failing.
+            let _ = client.delete_throughline(&doc).await;
+            return Err(format!("create returned unexpected body: {created}"));
+        }
+
+        let anchors = client
+            .get_throughline_anchors(&doc)
+            .await
+            .map_err(|e| format!("anchors: {e}"))?
+            .ok_or("anchors 404 right after create")?;
+        let states: Vec<String> = anchors["anchors"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x["state"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if states != vec!["synced".to_string()] {
+            let _ = client.delete_throughline(&doc).await;
+            return Err(format!("scaffold anchor states: {states:?}"));
+        }
+
+        client
+            .patch_throughline_anchors(
+                &doc,
+                serde_json::json!({
+                    "action": "mark-supporting",
+                    "section_key": "selftest-appendix",
+                    "supporting": true
+                }),
+            )
+            .await
+            .map_err(|e| format!("mark-supporting: {e}"))?;
+
+        let deleted = client
+            .delete_throughline(&doc)
+            .await
+            .map_err(|e| format!("delete: {e}"))?;
+        if !deleted {
+            return Err("delete reported nothing to delete".into());
+        }
+        if client
+            .get_throughline(&doc)
+            .await
+            .map_err(|e| format!("post-delete get: {e}"))?
+            .is_some()
+        {
+            return Err("throughline survived deletion".into());
+        }
+        Ok("create/derive/patch/delete round-trip clean, no residue".to_string())
+    };
+    match body.await {
+        Ok(msg) => check(id, desc, Tier::B, || async move { Ok(msg) }).await,
+        Err(e) => check(id, desc, Tier::B, || async move { Err(e) }).await,
     }
 }

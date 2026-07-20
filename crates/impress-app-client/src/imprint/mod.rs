@@ -455,3 +455,107 @@ fn swift_section_value_to_record(
         created_ms: 0,
     }
 }
+
+// ===========================================================================
+// Throughline operations (ADR-0016)
+// ===========================================================================
+
+impl ImprintClient {
+    /// GET /api/documents/{id}/throughline — `None` when the document has
+    /// no throughline (the opt-in "off" state, HTTP 404).
+    pub async fn get_throughline(&self, doc_id: &str) -> Result<Option<serde_json::Value>> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline"))?;
+        let resp = self.http.get(url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Result::Ok(None);
+        }
+        Result::Ok(Some(resp.json().await?))
+    }
+
+    /// POST /api/documents/{id}/throughline — explicit opt-in creation.
+    /// `Err(Api("conflict"))` on HTTP 409 (already exists).
+    pub async fn create_throughline(
+        &self,
+        doc_id: &str,
+        title: &str,
+    ) -> Result<serde_json::Value> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline"))?;
+        let resp = self
+            .http
+            .post(url)
+            .json(&serde_json::json!({ "title": title }))
+            .send()
+            .await?;
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            return Err(AppClientError::Api("conflict".into()));
+        }
+        Result::Ok(resp.json().await?)
+    }
+
+    /// GET /api/documents/{id}/throughline/anchors — derived states.
+    pub async fn get_throughline_anchors(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline/anchors"))?;
+        let resp = self.http.get(url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Result::Ok(None);
+        }
+        Result::Ok(Some(resp.json().await?))
+    }
+
+    /// GET /api/documents/{id}/throughline/coverage.
+    pub async fn get_throughline_coverage(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline/coverage"))?;
+        let resp = self.http.get(url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Result::Ok(None);
+        }
+        Result::Ok(Some(resp.json().await?))
+    }
+
+    /// PATCH /api/documents/{id}/throughline/anchors with a ledger action
+    /// (`set` | `remove` | `mark-supporting`, see the route docs).
+    pub async fn patch_throughline_anchors(
+        &self,
+        doc_id: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline/anchors"))?;
+        let resp = self.http.patch(url).json(&body).send().await?;
+        Result::Ok(resp.json().await?)
+    }
+
+    /// DELETE /api/documents/{id}/throughline — deactivation. Returns
+    /// whether a throughline existed.
+    pub async fn delete_throughline(&self, doc_id: &str) -> Result<bool> {
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{doc_id}/throughline"))?;
+        let resp = self.http.delete(url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Result::Ok(false);
+        }
+        #[derive(Deserialize)]
+        struct R {
+            #[serde(default)]
+            deleted: bool,
+        }
+        let body: R = resp.json().await?;
+        Result::Ok(body.deleted)
+    }
+}

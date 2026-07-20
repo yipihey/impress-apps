@@ -279,11 +279,24 @@ async fn main() {
         classifier,
         args.confidence_threshold,
     )));
-    // Throughline sync (ADR-0016). TemplateDrafter until an LLM drafter is
-    // wired; the review checkpoint carries the drift context either way.
-    scheduler.register(Arc::new(ThroughlineSyncExecutor::new(Box::new(
-        TemplateDrafter,
-    ))));
+    // Throughline sync (ADR-0016). LLM drafter when IMPEL_LLM_* are set
+    // (carries the D6 authority-split contract in its system prompt);
+    // deterministic TemplateDrafter otherwise — the review checkpoint
+    // carries the drift context either way.
+    let drafter: Box<dyn impel_throughline::ProposalDrafter> =
+        match impel_throughline::LlmDrafter::from_env() {
+            Some(llm) => {
+                eprintln!("impel-taskd: throughline drafter = {}", llm.model_id());
+                Box::new(llm)
+            }
+            None => {
+                eprintln!(
+                    "impel-taskd: throughline drafter = template/v1 (set IMPEL_LLM_* for LLM)"
+                );
+                Box::new(TemplateDrafter)
+            }
+        };
+    scheduler.register(Arc::new(ThroughlineSyncExecutor::new(drafter)));
 
     // Subscribe BEFORE the start delay so no Created events are missed.
     let events = ItemStore::subscribe(

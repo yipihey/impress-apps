@@ -366,11 +366,6 @@ impl ThroughlineSyncExecutor {
             .ok_or_else(|| TaskError::Permanent("throughline item has no document_ref".into()))
     }
 
-    /// First stale anchor without an already-open review, in label order.
-    fn first_stale(assessments: &[AnchorAssessment]) -> Option<&AnchorAssessment> {
-        assessments.iter().find(|a| !a.is_synced())
-    }
-
     /// Open the review checkpoint for one stale anchor.
     async fn open_proposal_review(
         &self,
@@ -568,7 +563,16 @@ impl ThroughlineSyncExecutor {
                     current_paragraph,
                 ) {
                     let token = format!("<{}>", p.label);
-                    let new_run = format!("{} {}", proposed.trim(), token);
+                    // `p.end` includes the run's trailing newline (runs come
+                    // from split_inclusive); the replacement must preserve
+                    // it or the blank-line separator collapses and the NEXT
+                    // paragraph gets swallowed into this one.
+                    let trailing_newline = source[p.start..p.end].ends_with('\n');
+                    let new_run = if trailing_newline {
+                        format!("{} {}\n", proposed.trim(), token)
+                    } else {
+                        format!("{} {}", proposed.trim(), token)
+                    };
                     let mut new_source = source.clone();
                     new_source.replace_range(p.start..p.end, &new_run);
                     self.write_throughline(
@@ -621,6 +625,26 @@ impl ThroughlineSyncExecutor {
                             author_kind: ActorKind::Agent,
                             retention: RetentionTier::Durable,
                         })?;
+                        // A CAS-offloaded section (>64 KiB) carries a
+                        // content_hash pointing at the OLD blob; leaving it
+                        // would shadow the inline patch on every read and
+                        // pin the anchor manuscript-ahead forever. Remove
+                        // it so the inline body is authoritative. (Proper
+                        // re-offload of huge proposed bodies is a
+                        // SectionStore concern, deliberately not done from
+                        // the kernel boundary.)
+                        store.apply(OperationSpec {
+                            target_id: section_id,
+                            op_type: OperationType::RemovePayload("content_hash".into()),
+                            intent: OperationIntent::Editorial,
+                            reason: Some(format!(
+                                "throughline sync: <{label}> inline body supersedes CAS blob"
+                            )),
+                            batch_id: None,
+                            author: ACTOR.into(),
+                            author_kind: ActorKind::Agent,
+                            retention: RetentionTier::Durable,
+                        })?;
                     }
                     self.write_throughline(
                         tl_item.id, &source, &mut map, &label, &updated_sections, store,
@@ -662,6 +686,11 @@ impl ThroughlineSyncExecutor {
                                 *key = new_key.clone();
                             }
                         }
+                        // The rebind target may already be anchored (e.g.
+                        // two sections shared a body); never leave a
+                        // duplicate key in the ledger.
+                        let mut seen = std::collections::BTreeSet::new();
+                        entry.section_keys.retain(|k| seen.insert(k.clone()));
                         entry.manuscript_hashes.remove(&broken_key);
                     }
                     "drop" => {
@@ -801,20 +830,19 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         let assessments = derive_anchor_states(&map, &sections, &paragraphs);
 
         // ── Loop-until-dry: one review per stale anchor ────────────────
-        match Self::first_stale(&assessments) {
+        // Skip anchors that already have a resolved review in THIS task: a
+        // rejected resolution leaves that anchor stale by design (visible
+        // state, not an error), but must not starve later stale anchors —
+        // continue to the first stale anchor without a resolution yet.
+        let next_unreviewed = assessments.iter().filter(|a| !a.is_synced()).find(|a| {
+            !resolved.iter().any(|r| {
+                matches!(r.payload.get("context_anchor"),
+                         Some(Value::String(l)) if l == &a.label)
+            })
+        });
+        match next_unreviewed {
             None => Ok(ExecutionOutcome::Complete),
             Some(stale) => {
-                // Don't reopen for an anchor whose review was just
-                // rejected: a rejected resolution leaves the anchor stale
-                // by design (visible state, not an error). Only open a new
-                // review if no resolved review exists for this anchor yet.
-                let already_reviewed = resolved.iter().any(|r| {
-                    matches!(r.payload.get("context_anchor"),
-                             Some(Value::String(l)) if l == &stale.label)
-                });
-                if already_reviewed {
-                    return Ok(ExecutionOutcome::Complete);
-                }
                 self.open_proposal_review(
                     task, &tl_item, document_id, stale, &map, &source, &sections, store,
                 )
@@ -828,6 +856,13 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         2
     }
 }
+
+pub mod draft_prompt;
+
+#[cfg(feature = "llm")]
+mod llm_drafter;
+#[cfg(feature = "llm")]
+pub use llm_drafter::LlmDrafter;
 
 #[cfg(test)]
 mod tests;

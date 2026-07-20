@@ -484,6 +484,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
 
+                // DELETE /api/documents/{id}/throughline — deactivation (ADR-0016 D1)
+                if remainderLower.hasSuffix("/throughline") {
+                    let docId = String(remainder.dropLast("/throughline".count))
+                    return await handleDeleteThroughline(id: docId)
+                }
+
                 // DELETE /api/documents/{docId}/sections/{sectionKey}
                 if remainderLower.contains("/sections/") {
                     let parts = remainder.components(separatedBy: "/sections/")

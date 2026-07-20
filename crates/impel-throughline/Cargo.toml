@@ -4,8 +4,16 @@ version = "0.1.0"
 edition = "2021"
 description = "ADR-0016 throughline sync: spawn rule + executor that keep a manuscript's narrative companion in sync via propose-never-commit review checkpoints over the impress-core item graph."
 
+[features]
+default = []
+# LLM-backed ProposalDrafter. Off by default: the impress-llm provider
+# stack (aws-* chain) requires rustc >= 1.94; the kernel pipeline and the
+# prompt/parse contract compile and test everywhere without it.
+llm = ["dep:impress-llm"]
+
 [dependencies]
 impress-core = { workspace = true, features = ["sqlite"] }
+impress-llm = { path = "../impress-llm", optional = true }
 impel-core = { workspace = true }
 # Pure throughline domain logic (anchor map, paragraph extraction, staleness
 # derivation) — the canonical implementation per ADR-0016 D4.

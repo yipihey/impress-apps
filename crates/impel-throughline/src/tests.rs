@@ -380,6 +380,140 @@ async fn rejected_proposal_leaves_anchor_stale() {
     );
 }
 
+// ─── Regression: multi-paragraph apply preserves paragraph boundaries ──────
+
+#[tokio::test]
+async fn manuscript_ahead_apply_preserves_following_paragraphs() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    put_section(&store, doc, "introduction", "We measure X.");
+    put_section(&store, doc, "results", "We find Y.");
+
+    // Two-paragraph throughline: tl-a anchored+baselined, tl-b synced.
+    let source = "Para A. <tl-a>\n\nPara B. <tl-b>\n";
+    let ps = extract_paragraphs(source);
+    let mut map = AnchorMap::new(doc);
+    map.anchors.insert(
+        "tl-a".into(),
+        AnchorEntry {
+            section_keys: vec!["introduction".into()],
+            manuscript_hashes: [(
+                "introduction".to_string(),
+                BlobStore::sha256_hex("We measure X."),
+            )]
+            .into(),
+            throughline_hash: ps[0].content_hash.clone(),
+        },
+    );
+    map.anchors.insert(
+        "tl-b".into(),
+        AnchorEntry {
+            section_keys: vec!["results".into()],
+            manuscript_hashes: [("results".to_string(), BlobStore::sha256_hex("We find Y."))]
+                .into(),
+            throughline_hash: ps[1].content_hash.clone(),
+        },
+    );
+    let mut payload = BTreeMap::new();
+    payload.insert("title".into(), Value::String("Story".into()));
+    payload.insert("document_ref".into(), Value::String(doc.to_string()));
+    payload.insert("body_content".into(), Value::String(source.into()));
+    payload.insert("anchor_map_json".into(), Value::String(map.serialize().unwrap()));
+    store
+        .create_item(bare_item(ThroughlineStore::item_id(doc), "throughline", payload))
+        .unwrap();
+
+    // Drift only tl-a's section, approve an update.
+    put_section(&store, doc, "introduction", "We measure X and Y.");
+    let trigger = section_trigger(&store, doc, "introduction");
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Suspended);
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    resolve_review(&store, unresolved[0].id, "approved");
+    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Complete);
+
+    // tl-b must survive as its own paragraph (blank-line separator intact).
+    let body = throughline_body(&store, doc);
+    let after = extract_paragraphs(&body);
+    assert_eq!(
+        after.iter().map(|p| p.label.as_str()).collect::<Vec<_>>(),
+        vec!["tl-a", "tl-b"],
+        "apply must not swallow the following paragraph: {body:?}"
+    );
+}
+
+// ─── Regression: a rejected anchor must not starve later stale anchors ─────
+
+#[tokio::test]
+async fn rejected_anchor_does_not_starve_later_stale_anchors() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    put_section(&store, doc, "introduction", "We measure X.");
+    put_section(&store, doc, "results", "We find Y.");
+
+    let source = "Para A. <tl-a>\n\nPara B. <tl-b>\n";
+    let ps = extract_paragraphs(source);
+    let mut map = AnchorMap::new(doc);
+    for (label, key, body, hash) in [
+        ("tl-a", "introduction", "We measure X.", &ps[0].content_hash),
+        ("tl-b", "results", "We find Y.", &ps[1].content_hash),
+    ] {
+        map.anchors.insert(
+            label.into(),
+            AnchorEntry {
+                section_keys: vec![key.into()],
+                manuscript_hashes: [(key.to_string(), BlobStore::sha256_hex(body))].into(),
+                throughline_hash: hash.clone(),
+            },
+        );
+    }
+    let mut payload = BTreeMap::new();
+    payload.insert("title".into(), Value::String("Story".into()));
+    payload.insert("document_ref".into(), Value::String(doc.to_string()));
+    payload.insert("body_content".into(), Value::String(source.into()));
+    payload.insert("anchor_map_json".into(), Value::String(map.serialize().unwrap()));
+    store
+        .create_item(bare_item(ThroughlineStore::item_id(doc), "throughline", payload))
+        .unwrap();
+
+    // Both sections drift → both anchors stale in one task.
+    put_section(&store, doc, "introduction", "We measure X v2.");
+    put_section(&store, doc, "results", "We find Y v2.");
+    let trigger = section_trigger(&store, doc, "introduction");
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+
+    // First proposal (tl-a, label order) — human REJECTS it.
+    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Suspended);
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    assert_eq!(
+        unresolved[0].payload.get("context_anchor"),
+        Some(&Value::String("tl-a".into()))
+    );
+    resolve_review(&store, unresolved[0].id, "rejected");
+
+    // Resume must move ON to tl-b, not complete.
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended,
+        "rejecting tl-a must not starve tl-b's proposal"
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    assert_eq!(
+        unresolved[0].payload.get("context_anchor"),
+        Some(&Value::String("tl-b".into()))
+    );
+    resolve_review(&store, unresolved[0].id, "rejected");
+
+    // Both rejected → complete; both anchors remain visibly stale.
+    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Complete);
+}
+
 // ─── Broken-anchor repair (ADR-0016 D4, Phase 4) ───────────────────────────
 
 #[tokio::test]

@@ -206,6 +206,25 @@ extension ImprintHTTPRouter {
         return await handleGetThroughline(id: id)
     }
 
+    /// DELETE /api/documents/{id}/throughline — remove the store mirror
+    /// (deactivation parity with the pane's Remove Throughline; the
+    /// sidecar files, if any, disappear on the document's next save).
+    func handleDeleteThroughline(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid document ID format")
+        }
+        guard let mirror = readThroughlineMirror(documentID: uuid) else {
+            return .json(["has_throughline": false, "deleted": false], status: 404)
+        }
+        do {
+            try ManuscriptStoreAdapter.shared.sharedStore.deleteItem(id: mirror.itemID)
+        } catch {
+            return .json(["error": "store delete failed: \(error.localizedDescription)"], status: 500)
+        }
+        logInfo("HTTP throughline deleted doc=\(id)", category: "throughline")
+        return .json(["has_throughline": false, "deleted": true])
+    }
+
     /// PATCH /api/documents/{id}/throughline/anchors
     /// Body: {"action": "set" | "remove" | "mark-supporting",
     ///        "label": …, "section_keys": […], "section_key": …,
