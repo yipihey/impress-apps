@@ -30,7 +30,8 @@ use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
 };
 use impel_throughline::{
-    TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor, MANUSCRIPT_SECTION_SCHEMA,
+    ProposalDrafter, TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor,
+    MANUSCRIPT_SECTION_SCHEMA,
 };
 use imbib_core::enrichment::priority::SourcePriority;
 use impress_core::event::ItemEvent;
