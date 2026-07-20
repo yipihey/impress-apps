@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import ImpressKeyboard
 import UniformTypeIdentifiers
 import OSLog
 
@@ -35,6 +36,9 @@ struct IOSContentView: View {
 
     // Settings
     @State private var showSettings = false
+
+    // Keyboard shortcuts help sheet (Cmd+/)
+    @State private var showShortcutsHelp = false
 
     // Category search (for navigating from category chip tap)
     @State private var pendingCategorySearch: String?
@@ -73,6 +77,16 @@ struct IOSContentView: View {
             ))
             .sheet(isPresented: $showSettings) {
                 IOSSettingsView()
+            }
+            .sheet(isPresented: $showShortcutsHelp) {
+                NavigationStack {
+                    IOSKeyboardShortcutsSettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showShortcutsHelp = false }
+                            }
+                        }
+                }
             }
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
@@ -138,11 +152,17 @@ struct IOSContentView: View {
                 KeyboardShortcutButtons(
                     showImportPicker: $showImportPicker,
                     showExportPicker: $showExportPicker,
+                    columnVisibility: $columnVisibility,
+                    showSettings: $showSettings,
+                    showShortcutsHelp: $showShortcutsHelp,
                     onLocalFind: {
                         presentSearch(.localFind(context: currentSearchContext, source: .keyboardShortcut))
                     },
                     onOnlineSourceSearch: {
                         presentSearch(.onlineSourceSearch(source: .keyboardShortcut))
+                    },
+                    onReEnrichSelection: {
+                        reEnrichSelectedPublication()
                     }
                 )
             }
@@ -463,6 +483,23 @@ struct IOSContentView: View {
         }
 
         contentLogger.info("Navigated to publication: \(pub.citeKey)")
+    }
+
+    /// Re-enrich the currently selected publication (⇧⌘R). Queues a fresh
+    /// metadata-resolve pass through the same EnrichmentCoordinator the app uses
+    /// on launch. No-op when nothing is selected.
+    private func reEnrichSelectedPublication() {
+        guard let pubID = selectedPublicationID else {
+            contentLogger.info("Re-enrich requested but no publication selected")
+            return
+        }
+        contentLogger.info("Re-enrich requested for publication \(pubID)")
+        Task {
+            await EnrichmentCoordinator.shared.queueForEnrichment(
+                publicationID: pubID,
+                priority: .userTriggered
+            )
+        }
     }
 
     // MARK: - Import
@@ -850,8 +887,16 @@ struct IOSSourceChip: View {
 struct KeyboardShortcutButtons: View {
     @Binding var showImportPicker: Bool
     @Binding var showExportPicker: Bool
+    /// Detail/secondary-column visibility toggled by ⌘0 (UniversalShortcut.toggleSecondaryPane).
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    /// Settings sheet presentation, opened by ⌘, (standard iPad convention).
+    @Binding var showSettings: Bool
+    /// Keyboard-shortcuts help sheet, opened by ⌘/ (UniversalShortcut.shortcutsHelp).
+    @Binding var showShortcutsHelp: Bool
     let onLocalFind: () -> Void
     let onOnlineSourceSearch: () -> Void
+    /// Re-enrich the selected paper (⇧⌘R). No-op when nothing is selected.
+    let onReEnrichSelection: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -922,6 +967,38 @@ struct KeyboardShortcutButtons: View {
                 NotificationCenter.default.post(name: .showNotesTab, object: nil)
             }
             .keyboardShortcut("6", modifiers: .command)
+
+            // Toggle Detail Column (Cmd+0) — shared grammar: UniversalShortcut.toggleSecondaryPane
+            Button("Toggle Detail Pane") {
+                columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
+            }
+            .keyboardShortcut(
+                UniversalShortcut.toggleSecondaryPane.key,
+                modifiers: UniversalShortcut.toggleSecondaryPane.modifiers
+            )
+            .accessibilityIdentifier("shortcut.toggleDetailPane")
+
+            // Refresh Metadata / Re-enrich selected (Cmd+Shift+R) — no catalog case, literal chord
+            Button("Refresh Metadata", action: onReEnrichSelection)
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .accessibilityIdentifier("shortcut.refreshMetadata")
+
+            // Keyboard Shortcuts Help (Cmd+/) — shared grammar: UniversalShortcut.shortcutsHelp
+            Button("Keyboard Shortcuts") {
+                showShortcutsHelp = true
+            }
+            .keyboardShortcut(
+                UniversalShortcut.shortcutsHelp.key,
+                modifiers: UniversalShortcut.shortcutsHelp.modifiers
+            )
+            .accessibilityIdentifier("shortcut.keyboardShortcutsHelp")
+
+            // Open Settings (Cmd+,) — standard iPad convention, no catalog case
+            Button("Settings") {
+                showSettings = true
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            .accessibilityIdentifier("shortcut.openSettings")
         }
         .frame(width: 0, height: 0)
         .opacity(0)
