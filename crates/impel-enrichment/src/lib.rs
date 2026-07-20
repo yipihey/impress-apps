@@ -16,11 +16,13 @@
 //! the architecture-validation gate for the task kernel.
 
 pub mod classify;
+pub mod classify_llm;
 pub mod keyword_tag;
 pub mod metadata_resolve;
 pub mod spawn;
 
 pub use classify::{Classification, Classifier, HeuristicClassifier};
+pub use classify_llm::LlmClassifier;
 pub use keyword_tag::KeywordTagExecutor;
 pub use metadata_resolve::MetadataResolveExecutor;
 pub use spawn::EnrichmentSpawnRule;

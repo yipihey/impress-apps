@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
-use impel_enrichment::classify::HeuristicClassifier;
+use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
@@ -223,8 +223,21 @@ async fn main() {
         sources,
         SourcePriority::default(),
     )));
+    // LLM classifier when IMPEL_LLM_{PROVIDER,MODEL,API_KEY} are set;
+    // deterministic heuristic otherwise.
+    let classifier: Arc<dyn impel_enrichment::Classifier> =
+        match impel_enrichment::LlmClassifier::from_env() {
+            Some(llm) => {
+                eprintln!("impel-taskd: classifier = {}", llm.model_id());
+                Arc::new(llm)
+            }
+            None => {
+                eprintln!("impel-taskd: classifier = heuristic-v1 (set IMPEL_LLM_* for LLM)");
+                Arc::new(HeuristicClassifier::default_vocabulary())
+            }
+        };
     scheduler.register(Arc::new(KeywordTagExecutor::new(
-        Arc::new(HeuristicClassifier::default_vocabulary()),
+        classifier,
         args.confidence_threshold,
     )));
 
