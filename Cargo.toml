@@ -22,6 +22,8 @@ members = [
     "crates/impel-core",
     # impel-enrichment - ADR-0005 §9 reference implementation (task executors)
     "crates/impel-enrichment",
+    # impel-throughline - ADR-0016 throughline sync (spawn rule + executor)
+    "crates/impel-throughline",
     # impel-taskd - live task scheduler daemon over the shared store
     "crates/impel-taskd",
     "crates/impress-helix",
