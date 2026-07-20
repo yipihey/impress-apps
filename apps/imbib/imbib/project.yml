@@ -220,7 +220,12 @@ targets:
           # Stub replacements live alongside as `*Stub.swift`.
           - "Views/IOSSidebarView.swift"
           - "Views/IOSPDFBrowserView.swift"
-          - "Views/IOSUnifiedPublicationListWrapper.swift"
+          # IOSUnifiedPublicationListWrapper.swift REVIVED — ported to the
+          # value-type + RustStoreAdapter world (id-based Source enum,
+          # getPublication/getSmartSearch/getScixLibrary, AttachmentManager
+          # keyed by UUIDs, id-based smart-search/SciX refresh services).
+          # Its stub is excluded so the type is unique.
+          - "Views/IOSUnifiedPublicationListWrapperStub.swift"
           # IOSNoPDFView.swift (real, CDPublication-based) stays excluded;
           # IOSNoPDFViewStub.swift provides the (publicationID:libraryID:)
           # shape that the revived IOSPDFTab needs.

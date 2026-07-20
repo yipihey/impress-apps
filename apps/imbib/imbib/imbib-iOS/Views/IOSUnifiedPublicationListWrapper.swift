@@ -3,13 +3,17 @@
 //  imbib-iOS
 //
 //  Created by Claude on 2026-01-19.
+//  Revived on 2026-07-20: ported off the deleted Core Data types
+//  (CDLibrary/CDCollection/CDSmartSearch/CDSciXLibrary/CDPublication)
+//  to the value-type + RustStoreAdapter world. The `Source` enum now
+//  carries only ids/value types so IOSContentView compiles unchanged
+//  (it already used the id-based shape from the stub this file replaces).
 //
 
 import SwiftUI
 import PublicationManagerCore
-import CoreData
+import ImpressFTUI  // FlagColor
 import OSLog
-import ImpressFTUI
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "ios-list")
 
@@ -28,58 +32,82 @@ struct IOSUnifiedPublicationListWrapper: View {
     // MARK: - Source Type
 
     /// The data source for the publication list.
+    ///
+    /// All cases carry only value types (ids / strings) so the view is
+    /// fully decoupled from the underlying store handle. Store lookups
+    /// happen lazily in the `@MainActor` computed helpers below.
     enum Source: Hashable {
-        case library(CDLibrary)
-        case smartSearch(CDSmartSearch)
-        case collection(CDCollection)
-        case scixLibrary(CDSciXLibrary)
+        case library(UUID, String, isInbox: Bool)
+        /// Look up the library by id and display its publications.
+        /// Kept for call sites that only have an id in hand.
+        case libraryByID(UUID)
+        case smartSearch(UUID)
+        case collection(UUID)
+        case scixLibrary(UUID)
         case flagged(String?)  // Flagged publications (nil = any flag, or specific color name)
+        case citedInManuscripts
 
         var id: UUID {
             switch self {
-            case .library(let lib): return lib.id
-            case .smartSearch(let ss): return ss.id
-            case .collection(let col): return col.id
-            case .scixLibrary(let lib): return lib.id
+            case .library(let id, _, _),
+                 .libraryByID(let id),
+                 .smartSearch(let id),
+                 .collection(let id),
+                 .scixLibrary(let id):
+                return id
             case .flagged(let color):
-                switch color {
-                case "red":   return UUID(uuidString: "F1A99ED0-0001-4000-8000-000000000000")!
-                case "amber": return UUID(uuidString: "F1A99ED0-0002-4000-8000-000000000000")!
-                case "blue":  return UUID(uuidString: "F1A99ED0-0003-4000-8000-000000000000")!
-                case "gray":  return UUID(uuidString: "F1A99ED0-0004-4000-8000-000000000000")!
-                default:      return UUID(uuidString: "F1A99ED0-0000-4000-8000-000000000000")!
-                }
+                return IOSUnifiedPublicationListWrapper.flaggedID(for: color)
+            case .citedInManuscripts:
+                return UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!
             }
         }
 
+        @MainActor
         var isInbox: Bool {
             switch self {
-            case .library(let lib): return lib.isInbox
-            case .smartSearch(let ss): return ss.feedsToInbox
-            case .collection, .scixLibrary, .flagged: return false
+            case .library(_, _, let isInbox):
+                return isInbox
+            case .libraryByID(let id):
+                return RustStoreAdapter.shared.getLibrary(id: id)?.isInbox ?? false
+            case .smartSearch(let id):
+                return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
+            case .collection, .scixLibrary, .flagged, .citedInManuscripts:
+                return false
             }
         }
 
+        @MainActor
         var navigationTitle: String {
             switch self {
-            case .library(let lib): return lib.displayName
-            case .smartSearch(let ss): return ss.name
-            case .collection(let col): return col.name
-            case .scixLibrary(let lib): return lib.displayName
+            case .library(_, let name, _):
+                return name
+            case .libraryByID(let id):
+                return RustStoreAdapter.shared.getLibrary(id: id)?.name ?? "Library"
+            case .smartSearch(let id):
+                return RustStoreAdapter.shared.getSmartSearch(id: id)?.name ?? "Search"
+            case .collection(let id):
+                let name = RustStoreAdapter.shared.listLibraries()
+                    .flatMap { RustStoreAdapter.shared.listCollections(libraryId: $0.id) }
+                    .first(where: { $0.id == id })?.name
+                return name ?? "Collection"
+            case .scixLibrary(let id):
+                return RustStoreAdapter.shared.getScixLibrary(id: id)?.name ?? "SciX Library"
             case .flagged(let color):
                 if let color { return "\(color.capitalized) Flagged" }
                 return "Flagged"
+            case .citedInManuscripts:
+                return "Cited in Manuscripts"
             }
         }
 
+        @MainActor
         var emptyStateMessage: String {
             switch self {
-            case .library(let lib) where lib.isInbox:
-                return "Inbox Empty"
-            case .library:
-                return "No Publications"
-            case .smartSearch(let ss):
-                return "No Results for \"\(ss.query)\""
+            case .library, .libraryByID:
+                return isInbox ? "Inbox Empty" : "No Publications"
+            case .smartSearch(let id):
+                let query = RustStoreAdapter.shared.getSmartSearch(id: id)?.query ?? ""
+                return query.isEmpty ? "No Results" : "No Results for \"\(query)\""
             case .collection:
                 return "No Publications"
             case .scixLibrary:
@@ -87,15 +115,18 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .flagged(let color):
                 if let color { return "No \(color.capitalized) Flagged Papers" }
                 return "No Flagged Papers"
+            case .citedInManuscripts:
+                return "No Cited Papers"
             }
         }
 
+        @MainActor
         var emptyStateDescription: String {
             switch self {
-            case .library(let lib) where lib.isInbox:
-                return "Add feeds to start discovering papers."
-            case .library:
-                return "Import BibTeX files or search online to add papers."
+            case .library, .libraryByID:
+                return isInbox
+                    ? "Add feeds to start discovering papers."
+                    : "Import BibTeX files or search online to add papers."
             case .smartSearch:
                 return "Pull down to refresh or edit the search criteria."
             case .collection:
@@ -104,40 +135,81 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "This SciX library is empty or hasn't been synced yet."
             case .flagged:
                 return "Flag papers to see them here."
+            case .citedInManuscripts:
+                return "Cite a paper in imprint to see it here."
             }
         }
 
         var listID: ListViewID {
             switch self {
-            case .library(let lib): return .library(lib.id)
-            case .smartSearch(let ss): return .smartSearch(ss.id)
-            case .collection(let col): return .collection(col.id)
-            case .scixLibrary(let lib): return .scixLibrary(lib.id)
-            case .flagged: return .flagged(id)
+            case .library(let id, _, _), .libraryByID(let id):
+                return .library(id)
+            case .smartSearch(let id):
+                return .smartSearch(id)
+            case .collection(let id):
+                return .collection(id)
+            case .scixLibrary(let id):
+                return .scixLibrary(id)
+            case .flagged:
+                return .flagged(id)
+            case .citedInManuscripts:
+                return .library(id)
             }
         }
 
         /// The owning library UUID (for PDF paths, context operations, etc.)
+        @MainActor
         var owningLibraryID: UUID? {
             switch self {
-            case .library(let lib): return lib.id
-            case .smartSearch(let ss): return ss.library?.id
-            case .collection(let col): return col.effectiveLibrary?.id
-            case .scixLibrary: return nil // SciX libraries are remote
-            case .flagged: return nil // Cross-library virtual source
+            case .library(let id, _, _), .libraryByID(let id):
+                return id
+            case .smartSearch(let id):
+                return RustStoreAdapter.shared.getSmartSearch(id: id)?.libraryID
+            case .collection(let id):
+                // Find the library that owns this collection.
+                let store = RustStoreAdapter.shared
+                for lib in store.listLibraries() {
+                    if store.listCollections(libraryId: lib.id).contains(where: { $0.id == id }) {
+                        return lib.id
+                    }
+                }
+                return nil
+            case .scixLibrary:
+                return nil // SciX libraries are remote
+            case .flagged, .citedInManuscripts:
+                return nil // Cross-library virtual source
             }
         }
 
         /// Convert to PublicationSource for RustStoreAdapter queries
+        @MainActor
         var publicationSource: PublicationSource {
             switch self {
-            case .library(let lib):
-                return lib.isInbox ? .inbox(lib.id) : .library(lib.id)
-            case .smartSearch(let ss): return .smartSearch(ss.id)
-            case .collection(let col): return .collection(col.id)
-            case .scixLibrary(let lib): return .scixLibrary(lib.id)
+            case .library(let id, _, let isInbox):
+                return isInbox ? .inbox(id) : .library(id)
+            case .libraryByID(let id):
+                if let lib = RustStoreAdapter.shared.getLibrary(id: id), lib.isInbox {
+                    return .inbox(id)
+                }
+                return .library(id)
+            case .smartSearch(let id): return .smartSearch(id)
+            case .collection(let id): return .collection(id)
+            case .scixLibrary(let id): return .scixLibrary(id)
             case .flagged(let color): return .flagged(color)
+            case .citedInManuscripts: return .citedInManuscripts
             }
+        }
+    }
+
+    /// Deterministic id for `.flagged` rows — matches the macOS wrapper's
+    /// mapping so saved selection state survives platform transitions.
+    fileprivate static func flaggedID(for color: String?) -> UUID {
+        switch color {
+        case "red":    return UUID(uuidString: "F1A99ED0-0001-4000-8000-000000000000")!
+        case "amber":  return UUID(uuidString: "F1A99ED0-0002-4000-8000-000000000000")!
+        case "blue":   return UUID(uuidString: "F1A99ED0-0003-4000-8000-000000000000")!
+        case "gray":   return UUID(uuidString: "F1A99ED0-0004-4000-8000-000000000000")!
+        default:       return UUID(uuidString: "F1A99ED0-0000-4000-8000-000000000000")!
         }
     }
 
@@ -186,9 +258,8 @@ struct IOSUnifiedPublicationListWrapper: View {
             .toolbar { toolbarContent }
             .environment(\.editMode, isSelectionMode ? .constant(.active) : .constant(.inactive))
             .sheet(isPresented: $showBibTeXEditor) {
-                if let pubID = publicationForBibTeXSheet,
-                   let pub = fetchCDPublication(id: pubID) {
-                    IOSBibTeXEditorSheet(publication: pub)
+                if let pubID = publicationForBibTeXSheet {
+                    IOSBibTeXEditorSheet(publicationID: pubID)
                 }
             }
             .sheet(isPresented: $showLibraryPicker) {
@@ -196,8 +267,9 @@ struct IOSUnifiedPublicationListWrapper: View {
                     isPresented: $showLibraryPicker,
                     libraries: libraryManager.libraries.filter { !$0.isInbox },
                     onSelect: { library in
+                        let ids = multiSelection
                         Task {
-                            await handleAddToLibrary(multiSelection, library.id)
+                            await handleAddToLibrary(ids, library.id)
                             exitSelectionMode()
                         }
                     }
@@ -230,7 +302,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             selection: $multiSelection,
             selectedPublicationID: $selectedPublicationID,
             libraryID: source.owningLibraryID,
-            allLibraries: libraryManager.libraries.map { (id: $0.id, name: $0.displayName) },
+            allLibraries: libraryManager.libraries.map { (id: $0.id, name: $0.name) },
             showImportButton: shouldShowImportButton,
             showSortMenu: true,
             emptyStateMessage: source.emptyStateMessage,
@@ -311,10 +383,12 @@ struct IOSUnifiedPublicationListWrapper: View {
         }
 
         // Sync status for SciX libraries
-        if case .scixLibrary(let lib) = source, !isSelectionMode {
+        if case .scixLibrary(let libID) = source, !isSelectionMode {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
-                    syncStatusIcon(for: lib)
+                    if let lib = RustStoreAdapter.shared.getScixLibrary(id: libID) {
+                        syncStatusIcon(for: lib)
+                    }
 
                     Button {
                         Task { await refreshFromSource() }
@@ -344,8 +418,9 @@ struct IOSUnifiedPublicationListWrapper: View {
                 Spacer()
 
                 Button(role: .destructive) {
+                    let ids = multiSelection
                     Task {
-                        await handleDelete(multiSelection)
+                        await handleDelete(ids)
                         exitSelectionMode()
                     }
                 } label: {
@@ -356,17 +431,17 @@ struct IOSUnifiedPublicationListWrapper: View {
     }
 
     @ViewBuilder
-    private func syncStatusIcon(for library: CDSciXLibrary) -> some View {
-        switch library.syncStateEnum {
-        case .synced:
+    private func syncStatusIcon(for library: SciXLibrary) -> some View {
+        switch library.syncState.lowercased() {
+        case "synced":
             Image(systemName: "checkmark.circle")
                 .foregroundStyle(.green)
-        case .pending:
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundStyle(.orange)
-        case .error:
+        case "error", "failed":
             Image(systemName: "exclamationmark.circle")
                 .foregroundStyle(.red)
+        default: // pending / syncing / idle
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
         }
     }
 
@@ -374,8 +449,10 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     private var shouldShowImportButton: Bool {
         switch source {
-        case .library(let lib): return !lib.isInbox
-        case .smartSearch, .collection, .scixLibrary, .flagged: return false
+        case .library, .libraryByID:
+            return !source.isInbox
+        case .smartSearch, .collection, .scixLibrary, .flagged, .citedInManuscripts:
+            return false
         }
     }
 
@@ -458,8 +535,7 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     // MARK: - Data Loading
 
-    /// Load publications from RustStoreAdapter, falling back to Core Data for sources
-    /// that haven't been fully migrated yet.
+    /// Load publications from RustStoreAdapter.
     private func loadPublications() async {
         let store = RustStoreAdapter.shared
         publications = store.queryPublications(for: source.publicationSource)
@@ -479,40 +555,36 @@ struct IOSUnifiedPublicationListWrapper: View {
         defer { isRefreshing = false }
 
         switch source {
-        case .library:
+        case .library, .libraryByID, .collection, .flagged, .citedInManuscripts:
             refreshPublicationsList()
 
-        case .smartSearch(let smartSearch):
-            await refreshSmartSearch(smartSearch)
+        case .smartSearch(let id):
+            await refreshSmartSearch(id)
 
-        case .collection:
-            refreshPublicationsList()
-
-        case .scixLibrary(let library):
-            await refreshSciXLibrary(library)
-
-        case .flagged:
-            refreshPublicationsList()
+        case .scixLibrary(let id):
+            await refreshSciXLibrary(id)
         }
     }
 
-    private func refreshSmartSearch(_ smartSearch: CDSmartSearch) async {
+    private func refreshSmartSearch(_ smartSearchID: UUID) async {
+        guard let smartSearch = RustStoreAdapter.shared.getSmartSearch(id: smartSearchID) else {
+            refreshPublicationsList()
+            return
+        }
+
         // Route group feeds to GroupFeedRefreshService
         if smartSearch.isGroupFeed {
             do {
-                _ = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+                _ = try await GroupFeedRefreshService.shared.refreshGroupFeedByID(smartSearchID)
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription
                 logger.error("Group feed error: \(error.localizedDescription)")
             }
-        } else {
-            let provider = await SmartSearchProviderCache.shared.getOrCreate(
-                for: smartSearch,
-                sourceManager: searchViewModel.sourceManager,
-                repository: searchViewModel.repository
-            )
-
+        } else if let provider = await SmartSearchProviderCache.shared.getOrCreateByID(
+            smartSearchID: smartSearchID,
+            sourceManager: searchViewModel.sourceManager
+        ) {
             do {
                 try await provider.refresh()
                 errorMessage = nil
@@ -526,7 +598,11 @@ struct IOSUnifiedPublicationListWrapper: View {
         refreshPublicationsList()
     }
 
-    private func refreshSciXLibrary(_ library: CDSciXLibrary) async {
+    private func refreshSciXLibrary(_ scixLibraryID: UUID) async {
+        guard let library = RustStoreAdapter.shared.getScixLibrary(id: scixLibraryID) else {
+            refreshPublicationsList()
+            return
+        }
         do {
             try await SciXSyncManager.shared.pullLibraryPapers(libraryID: library.remoteID)
             refreshPublicationsList()
@@ -534,17 +610,6 @@ struct IOSUnifiedPublicationListWrapper: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    // MARK: - Helpers
-
-    /// Fetch a CDPublication by ID for legacy APIs that still require Core Data objects.
-    private func fetchCDPublication(id: UUID) -> CDPublication? {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-        request.predicate = NSPredicate(format: "id_ == %@", id as CVarArg)
-        request.fetchLimit = 1
-        return try? context.fetch(request).first
     }
 
     // MARK: - Handlers
@@ -588,7 +653,10 @@ struct IOSUnifiedPublicationListWrapper: View {
     }
 
     private func handleRemoveFromAllCollections(_ ids: Set<UUID>) async {
-        // TODO: implement removeFromAllCollections with Rust store
+        // Migration debt: the Rust store exposes removeFromCollection(publicationIds:collectionId:)
+        // per collection, but there is no per-publication "list my collections" query yet, so we
+        // cannot enumerate every collection an item belongs to. No-op until such a query lands.
+        logger.warning("removeFromAllCollections is a no-op (no per-publication collection enumeration in Rust store yet) for \(ids.count) pubs")
         refreshPublicationsList()
     }
 
@@ -606,7 +674,7 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     private func handleSaveToLibrary(_ ids: Set<UUID>, _ targetLibraryID: UUID) async {
         // Compute visual order synchronously for correct selection advancement
-        let visualOrder = computeVisualOrder()
+        _ = computeVisualOrder()
 
         // Move publications to the target library via Rust store
         RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
@@ -643,13 +711,14 @@ struct IOSUnifiedPublicationListWrapper: View {
         refreshPublicationsList()
     }
 
-    /// Remove a tag from a publication
+    /// Remove a tag from a publication.
     private func handleRemoveTag(pubID: UUID, tagID: UUID) {
-        // TODO: implement tag removal by tagID with Rust store
-        // The Rust store uses tag paths, not tag UUIDs. Need to look up the tag path from tagID.
-        Task {
-            refreshPublicationsList()
-        }
+        // Migration debt: the Rust store keys tag membership by tag PATH, but this
+        // callback hands us a tag UUID and there is no tagID→path lookup in the store
+        // (TagDefinition.id is the path string, not a UUID). No-op until the row model
+        // surfaces the tag path or the store gains a UUID-keyed removal.
+        logger.warning("removeTag is a no-op — no tagID(\(tagID))→path mapping in Rust store for pub \(pubID)")
+        refreshPublicationsList()
     }
 
     // MARK: - Context Menu Handlers
@@ -692,26 +761,30 @@ struct IOSUnifiedPublicationListWrapper: View {
         let store = RustStoreAdapter.shared
         guard let pub = store.getPublication(id: pubID) else { return }
 
+        // Capture value-type snapshots before entering the Task.
+        let arxivID = pub.arxivID
+        let citeKey = pub.citeKey
+        let libraryID = source.owningLibraryID
+
         Task {
             do {
                 // Construct remote PDF URL from arXiv ID or other identifiers
                 var pdfURL: URL?
-                if let arxivID = pub.arxivID {
+                if let arxivID {
                     pdfURL = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
                 }
 
                 if let pdfURL {
                     let (data, _) = try await URLSession.shared.data(from: pdfURL)
-                    // Use Core Data object for AttachmentManager (legacy API)
-                    if let cdPub = fetchCDPublication(id: pubID) {
-                        try AttachmentManager.shared.importAttachment(
-                            data: data,
-                            for: cdPub,
-                            fileExtension: "pdf",
-                            displayName: "\(pub.citeKey).pdf"
-                        )
-                        refreshPublicationsList()
-                    }
+                    // Value-type store: import keyed by UUIDs (mirrors IOSPDFTab).
+                    try AttachmentManager.shared.importAttachment(
+                        data: data,
+                        for: pubID,
+                        in: libraryID,
+                        fileExtension: "pdf",
+                        displayName: "\(citeKey).pdf"
+                    )
+                    refreshPublicationsList()
                 }
             } catch {
                 logger.error("Failed to download PDF: \(error.localizedDescription)")
@@ -775,8 +848,8 @@ struct IOSUnifiedPublicationListWrapper: View {
 /// Sheet for selecting a library to add publications to
 struct LibraryPickerSheet: View {
     @Binding var isPresented: Bool
-    let libraries: [CDLibrary]
-    let onSelect: (CDLibrary) -> Void
+    let libraries: [LibraryModel]
+    let onSelect: (LibraryModel) -> Void
 
     var body: some View {
         NavigationStack {
@@ -785,7 +858,7 @@ struct LibraryPickerSheet: View {
                     onSelect(library)
                     isPresented = false
                 } label: {
-                    Label(library.displayName, systemImage: "folder")
+                    Label(library.name, systemImage: "folder")
                 }
                 .foregroundStyle(.primary)
             }
