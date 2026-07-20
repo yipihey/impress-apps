@@ -215,13 +215,15 @@ if [ -f "$FRAMEWORK_DIR/generated/imprint_core.swift" ]; then
     fi
 fi
 
-# Copy XCFramework to the location referenced by the SPM package
+# Copy XCFramework to the location referenced by the SPM package.
+# mkdir -p, not a -d guard: the directory holds only this gitignored
+# artifact, so it doesn't exist on fresh checkouts (CI) and an existence
+# check silently skips the copy the app build then fails without.
 APP_FRAMEWORKS_DIR="$WORKSPACE_ROOT/apps/imprint/Frameworks"
-if [ -d "$APP_FRAMEWORKS_DIR" ]; then
-    echo "Copying XCFramework to app Frameworks directory..."
-    rm -rf "$APP_FRAMEWORKS_DIR/$XCFRAMEWORK_NAME.xcframework"
-    cp -R "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORKS_DIR/"
-fi
+mkdir -p "$APP_FRAMEWORKS_DIR"
+echo "Copying XCFramework to app Frameworks directory..."
+rm -rf "$APP_FRAMEWORKS_DIR/$XCFRAMEWORK_NAME.xcframework"
+cp -R "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORKS_DIR/"
 
 echo ""
 echo "=== Build complete! ==="
