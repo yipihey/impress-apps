@@ -400,6 +400,7 @@ public actor ArchiveExporter {
     }
 
     private func compressArchive(at url: URL) throws -> URL {
+        #if os(macOS)
         let compressedURL = url.deletingPathExtension().appendingPathExtension("impartarchive.zip")
 
         // Use zip command for simplicity
@@ -412,10 +413,23 @@ public actor ArchiveExporter {
         process.waitUntilExit()
 
         return compressedURL
+        #else
+        // No Process/zip on iOS; export uncompressed archives there.
+        throw ArchiveCompressionError.unavailableOnThisPlatform
+        #endif
     }
 
     private func getCurrentUserIdentifier() -> String {
         NSUserName()
+    }
+
+    /// zip/unzip run as spawned processes, which iOS does not allow.
+    enum ArchiveCompressionError: LocalizedError {
+        case unavailableOnThisPlatform
+
+        var errorDescription: String? {
+            "Compressed archives are not supported on this platform."
+        }
     }
 
     private func getAppVersion() -> String {

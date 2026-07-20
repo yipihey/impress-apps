@@ -266,6 +266,7 @@ public actor ArchiveImporter {
     private func prepareArchive(from url: URL) throws -> URL {
         // If compressed, extract first
         if url.pathExtension == "zip" || url.lastPathComponent.hasSuffix(".impartarchive.zip") {
+            #if os(macOS)
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -287,6 +288,10 @@ public actor ArchiveImporter {
             }
 
             return tempDir
+            #else
+            // No Process/unzip on iOS; only uncompressed archives import there.
+            throw ArchiveExporter.ArchiveCompressionError.unavailableOnThisPlatform
+            #endif
         }
 
         return url

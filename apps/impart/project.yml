@@ -232,6 +232,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.share-extension
+        # Override the project-wide PRODUCT_NAME=impart — otherwise this
+        # target and impart-iOS both emit impart.swiftmodule into the same
+        # simulator products dir ("Multiple commands produce" build failure).
+        PRODUCT_NAME: impart-ShareExtension
+        PRODUCT_MODULE_NAME: ImpartShareExtension
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: impart-ShareExtension/Info.plist
         MARKETING_VERSION: "1.0.0"
@@ -241,6 +246,21 @@ targets:
       - sdk: UniformTypeIdentifiers.framework
     info:
       path: impart-ShareExtension/Info.plist
+      # These MUST live here — xcodegen regenerates Info.plist from this
+      # block, so hand-edits to the file are wiped on every `xcodegen
+      # generate`. Without NSExtension + CFBundleDisplayName installd
+      # rejects the whole host app ("Failed to create app extension
+      # placeholder", "does not have a CFBundleDisplayName").
+      properties:
+        CFBundleDisplayName: impart
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsImageWithMaxCount: 1
     entitlements:
       path: impart-ShareExtension/impart-ShareExtension.entitlements
       properties:
