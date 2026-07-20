@@ -244,7 +244,13 @@ targets:
           # (getPublicationDetail + LinkedFileModel + PDFViewerWithControls +
           # AttachmentManager). Its stub is excluded so the type is unique.
           - "Views/Detail/IOSPDFTabStub.swift"
-          - "Views/IOSSettingsView.swift"
+          # IOSSettingsView.swift REVIVED 2026-07-20 — ported off Core Data
+          # (CDMutedItem→MutedItem value type via InboxManager/MuteService,
+          # CDLibrary→LibraryModel save-destination picker mirroring macOS,
+          # deleted CloudKitSyncSettingsView replaced by in-file
+          # IOSCloudKitSyncSettingsView shim over CloudKitSyncSettingsStore).
+          # Its stub is excluded so the type is unique.
+          - "Views/IOSSettingsViewStub.swift"
           - "Views/Sharing/IOSMailComposer.swift"
           # IOSInfoTab.swift REVIVED — id-based metadata tab (attachments, file
           # import, explore/references, cite badges) ported off LibraryModel

@@ -13,6 +13,7 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI  // FlagColor
+import ImpressLogging  // Logger.infoCapture
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "ios-list")
@@ -653,11 +654,22 @@ struct IOSUnifiedPublicationListWrapper: View {
     }
 
     private func handleRemoveFromAllCollections(_ ids: Set<UUID>) async {
-        // Migration debt: the Rust store exposes removeFromCollection(publicationIds:collectionId:)
-        // per collection, but there is no per-publication "list my collections" query yet, so we
-        // cannot enumerate every collection an item belongs to. No-op until such a query lands.
-        logger.warning("removeFromAllCollections is a no-op (no per-publication collection enumeration in Rust store yet) for \(ids.count) pubs")
+        // Un-degraded: enumerate each publication's collections via the new
+        // listCollections(forPublication:) query, then remove the membership edge
+        // from every one. Publications themselves are untouched.
+        let store = RustStoreAdapter.shared
+        var totalRemovals = 0
+        for pubID in ids {
+            let colls = store.listCollections(forPublication: pubID)
+            logger.infoCapture("removeFromAllCollections: pub \(pubID) is in \(colls.count) collection(s)", category: "collections")
+            for coll in colls {
+                store.removeFromCollection(publicationIds: [pubID], collectionId: coll.id)
+                totalRemovals += 1
+            }
+        }
+        logger.infoCapture("removeFromAllCollections: removed \(totalRemovals) membership edge(s) across \(ids.count) pub(s)", category: "collections")
         refreshPublicationsList()
+        logger.infoCapture("removeFromAllCollections: list refreshed", category: "collections")
     }
 
     private func handleImport() {
