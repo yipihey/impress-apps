@@ -7,16 +7,28 @@
 
 import SwiftUI
 import PublicationManagerCore
+import OSLog
 
 /// iOS view shown in PDF tab when no PDF is attached.
 /// Offers options to download PDF from publisher or import from Files.
+/// Uses RustStoreAdapter for all data access (no Core Data).
 struct IOSNoPDFView: View {
-    let publication: CDPublication
-    let libraryID: UUID
+    let publicationID: UUID?
+    let libraryID: UUID?
 
-    @Environment(LibraryManager.self) private var libraryManager
+    init(publicationID: UUID? = nil, libraryID: UUID? = nil) {
+        self.publicationID = publicationID
+        self.libraryID = libraryID
+    }
+
     @State private var showPDFBrowser = false
     @State private var showFilePicker = false
+    @State private var publication: PublicationModel?
+
+    private var hasPublisherAccess: Bool {
+        guard let pub = publication else { return false }
+        return pub.doi != nil || pub.bibcode != nil
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -42,7 +54,7 @@ struct IOSNoPDFView: View {
             // Actions
             VStack(spacing: 12) {
                 // Download from publisher (if we have identifiers)
-                if publication.doi != nil || publication.bibcode != nil {
+                if hasPublisherAccess {
                     Button {
                         showPDFBrowser = true
                     } label: {
@@ -75,10 +87,15 @@ struct IOSNoPDFView: View {
             Spacer()
         }
         .padding()
+        .task(id: publicationID) {
+            if let id = publicationID {
+                publication = RustStoreAdapter.shared.getPublicationDetail(id: id)
+            }
+        }
         .sheet(isPresented: $showPDFBrowser) {
             IOSPDFBrowserView(
-                publication: publication,
-                library: libraryManager.find(id: libraryID),
+                publicationID: publicationID,
+                libraryID: libraryID,
                 onPDFSaved: nil
             )
         }
@@ -94,11 +111,12 @@ struct IOSNoPDFView: View {
     // MARK: - Computed Properties
 
     private var pdfSourceDescription: String? {
-        if publication.arxivID != nil {
+        guard let pub = publication else { return nil }
+        if pub.arxivID != nil {
             return "arXiv preprint available"
-        } else if publication.bibcode != nil {
+        } else if pub.bibcode != nil {
             return "Publisher access via ADS"
-        } else if publication.doi != nil {
+        } else if pub.doi != nil {
             return "Publisher access via DOI"
         }
         return nil
@@ -107,9 +125,16 @@ struct IOSNoPDFView: View {
     // MARK: - Actions
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
+        // publicationID / libraryID are immutable `let` properties — safe to read directly.
+        let pubID = publicationID
+        let libID = libraryID
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
+            guard let pubID else {
+                Logger.files.warningCapture("iOS NoPDFView: import skipped, no publication ID", category: "files")
+                return
+            }
 
             // Start security-scoped access
             guard url.startAccessingSecurityScopedResource() else { return }
@@ -117,20 +142,29 @@ struct IOSNoPDFView: View {
 
             do {
                 let data = try Data(contentsOf: url)
-
-                // Import via PDFManager
-                try AttachmentManager.shared.importPDF(
+                Logger.files.infoCapture(
+                    "iOS NoPDFView: importing PDF '\(url.lastPathComponent)' (\(data.count) bytes) for \(pubID)",
+                    category: "files"
+                )
+                // Value-type store: import keyed by publication + library UUIDs.
+                let linked = try AttachmentManager.shared.importPDF(
                     data: data,
-                    for: publication,
-                    in: libraryManager.find(id: libraryID)
+                    for: pubID,
+                    in: libID
+                )
+                Logger.files.infoCapture(
+                    "iOS NoPDFView: imported PDF linked file \(linked.id) (\(linked.filename))",
+                    category: "files"
                 )
             } catch {
-                // Log error - could add alert here
-                print("Failed to import PDF: \(error)")
+                Logger.files.errorCapture(
+                    "iOS NoPDFView: failed to import PDF: \(error.localizedDescription)",
+                    category: "files"
+                )
             }
 
         case .failure(let error):
-            print("File picker error: \(error)")
+            Logger.files.errorCapture("iOS NoPDFView: file picker error: \(error.localizedDescription)", category: "files")
         }
     }
 }

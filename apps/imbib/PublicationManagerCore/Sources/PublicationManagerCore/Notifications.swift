@@ -403,6 +403,12 @@ public extension Notification.Name {
     /// Explore similar papers for a publication (object = UUID publication ID)
     static let exploreSimilar = Notification.Name("exploreSimilar")
 
+    /// Explore co-read papers for a publication (object = UUID publication ID)
+    static let exploreCoReads = Notification.Name("exploreCoReads")
+
+    /// Explore Web-of-Science related papers for a publication (object = UUID publication ID)
+    static let exploreWoSRelated = Notification.Name("exploreWoSRelated")
+
     // MARK: - Window Management (Dual Monitor Support)
 
     /// Detach PDF tab to separate window (⌥⇧⌘M)

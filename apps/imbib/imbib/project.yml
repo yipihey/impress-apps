@@ -230,17 +230,21 @@ targets:
           # keyed by UUIDs, id-based smart-search/SciX refresh services).
           # Its stub is excluded so the type is unique.
           - "Views/IOSUnifiedPublicationListWrapperStub.swift"
-          # IOSNoPDFView.swift (real, CDPublication-based) stays excluded;
-          # IOSNoPDFViewStub.swift provides the (publicationID:libraryID:)
-          # shape that the revived IOSPDFTab needs.
-          - "Views/Detail/IOSNoPDFView.swift"
+          # IOSNoPDFView.swift REVIVED — ported to RustStoreAdapter/PublicationModel
+          # (getPublicationDetail + AttachmentManager.importPDF(data:for:in:) +
+          # id-based IOSPDFBrowserView). Its stub is excluded so the type is unique.
+          - "Views/Detail/IOSNoPDFViewStub.swift"
           # IOSPDFTab.swift REVIVED — ported to RustStoreAdapter/PublicationModel
           # (getPublicationDetail + LinkedFileModel + PDFViewerWithControls +
           # AttachmentManager). Its stub is excluded so the type is unique.
           - "Views/Detail/IOSPDFTabStub.swift"
           - "Views/IOSSettingsView.swift"
           - "Views/Sharing/IOSMailComposer.swift"
-          - "Views/Detail/IOSInfoTab.swift"
+          # IOSInfoTab.swift REVIVED — id-based metadata tab (attachments, file
+          # import, explore/references, cite badges) ported off LibraryModel
+          # .containerURL to AttachmentManager UUID-keyed paths. Its stub is
+          # excluded so the type is unique.
+          - "Views/Detail/IOSInfoTabStub.swift"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
       - path: imbib/Resources/PrivacyInfo.xcprivacy
