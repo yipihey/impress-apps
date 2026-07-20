@@ -52,6 +52,18 @@ jobs:
       - name: Build multi-platform ImprintCore.xcframework
         run: bash crates/imprint-core/build-xcframework.sh
 
+      # imprint also links these sibling Rust cores (shared store, Helix
+      # editor, imbib bridge); their xcframeworks are gitignored build
+      # artifacts and must be produced on the runner too.
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Build ImpressHelix.xcframework
+        run: bash crates/impress-helix/build-xcframework.sh
+
+      - name: Build ImbibCore.xcframework
+        run: bash crates/imbib-core/build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/imprint
         run: xcodegen generate
