@@ -38,7 +38,11 @@ pub fn router() -> Router {
 
 type GitResult<T> = Result<Json<T>, (StatusCode, Json<GitError>)>;
 
-fn git_err(status: StatusCode, msg: impl Into<String>, stderr: Option<String>) -> (StatusCode, Json<GitError>) {
+fn git_err(
+    status: StatusCode,
+    msg: impl Into<String>,
+    stderr: Option<String>,
+) -> (StatusCode, Json<GitError>) {
     (
         status,
         Json(GitError {
@@ -87,7 +91,12 @@ async fn exec_git(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let code = output.status.code().unwrap_or(-1);
 
-    tracing::info!(exit_code = code, stdout_len = stdout.len(), stderr_len = stderr.len(), "git done");
+    tracing::info!(
+        exit_code = code,
+        stdout_len = stdout.len(),
+        stderr_len = stderr.len(),
+        "git done"
+    );
 
     Ok((stdout, stderr, code))
 }
@@ -275,7 +284,9 @@ async fn handle_pull(Json(req): Json<PullRequest>) -> GitResult<PullResult> {
     let has_conflicts = stderr.contains("CONFLICT") || stdout.contains("CONFLICT");
     let conflict_files: Vec<String> = if has_conflicts {
         let status_cmd = commands::status_cmd();
-        let status_out = exec_git_ok(&status_cmd, &req.path).await.unwrap_or_default();
+        let status_out = exec_git_ok(&status_cmd, &req.path)
+            .await
+            .unwrap_or_default();
         let status = parse::parse_status_porcelain_v2(&status_out).unwrap_or_else(|_| {
             impress_git::models::RepoStatus {
                 branch: String::new(),
@@ -295,7 +306,9 @@ async fn handle_pull(Json(req): Json<PullRequest>) -> GitResult<PullResult> {
 
     // Count new commits by comparing HEAD before and after
     let post_head_cmd = commands::rev_parse_head_cmd();
-    let post_head = exec_git_ok(&post_head_cmd, &req.path).await.unwrap_or_default();
+    let post_head = exec_git_ok(&post_head_cmd, &req.path)
+        .await
+        .unwrap_or_default();
     let fast_forward = stdout.contains("Fast-forward") || stdout.contains("fast-forward");
 
     // Rough commit count from log between old and new HEAD
@@ -478,10 +491,7 @@ async fn handle_create_repo(Json(req): Json<CreateRepoRequest>) -> GitResult<Cre
         exec_git_ok(&commit_cmd, &req.path).await?;
 
         // Build gh command
-        let mut gh_args = vec![
-            "repo".to_string(),
-            "create".to_string(),
-        ];
+        let mut gh_args = vec!["repo".to_string(), "create".to_string()];
 
         let repo_name = if let Some(ref org) = req.org {
             format!("{}/{}", org, req.name)

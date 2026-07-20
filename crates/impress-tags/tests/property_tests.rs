@@ -486,15 +486,24 @@ fn normalize_segment_hyphen_trim_whitespace_regression() {
     assert_eq!(normalize_tag_segment("a\t-"), "a");
     let once = normalize_tag_segment("a\t-");
     let twice = normalize_tag_segment(&once);
-    assert_eq!(twice, once, "normalize_tag_segment must be idempotent on \"a\\t-\"");
+    assert_eq!(
+        twice, once,
+        "normalize_tag_segment must be idempotent on \"a\\t-\""
+    );
 }
 
 /// Regression: effective_color used to return the farthest colored ancestor;
 /// the documented contract is the NEAREST colored self-or-ancestor.
 #[test]
 fn hierarchy_effective_color_nearest_ancestor_unit() {
-    let red = TagColor { light: "#f00".to_string(), dark: "#f00".to_string() };
-    let green = TagColor { light: "#0f0".to_string(), dark: "#0f0".to_string() };
+    let red = TagColor {
+        light: "#f00".to_string(),
+        dark: "#f00".to_string(),
+    };
+    let green = TagColor {
+        light: "#0f0".to_string(),
+        dark: "#0f0".to_string(),
+    };
 
     let mut root = Tag::new("r");
     root.color = Some(red);

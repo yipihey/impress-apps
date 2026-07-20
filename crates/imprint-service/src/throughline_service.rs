@@ -97,7 +97,8 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
     /// Create a throughline for a document (explicit opt-in, ADR-0016 D1).
     /// Fails if one already exists.
     #[impress_method]
-    async fn create_throughline(&self, doc_id: String, title: String) -> Option<ThroughlineInfoDto>;
+    async fn create_throughline(&self, doc_id: String, title: String)
+        -> Option<ThroughlineInfoDto>;
 
     /// Fetch a document's throughline, or None if it has none.
     #[impress_method]
@@ -188,7 +189,11 @@ impl DefaultImprintThroughlineService {
 
 #[async_trait::async_trait]
 impl ImprintThroughlineService for DefaultImprintThroughlineService {
-    async fn create_throughline(&self, doc_id: String, title: String) -> Option<ThroughlineInfoDto> {
+    async fn create_throughline(
+        &self,
+        doc_id: String,
+        title: String,
+    ) -> Option<ThroughlineInfoDto> {
         let doc = Self::parse_doc_id(&doc_id)?;
         Self::log_err("create", self.store.create_throughline(doc, &title))
             .map(|r| ThroughlineInfoDto::from_record(&r))
@@ -252,8 +257,11 @@ impl ImprintThroughlineService for DefaultImprintThroughlineService {
         section_keys: Vec<String>,
     ) -> Option<ThroughlineInfoDto> {
         let doc = Self::parse_doc_id(&doc_id)?;
-        Self::log_err("set_anchor", self.store.set_anchor(doc, &label, &section_keys))
-            .map(|r| ThroughlineInfoDto::from_record(&r))
+        Self::log_err(
+            "set_anchor",
+            self.store.set_anchor(doc, &label, &section_keys),
+        )
+        .map(|r| ThroughlineInfoDto::from_record(&r))
     }
 
     async fn remove_anchor(&self, doc_id: String, label: String) -> Option<ThroughlineInfoDto> {

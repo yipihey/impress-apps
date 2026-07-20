@@ -184,7 +184,11 @@ impl TaskExecutor for KeywordTagExecutor {
                 question: format!(
                     "Apply {} proposed tag(s) to \"{}\"? Confidence below {:.2}.",
                     tags.len(),
-                    if title.is_empty() { "(untitled)" } else { &title },
+                    if title.is_empty() {
+                        "(untitled)"
+                    } else {
+                        &title
+                    },
                     self.confidence_threshold
                 ),
                 context: Some(context),

@@ -1,7 +1,7 @@
 //! Tag aliases (shortcut → full path).
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// A mapping from shortcut names to full tag paths.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -17,7 +17,8 @@ impl TagAliases {
 
     /// Add an alias.
     pub fn add(&mut self, shortcut: &str, full_path: &str) {
-        self.aliases.insert(shortcut.to_lowercase(), full_path.to_string());
+        self.aliases
+            .insert(shortcut.to_lowercase(), full_path.to_string());
     }
 
     /// Remove an alias.

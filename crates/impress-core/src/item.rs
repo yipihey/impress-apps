@@ -302,7 +302,13 @@ mod tests {
 
     #[test]
     fn priority_serde_round_trip() {
-        for p in [Priority::None, Priority::Low, Priority::Normal, Priority::High, Priority::Urgent] {
+        for p in [
+            Priority::None,
+            Priority::Low,
+            Priority::Normal,
+            Priority::High,
+            Priority::Urgent,
+        ] {
             let json = serde_json::to_string(&p).unwrap();
             let back: Priority = serde_json::from_str(&json).unwrap();
             assert_eq!(p, back);
@@ -327,7 +333,10 @@ mod tests {
 
     #[test]
     fn visibility_from_str() {
-        assert_eq!("private".parse::<Visibility>().unwrap(), Visibility::Private);
+        assert_eq!(
+            "private".parse::<Visibility>().unwrap(),
+            Visibility::Private
+        );
         assert_eq!("public".parse::<Visibility>().unwrap(), Visibility::Public);
         assert!("invalid".parse::<Visibility>().is_err());
     }

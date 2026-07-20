@@ -291,11 +291,11 @@ pub fn derive_anchor_states(
                     }
                 }
             }
-            let (throughline_ahead, missing_paragraph) =
-                match paragraph_hashes.get(label.as_str()) {
-                    None => (false, true),
-                    Some(current) => (*current != entry.throughline_hash, false),
-                };
+            let (throughline_ahead, missing_paragraph) = match paragraph_hashes.get(label.as_str())
+            {
+                None => (false, true),
+                Some(current) => (*current != entry.throughline_hash, false),
+            };
             AnchorAssessment {
                 label: label.clone(),
                 manuscript_ahead,
@@ -623,15 +623,23 @@ impl ThroughlineStore {
             )));
         };
         let paragraphs = extract_paragraphs(&rec.source);
-        let paragraph = paragraphs.iter().find(|p| p.label == label).ok_or_else(|| {
-            ServiceError::InvalidArgument(format!("no paragraph labeled <{label}> in throughline"))
-        })?;
+        let paragraph = paragraphs
+            .iter()
+            .find(|p| p.label == label)
+            .ok_or_else(|| {
+                ServiceError::InvalidArgument(format!(
+                    "no paragraph labeled <{label}> in throughline"
+                ))
+            })?;
         let sections = self.sections.list_sections(document_id, 0)?;
         let mut manuscript_hashes = BTreeMap::new();
         for key in section_keys {
-            let section = sections.iter().find(|s| &s.section_key == key).ok_or_else(|| {
-                ServiceError::InvalidArgument(format!("unknown section key '{key}'"))
-            })?;
+            let section = sections
+                .iter()
+                .find(|s| &s.section_key == key)
+                .ok_or_else(|| {
+                    ServiceError::InvalidArgument(format!("unknown section key '{key}'"))
+                })?;
             manuscript_hashes.insert(key.clone(), section_body_hash(section));
         }
         let mut map = rec.anchor_map.clone();
@@ -727,9 +735,14 @@ impl ThroughlineStore {
 
         let sections = self.sections.list_sections(document_id, 0)?;
         let paragraphs = extract_paragraphs(&rec.source);
-        let paragraph = paragraphs.iter().find(|p| p.label == label).ok_or_else(|| {
-            ServiceError::InvalidArgument(format!("no paragraph labeled <{label}> in throughline"))
-        })?;
+        let paragraph = paragraphs
+            .iter()
+            .find(|p| p.label == label)
+            .ok_or_else(|| {
+                ServiceError::InvalidArgument(format!(
+                    "no paragraph labeled <{label}> in throughline"
+                ))
+            })?;
 
         // Stale-proposal guard.
         for (key, expected) in expected_section_hashes {
@@ -878,11 +891,8 @@ mod tests {
             "tl-a".into(),
             AnchorEntry {
                 section_keys: vec!["intro".into()],
-                manuscript_hashes: [(
-                    "intro".to_string(),
-                    BlobStore::sha256_hex("intro body v1"),
-                )]
-                .into(),
+                manuscript_hashes: [("intro".to_string(), BlobStore::sha256_hex("intro body v1"))]
+                    .into(),
                 throughline_hash: ps[0].content_hash.clone(),
             },
         );
@@ -1068,7 +1078,10 @@ mod tests {
     #[test]
     fn deterministic_item_id() {
         let doc = Uuid::parse_str("6e2a0000-0000-0000-0000-000000000000").unwrap();
-        assert_eq!(ThroughlineStore::item_id(doc), ThroughlineStore::item_id(doc));
+        assert_eq!(
+            ThroughlineStore::item_id(doc),
+            ThroughlineStore::item_id(doc)
+        );
         assert_ne!(
             ThroughlineStore::item_id(doc),
             ThroughlineStore::item_id(Uuid::new_v4())

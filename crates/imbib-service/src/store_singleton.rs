@@ -18,9 +18,8 @@ fn default_store_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(
-        "Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite",
-    )
+    PathBuf::from(home)
+        .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
 }
 
 /// Explicit init for callers that need a custom path. Returns `Err` if the
@@ -45,8 +44,7 @@ pub(crate) fn store_instance() -> Arc<ImbibStore> {
                     "[imbib-service] failed to open store at {}: {e}",
                     path.display()
                 );
-                ImbibStore::open(":memory:".to_string())
-                    .expect("in-memory ImbibStore always opens")
+                ImbibStore::open(":memory:".to_string()).expect("in-memory ImbibStore always opens")
             })
         })
         .clone()

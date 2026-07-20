@@ -78,14 +78,16 @@ fn list_and_call_inventory_tool_via_stdio() {
     assert!(lines.len() >= 3, "expected >=3 responses; got: {stdout}");
 
     // Response 2 is tools/list.
-    let v2: serde_json::Value =
-        serde_json::from_str(lines[1]).expect("parse tools/list response");
+    let v2: serde_json::Value = serde_json::from_str(lines[1]).expect("parse tools/list response");
     let tools = v2["result"]["tools"]
         .as_array()
         .expect("tools array present");
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     for legacy in ["search_papers", "get_paper_chunks", "list_indexed_papers"] {
-        assert!(names.contains(&legacy), "missing legacy {legacy} in {names:?}");
+        assert!(
+            names.contains(&legacy),
+            "missing legacy {legacy} in {names:?}"
+        );
     }
     for inv in [
         "imbib-text-service_decode-latex",
@@ -95,8 +97,7 @@ fn list_and_call_inventory_tool_via_stdio() {
     }
 
     // Response 3 is the decode-latex call.
-    let v3: serde_json::Value =
-        serde_json::from_str(lines[2]).expect("parse tools/call response");
+    let v3: serde_json::Value = serde_json::from_str(lines[2]).expect("parse tools/call response");
     let text = v3["result"]["content"][0]["text"]
         .as_str()
         .expect("text content");

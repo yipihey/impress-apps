@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use impress_app_client::ImprintClient;
 
+use imprint_service::handlers::LatexCompileResultDto;
 use imprint_service::handlers::{
     CitationUsage, CompileOptions, CompileResult, DocumentSummary, Outline, ReplaceResult,
     TextMatch,
 };
-use imprint_service::handlers::LatexCompileResultDto;
 use imprint_service::manuscript_service::{ImprintManuscriptService, SearchHitDto};
 use imprint_service::sections::{SectionMetadata, SectionRecord};
 use imprint_service::text_service::{CiteKeyUsageType as CiteKeyUsage, ImprintTextService};
@@ -26,47 +26,116 @@ fn log_err(method: &str, e: impl std::fmt::Display) {
 // =====================================================================
 // HttpImprintManuscriptService
 // =====================================================================
-pub struct HttpImprintManuscriptService { client: Arc<ImprintClient> }
+pub struct HttpImprintManuscriptService {
+    client: Arc<ImprintClient>,
+}
 impl HttpImprintManuscriptService {
-    pub fn new(client: Arc<ImprintClient>) -> Self { Self { client } }
+    pub fn new(client: Arc<ImprintClient>) -> Self {
+        Self { client }
+    }
 }
 
 #[async_trait::async_trait]
 impl ImprintManuscriptService for HttpImprintManuscriptService {
     async fn list_documents(&self) -> Vec<DocumentSummary> {
-        self.client.list_documents().await.unwrap_or_else(|e| { log_err("list_documents", e); vec![] })
+        self.client.list_documents().await.unwrap_or_else(|e| {
+            log_err("list_documents", e);
+            vec![]
+        })
     }
     async fn get_document(&self, id: String) -> Option<DocumentSummary> {
-        self.client.get_document(&id).await.unwrap_or_else(|e| { log_err("get_document", e); None })
+        self.client.get_document(&id).await.unwrap_or_else(|e| {
+            log_err("get_document", e);
+            None
+        })
     }
     async fn export_document(&self, id: String, format: String) -> Vec<u8> {
         let fmt = match format.to_ascii_lowercase().as_str() {
             "latex" | "tex" => imprint_service::handlers::ExportFormat::Latex,
-            "text" | "txt"  => imprint_service::handlers::ExportFormat::Text,
+            "text" | "txt" => imprint_service::handlers::ExportFormat::Text,
             _ => imprint_service::handlers::ExportFormat::Typst,
         };
-        self.client.export_document(&id, fmt).await.unwrap_or_else(|e| { log_err("export_document", e); vec![] })
+        self.client
+            .export_document(&id, fmt)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("export_document", e);
+                vec![]
+            })
     }
     async fn list_sections(&self, doc_id: String) -> Vec<SectionRecord> {
-        self.client.list_sections(&doc_id).await.unwrap_or_else(|e| { log_err("list_sections", e); vec![] })
+        self.client
+            .list_sections(&doc_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("list_sections", e);
+                vec![]
+            })
     }
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord> {
-        self.client.get_section(&doc_id, &section_key).await.unwrap_or_else(|e| { log_err("get_section", e); None })
+        self.client
+            .get_section(&doc_id, &section_key)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_section", e);
+                None
+            })
     }
-    async fn put_section(&self, doc_id: String, section_key: String, body: String, metadata: SectionMetadata) -> Option<SectionRecord> {
-        self.client.put_section(&doc_id, &section_key, &body, metadata).await.unwrap_or_else(|e| { log_err("put_section", e); None })
+    async fn put_section(
+        &self,
+        doc_id: String,
+        section_key: String,
+        body: String,
+        metadata: SectionMetadata,
+    ) -> Option<SectionRecord> {
+        self.client
+            .put_section(&doc_id, &section_key, &body, metadata)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("put_section", e);
+                None
+            })
     }
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool {
-        self.client.delete_section(&doc_id, &section_key).await.unwrap_or_else(|e| { log_err("delete_section", e); false })
+        self.client
+            .delete_section(&doc_id, &section_key)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_section", e);
+                false
+            })
     }
     async fn document_outline(&self, source: String) -> Outline {
-        self.client.document_outline(&source).await.unwrap_or_else(|e| { log_err("document_outline", e); Outline { entries: vec![] } })
+        self.client
+            .document_outline(&source)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("document_outline", e);
+                Outline { entries: vec![] }
+            })
     }
     async fn document_citations(&self, source: String) -> Vec<CitationUsage> {
-        self.client.document_citations(&source).await.unwrap_or_else(|e| { log_err("document_citations", e); vec![] })
+        self.client
+            .document_citations(&source)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("document_citations", e);
+                vec![]
+            })
     }
-    async fn search_in_text(&self, source: String, query: String, case_sensitive: bool) -> Vec<TextMatch> {
-        self.client.search_in_text(&source, &query, case_sensitive).await.unwrap_or_else(|e| { log_err("search_in_text", e); vec![] })
+    async fn search_in_text(
+        &self,
+        source: String,
+        query: String,
+        case_sensitive: bool,
+    ) -> Vec<TextMatch> {
+        self.client
+            .search_in_text(&source, &query, case_sensitive)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("search_in_text", e);
+                vec![]
+            })
     }
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult {
         match self.client.compile_typst(&source, options).await {
@@ -83,11 +152,19 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
             }
         }
     }
-    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto {
+    async fn compile_latex(
+        &self,
+        source: String,
+        filesystem_root: String,
+    ) -> LatexCompileResultDto {
         // Tectonic is self-contained → compile in-process (no HTTP route needed).
         // Run on a blocking thread: Tectonic's bundle fetch uses its own runtime.
         tokio::task::spawn_blocking(move || {
-            let root = if filesystem_root.is_empty() { None } else { Some(filesystem_root.as_str()) };
+            let root = if filesystem_root.is_empty() {
+                None
+            } else {
+                Some(filesystem_root.as_str())
+            };
             imprint_service::handlers::compile_latex_dispatch(&source, root)
         })
         .await
@@ -99,10 +176,28 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
         })
     }
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto> {
-        self.client.search(&query, limit).await.unwrap_or_else(|e| { log_err("search", e); vec![] })
+        self.client.search(&query, limit).await.unwrap_or_else(|e| {
+            log_err("search", e);
+            vec![]
+        })
     }
-    async fn replace_in_section(&self, doc_id: String, section_key: String, find: String, replace: String) -> ReplaceResult {
-        self.client.replace_in_section(&doc_id, &section_key, &find, &replace).await.unwrap_or_else(|e| { log_err("replace_in_section", e); ReplaceResult { replacements: 0, new_body: String::new() } })
+    async fn replace_in_section(
+        &self,
+        doc_id: String,
+        section_key: String,
+        find: String,
+        replace: String,
+    ) -> ReplaceResult {
+        self.client
+            .replace_in_section(&doc_id, &section_key, &find, &replace)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("replace_in_section", e);
+                ReplaceResult {
+                    replacements: 0,
+                    new_body: String::new(),
+                }
+            })
     }
 }
 
@@ -115,10 +210,14 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
 /// the HTTP backend when one is installed. Falls back to in-process
 /// computation via the default impl. (Until an imprint HTTP route exists,
 /// this just delegates to the default impl.)
-pub struct HttpImprintTextService { _client: Arc<ImprintClient> }
+pub struct HttpImprintTextService {
+    _client: Arc<ImprintClient>,
+}
 
 impl HttpImprintTextService {
-    pub fn new(client: Arc<ImprintClient>) -> Self { Self { _client: client } }
+    pub fn new(client: Arc<ImprintClient>) -> Self {
+        Self { _client: client }
+    }
 }
 
 #[async_trait::async_trait]
@@ -136,10 +235,17 @@ impl ImprintTextService for HttpImprintTextService {
         let default = imprint_service::text_service::DefaultImprintTextService;
         default.extract_cite_key_usages(source, syntax).await
     }
-    async fn compose_citation(&self, cite_key: String, format: String, append_space: bool) -> String {
+    async fn compose_citation(
+        &self,
+        cite_key: String,
+        format: String,
+        append_space: bool,
+    ) -> String {
         // Pure/stateless — compute in-process (no HTTP route needed).
         let default = imprint_service::text_service::DefaultImprintTextService;
-        default.compose_citation(cite_key, format, append_space).await
+        default
+            .compose_citation(cite_key, format, append_space)
+            .await
     }
     async fn compose_heading(&self, title: String, level: i64, format: String) -> String {
         let default = imprint_service::text_service::DefaultImprintTextService;
@@ -151,9 +257,13 @@ impl ImprintTextService for HttpImprintTextService {
 // Backend bundle + installer
 // =====================================================================
 
-pub struct HttpBackend { client: Arc<ImprintClient> }
+pub struct HttpBackend {
+    client: Arc<ImprintClient>,
+}
 impl HttpBackend {
-    pub fn new(client: Arc<ImprintClient>) -> Self { Self { client } }
+    pub fn new(client: Arc<ImprintClient>) -> Self {
+        Self { client }
+    }
 }
 
 impl ImprintBackend for HttpBackend {

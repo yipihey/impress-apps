@@ -46,7 +46,9 @@ impl SourcePlugin for PubmedSource {
         _query: &SearchQuery,
         _credentials: Option<&str>,
     ) -> Result<SearchResult, SourceError> {
-        unimplemented!("PubMed source: ported in follow-up. See apps/imbib/.../BuiltIn/PubMedSource.swift");
+        unimplemented!(
+            "PubMed source: ported in follow-up. See apps/imbib/.../BuiltIn/PubMedSource.swift"
+        );
     }
 
     async fn fetch_by_id(
@@ -54,6 +56,8 @@ impl SourcePlugin for PubmedSource {
         _id: &str,
         _credentials: Option<&str>,
     ) -> Result<PaperMetadata, SourceError> {
-        unimplemented!("PubMed source: ported in follow-up. See apps/imbib/.../BuiltIn/PubMedSource.swift");
+        unimplemented!(
+            "PubMed source: ported in follow-up. See apps/imbib/.../BuiltIn/PubMedSource.swift"
+        );
     }
 }

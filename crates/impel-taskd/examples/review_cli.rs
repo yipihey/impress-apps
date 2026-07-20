@@ -60,11 +60,7 @@ fn main() {
             }
         }
         "resolve" => {
-            let id: uuid::Uuid = args
-                .next()
-                .expect("review id")
-                .parse()
-                .expect("valid uuid");
+            let id: uuid::Uuid = args.next().expect("review id").parse().expect("valid uuid");
             let resolution = args.next().unwrap_or_else(|| "approved".into());
             store
                 .apply_operation(OperationSpec {

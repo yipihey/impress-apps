@@ -72,7 +72,9 @@ pub fn create_task_dag(
                 )));
             }
             if d == i {
-                return Err(SpawnError::InvalidSpec(format!("task {i} depends on itself")));
+                return Err(SpawnError::InvalidSpec(format!(
+                    "task {i} depends on itself"
+                )));
             }
         }
     }

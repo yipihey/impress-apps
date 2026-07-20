@@ -125,9 +125,18 @@ mod tests {
             ahead: 0,
             behind: 0,
             modified: vec![
-                FileStatus { path: "clean.tex".into(), status: FileState::Modified },
-                FileStatus { path: "conflict.tex".into(), status: FileState::Unmerged },
-                FileStatus { path: "another.tex".into(), status: FileState::Unmerged },
+                FileStatus {
+                    path: "clean.tex".into(),
+                    status: FileState::Modified,
+                },
+                FileStatus {
+                    path: "conflict.tex".into(),
+                    status: FileState::Unmerged,
+                },
+                FileStatus {
+                    path: "another.tex".into(),
+                    status: FileState::Unmerged,
+                },
             ],
             staged: vec![],
             untracked: vec![],

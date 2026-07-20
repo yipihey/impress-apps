@@ -11,9 +11,15 @@ use imbib_service::artifacts_service::{ArtifactRecord, ArtifactRelationRecord};
 use imbib_service::library_service::MutationResult;
 
 #[derive(Deserialize)]
-struct StatusEnvelope { status: String }
+struct StatusEnvelope {
+    status: String,
+}
 fn check(s: &StatusEnvelope) -> Result<()> {
-    if s.status == "ok" { Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImbibClient {
@@ -35,9 +41,14 @@ impl ImbibClient {
         }
         let resp = self.http.get(url).send().await?;
         #[derive(Deserialize)]
-        struct R { status: String, artifacts: Vec<ArtifactRecord> }
+        struct R {
+            status: String,
+            artifacts: Vec<ArtifactRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.artifacts)
     }
 
@@ -53,9 +64,14 @@ impl ImbibClient {
         }
         let resp = self.http.get(url).send().await?;
         #[derive(Deserialize)]
-        struct R { status: String, artifacts: Vec<ArtifactRecord> }
+        struct R {
+            status: String,
+            artifacts: Vec<ArtifactRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.artifacts)
     }
 
@@ -66,9 +82,14 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, artifact: ArtifactRecord }
+        struct R {
+            status: String,
+            artifact: ArtifactRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.artifact))
     }
 
@@ -83,11 +104,15 @@ impl ImbibClient {
         #[derive(Deserialize)]
         struct R {
             status: String,
-            #[serde(default)] count: Option<u32>,
-            #[serde(default)] total: Option<u32>,
+            #[serde(default)]
+            count: Option<u32>,
+            #[serde(default)]
+            total: Option<u32>,
         }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.total.or(body.count).unwrap_or(0))
     }
 
@@ -128,9 +153,14 @@ impl ImbibClient {
         });
         let resp = self.http.post(url).json(&body).send().await?;
         #[derive(Deserialize)]
-        struct R { status: String, artifact: ArtifactRecord }
+        struct R {
+            status: String,
+            artifact: ArtifactRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.artifact))
     }
 
@@ -160,11 +190,16 @@ impl ImbibClient {
         });
         let resp = self.http.put(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound("PUT /api/artifacts/{id} (Phase D)".into()));
+            return Err(AppClientError::NotFound(
+                "PUT /api/artifacts/{id} (Phase D)".into(),
+            ));
         }
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn delete_artifact(&self, id: String) -> Result<MutationResult> {
@@ -172,7 +207,10 @@ impl ImbibClient {
         let resp = self.http.delete(url).send().await?;
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn link_artifact_to_publication(
@@ -180,23 +218,40 @@ impl ImbibClient {
         artifact_id: String,
         publication_id: String,
     ) -> Result<MutationResult> {
-        let url = self.base_url.join(&format!("/api/artifacts/{}/link", artifact_id))?;
-        let resp = self.http.post(url).json(&json!({"publication_id": publication_id})).send().await?;
+        let url = self
+            .base_url
+            .join(&format!("/api/artifacts/{}/link", artifact_id))?;
+        let resp = self
+            .http
+            .post(url)
+            .json(&json!({"publication_id": publication_id}))
+            .send()
+            .await?;
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn get_artifact_relations(&self, id: String) -> Result<Vec<ArtifactRelationRecord>> {
-        let url = self.base_url.join(&format!("/api/artifacts/{}/relations", id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/artifacts/{}/relations", id))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, relations: Vec<ArtifactRelationRecord> }
+        struct R {
+            status: String,
+            relations: Vec<ArtifactRelationRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.relations)
     }
 }

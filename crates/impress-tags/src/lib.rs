@@ -7,18 +7,18 @@
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();
 
-pub mod tag;
+pub mod alias;
+pub mod autocomplete;
+pub mod config;
 pub mod hierarchy;
 pub mod parse;
 pub mod query;
-pub mod autocomplete;
-pub mod alias;
-pub mod config;
+pub mod tag;
 
-pub use tag::*;
+pub use alias::*;
+pub use autocomplete::*;
+pub use config::*;
 pub use hierarchy::*;
 pub use parse::*;
 pub use query::*;
-pub use autocomplete::*;
-pub use alias::*;
-pub use config::*;
+pub use tag::*;

@@ -11,9 +11,15 @@ use imbib_service::annotations_service::{AnnotationRecord, CommentRecord};
 use imbib_service::library_service::MutationResult;
 
 #[derive(Deserialize)]
-struct StatusEnvelope { status: String }
+struct StatusEnvelope {
+    status: String,
+}
 fn check(s: &StatusEnvelope) -> Result<()> {
-    if s.status == "ok" { Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImbibClient {
@@ -26,7 +32,9 @@ impl ImbibClient {
         // Translate: get cite-key from publication id (if linked_file_id is actually a pub id).
         // For an actual linked_file_id (which is a UUID for the file, not paper), the route
         // we'd add in Phase D is /api/files/{id}/annotations.
-        let mut url = self.base_url.join(&format!("/api/files/{}/annotations", linked_file_id))?;
+        let mut url = self
+            .base_url
+            .join(&format!("/api/files/{}/annotations", linked_file_id))?;
         if let Some(p) = page_number {
             url.query_pairs_mut().append_pair("page", &p.to_string());
         }
@@ -35,9 +43,14 @@ impl ImbibClient {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, annotations: Vec<AnnotationRecord> }
+        struct R {
+            status: String,
+            annotations: Vec<AnnotationRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.annotations)
     }
 
@@ -50,9 +63,15 @@ impl ImbibClient {
             return Ok(0);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] count: u32 }
+        struct R {
+            status: String,
+            #[serde(default)]
+            count: u32,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.count)
     }
 
@@ -82,38 +101,57 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] annotation: Option<AnnotationRecord> }
+        struct R {
+            status: String,
+            #[serde(default)]
+            annotation: Option<AnnotationRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.annotation)
     }
 
     pub async fn list_comments_for_item(&self, item_id: String) -> Result<Vec<CommentRecord>> {
-        let url = self.base_url.join(&format!("/api/items/{}/comments", item_id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/items/{}/comments", item_id))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, comments: Vec<CommentRecord> }
+        struct R {
+            status: String,
+            comments: Vec<CommentRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.comments)
     }
 
     pub async fn list_comments(&self, publication_id: String) -> Result<Vec<CommentRecord>> {
         let cite_key = self.resolve_cite_key(&publication_id).await?;
-        let url = self
-            .base_url
-            .join(&format!("/api/papers/{}/comments", urlencoding::encode(&cite_key)))?;
+        let url = self.base_url.join(&format!(
+            "/api/papers/{}/comments",
+            urlencoding::encode(&cite_key)
+        ))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, comments: Vec<CommentRecord> }
+        struct R {
+            status: String,
+            comments: Vec<CommentRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.comments)
     }
 
@@ -122,16 +160,24 @@ impl ImbibClient {
         item_id: String,
         since_clock: u64,
     ) -> Result<Vec<CommentRecord>> {
-        let mut url = self.base_url.join(&format!("/api/items/{}/comments", item_id))?;
-        url.query_pairs_mut().append_pair("since_clock", &since_clock.to_string());
+        let mut url = self
+            .base_url
+            .join(&format!("/api/items/{}/comments", item_id))?;
+        url.query_pairs_mut()
+            .append_pair("since_clock", &since_clock.to_string());
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, comments: Vec<CommentRecord> }
+        struct R {
+            status: String,
+            comments: Vec<CommentRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.comments)
     }
 
@@ -144,9 +190,10 @@ impl ImbibClient {
         parent_comment_id: Option<String>,
     ) -> Result<Option<CommentRecord>> {
         let cite_key = self.resolve_cite_key(&publication_id).await?;
-        let url = self
-            .base_url
-            .join(&format!("/api/papers/{}/comments", urlencoding::encode(&cite_key)))?;
+        let url = self.base_url.join(&format!(
+            "/api/papers/{}/comments",
+            urlencoding::encode(&cite_key)
+        ))?;
         let body = json!({
             "text": text,
             "author_identifier": author_identifier,
@@ -158,9 +205,14 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, comment: CommentRecord }
+        struct R {
+            status: String,
+            comment: CommentRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.comment))
     }
 
@@ -172,7 +224,9 @@ impl ImbibClient {
         author_display_name: Option<String>,
         parent_comment_id: Option<String>,
     ) -> Result<Option<CommentRecord>> {
-        let url = self.base_url.join(&format!("/api/items/{}/comments", item_id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/items/{}/comments", item_id))?;
         let body = json!({
             "text": text,
             "author_identifier": author_identifier,
@@ -184,17 +238,30 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, comment: CommentRecord }
+        struct R {
+            status: String,
+            comment: CommentRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.comment))
     }
 
     pub async fn update_comment(&self, id: String, text: String) -> Result<MutationResult> {
         let url = self.base_url.join(&format!("/api/comments/{}", id))?;
-        let resp = self.http.put(url).json(&json!({"text": text})).send().await?;
+        let resp = self
+            .http
+            .put(url)
+            .json(&json!({"text": text}))
+            .send()
+            .await?;
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 }

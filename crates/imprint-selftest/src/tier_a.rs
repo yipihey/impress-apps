@@ -32,9 +32,8 @@ impl TempService {
         let svc = imprint_service::open(dir.path()).map_err(|e| format!("open workspace: {e}"))?;
         let sections = Arc::new(svc.handlers.sections().clone());
         let manuscript = DefaultImprintManuscriptService::new(Arc::new(svc.handlers));
-        let throughline = DefaultImprintThroughlineService::new(Arc::new(ThroughlineStore::new(
-            sections,
-        )));
+        let throughline =
+            DefaultImprintThroughlineService::new(Arc::new(ThroughlineStore::new(sections)));
         Ok(Self {
             _dir: dir,
             manuscript,
@@ -84,7 +83,12 @@ async fn cap_throughline_create() -> CapabilityResult {
             if svc.throughline.get_throughline(doc.clone()).await.is_some() {
                 return Err("throughline existed before creation".into());
             }
-            if !svc.throughline.get_anchor_states(doc.clone()).await.is_empty() {
+            if !svc
+                .throughline
+                .get_anchor_states(doc.clone())
+                .await
+                .is_empty()
+            {
                 return Err("anchor states nonempty before creation".into());
             }
             let cov = svc.throughline.get_coverage(doc.clone()).await;
@@ -98,7 +102,10 @@ async fn cap_throughline_create() -> CapabilityResult {
                 .await
                 .ok_or("create_throughline returned None")?;
             if info.paragraph_count != 1 {
-                return Err(format!("scaffold paragraph_count = {}", info.paragraph_count));
+                return Err(format!(
+                    "scaffold paragraph_count = {}",
+                    info.paragraph_count
+                ));
             }
             // Second create must fail (activation is deliberate).
             if svc
@@ -115,7 +122,12 @@ async fn cap_throughline_create() -> CapabilityResult {
                 return Err(format!("scaffold states: {states:?}"));
             }
             // Untouched sibling document remains empty.
-            if svc.throughline.get_throughline(other.clone()).await.is_some() {
+            if svc
+                .throughline
+                .get_throughline(other.clone())
+                .await
+                .is_some()
+            {
                 return Err("non-opted document grew a throughline".into());
             }
             Ok("create + opt-in invariant hold".to_string())
@@ -146,13 +158,20 @@ async fn cap_throughline_anchor_states() -> CapabilityResult {
                 .await
                 .ok_or("create failed")?;
             svc.throughline
-                .set_anchor(doc.clone(), "tl-overview".into(), vec!["introduction".into()])
+                .set_anchor(
+                    doc.clone(),
+                    "tl-overview".into(),
+                    vec!["introduction".into()],
+                )
                 .await
                 .ok_or("set_anchor failed")?;
 
             let states = svc.throughline.get_anchor_states(doc.clone()).await;
             if states[0].state != "synced" {
-                return Err(format!("expected synced after baseline, got {}", states[0].state));
+                return Err(format!(
+                    "expected synced after baseline, got {}",
+                    states[0].state
+                ));
             }
 
             // Manuscript drifts.
@@ -167,7 +186,10 @@ async fn cap_throughline_anchor_states() -> CapabilityResult {
                 .ok_or("re-put_section failed")?;
             let states = svc.throughline.get_anchor_states(doc.clone()).await;
             if states[0].state != "manuscript-ahead" {
-                return Err(format!("expected manuscript-ahead, got {}", states[0].state));
+                return Err(format!(
+                    "expected manuscript-ahead, got {}",
+                    states[0].state
+                ));
             }
 
             // Narrative edit on top → both directions stale.
@@ -209,7 +231,11 @@ async fn cap_throughline_coverage() -> CapabilityResult {
                 .await
                 .ok_or("create failed")?;
             svc.throughline
-                .set_anchor(doc.clone(), "tl-overview".into(), vec!["introduction".into()])
+                .set_anchor(
+                    doc.clone(),
+                    "tl-overview".into(),
+                    vec!["introduction".into()],
+                )
                 .await
                 .ok_or("set_anchor failed")?;
 
@@ -223,7 +249,10 @@ async fn cap_throughline_coverage() -> CapabilityResult {
                 .ok_or("mark_supporting failed")?;
             let cov = svc.throughline.get_coverage(doc.clone()).await;
             if !cov.uncovered_section_keys.is_empty() {
-                return Err(format!("supporting not suppressed: {:?}", cov.uncovered_section_keys));
+                return Err(format!(
+                    "supporting not suppressed: {:?}",
+                    cov.uncovered_section_keys
+                ));
             }
             Ok("coverage + supporting suppression hold".to_string())
         },

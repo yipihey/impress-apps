@@ -24,13 +24,11 @@ impl NpzFile {
     /// Open an `.npz` file and index its contents.
     pub fn open(path: impl AsRef<Path>) -> IoResult<Self> {
         let path = path.as_ref().to_path_buf();
-        let file = File::open(&path).map_err(|e| {
-            IoError::OpenFailed(format!("{}: {}", path.display(), e))
-        })?;
+        let file = File::open(&path)
+            .map_err(|e| IoError::OpenFailed(format!("{}: {}", path.display(), e)))?;
 
-        let mut archive = ZipArchive::new(file).map_err(|e| {
-            IoError::InvalidFormat(format!("Not a valid .npz (zip) file: {}", e))
-        })?;
+        let mut archive = ZipArchive::new(file)
+            .map_err(|e| IoError::InvalidFormat(format!("Not a valid .npz (zip) file: {}", e)))?;
 
         let mut arrays = HashMap::new();
         for i in 0..archive.len() {
@@ -43,9 +41,9 @@ impl NpzFile {
             let key = name.strip_suffix(".npy").unwrap_or(&name).to_string();
 
             let mut buf = Vec::new();
-            entry.read_to_end(&mut buf).map_err(|e| {
-                IoError::ReadFailed(format!("Failed to read '{}': {}", name, e))
-            })?;
+            entry
+                .read_to_end(&mut buf)
+                .map_err(|e| IoError::ReadFailed(format!("Failed to read '{}': {}", name, e)))?;
             arrays.insert(key, buf);
         }
 
@@ -69,9 +67,8 @@ impl NpzFile {
             ))
         })?;
 
-        let reader = NpyFile::new(Cursor::new(buf.as_slice())).map_err(|e| {
-            IoError::InvalidFormat(format!("Invalid .npy for '{}': {}", name, e))
-        })?;
+        let reader = NpyFile::new(Cursor::new(buf.as_slice()))
+            .map_err(|e| IoError::InvalidFormat(format!("Invalid .npy for '{}': {}", name, e)))?;
 
         Ok(reader.shape().iter().map(|&s| s as usize).collect())
     }
@@ -92,9 +89,8 @@ impl NpzFile {
             ))
         })?;
 
-        let reader = NpyFile::new(Cursor::new(buf.as_slice())).map_err(|e| {
-            IoError::InvalidFormat(format!("Invalid .npy for '{}': {}", name, e))
-        })?;
+        let reader = NpyFile::new(Cursor::new(buf.as_slice()))
+            .map_err(|e| IoError::InvalidFormat(format!("Invalid .npy for '{}': {}", name, e)))?;
 
         let shape: Vec<usize> = reader.shape().iter().map(|&s| s as usize).collect();
         let dtype = reader.dtype();
@@ -120,9 +116,7 @@ impl NpzFile {
                     // f64 → f32
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<f64>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("f64 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("f64 read '{}': {}", name, e)))?
                         .into_iter()
                         .map(|v| v as f32)
                         .collect()
@@ -130,27 +124,21 @@ impl NpzFile {
                     // f32 or f16 (treat as f32)
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<f32>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("f32 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("f32 read '{}': {}", name, e)))?
                 }
             }
             TypeChar::Int => {
                 if nbytes <= Some(4) {
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<i32>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("i32 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("i32 read '{}': {}", name, e)))?
                         .into_iter()
                         .map(|v| v as f32)
                         .collect()
                 } else {
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<i64>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("i64 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("i64 read '{}': {}", name, e)))?
                         .into_iter()
                         .map(|v| v as f32)
                         .collect()
@@ -160,18 +148,14 @@ impl NpzFile {
                 if nbytes <= Some(4) {
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<u32>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("u32 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("u32 read '{}': {}", name, e)))?
                         .into_iter()
                         .map(|v| v as f32)
                         .collect()
                 } else {
                     let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                     npy.into_vec::<u64>()
-                        .map_err(|e| {
-                            IoError::ReadFailed(format!("u64 read '{}': {}", name, e))
-                        })?
+                        .map_err(|e| IoError::ReadFailed(format!("u64 read '{}': {}", name, e)))?
                         .into_iter()
                         .map(|v| v as f32)
                         .collect()
@@ -181,9 +165,7 @@ impl NpzFile {
                 // NumPy bools are 1-byte (0 or 1)
                 let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                 npy.into_vec::<bool>()
-                    .map_err(|e| {
-                        IoError::ReadFailed(format!("bool read '{}': {}", name, e))
-                    })?
+                    .map_err(|e| IoError::ReadFailed(format!("bool read '{}': {}", name, e)))?
                     .into_iter()
                     .map(|v| if v { 1.0f32 } else { 0.0f32 })
                     .collect()
@@ -192,9 +174,7 @@ impl NpzFile {
                 // Try f64 as a last resort
                 let npy = NpyFile::new(Cursor::new(buf.as_slice())).unwrap();
                 npy.into_vec::<f64>()
-                    .map_err(|e| {
-                        IoError::ReadFailed(format!("fallback read '{}': {}", name, e))
-                    })?
+                    .map_err(|e| IoError::ReadFailed(format!("fallback read '{}': {}", name, e)))?
                     .into_iter()
                     .map(|v| v as f32)
                     .collect()
@@ -205,13 +185,15 @@ impl NpzFile {
         if data.len() != expected_len {
             return Err(IoError::ReadFailed(format!(
                 "Shape mismatch for '{}': shape {:?} expects {} elements, got {}",
-                name, shape, expected_len, data.len()
+                name,
+                shape,
+                expected_len,
+                data.len()
             )));
         }
 
-        ArrayD::from_shape_vec(IxDyn(&shape), data).map_err(|e| {
-            IoError::ReadFailed(format!("ndarray reshape for '{}': {}", name, e))
-        })
+        ArrayD::from_shape_vec(IxDyn(&shape), data)
+            .map_err(|e| IoError::ReadFailed(format!("ndarray reshape for '{}': {}", name, e)))
     }
 
     /// Read a scalar `f32` value (a 0-d array or 1-element array).

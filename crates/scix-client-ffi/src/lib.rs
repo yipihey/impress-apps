@@ -251,10 +251,7 @@ pub fn scix_fetch_coreads(
 /// Returns a BibTeX string with entries for all provided bibcodes.
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn scix_export_bibtex(
-    token: String,
-    bibcodes: Vec<String>,
-) -> Result<String, ScixFfiError> {
+pub fn scix_export_bibtex(token: String, bibcodes: Vec<String>) -> Result<String, ScixFfiError> {
     make_runtime()?.block_on(async move {
         let refs: Vec<&str> = bibcodes.iter().map(String::as_str).collect();
         SciXClient::new(&token)
@@ -267,10 +264,7 @@ pub fn scix_export_bibtex(
 /// Export papers as RIS format.
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn scix_export_ris(
-    token: String,
-    bibcodes: Vec<String>,
-) -> Result<String, ScixFfiError> {
+pub fn scix_export_ris(token: String, bibcodes: Vec<String>) -> Result<String, ScixFfiError> {
     use scix_client::types::ExportFormat;
     make_runtime()?.block_on(async move {
         let refs: Vec<&str> = bibcodes.iter().map(String::as_str).collect();
@@ -294,7 +288,9 @@ pub fn scix_list_libraries(token: String) -> Result<Vec<ScixLibrary>, ScixFfiErr
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| ScixFfiError::Internal { message: e.to_string() })?;
+            .map_err(|e| ScixFfiError::Internal {
+                message: e.to_string(),
+            })?;
 
         let response = client
             .get("https://api.adsabs.harvard.edu/v1/biblib/libraries")
@@ -302,20 +298,36 @@ pub fn scix_list_libraries(token: String) -> Result<Vec<ScixLibrary>, ScixFfiErr
             .header("User-Agent", "scix-client-ffi/0.1")
             .send()
             .await
-            .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+            .map_err(|e| ScixFfiError::NetworkError {
+                message: e.to_string(),
+            })?;
 
         let status = response.status().as_u16();
-        if status == 401 { return Err(ScixFfiError::Unauthorized); }
-        if status == 429 { return Err(ScixFfiError::RateLimited); }
-        if status == 404 { return Err(ScixFfiError::NotFound); }
+        if status == 401 {
+            return Err(ScixFfiError::Unauthorized);
+        }
+        if status == 429 {
+            return Err(ScixFfiError::RateLimited);
+        }
+        if status == 404 {
+            return Err(ScixFfiError::NotFound);
+        }
         if !(200..=299).contains(&status) {
-            return Err(ScixFfiError::ApiError { message: format!("HTTP {}", status) });
+            return Err(ScixFfiError::ApiError {
+                message: format!("HTTP {}", status),
+            });
         }
 
-        let body = response.text().await
-            .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
-        let parsed: serde_json::Value = serde_json::from_str(&body)
-            .map_err(|e| ScixFfiError::Internal { message: e.to_string() })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ScixFfiError::NetworkError {
+                message: e.to_string(),
+            })?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| ScixFfiError::Internal {
+                message: e.to_string(),
+            })?;
 
         let empty_arr = vec![];
         let libraries = parsed["libraries"]
@@ -369,7 +381,9 @@ pub fn scix_get_library(
                 ])
                 .send()
                 .await
-                .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
+                .map_err(|e| ScixFfiError::NetworkError {
+                    message: e.to_string(),
+                })?;
 
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
@@ -382,12 +396,13 @@ pub fn scix_get_library(
                 });
             }
 
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| ScixFfiError::NetworkError { message: e.to_string() })?;
-            let parsed: serde_json::Value = serde_json::from_str(&body)
-                .map_err(|e| ScixFfiError::Internal { message: format!("Invalid library response: {}", e) })?;
+            let body = resp.text().await.map_err(|e| ScixFfiError::NetworkError {
+                message: e.to_string(),
+            })?;
+            let parsed: serde_json::Value =
+                serde_json::from_str(&body).map_err(|e| ScixFfiError::Internal {
+                    message: format!("Invalid library response: {}", e),
+                })?;
 
             // Extract metadata from first page
             if metadata.is_none() {
@@ -419,8 +434,7 @@ pub fn scix_get_library(
             }
         }
 
-        let (name, description, num_documents, is_public, owner) =
-            metadata.unwrap_or_default();
+        let (name, description, num_documents, is_public, owner) = metadata.unwrap_or_default();
 
         Ok(ScixLibraryDetail {
             id: library_id,
@@ -494,10 +508,7 @@ pub fn scix_remove_from_library(
 /// Delete a library.
 #[cfg(feature = "native")]
 #[uniffi::export]
-pub fn scix_delete_library(
-    token: String,
-    library_id: String,
-) -> Result<(), ScixFfiError> {
+pub fn scix_delete_library(token: String, library_id: String) -> Result<(), ScixFfiError> {
     make_runtime()?.block_on(async move {
         SciXClient::new(&token)
             .delete_library(&library_id)

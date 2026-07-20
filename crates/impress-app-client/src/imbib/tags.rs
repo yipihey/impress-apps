@@ -15,28 +15,42 @@ struct Ok {
     status: String,
 }
 fn ok(s: &Ok) -> Result<()> {
-    if s.status == "ok" { Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImbibClient {
     pub async fn list_tags(&self) -> Result<Vec<TagRecord>> {
         #[derive(Deserialize)]
-        struct R { status: String, tags: Vec<TagRecord> }
+        struct R {
+            status: String,
+            tags: Vec<TagRecord>,
+        }
         let url = self.base_url.join("/api/tags")?;
         let resp = self.http.get(url).send().await?;
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Ok(body.tags)
     }
 
     pub async fn list_tags_with_counts(&self) -> Result<Vec<TagWithCount>> {
         #[derive(Deserialize)]
-        struct R { status: String, tags: Vec<TagWithCount> }
+        struct R {
+            status: String,
+            tags: Vec<TagWithCount>,
+        }
         let mut url = self.base_url.join("/api/tags")?;
         url.query_pairs_mut().append_pair("with_counts", "true");
         let resp = self.http.get(url).send().await?;
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Ok(body.tags)
     }
 
@@ -54,18 +68,29 @@ impl ImbibClient {
         }
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn delete_tag_undoable(&self, path: String) -> Result<MutationResult> {
-        let url = self.base_url.join(&format!("/api/tags/{}", urlencoding::encode(&path)))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/tags/{}", urlencoding::encode(&path)))?;
         let resp = self.http.delete(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound(format!("DELETE /api/tags/{} (Phase D)", path)));
+            return Err(AppClientError::NotFound(format!(
+                "DELETE /api/tags/{} (Phase D)",
+                path
+            )));
         }
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn update_tag(
@@ -74,28 +99,47 @@ impl ImbibClient {
         color_light: Option<String>,
         color_dark: Option<String>,
     ) -> Result<MutationResult> {
-        let url = self.base_url.join(&format!("/api/tags/{}", urlencoding::encode(&path)))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/tags/{}", urlencoding::encode(&path)))?;
         let body = json!({"color_light": color_light, "color_dark": color_dark});
         let resp = self.http.put(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound(format!("PUT /api/tags/{} (Phase D)", path)));
+            return Err(AppClientError::NotFound(format!(
+                "PUT /api/tags/{} (Phase D)",
+                path
+            )));
         }
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn rename_tag(&self, old_path: String, new_path: String) -> Result<MutationResult> {
-        let url = self
-            .base_url
-            .join(&format!("/api/tags/{}/rename", urlencoding::encode(&old_path)))?;
-        let resp = self.http.put(url).json(&json!({"new_path": new_path})).send().await?;
+        let url = self.base_url.join(&format!(
+            "/api/tags/{}/rename",
+            urlencoding::encode(&old_path)
+        ))?;
+        let resp = self
+            .http
+            .put(url)
+            .json(&json!({"new_path": new_path}))
+            .send()
+            .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound("PUT /api/tags/{path}/rename (Phase D)".into()));
+            return Err(AppClientError::NotFound(
+                "PUT /api/tags/{path}/rename (Phase D)".into(),
+            ));
         }
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn add_tag(&self, ids: Vec<String>, tag_path: String) -> Result<MutationResult> {
@@ -105,7 +149,10 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> Result<MutationResult> {
@@ -115,7 +162,10 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: Ok = decode_envelope(resp).await?;
         ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn query_by_tag(
@@ -126,8 +176,19 @@ impl ImbibClient {
         _ascending: bool,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(None, Some(tag_path), None, None, None, parent_id, limit, 0, None, None)
-            .await
+        self.search_with_params(
+            None,
+            Some(tag_path),
+            None,
+            None,
+            None,
+            parent_id,
+            limit,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> Result<u32> {
@@ -141,9 +202,15 @@ impl ImbibClient {
             return Ok(0);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] count: u32 }
+        struct R {
+            status: String,
+            #[serde(default)]
+            count: u32,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Ok(body.count)
     }
 }

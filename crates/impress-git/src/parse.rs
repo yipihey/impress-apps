@@ -91,7 +91,8 @@ pub fn parse_status_porcelain_v2(output: &str) -> Result<RepoStatus, ParseError>
         // Skip other header lines (# branch.oid, etc.)
     }
 
-    let is_clean = modified.is_empty() && staged.is_empty() && untracked.is_empty() && !has_conflicts;
+    let is_clean =
+        modified.is_empty() && staged.is_empty() && untracked.is_empty() && !has_conflicts;
 
     Ok(RepoStatus {
         branch,
@@ -417,10 +418,7 @@ upstream\thttps://github.com/upstream/repo.git (push)
         assert_eq!(remotes[0].name, "origin");
         assert_eq!(remotes[0].fetch_url, "git@github.com:user/repo.git");
         assert_eq!(remotes[1].name, "upstream");
-        assert_eq!(
-            remotes[1].push_url,
-            "https://github.com/upstream/repo.git"
-        );
+        assert_eq!(remotes[1].push_url, "https://github.com/upstream/repo.git");
     }
 
     #[test]

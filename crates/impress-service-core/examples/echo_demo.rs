@@ -89,9 +89,9 @@ fn main() {
     let repeat_tool = McpToolDescriptor::iter()
         .find(|t| t.name.ends_with("_repeat"))
         .expect("repeat tool should be registered");
-    let result = runtime::block_on(
-        (repeat_tool.handler)(json!({ "message": "ho", "count": 3 })),
-    )
+    let result = runtime::block_on((repeat_tool.handler)(
+        json!({ "message": "ho", "count": 3 }),
+    ))
     .expect("repeat should succeed");
     println!("  result: {result}");
 

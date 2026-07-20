@@ -238,7 +238,11 @@ fn float_value_json_round_trip_is_exact() {
     let v = Value::Float(1.7938901934754837e174);
     let json = serde_json::to_string(&v).expect("serialize");
     let back: Value = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(v, back, "float changed value through JSON round-trip (json text: {})", json);
+    assert_eq!(
+        v, back,
+        "float changed value through JSON round-trip (json text: {})",
+        json
+    );
 }
 
 /// REGRESSION TRIPWIRE: ADR-0005 declares `title` and `state` as *required*
@@ -266,6 +270,14 @@ fn task_schema_matches_adr_field_table() {
     let names: Vec<&str> = s.fields.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["title", "state", "description", "assigned_to", "due_at", "output_schema", "error"]
+        vec![
+            "title",
+            "state",
+            "description",
+            "assigned_to",
+            "due_at",
+            "output_schema",
+            "error"
+        ]
     );
 }

@@ -54,8 +54,7 @@ pub fn commit_cmd(message: &str, paths: &[&str]) -> GitCommand {
 /// `git push <remote> <branch>`
 pub fn push_cmd(remote: &str, branch: &str) -> GitCommand {
     let mut cmd = base_git_cmd();
-    cmd.args
-        .extend(["push", remote, branch].map(String::from));
+    cmd.args.extend(["push", remote, branch].map(String::from));
     cmd
 }
 
@@ -116,8 +115,9 @@ pub fn branch_list_cmd() -> GitCommand {
     let mut cmd = base_git_cmd();
     cmd.args.push("branch".into());
     cmd.args.push("-a".into());
-    cmd.args
-        .push("--format=%(HEAD)%x00%(refname:short)%x00%(upstream:short)%x00%(refname:rstrip=-2)".into());
+    cmd.args.push(
+        "--format=%(HEAD)%x00%(refname:short)%x00%(upstream:short)%x00%(refname:rstrip=-2)".into(),
+    );
     cmd
 }
 
@@ -197,16 +197,14 @@ pub fn version_cmd() -> GitCommand {
 /// `git config user.name`
 pub fn config_user_name_cmd() -> GitCommand {
     let mut cmd = base_git_cmd();
-    cmd.args
-        .extend(["config", "user.name"].map(String::from));
+    cmd.args.extend(["config", "user.name"].map(String::from));
     cmd
 }
 
 /// `git config user.email`
 pub fn config_user_email_cmd() -> GitCommand {
     let mut cmd = base_git_cmd();
-    cmd.args
-        .extend(["config", "user.email"].map(String::from));
+    cmd.args.extend(["config", "user.email"].map(String::from));
     cmd
 }
 
@@ -217,16 +215,29 @@ mod tests {
     #[test]
     fn clone_cmd_basic() {
         let cmd = clone_cmd("git@github.com:user/repo.git", "/tmp/repo", None);
-        assert_eq!(cmd.args, vec!["clone", "git@github.com:user/repo.git", "/tmp/repo"]);
+        assert_eq!(
+            cmd.args,
+            vec!["clone", "git@github.com:user/repo.git", "/tmp/repo"]
+        );
         assert_eq!(cmd.env.get("GIT_SSH_COMMAND").unwrap(), SSH_BATCH);
     }
 
     #[test]
     fn clone_cmd_with_branch() {
-        let cmd = clone_cmd("https://github.com/user/repo.git", "/tmp/repo", Some("develop"));
+        let cmd = clone_cmd(
+            "https://github.com/user/repo.git",
+            "/tmp/repo",
+            Some("develop"),
+        );
         assert_eq!(
             cmd.args,
-            vec!["clone", "--branch", "develop", "https://github.com/user/repo.git", "/tmp/repo"]
+            vec![
+                "clone",
+                "--branch",
+                "develop",
+                "https://github.com/user/repo.git",
+                "/tmp/repo"
+            ]
         );
     }
 

@@ -45,15 +45,30 @@ pub fn register_bibliography_schemas(registry: &mut SchemaRegistry) {
 }
 
 fn required_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: true, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: true,
+        description: None,
+    }
 }
 
 fn optional_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: false, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: false,
+        description: None,
+    }
 }
 
 fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
-    FieldDef { name: name.into(), field_type, required, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type,
+        required,
+        description: None,
+    }
 }
 
 #[cfg(test)]
@@ -77,7 +92,10 @@ mod tests {
             .map(|f| f.name.as_str())
             .collect();
         assert!(required.contains(&"cite_key"), "missing required cite_key");
-        assert!(required.contains(&"entry_type"), "missing required entry_type");
+        assert!(
+            required.contains(&"entry_type"),
+            "missing required entry_type"
+        );
         assert!(required.contains(&"title"), "missing required title");
     }
 

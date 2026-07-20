@@ -9,7 +9,7 @@
 //! - Title text
 
 use super::types::*;
-use crate::axis::{AxisConfig, AxisPosition, ScaleType, calculate_ticks};
+use crate::axis::{calculate_ticks, AxisConfig, AxisPosition, ScaleType};
 
 /// Render a `PlotSpec` to a standalone SVG string.
 pub fn render_svg(spec: &PlotSpec) -> String {
@@ -18,8 +18,16 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     // Layout: margins for axes, title, legend
     let has_title = spec.title.is_some();
     let margin_top = if has_title { 40.0 } else { 20.0 };
-    let margin_bottom = if spec.x_axis.label.is_some() { 60.0 } else { 45.0 };
-    let margin_left = if spec.y_axis.label.is_some() { 70.0 } else { 55.0 };
+    let margin_bottom = if spec.x_axis.label.is_some() {
+        60.0
+    } else {
+        45.0
+    };
+    let margin_left = if spec.y_axis.label.is_some() {
+        70.0
+    } else {
+        55.0
+    };
     let margin_right = 20.0;
 
     let plot_x = margin_left;
@@ -33,7 +41,11 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     // Build axis configs
     let x_axis_config = AxisConfig {
         position: AxisPosition::Bottom,
-        scale: if spec.x_axis.log_scale { ScaleType::Log10 } else { ScaleType::Linear },
+        scale: if spec.x_axis.log_scale {
+            ScaleType::Log10
+        } else {
+            ScaleType::Linear
+        },
         min: x_min,
         max: x_max,
         label: spec.x_axis.label.clone(),
@@ -49,7 +61,11 @@ pub fn render_svg(spec: &PlotSpec) -> String {
 
     let y_axis_config = AxisConfig {
         position: AxisPosition::Left,
-        scale: if spec.y_axis.log_scale { ScaleType::Log10 } else { ScaleType::Linear },
+        scale: if spec.y_axis.log_scale {
+            ScaleType::Log10
+        } else {
+            ScaleType::Linear
+        },
         min: y_min,
         max: y_max,
         label: spec.y_axis.label.clone(),
@@ -66,7 +82,15 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     // Background
     svg.rect(0.0, 0.0, spec.width, spec.height, "#ffffff", None, 0.0);
     // Plot area background
-    svg.rect(plot_x, plot_y, plot_w, plot_h, "#fafafa", Some(("#cccccc", 0.5)), 0.0);
+    svg.rect(
+        plot_x,
+        plot_y,
+        plot_w,
+        plot_h,
+        "#fafafa",
+        Some(("#cccccc", 0.5)),
+        0.0,
+    );
 
     // Coordinate transform closures
     let to_px = |x: f64, y: f64| -> (f64, f64) {
@@ -129,18 +153,43 @@ pub fn render_svg(spec: &PlotSpec) -> String {
                 render_step(&mut svg, series, &css_color, &to_px);
             }
             SeriesStyle::Bar => {
-                render_bars(&mut svg, series, &css_color, &to_px, plot_y + plot_h, y_min, y_max, spec.y_axis.log_scale);
+                render_bars(
+                    &mut svg,
+                    series,
+                    &css_color,
+                    &to_px,
+                    plot_y + plot_h,
+                    y_min,
+                    y_max,
+                    spec.y_axis.log_scale,
+                );
             }
         }
     }
 
     // Render annotations (inside clip group)
-    render_annotations(&mut svg, &spec.annotations, &to_px, plot_x, plot_y, plot_w, plot_h);
+    render_annotations(
+        &mut svg,
+        &spec.annotations,
+        &to_px,
+        plot_x,
+        plot_y,
+        plot_w,
+        plot_h,
+    );
 
     svg.push("</g>"); // end clip group
 
     // Axes
-    render_axes(&mut svg, &x_axis_config, &y_axis_config, plot_x, plot_y, plot_w, plot_h);
+    render_axes(
+        &mut svg,
+        &x_axis_config,
+        &y_axis_config,
+        plot_x,
+        plot_y,
+        plot_w,
+        plot_h,
+    );
 
     // Title
     if let Some(title) = &spec.title {
@@ -156,7 +205,10 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     }
 
     // Legend
-    if spec.legend.visible && !spec.series.is_empty() && spec.series.iter().any(|s| !s.label.is_empty()) {
+    if spec.legend.visible
+        && !spec.series.is_empty()
+        && spec.series.iter().any(|s| !s.label.is_empty())
+    {
         render_legend(&mut svg, spec, plot_x, plot_y, plot_w, plot_h);
     }
 
@@ -173,11 +225,15 @@ fn normalize(v: f64, min: f64, max: f64, log_scale: bool) -> f64 {
         let log_min = min.log10();
         let log_max = max.log10();
         let range = log_max - log_min;
-        if range == 0.0 { return 0.5; }
+        if range == 0.0 {
+            return 0.5;
+        }
         (v.log10() - log_min) / range
     } else {
         let range = max - min;
-        if range == 0.0 { return 0.5; }
+        if range == 0.0 {
+            return 0.5;
+        }
         (v - min) / range
     }
 }
@@ -193,28 +249,54 @@ fn compute_bounds(spec: &PlotSpec) -> (f64, f64, f64, f64) {
     for series in &spec.series {
         for &v in &series.x {
             if v.is_finite() {
-                if v < x_min { x_min = v; }
-                if v > x_max { x_max = v; }
+                if v < x_min {
+                    x_min = v;
+                }
+                if v > x_max {
+                    x_max = v;
+                }
             }
         }
         for (i, &v) in series.y.iter().enumerate() {
-            if !v.is_finite() { continue; }
+            if !v.is_finite() {
+                continue;
+            }
 
-            let lo = series.error_low.as_ref().and_then(|e| e.get(i).copied()).unwrap_or(0.0);
-            let hi = series.error_high.as_ref().and_then(|e| e.get(i).copied()).unwrap_or(0.0);
+            let lo = series
+                .error_low
+                .as_ref()
+                .and_then(|e| e.get(i).copied())
+                .unwrap_or(0.0);
+            let hi = series
+                .error_high
+                .as_ref()
+                .and_then(|e| e.get(i).copied())
+                .unwrap_or(0.0);
 
             let val_lo = v - lo;
             let val_hi = v + hi;
-            if val_lo < y_min { y_min = val_lo; }
-            if val_hi > y_max { y_max = val_hi; }
+            if val_lo < y_min {
+                y_min = val_lo;
+            }
+            if val_hi > y_max {
+                y_max = val_hi;
+            }
         }
     }
 
     // Apply explicit axis bounds
-    if let Some(v) = spec.x_axis.min { x_min = v; }
-    if let Some(v) = spec.x_axis.max { x_max = v; }
-    if let Some(v) = spec.y_axis.min { y_min = v; }
-    if let Some(v) = spec.y_axis.max { y_max = v; }
+    if let Some(v) = spec.x_axis.min {
+        x_min = v;
+    }
+    if let Some(v) = spec.x_axis.max {
+        x_max = v;
+    }
+    if let Some(v) = spec.y_axis.min {
+        y_min = v;
+    }
+    if let Some(v) = spec.y_axis.max {
+        y_max = v;
+    }
 
     // Ensure valid range
     if !x_min.is_finite() || !x_max.is_finite() {
@@ -237,12 +319,19 @@ fn compute_bounds(spec: &PlotSpec) -> (f64, f64, f64, f64) {
 
 // ── Series renderers ────────────────────────────────────────────────
 
-fn render_polyline(svg: &mut SvgBuilder, series: &PlotSeries, color: &str, to_px: &dyn Fn(f64, f64) -> (f64, f64)) {
+fn render_polyline(
+    svg: &mut SvgBuilder,
+    series: &PlotSeries,
+    color: &str,
+    to_px: &dyn Fn(f64, f64) -> (f64, f64),
+) {
     let mut points = String::new();
     let n = series.x.len().min(series.y.len());
     for i in 0..n {
         let (x, y) = (series.x[i], series.y[i]);
-        if !x.is_finite() || !y.is_finite() { continue; }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
         let (px, py) = to_px(x, y);
         if !points.is_empty() {
             points.push(' ');
@@ -257,24 +346,40 @@ fn render_polyline(svg: &mut SvgBuilder, series: &PlotSeries, color: &str, to_px
     }
 }
 
-fn render_scatter(svg: &mut SvgBuilder, series: &PlotSeries, color: &str, to_px: &dyn Fn(f64, f64) -> (f64, f64)) {
+fn render_scatter(
+    svg: &mut SvgBuilder,
+    series: &PlotSeries,
+    color: &str,
+    to_px: &dyn Fn(f64, f64) -> (f64, f64),
+) {
     let n = series.x.len().min(series.y.len());
     for i in 0..n {
         let (x, y) = (series.x[i], series.y[i]);
-        if !x.is_finite() || !y.is_finite() { continue; }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
         let (px, py) = to_px(x, y);
         svg.circle(px, py, series.point_radius, color, Some(("white", 0.8)));
     }
 }
 
-fn render_step(svg: &mut SvgBuilder, series: &PlotSeries, color: &str, to_px: &dyn Fn(f64, f64) -> (f64, f64)) {
+fn render_step(
+    svg: &mut SvgBuilder,
+    series: &PlotSeries,
+    color: &str,
+    to_px: &dyn Fn(f64, f64) -> (f64, f64),
+) {
     let n = series.x.len().min(series.y.len());
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
 
     let mut points = String::new();
     for i in 0..n {
         let (x, y) = (series.x[i], series.y[i]);
-        if !x.is_finite() || !y.is_finite() { continue; }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
         let (px, py) = to_px(x, y);
 
         // Step: horizontal to new x, then vertical to new y
@@ -306,7 +411,9 @@ fn render_bars(
     log_scale_y: bool,
 ) {
     let n = series.x.len().min(series.y.len());
-    if n < 2 { return; }
+    if n < 2 {
+        return;
+    }
 
     // Bar width from average x spacing
     let bar_width = if n > 1 {
@@ -316,11 +423,17 @@ fn render_bars(
         1.0
     };
 
-    let baseline_y = if log_scale_y { y_min.max(1e-10) } else { 0.0_f64.max(y_min) };
+    let baseline_y = if log_scale_y {
+        y_min.max(1e-10)
+    } else {
+        0.0_f64.max(y_min)
+    };
 
     for i in 0..n {
         let (x, y) = (series.x[i], series.y[i]);
-        if !x.is_finite() || !y.is_finite() { continue; }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
 
         let (px_left, py_top) = to_px(x - bar_width / 2.0, y);
         let (px_right, _) = to_px(x + bar_width / 2.0, y);
@@ -342,11 +455,18 @@ fn render_error_bars(
     to_px: &dyn Fn(f64, f64) -> (f64, f64),
 ) {
     let cap_half = 3.0;
-    let n = series.x.len().min(series.y.len()).min(lo.len()).min(hi.len());
+    let n = series
+        .x
+        .len()
+        .min(series.y.len())
+        .min(lo.len())
+        .min(hi.len());
 
     for i in 0..n {
         let (x, y) = (series.x[i], series.y[i]);
-        if !x.is_finite() || !y.is_finite() { continue; }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
 
         let y_lo = y - lo[i];
         let y_hi = y + hi[i];
@@ -375,7 +495,15 @@ fn render_axes(
 ) {
     // X axis (bottom)
     let x_bottom = plot_y + plot_h;
-    svg.line(plot_x, x_bottom, plot_x + plot_w, x_bottom, "#333333", 1.0, None);
+    svg.line(
+        plot_x,
+        x_bottom,
+        plot_x + plot_w,
+        x_bottom,
+        "#333333",
+        1.0,
+        None,
+    );
 
     let x_ticks = calculate_ticks(x_config);
     for t in &x_ticks {
@@ -384,7 +512,15 @@ fn render_axes(
         svg.line(px, x_bottom, px, x_bottom + tick_len, "#333333", 1.0, None);
 
         if let Some(label) = &t.label {
-            svg.text(px, x_bottom + 16.0, label, "middle", "10px", "#555555", None);
+            svg.text(
+                px,
+                x_bottom + 16.0,
+                label,
+                "middle",
+                "10px",
+                "#555555",
+                None,
+            );
         }
     }
 
@@ -401,7 +537,15 @@ fn render_axes(
     }
 
     // Y axis (left)
-    svg.line(plot_x, plot_y, plot_x, plot_y + plot_h, "#333333", 1.0, None);
+    svg.line(
+        plot_x,
+        plot_y,
+        plot_x,
+        plot_y + plot_h,
+        "#333333",
+        1.0,
+        None,
+    );
 
     let y_ticks = calculate_ticks(y_config);
     for t in &y_ticks {
@@ -410,7 +554,15 @@ fn render_axes(
         svg.line(plot_x - tick_len, py, plot_x, py, "#333333", 1.0, None);
 
         if let Some(label) = &t.label {
-            svg.text(plot_x - 8.0, py + 3.0, label, "end", "10px", "#555555", None);
+            svg.text(
+                plot_x - 8.0,
+                py + 3.0,
+                label,
+                "end",
+                "10px",
+                "#555555",
+                None,
+            );
         }
     }
 
@@ -427,9 +579,18 @@ fn render_axes(
 
 // ── Legend ───────────────────────────────────────────────────────────
 
-fn render_legend(svg: &mut SvgBuilder, spec: &PlotSpec, plot_x: f64, plot_y: f64, plot_w: f64, _plot_h: f64) {
+fn render_legend(
+    svg: &mut SvgBuilder,
+    spec: &PlotSpec,
+    plot_x: f64,
+    plot_y: f64,
+    plot_w: f64,
+    _plot_h: f64,
+) {
     let labeled: Vec<&PlotSeries> = spec.series.iter().filter(|s| !s.label.is_empty()).collect();
-    if labeled.is_empty() { return; }
+    if labeled.is_empty() {
+        return;
+    }
 
     let line_h = 18.0;
     let legend_w = 120.0;
@@ -439,7 +600,10 @@ fn render_legend(svg: &mut SvgBuilder, spec: &PlotSpec, plot_x: f64, plot_y: f64
     let (lx, ly) = match spec.legend.position {
         LegendPosition::TopRight => (plot_x + plot_w - legend_w - padding, plot_y + padding),
         LegendPosition::TopLeft => (plot_x + padding, plot_y + padding),
-        LegendPosition::BottomRight => (plot_x + plot_w - legend_w - padding, plot_y + _plot_h - legend_h - padding),
+        LegendPosition::BottomRight => (
+            plot_x + plot_w - legend_w - padding,
+            plot_y + _plot_h - legend_h - padding,
+        ),
         LegendPosition::BottomLeft => (plot_x + padding, plot_y + _plot_h - legend_h - padding),
     };
 
@@ -471,7 +635,15 @@ fn render_legend(svg: &mut SvgBuilder, spec: &PlotSpec, plot_x: f64, plot_y: f64
         }
 
         // Label
-        svg.text(x_sym + 24.0, y + 4.0, &series.label, "start", "10px", "#333333", None);
+        svg.text(
+            x_sym + 24.0,
+            y + 4.0,
+            &series.label,
+            "start",
+            "10px",
+            "#333333",
+            None,
+        );
     }
 }
 
@@ -488,16 +660,34 @@ fn render_annotations(
 ) {
     for ann in annotations {
         match ann {
-            Annotation::HLine { y, label, color, dash } => {
+            Annotation::HLine {
+                y,
+                label,
+                color,
+                dash,
+            } => {
                 let css = color.css();
                 let (_, py) = to_px(0.0, *y);
                 let dash_str = if *dash { Some("6,3") } else { None };
                 svg.line(plot_x, py, plot_x + plot_w, py, &css, 1.0, dash_str);
                 if let Some(text) = label {
-                    svg.text(plot_x + plot_w - 4.0, py - 4.0, text, "end", "9px", &css, None);
+                    svg.text(
+                        plot_x + plot_w - 4.0,
+                        py - 4.0,
+                        text,
+                        "end",
+                        "9px",
+                        &css,
+                        None,
+                    );
                 }
             }
-            Annotation::VLine { x, label, color, dash } => {
+            Annotation::VLine {
+                x,
+                label,
+                color,
+                dash,
+            } => {
                 let css = color.css();
                 let (px, _) = to_px(*x, 0.0);
                 let dash_str = if *dash { Some("6,3") } else { None };
@@ -511,7 +701,14 @@ fn render_annotations(
                 let (px, py) = to_px(*x, *y);
                 svg.text(px, py - 4.0, text, "start", "10px", &css, None);
             }
-            Annotation::Arrow { x1, y1, x2, y2, label, color } => {
+            Annotation::Arrow {
+                x1,
+                y1,
+                x2,
+                y2,
+                label,
+                color,
+            } => {
                 let css = color.css();
                 let (px1, py1) = to_px(*x1, *y1);
                 let (px2, py2) = to_px(*x2, *y2);
@@ -530,9 +727,12 @@ fn render_annotations(
                     let by = py2 - uy * head_len;
                     let points = format!(
                         "{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}",
-                        px2, py2,
-                        bx + uy * head_w, by - ux * head_w,
-                        bx - uy * head_w, by + ux * head_w,
+                        px2,
+                        py2,
+                        bx + uy * head_w,
+                        by - ux * head_w,
+                        bx - uy * head_w,
+                        by + ux * head_w,
                     );
                     svg.push(&format!(
                         "<polygon points=\"{}\" fill=\"{}\"/>",
@@ -540,13 +740,30 @@ fn render_annotations(
                     ));
                 }
                 if let Some(text) = label {
-                    svg.text((px1 + px2) / 2.0, (py1 + py2) / 2.0 - 4.0, text, "middle", "9px", &css, None);
+                    svg.text(
+                        (px1 + px2) / 2.0,
+                        (py1 + py2) / 2.0 - 4.0,
+                        text,
+                        "middle",
+                        "9px",
+                        &css,
+                        None,
+                    );
                 }
             }
-            Annotation::FillBetween { x, y_low, y_high, color, opacity, .. } => {
+            Annotation::FillBetween {
+                x,
+                y_low,
+                y_high,
+                color,
+                opacity,
+                ..
+            } => {
                 let css = color.css();
                 let n = x.len().min(y_low.len()).min(y_high.len());
-                if n == 0 { continue; }
+                if n == 0 {
+                    continue;
+                }
 
                 let mut path = String::new();
                 // Upper boundary (forward)
@@ -670,7 +887,16 @@ impl SvgBuilder {
         self.parts.push(s.to_string());
     }
 
-    fn line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, color: &str, width: f64, dash: Option<&str>) {
+    fn line(
+        &mut self,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        color: &str,
+        width: f64,
+        dash: Option<&str>,
+    ) {
         let dash_attr = dash.map_or(String::new(), |d| format!(r#" stroke-dasharray="{}""#, d));
         self.parts.push(format!(
             r#"<line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" stroke="{}" stroke-width="{}"{}/>"#,
@@ -678,7 +904,16 @@ impl SvgBuilder {
         ));
     }
 
-    fn rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str, stroke: Option<(&str, f64)>, opacity: f64) {
+    fn rect(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        fill: &str,
+        stroke: Option<(&str, f64)>,
+        opacity: f64,
+    ) {
         let stroke_attr = stroke.map_or(String::new(), |(c, w)| {
             format!(r#" stroke="{}" stroke-width="{}""#, c, w)
         });
@@ -703,7 +938,16 @@ impl SvgBuilder {
         ));
     }
 
-    fn text(&mut self, x: f64, y: f64, content: &str, anchor: &str, size: &str, fill: &str, weight: Option<&str>) {
+    fn text(
+        &mut self,
+        x: f64,
+        y: f64,
+        content: &str,
+        anchor: &str,
+        size: &str,
+        fill: &str,
+        weight: Option<&str>,
+    ) {
         let weight_attr = weight.map_or(String::new(), |w| format!(r#" font-weight="{}""#, w));
         self.parts.push(format!(
             r#"<text x="{:.2}" y="{:.2}" text-anchor="{}" font-size="{}" fill="{}"{} dominant-baseline="auto">{}</text>"#,
@@ -749,9 +993,11 @@ mod tests {
 
     #[test]
     fn test_render_simple_line() {
-        let spec = PlotSpec::new()
-            .with_title("Test")
-            .line(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 4.0], "y=x^2");
+        let spec = PlotSpec::new().with_title("Test").line(
+            vec![0.0, 1.0, 2.0],
+            vec![0.0, 1.0, 4.0],
+            "y=x^2",
+        );
         let svg = render_svg(&spec);
         assert!(svg.starts_with("<svg"));
         assert!(svg.ends_with("</svg>"));
@@ -761,8 +1007,7 @@ mod tests {
 
     #[test]
     fn test_render_scatter() {
-        let spec = PlotSpec::new()
-            .scatter(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 4.0], "pts");
+        let spec = PlotSpec::new().scatter(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 4.0], "pts");
         let svg = render_svg(&spec);
         assert!(svg.contains("circle"));
     }
@@ -798,8 +1043,7 @@ mod tests {
 
     #[test]
     fn test_xml_escape() {
-        let spec = PlotSpec::new()
-            .with_title("a < b & c > d");
+        let spec = PlotSpec::new().with_title("a < b & c > d");
         let svg = render_svg(&spec);
         assert!(svg.contains("a &lt; b &amp; c &gt; d"));
     }
@@ -819,10 +1063,11 @@ mod tests {
 
     #[test]
     fn test_log_scale() {
-        let spec = PlotSpec::new()
-            .with_log_x()
-            .with_log_y()
-            .line(vec![1.0, 10.0, 100.0], vec![1.0, 10.0, 100.0], "log-log");
+        let spec = PlotSpec::new().with_log_x().with_log_y().line(
+            vec![1.0, 10.0, 100.0],
+            vec![1.0, 10.0, 100.0],
+            "log-log",
+        );
         let svg = render_svg(&spec);
         assert!(svg.contains("polyline"));
     }

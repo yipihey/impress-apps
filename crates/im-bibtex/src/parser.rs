@@ -555,7 +555,11 @@ mod tests {
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].cite_key, "2024A&A...686A.276A");
         assert_eq!(
-            result.entries[0].fields.iter().find(|f| f.key == "doi").map(|f| f.value.as_str()),
+            result.entries[0]
+                .fields
+                .iter()
+                .find(|f| f.key == "doi")
+                .map(|f| f.value.as_str()),
             Some("10.1051/0004-6361/202348170")
         );
     }

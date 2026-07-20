@@ -91,16 +91,25 @@ mod tests {
             .fields
             .iter()
             .any(|f| f.name == "format" && f.required);
-        assert!(has_required_format, "figure schema must have required 'format' field");
+        assert!(
+            has_required_format,
+            "figure schema must have required 'format' field"
+        );
     }
 
     #[test]
     fn dataset_schema_has_required_fields() {
         let schema = dataset_schema();
         let has_name = schema.fields.iter().any(|f| f.name == "name" && f.required);
-        let has_format = schema.fields.iter().any(|f| f.name == "format" && f.required);
+        let has_format = schema
+            .fields
+            .iter()
+            .any(|f| f.name == "format" && f.required);
         assert!(has_name, "dataset schema must have required 'name' field");
-        assert!(has_format, "dataset schema must have required 'format' field");
+        assert!(
+            has_format,
+            "dataset schema must have required 'format' field"
+        );
     }
 
     #[test]

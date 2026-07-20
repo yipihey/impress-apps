@@ -125,9 +125,11 @@ mod tests {
 
     #[test]
     fn test_kuva_line_plot() {
-        let spec = PlotSpec::new()
-            .with_title("kuva test")
-            .line(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 4.0], "y=x^2");
+        let spec = PlotSpec::new().with_title("kuva test").line(
+            vec![0.0, 1.0, 2.0],
+            vec![0.0, 1.0, 4.0],
+            "y=x^2",
+        );
         let svg = render_kuva_svg(&spec);
         assert!(svg.is_some());
         let svg = svg.unwrap();

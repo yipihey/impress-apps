@@ -185,15 +185,15 @@ proptest! {
 #[test]
 fn derivation_through_store_never_touches_ledger() {
     let tmp = tempfile::tempdir().unwrap();
-    let sections =
-        Arc::new(SectionStore::open_in_memory(tmp.path().to_path_buf()).unwrap());
+    let sections = Arc::new(SectionStore::open_in_memory(tmp.path().to_path_buf()).unwrap());
     let tl = ThroughlineStore::new(sections.clone());
     let doc = Uuid::new_v4();
     sections
         .put_section(doc, "intro", "body v1", SectionMetadata::default())
         .unwrap();
     tl.create_throughline(doc, "Story").unwrap();
-    tl.set_anchor(doc, "tl-overview", &["intro".to_string()]).unwrap();
+    tl.set_anchor(doc, "tl-overview", &["intro".to_string()])
+        .unwrap();
     let ledger_before = tl.get_throughline(doc).unwrap().unwrap().anchor_map;
 
     // Drift + derive repeatedly: staleness is read-only.
@@ -206,7 +206,10 @@ fn derivation_through_store_never_touches_ledger() {
         let _ = tl.repair_candidates(doc).unwrap();
     }
     let ledger_after = tl.get_throughline(doc).unwrap().unwrap().anchor_map;
-    assert_eq!(ledger_before, ledger_after, "derivation must never write the ledger");
+    assert_eq!(
+        ledger_before, ledger_after,
+        "derivation must never write the ledger"
+    );
 }
 
 // ─── 5. Rebind never ambiguous or self ─────────────────────────────────────

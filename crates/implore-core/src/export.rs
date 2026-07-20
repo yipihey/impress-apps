@@ -339,12 +339,16 @@ pub fn emit_provenance_sidecar(
         // doesn't have an exact slot for "render parameters" but this
         // is the closest semantically. Tools that don't understand
         // it can still see the key/value content.
-        let vars: Vec<serde_json::Value> = metadata.parameters.iter()
-            .map(|(k, v)| serde_json::json!({
-                "@type": "PropertyValue",
-                "name": k,
-                "value": v,
-            }))
+        let vars: Vec<serde_json::Value> = metadata
+            .parameters
+            .iter()
+            .map(|(k, v)| {
+                serde_json::json!({
+                    "@type": "PropertyValue",
+                    "name": k,
+                    "value": v,
+                })
+            })
             .collect();
         creative_work["variableMeasured"] = serde_json::Value::Array(vars);
     }
@@ -375,7 +379,9 @@ pub fn sidecar_path(export_path: &std::path::Path) -> std::path::PathBuf {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("export");
-    let parent = export_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let parent = export_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     parent.join(format!("{}.ro-crate.json", stem))
 }
 

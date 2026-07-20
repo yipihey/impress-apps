@@ -183,12 +183,20 @@ pub fn inverse_of(op_type: &OperationType, prev: &Value) -> Option<OperationType
                 };
                 Some(OperationType::SetFlag(Some(FlagState {
                     color,
-                    style: m
-                        .get("style")
-                        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None }),
-                    length: m
-                        .get("length")
-                        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None }),
+                    style: m.get("style").and_then(|v| {
+                        if let Value::String(s) = v {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    }),
+                    length: m.get("length").and_then(|v| {
+                        if let Value::String(s) = v {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    }),
                 })))
             }
             _ => None,
@@ -198,7 +206,10 @@ pub fn inverse_of(op_type: &OperationType, prev: &Value) -> Option<OperationType
             _ => None,
         },
         OperationType::SetVisibility(_) => match prev {
-            Value::String(s) => s.parse::<Visibility>().ok().map(OperationType::SetVisibility),
+            Value::String(s) => s
+                .parse::<Visibility>()
+                .ok()
+                .map(OperationType::SetVisibility),
             _ => None,
         },
         OperationType::SetPayload(field, _) => match prev {
@@ -227,16 +238,17 @@ pub fn inverse_of(op_type: &OperationType, prev: &Value) -> Option<OperationType
         // Symmetric operations: inverse is the opposite
         OperationType::AddTag(tag) => Some(OperationType::RemoveTag(tag.clone())),
         OperationType::RemoveTag(tag) => Some(OperationType::AddTag(tag.clone())),
-        OperationType::AddReference(r) => {
-            Some(OperationType::RemoveReference(r.target, r.edge_type.clone()))
-        }
-        OperationType::RemoveReference(target, edge) => Some(OperationType::AddReference(
-            TypedReference {
+        OperationType::AddReference(r) => Some(OperationType::RemoveReference(
+            r.target,
+            r.edge_type.clone(),
+        )),
+        OperationType::RemoveReference(target, edge) => {
+            Some(OperationType::AddReference(TypedReference {
                 target: *target,
                 edge_type: edge.clone(),
                 metadata: None,
-            },
-        )),
+            }))
+        }
         OperationType::Custom(_, _) => None,
     }
 }
@@ -246,22 +258,46 @@ pub fn undo_description(op_type: &OperationType, count: usize) -> String {
     let noun = if count == 1 { "Paper" } else { "Papers" };
     match op_type {
         OperationType::SetRead(true) => {
-            if count == 1 { "Mark as Read".into() } else { format!("Mark {} {} as Read", count, noun) }
+            if count == 1 {
+                "Mark as Read".into()
+            } else {
+                format!("Mark {} {} as Read", count, noun)
+            }
         }
         OperationType::SetRead(false) => {
-            if count == 1 { "Mark as Unread".into() } else { format!("Mark {} {} as Unread", count, noun) }
+            if count == 1 {
+                "Mark as Unread".into()
+            } else {
+                format!("Mark {} {} as Unread", count, noun)
+            }
         }
         OperationType::SetStarred(true) => {
-            if count == 1 { "Star Paper".into() } else { format!("Star {} {}", count, noun) }
+            if count == 1 {
+                "Star Paper".into()
+            } else {
+                format!("Star {} {}", count, noun)
+            }
         }
         OperationType::SetStarred(false) => {
-            if count == 1 { "Unstar Paper".into() } else { format!("Unstar {} {}", count, noun) }
+            if count == 1 {
+                "Unstar Paper".into()
+            } else {
+                format!("Unstar {} {}", count, noun)
+            }
         }
         OperationType::SetFlag(Some(_)) => {
-            if count == 1 { "Flag Paper".into() } else { format!("Flag {} {}", count, noun) }
+            if count == 1 {
+                "Flag Paper".into()
+            } else {
+                format!("Flag {} {}", count, noun)
+            }
         }
         OperationType::SetFlag(None) => {
-            if count == 1 { "Remove Flag".into() } else { format!("Remove Flag from {} {}", count, noun) }
+            if count == 1 {
+                "Remove Flag".into()
+            } else {
+                format!("Remove Flag from {} {}", count, noun)
+            }
         }
         OperationType::AddTag(tag) => format!("Add Tag '{}'", tag),
         OperationType::RemoveTag(tag) => format!("Remove Tag '{}'", tag),
@@ -269,7 +305,11 @@ pub fn undo_description(op_type: &OperationType, count: usize) -> String {
         OperationType::RemovePayload(field) => format!("Clear {}", field),
         OperationType::PatchPayload(_) => "Edit Fields".into(),
         OperationType::SetParent(_) => {
-            if count == 1 { "Move Paper".into() } else { format!("Move {} {}", count, noun) }
+            if count == 1 {
+                "Move Paper".into()
+            } else {
+                format!("Move {} {}", count, noun)
+            }
         }
         OperationType::SetPriority(_) => "Set Priority".into(),
         OperationType::SetVisibility(_) => "Set Visibility".into(),
@@ -334,9 +374,7 @@ fn serialize_op_type(op: &OperationType) -> (String, Value) {
         OperationType::SetRead(v) => ("set_read".into(), Value::Bool(*v)),
         OperationType::SetStarred(v) => ("set_starred".into(), Value::Bool(*v)),
         OperationType::SetPriority(p) => ("set_priority".into(), Value::String(p.to_string())),
-        OperationType::SetVisibility(v) => {
-            ("set_visibility".into(), Value::String(v.to_string()))
-        }
+        OperationType::SetVisibility(v) => ("set_visibility".into(), Value::String(v.to_string())),
         OperationType::SetPayload(field, val) => {
             let mut m = BTreeMap::new();
             m.insert("field".into(), Value::String(field.clone()));
@@ -402,7 +440,10 @@ mod tests {
                 FieldMutation::SetPayload("title".into(), Value::String("t".into())),
                 "SetPayload",
             ),
-            (FieldMutation::RemovePayload("field".into()), "RemovePayload"),
+            (
+                FieldMutation::RemovePayload("field".into()),
+                "RemovePayload",
+            ),
             (FieldMutation::SetParent(None), "SetParent"),
         ];
 

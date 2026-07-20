@@ -139,15 +139,11 @@ pub struct BundleManifest {
 pub enum BundleManifestError {
     #[error("manifest JSON parse failed: {0}")]
     ParseError(#[from] serde_json::Error),
-    #[error(
-        "manifest schema mismatch: expected {expected}, got {actual}"
-    )]
+    #[error("manifest schema mismatch: expected {expected}, got {actual}")]
     SchemaMismatch { expected: String, actual: String },
     #[error("manifest main_source must be non-empty")]
     EmptyMainSource,
-    #[error(
-        "manifest main_source {path:?} not present in entries list"
-    )]
+    #[error("manifest main_source {path:?} not present in entries list")]
     MainSourceNotInEntries { path: String },
     #[error("manifest entries list must be non-empty")]
     EmptyEntries,
@@ -181,9 +177,7 @@ impl BundleManifest {
         }
         let main = &self.main_source;
         if !self.entries.iter().any(|e| &e.path == main) {
-            return Err(BundleManifestError::MainSourceNotInEntries {
-                path: main.clone(),
-            });
+            return Err(BundleManifestError::MainSourceNotInEntries { path: main.clone() });
         }
         for entry in &self.entries {
             if entry.path.starts_with('/') || entry.path.contains("..") {

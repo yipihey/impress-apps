@@ -48,8 +48,14 @@ impl HeuristicClassifier {
         Self::new(vec![
             t("ai/topic/cosmology", &["cosmology", "dark energy", "cmb"]),
             t("ai/topic/galaxies", &["galaxy", "galaxies", "galactic"]),
-            t("ai/methods/simulation", &["simulation", "hydrodynamic", "n-body"]),
-            t("ai/methods/ml", &["neural network", "machine learning", "deep learning"]),
+            t(
+                "ai/methods/simulation",
+                &["simulation", "hydrodynamic", "n-body"],
+            ),
+            t(
+                "ai/methods/ml",
+                &["neural network", "machine learning", "deep learning"],
+            ),
         ])
     }
 }
@@ -65,7 +71,10 @@ impl Classifier for HeuristicClassifier {
         self.table
             .iter()
             .filter_map(|(tag, keywords)| {
-                let hits = keywords.iter().filter(|k| text.contains(k.as_str())).count();
+                let hits = keywords
+                    .iter()
+                    .filter(|k| text.contains(k.as_str()))
+                    .count();
                 if hits == 0 {
                     return None;
                 }

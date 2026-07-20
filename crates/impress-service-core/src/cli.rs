@@ -104,9 +104,7 @@ fn build_arg(name: &str, prop: &Value, required: bool) -> Arg {
     let kind = property_kind(prop);
     let long: String = name.replace('_', "-");
 
-    let mut arg = Arg::new(name.to_string())
-        .long(long)
-        .required(required);
+    let mut arg = Arg::new(name.to_string()).long(long).required(required);
 
     match kind {
         PropertyKind::Boolean => {
@@ -190,9 +188,7 @@ pub fn dispatch_matches(matches: &ArgMatches) -> Result<Value, BoxError> {
 
     let descriptor = CliSubcommand::iter()
         .find(|c| c.name == sub_name)
-        .ok_or_else(|| -> BoxError {
-            format!("unknown subcommand `{sub_name}`").into()
-        })?;
+        .ok_or_else(|| -> BoxError { format!("unknown subcommand `{sub_name}`").into() })?;
 
     let schema = (descriptor.input_schema)();
     let json_args = matches_to_json(sub_matches, &schema)?;

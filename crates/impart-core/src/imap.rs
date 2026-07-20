@@ -1,8 +1,8 @@
 //! IMAP client implementation.
 
-use crate::{ImpartError, Result};
-use crate::types::{Address, Envelope, Mailbox};
 use crate::mime::ParsedMessage;
+use crate::types::{Address, Envelope, Mailbox};
+use crate::{ImpartError, Result};
 use imap::{ClientBuilder, Session};
 use std::borrow::Cow;
 
@@ -38,7 +38,10 @@ impl ImapClient {
             .iter()
             .map(|m| Mailbox {
                 name: m.name().to_string(),
-                delimiter: m.delimiter().map(|d| d.to_string()).unwrap_or_else(|| "/".to_string()),
+                delimiter: m
+                    .delimiter()
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "/".to_string()),
                 flags: m.attributes().iter().map(|a| format!("{:?}", a)).collect(),
                 message_count: 0,
                 unseen_count: 0,
@@ -53,7 +56,8 @@ impl ImapClient {
         _start: u32,
         count: u32,
     ) -> Result<Vec<Envelope>> {
-        let mailbox = self.session
+        let mailbox = self
+            .session
             .select(mailbox_name)
             .map_err(|e| ImpartError::Imap(e.to_string()))?;
 
@@ -64,7 +68,11 @@ impl ImapClient {
 
         // Calculate range (IMAP uses 1-based sequence numbers)
         let end = exists;
-        let start_seq = if exists > count { exists - count + 1 } else { 1 };
+        let start_seq = if exists > count {
+            exists - count + 1
+        } else {
+            1
+        };
 
         if start_seq > end {
             return Ok(Vec::new());
@@ -121,7 +129,11 @@ impl ImapClient {
             .select(mailbox_name)
             .map_err(|e| ImpartError::Imap(e.to_string()))?;
 
-        let uid_str = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+        let uid_str = uids
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         let flag_str = flags.join(" ");
 
         let query = if add {
@@ -148,7 +160,11 @@ impl ImapClient {
             .select(from_mailbox)
             .map_err(|e| ImpartError::Imap(e.to_string()))?;
 
-        let uid_str = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+        let uid_str = uids
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
 
         self.session
             .uid_mv(&uid_str, to_mailbox)
@@ -177,8 +193,14 @@ fn convert_envelope(uid: u32, env: &imap_proto::Envelope, flags: &[imap::types::
                         name: cow_to_string(&addr.name),
                         email: format!(
                             "{}@{}",
-                            addr.mailbox.as_ref().map(|m| String::from_utf8_lossy(m)).unwrap_or_default(),
-                            addr.host.as_ref().map(|h| String::from_utf8_lossy(h)).unwrap_or_default()
+                            addr.mailbox
+                                .as_ref()
+                                .map(|m| String::from_utf8_lossy(m))
+                                .unwrap_or_default(),
+                            addr.host
+                                .as_ref()
+                                .map(|h| String::from_utf8_lossy(h))
+                                .unwrap_or_default()
                         ),
                     })
                     .collect()

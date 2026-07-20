@@ -155,7 +155,11 @@ fn normalize_doi(doi: String) -> String {
 
 #[pyfunction]
 #[pyo3(signature = (author=None, year=None, title=None))]
-fn generate_cite_key(author: Option<String>, year: Option<String>, title: Option<String>) -> String {
+fn generate_cite_key(
+    author: Option<String>,
+    year: Option<String>,
+    title: Option<String>,
+) -> String {
     crate::generate_cite_key(author, year, title)
 }
 
@@ -216,7 +220,8 @@ fn preferred_identifier_for_source(
     source: &str,
 ) -> PyResult<Option<PyPreferredIdentifier>> {
     let s = parse_enrichment_source(source)?;
-    Ok(crate::preferred_identifier_for_source(identifiers, s).map(|p| PyPreferredIdentifier::from(&p)))
+    Ok(crate::preferred_identifier_for_source(identifiers, s)
+        .map(|p| PyPreferredIdentifier::from(&p)))
 }
 
 #[pyfunction]

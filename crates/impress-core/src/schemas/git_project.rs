@@ -85,15 +85,10 @@ pub fn git_project_schema() -> Schema {
                 name: "app_id".into(),
                 field_type: FieldType::String,
                 required: false,
-                description: Some(
-                    "Which app owns this project (imprint, imbib, implore)".into(),
-                ),
+                description: Some("Which app owns this project (imprint, imbib, implore)".into()),
             },
         ],
-        expected_edges: vec![
-            EdgeType::Contains,
-            EdgeType::Custom("is-part-of".into()),
-        ],
+        expected_edges: vec![EdgeType::Contains, EdgeType::Custom("is-part-of".into())],
         inherits: None,
     }
 }
@@ -150,7 +145,11 @@ mod tests {
         for name in &optional_fields {
             let field = schema.fields.iter().find(|f| f.name == *name);
             assert!(field.is_some(), "field '{}' should exist", name);
-            assert!(!field.unwrap().required, "field '{}' should be optional", name);
+            assert!(
+                !field.unwrap().required,
+                "field '{}' should be optional",
+                name
+            );
         }
     }
 

@@ -31,15 +31,30 @@ pub fn register_document_schemas(registry: &mut SchemaRegistry) {
 }
 
 fn required_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: true, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: true,
+        description: None,
+    }
 }
 
 fn optional_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: false, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: false,
+        description: None,
+    }
 }
 
 fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
-    FieldDef { name: name.into(), field_type, required, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type,
+        required,
+        description: None,
+    }
 }
 
 #[cfg(test)]
@@ -63,8 +78,14 @@ mod tests {
             .map(|f| f.name.as_str())
             .collect();
         assert!(required.contains(&"text"), "missing required text");
-        assert!(required.contains(&"selection_start"), "missing required selection_start");
-        assert!(required.contains(&"selection_end"), "missing required selection_end");
+        assert!(
+            required.contains(&"selection_start"),
+            "missing required selection_start"
+        );
+        assert!(
+            required.contains(&"selection_end"),
+            "missing required selection_end"
+        );
     }
 
     #[test]
@@ -72,5 +93,4 @@ mod tests {
         let schema = annotation_schema();
         assert!(schema.expected_edges.contains(&EdgeType::Annotates));
     }
-
 }

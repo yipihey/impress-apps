@@ -24,12 +24,15 @@ fn store() -> Arc<SqliteItemStore> {
 }
 
 fn scheduler(store: Arc<SqliteItemStore>) -> Scheduler {
-    Scheduler::new(store, SchedulerConfig {
-        actor: "impel-test".into(),
-        batch: 16,
-        start_delay: std::time::Duration::ZERO,
-        poll_interval: std::time::Duration::ZERO,
-    })
+    Scheduler::new(
+        store,
+        SchedulerConfig {
+            actor: "impel-test".into(),
+            batch: 16,
+            start_delay: std::time::Duration::ZERO,
+            poll_interval: std::time::Duration::ZERO,
+        },
+    )
 }
 
 fn state_of(store: &SqliteItemStore, id: impress_core::item::ItemId) -> TaskState {
@@ -233,7 +236,10 @@ async fn retry_resets_to_pending_then_succeeds() {
     .unwrap();
     let mut sched = scheduler(s.clone());
     // Script is popped back-to-front: first call fails, second completes.
-    sched.register(Scripted::new("flaky", vec![Step::Complete, Step::RetryableFail]));
+    sched.register(Scripted::new(
+        "flaky",
+        vec![Step::Complete, Step::RetryableFail],
+    ));
 
     let r1 = sched.run_once().await.unwrap();
     assert_eq!(r1.retried, 1, "{r1:?}");
@@ -273,7 +279,9 @@ async fn permanent_failure_fails_immediately_with_error() {
     assert_eq!(r.failed, 1);
     assert_eq!(state_of(&s, ids[0]), TaskState::Failed);
     let item = TaskStoreApi::get_item(s.as_ref(), ids[0]).unwrap().unwrap();
-    assert!(matches!(item.payload.get("error"), Some(Value::String(e)) if e.contains("bad schema")));
+    assert!(
+        matches!(item.payload.get("error"), Some(Value::String(e)) if e.contains("bad schema"))
+    );
 }
 
 #[tokio::test]
@@ -295,7 +303,12 @@ async fn retries_exhaust_then_fail() {
     // Always retryable-fails; max_retries = 2 → attempts 1,2 retry; attempt 3 fails.
     sched.register(Scripted::new(
         "hopeless",
-        vec![Step::RetryableFail, Step::RetryableFail, Step::RetryableFail, Step::RetryableFail],
+        vec![
+            Step::RetryableFail,
+            Step::RetryableFail,
+            Step::RetryableFail,
+            Step::RetryableFail,
+        ],
     ));
 
     let mut failed = false;
@@ -416,5 +429,7 @@ async fn missing_executor_escalates_to_failed() {
     assert_eq!(r.failed, 1);
     assert_eq!(state_of(&s, ids[0]), TaskState::Failed);
     let item = TaskStoreApi::get_item(s.as_ref(), ids[0]).unwrap().unwrap();
-    assert!(matches!(item.payload.get("error"), Some(Value::String(e)) if e.contains("no executor")));
+    assert!(
+        matches!(item.payload.get("error"), Some(Value::String(e)) if e.contains("no executor"))
+    );
 }

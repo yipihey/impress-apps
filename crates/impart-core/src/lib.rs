@@ -36,10 +36,10 @@
 use thiserror::Error;
 
 // Modules - types contains internal types, not re-exported to avoid collision with FFI types
-pub mod types;
+pub mod mbox;
 pub mod mime;
 pub mod threading;
-pub mod mbox;
+pub mod types;
 
 // Provenance event sourcing for research conversations
 pub mod provenance;
@@ -69,7 +69,7 @@ pub use ffi_types::*;
 
 // Re-export FFI functions and clients
 #[cfg(feature = "native")]
-pub use ffi::{thread_messages, parse_message, FfiImapClient, FfiSmtpClient};
+pub use ffi::{parse_message, thread_messages, FfiImapClient, FfiSmtpClient};
 
 // UniFFI scaffolding
 #[cfg(feature = "native")]

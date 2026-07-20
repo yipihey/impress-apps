@@ -51,10 +51,7 @@ pub async fn handle_execute_file(
         .header("content-type", "application/octet-stream")
         .header("x-toolbox-exit-code", result.exit_code.to_string())
         .header("x-toolbox-duration-ms", result.duration_ms.to_string())
-        .header(
-            "x-toolbox-stdout-length",
-            result.stdout.len().to_string(),
-        )
+        .header("x-toolbox-stdout-length", result.stdout.len().to_string())
         .body(Body::from(file_data))
         .unwrap())
 }
@@ -125,7 +122,9 @@ async fn run_process(req: &ExecuteRequest) -> Result<ExecuteResponse, (StatusCod
         let stdout_handle = tokio::spawn(async move {
             if let Some(mut pipe) = stdout_pipe {
                 let mut buf = Vec::new();
-                tokio::io::AsyncReadExt::read_to_end(&mut pipe, &mut buf).await.unwrap_or(0);
+                tokio::io::AsyncReadExt::read_to_end(&mut pipe, &mut buf)
+                    .await
+                    .unwrap_or(0);
                 buf
             } else {
                 Vec::new()
@@ -135,7 +134,9 @@ async fn run_process(req: &ExecuteRequest) -> Result<ExecuteResponse, (StatusCod
         let stderr_handle = tokio::spawn(async move {
             if let Some(mut pipe) = stderr_pipe {
                 let mut buf = Vec::new();
-                tokio::io::AsyncReadExt::read_to_end(&mut pipe, &mut buf).await.unwrap_or(0);
+                tokio::io::AsyncReadExt::read_to_end(&mut pipe, &mut buf)
+                    .await
+                    .unwrap_or(0);
                 buf
             } else {
                 Vec::new()
@@ -149,11 +150,8 @@ async fn run_process(req: &ExecuteRequest) -> Result<ExecuteResponse, (StatusCod
     };
 
     // Wait with timeout
-    let result = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        read_output,
-    )
-    .await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), read_output).await;
 
     let duration_ms = start.elapsed().as_millis() as u64;
 

@@ -186,7 +186,14 @@ pub fn compile_latex_tectonic(
                 None
             };
 
-            TectonicResult { pdf_data: pdf, synctex_data, diagnostics, log, compile_ms, error }
+            TectonicResult {
+                pdf_data: pdf,
+                synctex_data,
+                diagnostics,
+                log,
+                compile_ms,
+                error,
+            }
         }
         Err(e) => {
             // Fatal engine error. We may still have a partial log via the

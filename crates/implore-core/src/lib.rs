@@ -49,8 +49,8 @@ pub use colormap::{
 };
 pub use dataset::*;
 pub use library::{
-    FigureFolder, FigureLibrary, ImprintLink, LibraryError, LibraryFigure, load_library_json,
-    save_library_json,
+    load_library_json, save_library_json, FigureFolder, FigureLibrary, ImprintLink, LibraryError,
+    LibraryFigure,
 };
 pub use plugin::{
     DataGenerator, GeneratedData, GeneratedDataFfi, GeneratorCategory, GeneratorError,

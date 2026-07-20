@@ -185,7 +185,7 @@ pub enum ProvenancePayload {
     /// A message was sent in a conversation.
     MessageSent {
         message_id: String,
-        role: String,         // "human", "counsel", "system"
+        role: String, // "human", "counsel", "system"
         model_used: Option<String>,
         content_hash: String, // SHA256 of content for verification
     },
@@ -316,7 +316,9 @@ impl ProvenancePayload {
             }
             ProvenancePayload::ConversationSummarized { .. } => "Summary generated".to_string(),
 
-            ProvenancePayload::MessageSent { role, model_used, .. } => {
+            ProvenancePayload::MessageSent {
+                role, model_used, ..
+            } => {
                 if let Some(model) = model_used {
                     format!("Message from {} ({})", role, model)
                 } else {
@@ -340,7 +342,11 @@ impl ProvenancePayload {
             ProvenancePayload::ArtifactReferenced { artifact_uri, .. } => {
                 format!("Artifact referenced: {}", artifact_uri)
             }
-            ProvenancePayload::ArtifactMetadataUpdated { artifact_uri, field, .. } => {
+            ProvenancePayload::ArtifactMetadataUpdated {
+                artifact_uri,
+                field,
+                ..
+            } => {
                 format!("Artifact {} updated: {}", artifact_uri, field)
             }
             ProvenancePayload::ArtifactResolved { artifact_uri, .. } => {
@@ -400,7 +406,9 @@ impl ProvenancePayload {
 
             ProvenancePayload::MessageSent { .. }
             | ProvenancePayload::MessageEdited { .. }
-            | ProvenancePayload::SideConversationSynthesized { .. } => ProvenanceEntityType::Message,
+            | ProvenancePayload::SideConversationSynthesized { .. } => {
+                ProvenanceEntityType::Message
+            }
 
             ProvenancePayload::ArtifactIntroduced { .. }
             | ProvenancePayload::ArtifactReferenced { .. }
@@ -410,8 +418,9 @@ impl ProvenancePayload {
 
             ProvenancePayload::InsightRecorded { .. } => ProvenanceEntityType::Insight,
 
-            ProvenancePayload::DecisionMade { .. }
-            | ProvenancePayload::DecisionRevised { .. } => ProvenanceEntityType::Decision,
+            ProvenancePayload::DecisionMade { .. } | ProvenancePayload::DecisionRevised { .. } => {
+                ProvenanceEntityType::Decision
+            }
 
             ProvenancePayload::SystemPaused { .. }
             | ProvenancePayload::SystemResumed
@@ -524,7 +533,10 @@ mod tests {
             display_name: "Fowler 2012".to_string(),
         };
 
-        assert_eq!(artifact_payload.entity_type(), ProvenanceEntityType::Artifact);
+        assert_eq!(
+            artifact_payload.entity_type(),
+            ProvenanceEntityType::Artifact
+        );
 
         let decision_payload = ProvenancePayload::DecisionMade {
             decision_id: "d-1".to_string(),
@@ -533,13 +545,25 @@ mod tests {
             alternatives_considered: vec![],
         };
 
-        assert_eq!(decision_payload.entity_type(), ProvenanceEntityType::Decision);
+        assert_eq!(
+            decision_payload.entity_type(),
+            ProvenanceEntityType::Decision
+        );
     }
 
     #[test]
     fn test_artifact_type_parsing() {
-        assert_eq!("paper".parse::<ArtifactType>().unwrap(), ArtifactType::Paper);
-        assert_eq!("repo".parse::<ArtifactType>().unwrap(), ArtifactType::Repository);
-        assert_eq!("DATASET".parse::<ArtifactType>().unwrap(), ArtifactType::Dataset);
+        assert_eq!(
+            "paper".parse::<ArtifactType>().unwrap(),
+            ArtifactType::Paper
+        );
+        assert_eq!(
+            "repo".parse::<ArtifactType>().unwrap(),
+            ArtifactType::Repository
+        );
+        assert_eq!(
+            "DATASET".parse::<ArtifactType>().unwrap(),
+            ArtifactType::Dataset
+        );
     }
 }

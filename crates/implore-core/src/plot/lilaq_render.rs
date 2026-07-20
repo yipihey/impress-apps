@@ -28,12 +28,20 @@ pub fn plot_spec_to_typst(spec: &PlotSpec) -> String {
     // Axis bounds
     if let Some(min) = spec.x_axis.min {
         if let Some(max) = spec.x_axis.max {
-            diagram_args.push(format!("  xlim: ({}, {})", format_f64(min), format_f64(max)));
+            diagram_args.push(format!(
+                "  xlim: ({}, {})",
+                format_f64(min),
+                format_f64(max)
+            ));
         }
     }
     if let Some(min) = spec.y_axis.min {
         if let Some(max) = spec.y_axis.max {
-            diagram_args.push(format!("  ylim: ({}, {})", format_f64(min), format_f64(max)));
+            diagram_args.push(format!(
+                "  ylim: ({}, {})",
+                format_f64(min),
+                format_f64(max)
+            ));
         }
     }
 
@@ -159,7 +167,11 @@ fn compile_typst_to_svg(source: &str) -> Option<String> {
     let doc = engine.compile(source).ok()?;
     let pages = typst_svg::svg(&doc);
     // Return first page SVG
-    if pages.is_empty() { None } else { Some(pages) }
+    if pages.is_empty() {
+        None
+    } else {
+        Some(pages)
+    }
 }
 
 #[cfg(feature = "lilaq")]
@@ -223,17 +235,17 @@ mod tests {
 
     #[test]
     fn test_typst_scatter() {
-        let spec = PlotSpec::new()
-            .scatter(vec![1.0, 2.0], vec![3.0, 4.0], "pts");
+        let spec = PlotSpec::new().scatter(vec![1.0, 2.0], vec![3.0, 4.0], "pts");
         let typst = plot_spec_to_typst(&spec);
         assert!(typst.contains("plot.scatter"));
     }
 
     #[test]
     fn test_typst_multi_series() {
-        let spec = PlotSpec::new()
-            .line(vec![0.0], vec![0.0], "a")
-            .scatter(vec![1.0], vec![1.0], "b");
+        let spec =
+            PlotSpec::new()
+                .line(vec![0.0], vec![0.0], "a")
+                .scatter(vec![1.0], vec![1.0], "b");
         let typst = plot_spec_to_typst(&spec);
         assert!(typst.contains("plot.line"));
         assert!(typst.contains("plot.scatter"));
@@ -242,7 +254,10 @@ mod tests {
     #[test]
     fn test_typst_color_mapping() {
         assert_eq!(typst_color(&PlotColor::Blue), "blue");
-        assert_eq!(typst_color(&PlotColor::Rgb(255, 128, 0)), "rgb(\"#FF8000\")");
+        assert_eq!(
+            typst_color(&PlotColor::Rgb(255, 128, 0)),
+            "rgb(\"#FF8000\")"
+        );
     }
 
     #[test]

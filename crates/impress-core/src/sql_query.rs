@@ -110,7 +110,8 @@ fn compile_predicate(pred: &Predicate) -> (String, Vec<SqlValue>) {
             // Match exact tag or descendants (prefix match)
             params.push(SqlValue::Text(tag_path.clone()));
             params.push(SqlValue::Text(format!("{}/", tag_path)));
-            "id IN (SELECT item_id FROM item_tags WHERE tag_path = ? OR tag_path LIKE ? || '%')".to_string()
+            "id IN (SELECT item_id FROM item_tags WHERE tag_path = ? OR tag_path LIKE ? || '%')"
+                .to_string()
         }
         Predicate::HasFlag(color) => match color {
             Some(c) => {
@@ -133,13 +134,15 @@ fn compile_predicate(pred: &Predicate) -> (String, Vec<SqlValue>) {
             let edge_str = serde_json::to_string(edge_type).unwrap_or_default();
             params.push(SqlValue::Text(target_id.to_string()));
             params.push(SqlValue::Text(edge_str));
-            "id IN (SELECT source_id FROM item_references WHERE target_id = ? AND edge_type = ?)".to_string()
+            "id IN (SELECT source_id FROM item_references WHERE target_id = ? AND edge_type = ?)"
+                .to_string()
         }
         Predicate::ReferencedBy(edge_type, source_id) => {
             let edge_str = serde_json::to_string(edge_type).unwrap_or_default();
             params.push(SqlValue::Text(source_id.to_string()));
             params.push(SqlValue::Text(edge_str));
-            "id IN (SELECT target_id FROM item_references WHERE source_id = ? AND edge_type = ?)".to_string()
+            "id IN (SELECT target_id FROM item_references WHERE source_id = ? AND edge_type = ?)"
+                .to_string()
         }
         Predicate::And(preds) => {
             let mut sub_params = Vec::new();
@@ -402,7 +405,9 @@ mod tests {
             ..Default::default()
         };
         let compiled = compile_query(&q);
-        assert!(compiled.where_clause.contains("json_extract(payload, '$.doi')"));
+        assert!(compiled
+            .where_clause
+            .contains("json_extract(payload, '$.doi')"));
     }
 
     #[test]
@@ -439,7 +444,9 @@ mod tests {
         };
         let compiled = compile_query(&q);
         assert!(compiled.order_clause.contains("created DESC"));
-        assert!(compiled.order_clause.contains("json_extract(payload, '$.title') ASC"));
+        assert!(compiled
+            .order_clause
+            .contains("json_extract(payload, '$.title') ASC"));
     }
 
     #[test]

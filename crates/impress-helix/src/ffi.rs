@@ -414,9 +414,7 @@ impl From<FfiMotion> for crate::motion::Motion {
             FfiMotion::Right { count } => crate::motion::Motion::Right(count as usize),
             FfiMotion::Up { count } => crate::motion::Motion::Up(count as usize),
             FfiMotion::Down { count } => crate::motion::Motion::Down(count as usize),
-            FfiMotion::WordForward { count } => {
-                crate::motion::Motion::WordForward(count as usize)
-            }
+            FfiMotion::WordForward { count } => crate::motion::Motion::WordForward(count as usize),
             FfiMotion::WordBackward { count } => {
                 crate::motion::Motion::WordBackward(count as usize)
             }
@@ -473,18 +471,34 @@ pub enum FfiHelixCommand {
     EnterInsertMode,
     EnterNormalMode,
     EnterSelectMode,
-    EnterSearchMode { backward: bool },
+    EnterSearchMode {
+        backward: bool,
+    },
 
     // Basic movement
-    MoveLeft { count: u32 },
-    MoveRight { count: u32 },
-    MoveUp { count: u32 },
-    MoveDown { count: u32 },
+    MoveLeft {
+        count: u32,
+    },
+    MoveRight {
+        count: u32,
+    },
+    MoveUp {
+        count: u32,
+    },
+    MoveDown {
+        count: u32,
+    },
 
     // Word movement
-    WordForward { count: u32 },
-    WordBackward { count: u32 },
-    WordEnd { count: u32 },
+    WordForward {
+        count: u32,
+    },
+    WordBackward {
+        count: u32,
+    },
+    WordEnd {
+        count: u32,
+    },
 
     // Line movement
     LineStart,
@@ -496,16 +510,32 @@ pub enum FfiHelixCommand {
     DocumentEnd,
 
     // Character finding
-    FindCharacter { char: String, count: u32 },
-    FindCharacterBackward { char: String, count: u32 },
-    TillCharacter { char: String, count: u32 },
-    TillCharacterBackward { char: String, count: u32 },
+    FindCharacter {
+        char: String,
+        count: u32,
+    },
+    FindCharacterBackward {
+        char: String,
+        count: u32,
+    },
+    TillCharacter {
+        char: String,
+        count: u32,
+    },
+    TillCharacterBackward {
+        char: String,
+        count: u32,
+    },
     RepeatFind,
     RepeatFindReverse,
 
     // Search
-    SearchNext { count: u32 },
-    SearchPrevious { count: u32 },
+    SearchNext {
+        count: u32,
+    },
+    SearchPrevious {
+        count: u32,
+    },
 
     // Selection
     SelectLine,
@@ -531,14 +561,26 @@ pub enum FfiHelixCommand {
     ToggleCase,
     Indent,
     Dedent,
-    ReplaceCharacter { char: String },
+    ReplaceCharacter {
+        char: String,
+    },
 
     // Operator + Motion combinations
-    DeleteMotion { motion: FfiMotion },
-    ChangeMotion { motion: FfiMotion },
-    YankMotion { motion: FfiMotion },
-    IndentMotion { motion: FfiMotion },
-    DedentMotion { motion: FfiMotion },
+    DeleteMotion {
+        motion: FfiMotion,
+    },
+    ChangeMotion {
+        motion: FfiMotion,
+    },
+    YankMotion {
+        motion: FfiMotion,
+    },
+    IndentMotion {
+        motion: FfiMotion,
+    },
+    DedentMotion {
+        motion: FfiMotion,
+    },
 
     // Operator + Text Object combinations
     DeleteTextObject {
@@ -627,10 +669,12 @@ pub fn calculate_motion_range(
     };
 
     let internal_motion: crate::motion::Motion = motion.into();
-    engine.motion_range(&internal_motion).map(|(start, end)| FfiTextRange {
-        start: start as u64,
-        end: end as u64,
-    })
+    engine
+        .motion_range(&internal_motion)
+        .map(|(start, end)| FfiTextRange {
+            start: start as u64,
+            end: end as u64,
+        })
 }
 
 /// Calculate the range affected by a text object.

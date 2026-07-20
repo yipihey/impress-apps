@@ -21,8 +21,7 @@ pub fn veusz_plot_schema() -> Schema {
                 field_type: FieldType::String,
                 required: true,
                 description: Some(
-                    "Human-readable name used in the Plots panel and inserted citations."
-                        .into(),
+                    "Human-readable name used in the Plots panel and inserted citations.".into(),
                 ),
             },
             FieldDef {

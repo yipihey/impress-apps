@@ -1,6 +1,6 @@
 use crate::reference::EdgeType;
-use crate::schema::{FieldDef, FieldType, Schema};
 use crate::registry::SchemaRegistry;
+use crate::schema::{FieldDef, FieldType, Schema};
 
 /// Schema for research presentations (talks, slides, lecture recordings).
 pub fn presentation_schema() -> Schema {

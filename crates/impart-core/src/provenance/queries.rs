@@ -13,7 +13,10 @@ use crate::Result;
 ///
 /// Returns events in reverse chronological order (most recent first),
 /// following the causation chain from the given event back to its origins.
-pub fn trace_lineage(store: &EventStore, event_id: &ProvenanceEventId) -> Result<Vec<ProvenanceEvent>> {
+pub fn trace_lineage(
+    store: &EventStore,
+    event_id: &ProvenanceEventId,
+) -> Result<Vec<ProvenanceEvent>> {
     let mut lineage = Vec::new();
     let mut current_id = Some(*event_id);
 
@@ -32,7 +35,10 @@ pub fn trace_lineage(store: &EventStore, event_id: &ProvenanceEventId) -> Result
 /// Trace forward from an event to find all events it caused.
 ///
 /// Returns events in chronological order.
-pub fn trace_effects(store: &EventStore, event_id: &ProvenanceEventId) -> Result<Vec<ProvenanceEvent>> {
+pub fn trace_effects(
+    store: &EventStore,
+    event_id: &ProvenanceEventId,
+) -> Result<Vec<ProvenanceEvent>> {
     let all_events = store.all_events()?;
 
     let effects: Vec<ProvenanceEvent> = all_events
@@ -52,13 +58,23 @@ pub fn artifact_history(store: &EventStore, artifact_uri: &str) -> Result<Vec<Pr
     let history: Vec<ProvenanceEvent> = artifact_events
         .into_iter()
         .filter(|e| match &e.payload {
-            ProvenancePayload::ArtifactIntroduced { artifact_uri: uri, .. } => uri == artifact_uri,
-            ProvenancePayload::ArtifactReferenced { artifact_uri: uri, .. } => uri == artifact_uri,
-            ProvenancePayload::ArtifactMetadataUpdated { artifact_uri: uri, .. } => uri == artifact_uri,
-            ProvenancePayload::ArtifactResolved { artifact_uri: uri, .. } => uri == artifact_uri,
-            ProvenancePayload::ArtifactLinked { source_uri, target_uri, .. } => {
-                source_uri == artifact_uri || target_uri == artifact_uri
-            }
+            ProvenancePayload::ArtifactIntroduced {
+                artifact_uri: uri, ..
+            } => uri == artifact_uri,
+            ProvenancePayload::ArtifactReferenced {
+                artifact_uri: uri, ..
+            } => uri == artifact_uri,
+            ProvenancePayload::ArtifactMetadataUpdated {
+                artifact_uri: uri, ..
+            } => uri == artifact_uri,
+            ProvenancePayload::ArtifactResolved {
+                artifact_uri: uri, ..
+            } => uri == artifact_uri,
+            ProvenancePayload::ArtifactLinked {
+                source_uri,
+                target_uri,
+                ..
+            } => source_uri == artifact_uri || target_uri == artifact_uri,
             _ => false,
         })
         .collect();
@@ -73,19 +89,13 @@ pub fn artifact_introduction(
 ) -> Result<Option<ProvenanceEvent>> {
     let history = artifact_history(store, artifact_uri)?;
 
-    Ok(history.into_iter().find(|e| {
-        matches!(
-            e.payload,
-            ProvenancePayload::ArtifactIntroduced { .. }
-        )
-    }))
+    Ok(history
+        .into_iter()
+        .find(|e| matches!(e.payload, ProvenancePayload::ArtifactIntroduced { .. })))
 }
 
 /// Find all artifacts introduced in a conversation.
-pub fn artifacts_in_conversation(
-    store: &EventStore,
-    conversation_id: &str,
-) -> Result<Vec<String>> {
+pub fn artifacts_in_conversation(store: &EventStore, conversation_id: &str) -> Result<Vec<String>> {
     let events = store.events_for_conversation(conversation_id)?;
 
     let artifact_uris: Vec<String> = events
@@ -166,10 +176,7 @@ pub fn insights_in_conversation(
 }
 
 /// Find insights derived from a specific artifact or message.
-pub fn insights_derived_from(
-    store: &EventStore,
-    source_id: &str,
-) -> Result<Vec<ProvenanceEvent>> {
+pub fn insights_derived_from(store: &EventStore, source_id: &str) -> Result<Vec<ProvenanceEvent>> {
     let insight_events = store.events_by_entity_type(ProvenanceEntityType::Insight)?;
 
     let derived: Vec<ProvenanceEvent> = insight_events
@@ -201,10 +208,7 @@ pub fn events_by_actor(store: &EventStore, actor_id: &str) -> Result<Vec<Provena
 }
 
 /// Get all unique actors in a conversation.
-pub fn actors_in_conversation(
-    store: &EventStore,
-    conversation_id: &str,
-) -> Result<Vec<String>> {
+pub fn actors_in_conversation(store: &EventStore, conversation_id: &str) -> Result<Vec<String>> {
     let events = store.events_for_conversation(conversation_id)?;
 
     let mut seen = std::collections::HashSet::new();
@@ -289,8 +293,7 @@ pub fn conversation_stats(
         .filter(|e| matches!(e.payload, ProvenancePayload::InsightRecorded { .. }))
         .count();
 
-    let actors: std::collections::HashSet<&String> =
-        events.iter().map(|e| &e.actor_id).collect();
+    let actors: std::collections::HashSet<&String> = events.iter().map(|e| &e.actor_id).collect();
 
     let branch_count = events
         .iter()

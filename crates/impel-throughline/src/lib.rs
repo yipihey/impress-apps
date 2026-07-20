@@ -63,7 +63,9 @@ fn payload_str<'a>(item: &'a Item, key: &str) -> Option<&'a str> {
 
 /// Parse the throughline item's ledger + source.
 fn throughline_state(item: &Item) -> Result<(AnchorMap, String), TaskError> {
-    let source = payload_str(item, "body_content").unwrap_or_default().to_string();
+    let source = payload_str(item, "body_content")
+        .unwrap_or_default()
+        .to_string();
     let map = match payload_str(item, "anchor_map_json") {
         Some(json) => AnchorMap::parse(json)
             .map_err(|e| TaskError::Permanent(format!("corrupt anchor map: {e}")))?,
@@ -345,10 +347,7 @@ impl ThroughlineSyncExecutor {
         Self { drafter }
     }
 
-    fn target_throughline(
-        task: &Item,
-        store: &dyn TaskStoreApi,
-    ) -> Result<Item, TaskError> {
+    fn target_throughline(task: &Item, store: &dyn TaskStoreApi) -> Result<Item, TaskError> {
         let target = task
             .references
             .iter()
@@ -412,7 +411,10 @@ impl ThroughlineSyncExecutor {
             .collect();
         let anchored_owned: Vec<SectionRecord> = anchored.iter().map(|s| (*s).clone()).collect();
 
-        let draft = self.drafter.draft(&direction, &paragraph, &anchored_owned).await;
+        let draft = self
+            .drafter
+            .draft(&direction, &paragraph, &anchored_owned)
+            .await;
 
         // Provenance row for the drafting run.
         store.record_agent_run(
@@ -443,10 +445,7 @@ impl ThroughlineSyncExecutor {
         let mut context = BTreeMap::new();
         context.insert("direction".into(), Value::String(direction.as_str().into()));
         context.insert("anchor".into(), Value::String(assessment.label.clone()));
-        context.insert(
-            "document_id".into(),
-            Value::String(document_id.to_string()),
-        );
+        context.insert("document_id".into(), Value::String(document_id.to_string()));
         context.insert(
             "expected_section_hashes".into(),
             Value::Object(expected_hashes),
@@ -541,7 +540,8 @@ impl ThroughlineSyncExecutor {
         }
         let paragraphs = extract_paragraphs(&source);
         let current_paragraph = paragraphs.iter().find(|p| p.label == label);
-        if let Some(Value::String(expected)) = review.payload.get("context_expected_throughline_hash")
+        if let Some(Value::String(expected)) =
+            review.payload.get("context_expected_throughline_hash")
         {
             let current_hash = current_paragraph.map(|p| p.content_hash.as_str());
             if !expected.is_empty() && current_hash != Some(expected.as_str()) {
@@ -597,14 +597,12 @@ impl ThroughlineSyncExecutor {
                         // The ledger must record the hash of the NEW body,
                         // so mirror the patch into the section snapshot
                         // that write_throughline hashes below.
-                        if let Some(s) =
-                            updated_sections.iter_mut().find(|s| &s.section_key == key)
+                        if let Some(s) = updated_sections.iter_mut().find(|s| &s.section_key == key)
                         {
                             s.body = body.clone();
                             s.content_hash = None;
                         }
-                        let section_id =
-                            imprint_service::SectionStore::item_id(document_id, key);
+                        let section_id = imprint_service::SectionStore::item_id(document_id, key);
                         store.apply(OperationSpec {
                             target_id: section_id,
                             op_type: OperationType::PatchPayload({
@@ -612,9 +610,7 @@ impl ThroughlineSyncExecutor {
                                 m.insert("body".into(), Value::String(body.clone()));
                                 m.insert(
                                     "word_count".into(),
-                                    Value::Int(
-                                        body.split_whitespace().count() as i64,
-                                    ),
+                                    Value::Int(body.split_whitespace().count() as i64),
                                 );
                                 m
                             }),
@@ -647,7 +643,12 @@ impl ThroughlineSyncExecutor {
                         })?;
                     }
                     self.write_throughline(
-                        tl_item.id, &source, &mut map, &label, &updated_sections, store,
+                        tl_item.id,
+                        &source,
+                        &mut map,
+                        &label,
+                        &updated_sections,
+                        store,
                     )?;
                     applied = true;
                 }
@@ -670,14 +671,12 @@ impl ThroughlineSyncExecutor {
                 };
                 match action.as_str() {
                     "rebind" => {
-                        let Some(Value::String(new_key)) =
-                            review.payload.get("context_rebind_to")
+                        let Some(Value::String(new_key)) = review.payload.get("context_rebind_to")
                         else {
                             return Ok(false);
                         };
                         // The rebind target must actually resolve.
-                        let new_id =
-                            imprint_service::SectionStore::item_id(document_id, new_key);
+                        let new_id = imprint_service::SectionStore::item_id(document_id, new_key);
                         if store.get_item(new_id)?.is_none() {
                             return Ok(false);
                         }
@@ -800,18 +799,17 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         for review in &resolved {
             let approved = matches!(review.payload.get("resolution"),
                                     Some(Value::String(r)) if r == "approved");
-            let handled = matches!(review.payload.get("context_applied"),
-                                   Some(Value::Bool(true)));
+            let handled = matches!(
+                review.payload.get("context_applied"),
+                Some(Value::Bool(true))
+            );
             if approved && !handled {
                 let applied = self.apply_approved(review, &tl_item, store)?;
                 // Mark the review consumed so a later resume doesn't
                 // re-apply (idempotence across scheduler passes).
                 store.apply(OperationSpec {
                     target_id: review.id,
-                    op_type: OperationType::SetPayload(
-                        "context_applied".into(),
-                        Value::Bool(true),
-                    ),
+                    op_type: OperationType::SetPayload("context_applied".into(), Value::Bool(true)),
                     intent: OperationIntent::Routine,
                     reason: Some(format!("throughline sync: applied={applied}")),
                     batch_id: None,
@@ -844,7 +842,14 @@ impl TaskExecutor for ThroughlineSyncExecutor {
             None => Ok(ExecutionOutcome::Complete),
             Some(stale) => {
                 self.open_proposal_review(
-                    task, &tl_item, document_id, stale, &map, &source, &sections, store,
+                    task,
+                    &tl_item,
+                    document_id,
+                    stale,
+                    &map,
+                    &source,
+                    &sections,
+                    store,
                 )
                 .await?;
                 Ok(ExecutionOutcome::Suspended)

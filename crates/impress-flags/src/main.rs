@@ -82,10 +82,7 @@ fn main() {
                     }
                 }
                 None => {
-                    eprintln!(
-                        "error: invalid flag shorthand: {:?}",
-                        shorthand
-                    );
+                    eprintln!("error: invalid flag shorthand: {:?}", shorthand);
                     eprintln!("color must be one of: r (red), a (amber), b (blue), g (gray)");
                     std::process::exit(1);
                 }

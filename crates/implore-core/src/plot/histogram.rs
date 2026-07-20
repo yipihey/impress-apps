@@ -53,11 +53,17 @@ pub fn compute_histogram(data: &[f64], config: &Histogram1DConfig) -> HistogramR
     let bin_edges = match &config.bin_edges {
         BinEdgeMode::Custom(edges) => edges.clone(),
         BinEdgeMode::Linear => {
-            let num_bins = config.num_bins.map(|b| b as usize).unwrap_or_else(|| auto_bin_count(&values));
+            let num_bins = config
+                .num_bins
+                .map(|b| b as usize)
+                .unwrap_or_else(|| auto_bin_count(&values));
             linear_bin_edges(stats.min, stats.max, num_bins)
         }
         BinEdgeMode::Logarithmic => {
-            let num_bins = config.num_bins.map(|b| b as usize).unwrap_or_else(|| auto_bin_count(&values));
+            let num_bins = config
+                .num_bins
+                .map(|b| b as usize)
+                .unwrap_or_else(|| auto_bin_count(&values));
             if stats.min <= 0.0 {
                 // Fall back to linear if data has non-positive values
                 linear_bin_edges(stats.min, stats.max, num_bins)
@@ -67,7 +73,11 @@ pub fn compute_histogram(data: &[f64], config: &Histogram1DConfig) -> HistogramR
         }
     };
 
-    let num_bins = if bin_edges.len() > 1 { bin_edges.len() - 1 } else { 1 };
+    let num_bins = if bin_edges.len() > 1 {
+        bin_edges.len() - 1
+    } else {
+        1
+    };
 
     // Count values in each bin
     let mut counts = vec![0.0; num_bins];
@@ -86,13 +96,19 @@ pub fn compute_histogram(data: &[f64], config: &Histogram1DConfig) -> HistogramR
         .enumerate()
         .map(|(i, &c)| {
             let width = bin_edges[i + 1] - bin_edges[i];
-            if width > 0.0 { c / (n as f64 * width) } else { 0.0 }
+            if width > 0.0 {
+                c / (n as f64 * width)
+            } else {
+                0.0
+            }
         })
         .collect();
 
     // KDE
     let (kde_x, kde_y) = if config.show_kde {
-        let bandwidth = config.kde_bandwidth.unwrap_or_else(|| scott_bandwidth(&values));
+        let bandwidth = config
+            .kde_bandwidth
+            .unwrap_or_else(|| scott_bandwidth(&values));
         compute_kde(&values, stats.min, stats.max, bandwidth)
     } else {
         (vec![], vec![])
@@ -118,7 +134,11 @@ pub fn histogram_to_plot_spec(result: &HistogramResult, config: &Histogram1DConf
     // Bar centers and widths
     let mut bar_x = Vec::with_capacity(num_bins);
     let bar_y = if config.log_scale_y {
-        result.counts.iter().map(|&c| if c > 0.0 { c } else { 0.5 }).collect::<Vec<_>>()
+        result
+            .counts
+            .iter()
+            .map(|&c| if c > 0.0 { c } else { 0.5 })
+            .collect::<Vec<_>>()
     } else {
         result.counts.clone()
     };
@@ -250,7 +270,9 @@ fn log_bin_edges(min: f64, max: f64, num_bins: usize) -> Vec<f64> {
     let log_min = min.max(1e-30).ln();
     let log_max = max.max(min + 1e-30).ln();
     let step = (log_max - log_min) / num_bins as f64;
-    (0..=num_bins).map(|i| (log_min + i as f64 * step).exp()).collect()
+    (0..=num_bins)
+        .map(|i| (log_min + i as f64 * step).exp())
+        .collect()
 }
 
 // ── KDE ─────────────────────────────────────────────────────────────

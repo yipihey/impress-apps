@@ -314,10 +314,9 @@ impl RgDataset {
                             let snap_data: Vec<f32> =
                                 snap_raw.as_slice().unwrap()[start..end].to_vec();
 
-                            if let Ok(u_snap) = ndarray::Array4::from_shape_vec(
-                                ndarray::Ix4(3, n, n, n),
-                                snap_data,
-                            ) {
+                            if let Ok(u_snap) =
+                                ndarray::Array4::from_shape_vec(ndarray::Ix4(3, n, n, n), snap_data)
+                            {
                                 // Use negative level indices for snapshots to avoid
                                 // collision with the primary level 0.
                                 // snapshot 0 → level -1, snapshot 1 → level -2, etc.
@@ -385,26 +384,28 @@ impl RgDataset {
 
         // Check cache first
         {
-            let cache = self.cache.read().map_err(|e| {
-                IoError::ReadFailed(format!("Cache lock poisoned: {}", e))
-            })?;
+            let cache = self
+                .cache
+                .read()
+                .map_err(|e| IoError::ReadFailed(format!("Cache lock poisoned: {}", e)))?;
             if let Some(field) = cache.get(&cache_key) {
                 return Ok(field.clone());
             }
         }
 
         // Compute
-        let level = self.active().ok_or_else(|| {
-            IoError::DatasetNotFound(format!("No active level {}", level_key))
-        })?;
+        let level = self
+            .active()
+            .ok_or_else(|| IoError::DatasetNotFound(format!("No active level {}", level_key)))?;
 
         let field = super::compute::compute_quantity(level, quantity)?;
 
         // Store in cache
         {
-            let mut cache = self.cache.write().map_err(|e| {
-                IoError::ReadFailed(format!("Cache lock poisoned: {}", e))
-            })?;
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|e| IoError::ReadFailed(format!("Cache lock poisoned: {}", e)))?;
             cache.insert(cache_key, field.clone());
         }
 

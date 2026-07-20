@@ -38,9 +38,7 @@ pub struct ImbibClient {
 impl ImbibClient {
     /// Build with the default `http://localhost:23120` base URL.
     pub fn new() -> Self {
-        Self::with_base_url(
-            Url::parse(DEFAULT_BASE_URL).expect("default URL parses"),
-        )
+        Self::with_base_url(Url::parse(DEFAULT_BASE_URL).expect("default URL parses"))
     }
 
     /// Build with an explicit base URL (no trailing path).

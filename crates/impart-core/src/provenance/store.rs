@@ -37,8 +37,10 @@ pub trait EventStoreTrait: Send {
     fn events_by_correlation(&self, correlation_id: &str) -> Result<Vec<ProvenanceEvent>>;
 
     /// Get events affecting a specific entity type.
-    fn events_by_entity_type(&self, entity_type: ProvenanceEntityType)
-        -> Result<Vec<ProvenanceEvent>>;
+    fn events_by_entity_type(
+        &self,
+        entity_type: ProvenanceEntityType,
+    ) -> Result<Vec<ProvenanceEvent>>;
 }
 
 // MARK: - In-Memory Event Store
@@ -242,7 +244,11 @@ impl SqliteEventStore {
     }
 
     /// Query events with a custom WHERE clause.
-    fn query_events(&self, where_clause: &str, params: &[&dyn rusqlite::ToSql]) -> Result<Vec<ProvenanceEvent>> {
+    fn query_events(
+        &self,
+        where_clause: &str,
+        params: &[&dyn rusqlite::ToSql],
+    ) -> Result<Vec<ProvenanceEvent>> {
         let sql = format!(
             r#"
             SELECT id, sequence, timestamp, conversation_id, entity_type, payload, actor_id, correlation_id, causation_id

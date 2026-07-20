@@ -21,7 +21,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::Utc;
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier, StateAsOf};
+use impress_core::operation::{
+    OperationIntent, OperationSpec, OperationType, RetentionTier, StateAsOf,
+};
 use impress_core::query::{ItemQuery, Predicate};
 use impress_core::reference::{EdgeType, TypedReference};
 use impress_core::store::ItemStore;
@@ -104,7 +106,11 @@ fn payload_str(item: &Item, field: &str) -> Option<String> {
     }
 }
 
-const EDGE_KINDS: [EdgeType; 3] = [EdgeType::DependsOn, EdgeType::ProducedBy, EdgeType::OperatesOn];
+const EDGE_KINDS: [EdgeType; 3] = [
+    EdgeType::DependsOn,
+    EdgeType::ProducedBy,
+    EdgeType::OperatesOn,
+];
 
 // ---------------------------------------------------------------------------
 // Property 1: SetPayload — last-write-wins per field, commutes across fields
@@ -133,7 +139,11 @@ fn arb_interleavings() -> impl Strategy<Value = (Vec<Vec<Value>>, Vec<usize>, Ve
             .flat_map(|(i, s)| std::iter::repeat(i).take(s.len()))
             .collect();
         let labels2 = labels.clone();
-        (Just(seqs), Just(labels).prop_shuffle(), Just(labels2).prop_shuffle())
+        (
+            Just(seqs),
+            Just(labels).prop_shuffle(),
+            Just(labels2).prop_shuffle(),
+        )
     })
 }
 
@@ -398,7 +408,9 @@ fn verify_graph(
     let mut got = BTreeSet::new();
     let mut total = 0usize;
     for (i, id) in ids.iter().enumerate() {
-        let item = store.get(*id).map_err(|e| TestCaseError::fail(e.to_string()))?
+        let item = store
+            .get(*id)
+            .map_err(|e| TestCaseError::fail(e.to_string()))?
             .ok_or_else(|| TestCaseError::fail("node lost"))?;
         for r in &item.references {
             got.insert((i, index_of(r.target), kind_of(&r.edge_type)));
@@ -434,7 +446,13 @@ fn verify_graph(
                 .into_iter()
                 .map(|it| it.id)
                 .collect();
-            prop_assert_eq!(got, want, "neighbors mismatch for node {} kind {:?}", i, kind);
+            prop_assert_eq!(
+                got,
+                want,
+                "neighbors mismatch for node {} kind {:?}",
+                i,
+                kind
+            );
         }
     }
     Ok(())
@@ -514,7 +532,11 @@ fn fts_reflects_payload_updates() {
     store.insert(item).expect("insert");
 
     store
-        .apply_operation(set_payload_spec(id, "title", Value::String("bumblebeezz updated".into())))
+        .apply_operation(set_payload_spec(
+            id,
+            "title",
+            Value::String("bumblebeezz updated".into()),
+        ))
         .expect("update title");
 
     let search = |token: &str| -> Vec<ItemId> {
@@ -522,16 +544,31 @@ fn fts_reflects_payload_updates() {
             predicates: vec![Predicate::Contains("title".to_string(), token.to_string())],
             ..Default::default()
         };
-        store.query(&q).expect("query").into_iter().map(|i| i.id).collect()
+        store
+            .query(&q)
+            .expect("query")
+            .into_iter()
+            .map(|i| i.id)
+            .collect()
     };
 
     // The materialized item has the new title...
     let current = store.get(id).expect("get").expect("exists");
-    assert_eq!(payload_str(&current, "title").as_deref(), Some("bumblebeezz updated"));
+    assert_eq!(
+        payload_str(&current, "title").as_deref(),
+        Some("bumblebeezz updated")
+    );
 
     // ...so FTS must find the new token and not the old one.
-    assert_eq!(search("bumblebeezz"), vec![id], "new title token not findable after SetPayload");
-    assert!(search("aardvarkzz").is_empty(), "stale title token still matches after SetPayload");
+    assert_eq!(
+        search("bumblebeezz"),
+        vec![id],
+        "new title token not findable after SetPayload"
+    );
+    assert!(
+        search("aardvarkzz").is_empty(),
+        "stale title token still matches after SetPayload"
+    );
 }
 
 // ---------------------------------------------------------------------------

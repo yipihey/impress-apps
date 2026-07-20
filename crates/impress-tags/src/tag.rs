@@ -79,12 +79,16 @@ impl Tag {
 
     /// Check if this tag is an ancestor of another.
     pub fn is_ancestor_of(&self, other: &str) -> bool {
-        other.starts_with(&self.path) && other.len() > self.path.len() && other.as_bytes()[self.path.len()] == b'/'
+        other.starts_with(&self.path)
+            && other.len() > self.path.len()
+            && other.as_bytes()[self.path.len()] == b'/'
     }
 
     /// Check if this tag is a descendant of another.
     pub fn is_descendant_of(&self, ancestor: &str) -> bool {
-        self.path.starts_with(ancestor) && self.path.len() > ancestor.len() && self.path.as_bytes()[ancestor.len()] == b'/'
+        self.path.starts_with(ancestor)
+            && self.path.len() > ancestor.len()
+            && self.path.as_bytes()[ancestor.len()] == b'/'
     }
 }
 

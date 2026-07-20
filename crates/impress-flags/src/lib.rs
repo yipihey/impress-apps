@@ -15,12 +15,12 @@
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();
 
+pub mod config;
 pub mod flag;
 pub mod parse;
 pub mod query;
-pub mod config;
 
+pub use config::*;
 pub use flag::*;
 pub use parse::*;
 pub use query::*;
-pub use config::*;

@@ -57,9 +57,23 @@ macro_rules! bidir_entry_type {
 }
 
 bidir_entry_type!(
-    Article, Book, Booklet, InBook, InCollection, InProceedings,
-    Manual, MastersThesis, Misc, PhdThesis, Proceedings, TechReport,
-    Unpublished, Online, Software, Dataset, Unknown,
+    Article,
+    Book,
+    Booklet,
+    InBook,
+    InCollection,
+    InProceedings,
+    Manual,
+    MastersThesis,
+    Misc,
+    PhdThesis,
+    Proceedings,
+    TechReport,
+    Unpublished,
+    Online,
+    Software,
+    Dataset,
+    Unknown,
 );
 
 // ── BibTeXField ──────────────────────────────────────────────────────────────
@@ -285,10 +299,22 @@ mod tests {
 
     #[test]
     fn test_entry_type_from_str() {
-        assert_eq!(BibTeXEntryType::from_str("article"), BibTeXEntryType::Article);
-        assert_eq!(BibTeXEntryType::from_str("ARTICLE"), BibTeXEntryType::Article);
-        assert_eq!(BibTeXEntryType::from_str("conference"), BibTeXEntryType::InProceedings);
-        assert_eq!(BibTeXEntryType::from_str("unknown_type"), BibTeXEntryType::Unknown);
+        assert_eq!(
+            BibTeXEntryType::from_str("article"),
+            BibTeXEntryType::Article
+        );
+        assert_eq!(
+            BibTeXEntryType::from_str("ARTICLE"),
+            BibTeXEntryType::Article
+        );
+        assert_eq!(
+            BibTeXEntryType::from_str("conference"),
+            BibTeXEntryType::InProceedings
+        );
+        assert_eq!(
+            BibTeXEntryType::from_str("unknown_type"),
+            BibTeXEntryType::Unknown
+        );
     }
 
     #[test]

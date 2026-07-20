@@ -74,14 +74,35 @@ mod tests {
         let mut registry = SchemaRegistry::default();
         register_core_schemas(&mut registry);
         // Check that all 9 built-in non-operation schemas are registered
-        assert!(registry.get("bibliography-entry").is_some(), "bibliography-entry not registered");
-        assert!(registry.get("chat-message").is_some(), "chat-message not registered");
-        assert!(registry.get("email-message").is_some(), "email-message not registered");
+        assert!(
+            registry.get("bibliography-entry").is_some(),
+            "bibliography-entry not registered"
+        );
+        assert!(
+            registry.get("chat-message").is_some(),
+            "chat-message not registered"
+        );
+        assert!(
+            registry.get("email-message").is_some(),
+            "email-message not registered"
+        );
         assert!(registry.get("task").is_some(), "task not registered");
-        assert!(registry.get("agent-run").is_some(), "agent-run not registered");
-        assert!(registry.get("annotation").is_some(), "annotation not registered");
-        assert!(registry.get("git-project").is_some(), "git-project not registered");
-        assert!(registry.get("manuscript-section").is_some(), "manuscript-section not registered");
+        assert!(
+            registry.get("agent-run").is_some(),
+            "agent-run not registered"
+        );
+        assert!(
+            registry.get("annotation").is_some(),
+            "annotation not registered"
+        );
+        assert!(
+            registry.get("git-project").is_some(),
+            "git-project not registered"
+        );
+        assert!(
+            registry.get("manuscript-section").is_some(),
+            "manuscript-section not registered"
+        );
         assert!(registry.get("figure").is_some(), "figure not registered");
         assert!(registry.get("dataset").is_some(), "dataset not registered");
     }
@@ -102,7 +123,9 @@ mod tests {
     fn email_message_inherits_chat_message() {
         let mut registry = SchemaRegistry::default();
         register_core_schemas(&mut registry);
-        let email = registry.get("email-message").expect("email-message not found");
+        let email = registry
+            .get("email-message")
+            .expect("email-message not found");
         assert_eq!(email.inherits, Some("chat-message".into()));
     }
 }

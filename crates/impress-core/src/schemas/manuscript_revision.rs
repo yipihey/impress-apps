@@ -26,9 +26,7 @@ pub fn manuscript_revision_schema() -> Schema {
                 name: "parent_manuscript_ref".into(),
                 field_type: FieldType::String,
                 required: true,
-                description: Some(
-                    "ItemId of the manuscript this revision belongs to.".into(),
-                ),
+                description: Some("ItemId of the manuscript this revision belongs to.".into()),
             },
             FieldDef {
                 name: "revision_tag".into(),
@@ -44,8 +42,7 @@ pub fn manuscript_revision_schema() -> Schema {
                 field_type: FieldType::String,
                 required: true,
                 description: Some(
-                    "SHA-256 hex digest of the source archive bytes; the addressing key."
-                        .into(),
+                    "SHA-256 hex digest of the source archive bytes; the addressing key.".into(),
                 ),
             },
             FieldDef {
@@ -114,9 +111,7 @@ pub fn manuscript_revision_schema() -> Schema {
                 name: "abstract".into(),
                 field_type: FieldType::String,
                 required: false,
-                description: Some(
-                    "Extracted abstract text for FTS and preview displays.".into(),
-                ),
+                description: Some("Extracted abstract text for FTS and preview displays.".into()),
             },
             FieldDef {
                 name: "word_count".into(),

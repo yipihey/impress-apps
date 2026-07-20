@@ -36,8 +36,7 @@ pub use tokio;
 pub type BoxError = Box<dyn StdError + Send + Sync + 'static>;
 
 /// Future returned by an [`McpToolDescriptor`] handler.
-pub type ServiceFuture =
-    Pin<Box<dyn Future<Output = Result<serde_json::Value, BoxError>> + Send>>;
+pub type ServiceFuture = Pin<Box<dyn Future<Output = Result<serde_json::Value, BoxError>> + Send>>;
 
 /// Trait every service-level error should implement.
 ///

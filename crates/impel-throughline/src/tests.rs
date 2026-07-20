@@ -80,8 +80,7 @@ fn seed_throughline(store: &SqliteItemStore, doc: Uuid, section_key: &str, secti
     put_section(store, doc, section_key, section_body);
 
     let source = format!("The story so far. <tl-overview>\n");
-    let paragraph_hash =
-        extract_paragraphs(&source)[0].content_hash.clone();
+    let paragraph_hash = extract_paragraphs(&source)[0].content_hash.clone();
     let mut map = AnchorMap::new(doc);
     map.anchors.insert(
         "tl-overview".into(),
@@ -168,10 +167,7 @@ async fn non_opted_document_spawns_nothing() {
     put_section(&store, doc, "introduction", "We measure X.");
 
     let trigger = section_trigger(&store, doc, "introduction");
-    let specs = ThroughlineSpawnRule
-        .spawn(&trigger, &store)
-        .await
-        .unwrap();
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
     assert!(specs.is_empty(), "non-opted document must spawn zero tasks");
 }
 
@@ -216,7 +212,11 @@ async fn manuscript_ahead_round_trip() {
     let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
     let outcome = exec.execute(&task, &store).await.unwrap();
     assert_eq!(outcome, ExecutionOutcome::Suspended);
-    assert_eq!(anchor_state(&store, doc), "manuscript-ahead", "propose must not apply");
+    assert_eq!(
+        anchor_state(&store, doc),
+        "manuscript-ahead",
+        "propose must not apply"
+    );
 
     let (unresolved, _) = store.reviews_for(task.id).unwrap();
     assert_eq!(unresolved.len(), 1);
@@ -254,7 +254,11 @@ async fn manuscript_ahead_round_trip() {
         "approved paragraph must be applied: {}",
         throughline_body(&store, doc)
     );
-    assert_eq!(anchor_state(&store, doc), "synced", "ledger must rebaseline on accept");
+    assert_eq!(
+        anchor_state(&store, doc),
+        "synced",
+        "ledger must rebaseline on accept"
+    );
 }
 
 // ─── End-to-end: throughline-ahead propose → approve → apply ───────────────
@@ -418,9 +422,16 @@ async fn manuscript_ahead_apply_preserves_following_paragraphs() {
     payload.insert("title".into(), Value::String("Story".into()));
     payload.insert("document_ref".into(), Value::String(doc.to_string()));
     payload.insert("body_content".into(), Value::String(source.into()));
-    payload.insert("anchor_map_json".into(), Value::String(map.serialize().unwrap()));
+    payload.insert(
+        "anchor_map_json".into(),
+        Value::String(map.serialize().unwrap()),
+    );
     store
-        .create_item(bare_item(ThroughlineStore::item_id(doc), "throughline", payload))
+        .create_item(bare_item(
+            ThroughlineStore::item_id(doc),
+            "throughline",
+            payload,
+        ))
         .unwrap();
 
     // Drift only tl-a's section, approve an update.
@@ -430,10 +441,16 @@ async fn manuscript_ahead_apply_preserves_following_paragraphs() {
     let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
     let task = store.get_item(ids[0]).unwrap().unwrap();
     let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
-    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Suspended);
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
     let (unresolved, _) = store.reviews_for(task.id).unwrap();
     resolve_review(&store, unresolved[0].id, "approved");
-    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Complete);
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Complete
+    );
 
     // tl-b must survive as its own paragraph (blank-line separator intact).
     let body = throughline_body(&store, doc);
@@ -474,9 +491,16 @@ async fn rejected_anchor_does_not_starve_later_stale_anchors() {
     payload.insert("title".into(), Value::String("Story".into()));
     payload.insert("document_ref".into(), Value::String(doc.to_string()));
     payload.insert("body_content".into(), Value::String(source.into()));
-    payload.insert("anchor_map_json".into(), Value::String(map.serialize().unwrap()));
+    payload.insert(
+        "anchor_map_json".into(),
+        Value::String(map.serialize().unwrap()),
+    );
     store
-        .create_item(bare_item(ThroughlineStore::item_id(doc), "throughline", payload))
+        .create_item(bare_item(
+            ThroughlineStore::item_id(doc),
+            "throughline",
+            payload,
+        ))
         .unwrap();
 
     // Both sections drift → both anchors stale in one task.
@@ -489,7 +513,10 @@ async fn rejected_anchor_does_not_starve_later_stale_anchors() {
     let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
 
     // First proposal (tl-a, label order) — human REJECTS it.
-    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Suspended);
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
     let (unresolved, _) = store.reviews_for(task.id).unwrap();
     assert_eq!(
         unresolved[0].payload.get("context_anchor"),
@@ -511,7 +538,10 @@ async fn rejected_anchor_does_not_starve_later_stale_anchors() {
     resolve_review(&store, unresolved[0].id, "rejected");
 
     // Both rejected → complete; both anchors remain visibly stale.
-    assert_eq!(exec.execute(&task, &store).await.unwrap(), ExecutionOutcome::Complete);
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Complete
+    );
 }
 
 // ─── Broken-anchor repair (ADR-0016 D4, Phase 4) ───────────────────────────
@@ -635,11 +665,7 @@ fn rebind_candidate_refuses_ambiguity() {
     );
     // No match → None.
     assert_eq!(
-        imprint_service::throughline::rebind_candidate(
-            "old",
-            Some(&hash),
-            &[mk("c", "different")]
-        ),
+        imprint_service::throughline::rebind_candidate("old", Some(&hash), &[mk("c", "different")]),
         None
     );
 }

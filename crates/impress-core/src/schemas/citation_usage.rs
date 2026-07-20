@@ -38,7 +38,8 @@ pub fn citation_usage_schema() -> Schema {
                 required: true,
                 description: Some(
                     "The literal cite key as it appears in the source \
-                     (e.g. `desjacques18`, `abel-banerjee-2024`).".into(),
+                     (e.g. `desjacques18`, `abel-banerjee-2024`)."
+                        .into(),
                 ),
             },
             FieldDef {
@@ -55,7 +56,8 @@ pub fn citation_usage_schema() -> Schema {
                 required: false,
                 description: Some(
                     "UUID of the parent ImprintDocument. Duplicated from \
-                     section for cheap per-document queries.".into(),
+                     section for cheap per-document queries."
+                        .into(),
                 ),
             },
             FieldDef {
@@ -64,7 +66,8 @@ pub fn citation_usage_schema() -> Schema {
                 required: false,
                 description: Some(
                     "UUID of the imbib bibliography-entry item this key \
-                     resolves to, when known. Empty when unresolved.".into(),
+                     resolves to, when known. Empty when unresolved."
+                        .into(),
                 ),
             },
             FieldDef {
@@ -81,7 +84,8 @@ pub fn citation_usage_schema() -> Schema {
                 required: false,
                 description: Some(
                     "ISO8601 timestamp of the most recent tracker refresh \
-                     that still observed this citation in the source.".into(),
+                     that still observed this citation in the source."
+                        .into(),
                 ),
             },
         ],
@@ -109,7 +113,10 @@ mod tests {
         let mut reg = SchemaRegistry::new();
         register_citation_usage_schema(&mut reg);
         let schema = reg.get("citation-usage");
-        assert!(schema.is_some(), "citation-usage schema should be registered");
+        assert!(
+            schema.is_some(),
+            "citation-usage schema should be registered"
+        );
         assert_eq!(schema.unwrap().version, "1.0.0");
     }
 
@@ -119,7 +126,11 @@ mod tests {
         for name in &["cite_key", "section_id"] {
             let field = schema.fields.iter().find(|f| f.name == *name);
             assert!(field.is_some(), "field '{}' should exist", name);
-            assert!(field.unwrap().required, "field '{}' should be required", name);
+            assert!(
+                field.unwrap().required,
+                "field '{}' should be required",
+                name
+            );
         }
     }
 }

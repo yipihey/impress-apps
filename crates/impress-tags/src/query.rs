@@ -48,7 +48,8 @@ pub fn parse_tag_query(input: &str) -> Option<TagQuery> {
             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
                 let left = TagQuery::Has(parts[0].trim().to_string());
                 let right_str = format!("tags:{}", parts[1].trim());
-                let right = parse_tag_query(&right_str).unwrap_or(TagQuery::Has(parts[1].trim().to_string()));
+                let right = parse_tag_query(&right_str)
+                    .unwrap_or(TagQuery::Has(parts[1].trim().to_string()));
                 return Some(TagQuery::And(Box::new(left), Box::new(right)));
             }
         }
@@ -59,7 +60,8 @@ pub fn parse_tag_query(input: &str) -> Option<TagQuery> {
             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
                 let left = TagQuery::Has(parts[0].trim().to_string());
                 let right_str = format!("tags:{}", parts[1].trim());
-                let right = parse_tag_query(&right_str).unwrap_or(TagQuery::Has(parts[1].trim().to_string()));
+                let right = parse_tag_query(&right_str)
+                    .unwrap_or(TagQuery::Has(parts[1].trim().to_string()));
                 return Some(TagQuery::Or(Box::new(left), Box::new(right)));
             }
         }
@@ -78,12 +80,12 @@ impl TagQuery {
     /// matches the path or is a descendant of it (for inheritance).
     pub fn matches(&self, tag_paths: &[String]) -> bool {
         match self {
-            TagQuery::Has(path) => {
-                tag_paths.iter().any(|t| t == path || t.starts_with(&format!("{}/", path)))
-            }
-            TagQuery::Not(path) => {
-                !tag_paths.iter().any(|t| t == path || t.starts_with(&format!("{}/", path)))
-            }
+            TagQuery::Has(path) => tag_paths
+                .iter()
+                .any(|t| t == path || t.starts_with(&format!("{}/", path))),
+            TagQuery::Not(path) => !tag_paths
+                .iter()
+                .any(|t| t == path || t.starts_with(&format!("{}/", path))),
             TagQuery::And(a, b) => a.matches(tag_paths) && b.matches(tag_paths),
             TagQuery::Or(a, b) => a.matches(tag_paths) || b.matches(tag_paths),
         }
@@ -136,7 +138,10 @@ mod tests {
 
     #[test]
     fn query_matches_with_inheritance() {
-        let tags = vec!["methods/sims/hydro".to_string(), "topics/galaxies".to_string()];
+        let tags = vec![
+            "methods/sims/hydro".to_string(),
+            "topics/galaxies".to_string(),
+        ];
 
         assert!(TagQuery::Has("methods".to_string()).matches(&tags)); // inheritance
         assert!(TagQuery::Has("methods/sims".to_string()).matches(&tags)); // partial

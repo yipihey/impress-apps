@@ -118,18 +118,12 @@ fn write_standard_config(
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(
-        &editor.config_path,
-        serde_json::to_string_pretty(&config)?,
-    )?;
+    fs::write(&editor.config_path, serde_json::to_string_pretty(&config)?)?;
 
     Ok(())
 }
 
-fn write_zed_config(
-    editor: &EditorInfo,
-    binary: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn write_zed_config(editor: &EditorInfo, binary: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut config: serde_json::Value = if editor.config_path.exists() {
         let content = fs::read_to_string(&editor.config_path)?;
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
@@ -154,10 +148,7 @@ fn write_zed_config(
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(
-        &editor.config_path,
-        serde_json::to_string_pretty(&config)?,
-    )?;
+    fs::write(&editor.config_path, serde_json::to_string_pretty(&config)?)?;
 
     Ok(())
 }
@@ -200,6 +191,9 @@ pub fn run_setup(editor: Option<EditorTarget>) -> Result<(), Box<dyn std::error:
         }
     }
 
-    eprintln!("\nDone. Restart your editor to activate the {} MCP server.", SERVER_NAME);
+    eprintln!(
+        "\nDone. Restart your editor to activate the {} MCP server.",
+        SERVER_NAME
+    );
     Ok(())
 }

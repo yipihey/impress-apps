@@ -23,6 +23,7 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::time::Duration;
 
+use imbib_core::enrichment::priority::SourcePriority;
 use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
 use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
@@ -33,7 +34,6 @@ use impel_throughline::{
     ProposalDrafter, TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor,
     MANUSCRIPT_SECTION_SCHEMA,
 };
-use imbib_core::enrichment::priority::SourcePriority;
 use impress_core::event::ItemEvent;
 use impress_core::item::ActorKind;
 use impress_core::query::{ItemQuery, Predicate};
@@ -164,7 +164,10 @@ fn open_store(args: &Args) -> Arc<SqliteItemStore> {
 fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
         schema: Some("task@1.0.0".into()),
-        predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, throughline_id)],
+        predicates: vec![Predicate::HasReference(
+            EdgeType::OperatesOn,
+            throughline_id,
+        )],
         limit: Some(16),
         ..Default::default()
     };
@@ -206,10 +209,7 @@ fn already_spawned(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
 /// inserts made by OTHER processes (imbib), so each loop also scans for
 /// entries created since the watermark. `already_spawned` makes the
 /// overlap harmless.
-fn scan_new_entries(
-    store: &SqliteItemStore,
-    since_ms: i64,
-) -> Vec<impress_core::item::Item> {
+fn scan_new_entries(store: &SqliteItemStore, since_ms: i64) -> Vec<impress_core::item::Item> {
     let q = ItemQuery {
         schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA.into()),
         predicates: vec![Predicate::Gte(
@@ -253,12 +253,15 @@ async fn main() {
         );
     }
 
-    let mut scheduler = Scheduler::new(store.clone(), SchedulerConfig {
-        actor: ACTOR.into(),
-        batch: 8,
-        start_delay: Duration::ZERO, // we manage the delay ourselves below
-        poll_interval: Duration::from_secs(args.poll_secs),
-    });
+    let mut scheduler = Scheduler::new(
+        store.clone(),
+        SchedulerConfig {
+            actor: ACTOR.into(),
+            batch: 8,
+            start_delay: Duration::ZERO, // we manage the delay ourselves below
+            poll_interval: Duration::from_secs(args.poll_secs),
+        },
+    );
     scheduler.register(Arc::new(MetadataResolveExecutor::new(
         sources,
         SourcePriority::default(),
@@ -423,9 +426,9 @@ async fn main() {
                             Ok(ids) => eprintln!(
                                 "impel-taskd: spawned throughline-sync for doc {doc_id}: {ids:?}"
                             ),
-                            Err(e) => eprintln!(
-                                "impel-taskd: throughline spawn failed for {doc_id}: {e}"
-                            ),
+                            Err(e) => {
+                                eprintln!("impel-taskd: throughline spawn failed for {doc_id}: {e}")
+                            }
                         }
                     }
                 }

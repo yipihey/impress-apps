@@ -53,15 +53,30 @@ pub fn register_communication_schemas(registry: &mut SchemaRegistry) {
 }
 
 fn required_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: true, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: true,
+        description: None,
+    }
 }
 
 fn optional_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: false, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: false,
+        description: None,
+    }
 }
 
 fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
-    FieldDef { name: name.into(), field_type, required, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type,
+        required,
+        description: None,
+    }
 }
 
 #[cfg(test)]

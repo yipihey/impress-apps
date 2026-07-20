@@ -2,8 +2,8 @@
 //!
 //! Provides parsing of RFC 2045 MIME messages.
 
-use crate::{ImpartError, Result};
 use crate::types::{Address, Envelope};
+use crate::{ImpartError, Result};
 use mailparse::{parse_mail, MailHeaderMap, ParsedMail};
 
 // MARK: - Parsed Message

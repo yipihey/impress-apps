@@ -33,10 +33,10 @@
 //! store.append(event)?;
 //! ```
 
-mod types;
-mod store;
 mod queries;
+mod store;
+mod types;
 
-pub use types::*;
-pub use store::*;
 pub use queries::*;
+pub use store::*;
+pub use types::*;

@@ -8,9 +8,8 @@ use crate::imbib::ImbibClient;
 use crate::transport::{decode_envelope, decode_text};
 
 use imbib_service::library_service::{
-    CollectionRecord, DismissedPaperRecord, ImportSummary, LibraryRecord,
-    LinkedFileRecord, MutationResult, MutedItemRecord, PaperImport,
-    PublicationDetailRecord, PublicationSummary,
+    CollectionRecord, DismissedPaperRecord, ImportSummary, LibraryRecord, LinkedFileRecord,
+    MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord, PublicationSummary,
 };
 
 // ---------------------------------------------------------------------------
@@ -44,7 +43,9 @@ impl ImbibClient {
         let url = self.base_url.join("/api/libraries")?;
         let resp = self.http.get(url).send().await?;
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.libraries)
     }
 
@@ -55,9 +56,16 @@ impl ImbibClient {
             library: LibraryRecord,
         }
         let url = self.base_url.join("/api/libraries")?;
-        let resp = self.http.post(url).json(&json!({"name": name})).send().await?;
+        let resp = self
+            .http
+            .post(url)
+            .json(&json!({"name": name}))
+            .send()
+            .await?;
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.library)
     }
 
@@ -66,7 +74,10 @@ impl ImbibClient {
         let resp = self.http.delete(url).send().await?;
         let body: OkStatus = decode_envelope(resp).await?;
         check_ok(&body)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn get_default_library(&self) -> Result<Option<LibraryRecord>> {
@@ -81,16 +92,23 @@ impl ImbibClient {
             return Ok(None);
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.library)
     }
 
     pub async fn set_library_default(&self, id: String) -> Result<MutationResult> {
-        let url = self.base_url.join(&format!("/api/libraries/{}/set-default", id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/libraries/{}/set-default", id))?;
         let resp = self.http.post(url).send().await?;
         let body: OkStatus = decode_envelope(resp).await?;
         check_ok(&body)?;
-        Ok(MutationResult { affected_count: 1, ok: true })
+        Ok(MutationResult {
+            affected_count: 1,
+            ok: true,
+        })
     }
 
     pub async fn get_inbox_library(&self) -> Result<Option<LibraryRecord>> {
@@ -105,7 +123,9 @@ impl ImbibClient {
             return Ok(None);
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.library)
     }
 }
@@ -125,7 +145,9 @@ impl ImbibClient {
         url.query_pairs_mut().append_pair("library_id", &library_id);
         let resp = self.http.get(url).send().await?;
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.collections)
     }
 
@@ -150,7 +172,9 @@ impl ImbibClient {
         });
         let resp = self.http.post(url).json(&body).send().await?;
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.collection)
     }
 
@@ -167,7 +191,10 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn remove_from_collection(
@@ -183,7 +210,10 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn list_collection_members(
@@ -210,7 +240,9 @@ impl ImbibClient {
             .append_pair("ascending", &ascending.to_string());
         let resp = self.http.get(url).send().await?;
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
@@ -230,8 +262,13 @@ impl ImbibClient {
             count: u32,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
-        Ok(MutationResult { affected_count: body.count, ok: true })
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
+        Ok(MutationResult {
+            affected_count: body.count,
+            ok: true,
+        })
     }
 }
 
@@ -240,8 +277,15 @@ impl ImbibClient {
 // ---------------------------------------------------------------------------
 
 impl ImbibClient {
-    pub async fn list_publications(&self, limit: u32, offset: u32) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(None, None, None, None, None, None, limit, offset, None, None).await
+    pub async fn list_publications(
+        &self,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        self.search_with_params(
+            None, None, None, None, None, None, limit, offset, None, None,
+        )
+        .await
     }
 
     pub async fn query_publications(
@@ -252,7 +296,19 @@ impl ImbibClient {
         limit: u32,
         offset: u32,
     ) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(None, None, None, None, None, Some(library_id), limit, offset, None, None).await
+        self.search_with_params(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(library_id),
+            limit,
+            offset,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn query_unread(
@@ -263,7 +319,19 @@ impl ImbibClient {
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
         // imbib's /api/search supports `read=false`.
-        self.search_with_params(None, None, None, Some(false), None, parent_id, limit, 0, None, None).await
+        self.search_with_params(
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            parent_id,
+            limit,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn query_starred(
@@ -292,11 +360,17 @@ impl ImbibClient {
             papers: Vec<PublicationSummary>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
-    pub async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Result<Vec<PublicationSummary>> {
+    pub async fn query_recent(
+        &self,
+        limit: u32,
+        parent_id: Option<String>,
+    ) -> Result<Vec<PublicationSummary>> {
         let mut url = self.base_url.join("/api/papers/recent")?;
         let lim = if limit == 0 { 50 } else { limit };
         url.query_pairs_mut().append_pair("limit", &lim.to_string());
@@ -313,18 +387,38 @@ impl ImbibClient {
             papers: Vec<PublicationSummary>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
-    pub async fn search_publications(&self, query: String, limit: u32) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(Some(query), None, None, None, None, None, limit, 0, None, None).await
+    pub async fn search_publications(
+        &self,
+        query: String,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        self.search_with_params(
+            Some(query),
+            None,
+            None,
+            None,
+            None,
+            None,
+            limit,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn get_publication(&self, id: String) -> Result<Option<PublicationSummary>> {
         // imbib uses cite-key in /api/papers/{citeKey}.
         let cite_key = self.resolve_cite_key(&id).await?;
-        let url = self.base_url.join(&format!("/api/papers/{}", urlencoding::encode(&cite_key)))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/papers/{}", urlencoding::encode(&cite_key)))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -335,13 +429,21 @@ impl ImbibClient {
             paper: PublicationSummary,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(Some(body.paper))
     }
 
-    pub async fn get_publication_detail(&self, id: String) -> Result<Option<PublicationDetailRecord>> {
+    pub async fn get_publication_detail(
+        &self,
+        id: String,
+    ) -> Result<Option<PublicationDetailRecord>> {
         let cite_key = self.resolve_cite_key(&id).await?;
-        let url = self.base_url.join(&format!("/api/papers/{}?detail=1", urlencoding::encode(&cite_key)))?;
+        let url = self.base_url.join(&format!(
+            "/api/papers/{}?detail=1",
+            urlencoding::encode(&cite_key)
+        ))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -352,7 +454,9 @@ impl ImbibClient {
             paper: PublicationDetailRecord,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(Some(body.paper))
     }
 
@@ -407,7 +511,9 @@ impl ImbibClient {
             count: u32,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.count)
     }
 
@@ -432,14 +538,30 @@ impl ImbibClient {
             let mut qs = url.query_pairs_mut();
             qs.append_pair("limit", &lim.to_string());
             qs.append_pair("offset", &offset.to_string());
-            if let Some(v) = q { qs.append_pair("q", &v); }
-            if let Some(v) = tag { qs.append_pair("tag", &v); }
-            if let Some(v) = flag { qs.append_pair("flag", &v); }
-            if let Some(v) = read { qs.append_pair("read", if v { "true" } else { "false" }); }
-            if let Some(v) = collection { qs.append_pair("collection", &v); }
-            if let Some(v) = library { qs.append_pair("library", &v); }
-            if let Some(v) = added_after { qs.append_pair("addedAfter", &v); }
-            if let Some(v) = added_before { qs.append_pair("addedBefore", &v); }
+            if let Some(v) = q {
+                qs.append_pair("q", &v);
+            }
+            if let Some(v) = tag {
+                qs.append_pair("tag", &v);
+            }
+            if let Some(v) = flag {
+                qs.append_pair("flag", &v);
+            }
+            if let Some(v) = read {
+                qs.append_pair("read", if v { "true" } else { "false" });
+            }
+            if let Some(v) = collection {
+                qs.append_pair("collection", &v);
+            }
+            if let Some(v) = library {
+                qs.append_pair("library", &v);
+            }
+            if let Some(v) = added_after {
+                qs.append_pair("addedAfter", &v);
+            }
+            if let Some(v) = added_before {
+                qs.append_pair("addedBefore", &v);
+            }
         }
         let resp = self.http.get(url).send().await?;
         #[derive(Deserialize)]
@@ -448,7 +570,9 @@ impl ImbibClient {
             papers: Vec<PublicationSummary>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 }
@@ -470,7 +594,10 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn set_starred(&self, ids: Vec<String>, starred: bool) -> Result<MutationResult> {
@@ -480,26 +607,44 @@ impl ImbibClient {
         let resp = self.http.put(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
-    pub async fn set_flag(&self, ids: Vec<String>, color: Option<String>) -> Result<MutationResult> {
+    pub async fn set_flag(
+        &self,
+        ids: Vec<String>,
+        color: Option<String>,
+    ) -> Result<MutationResult> {
         let n = ids.len() as u32;
         let url = self.base_url.join("/api/papers/flag")?;
         let body = json!({"identifiers": ids, "flag": {"color": color}});
         let resp = self.http.put(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn delete_publications_undoable(&self, ids: Vec<String>) -> Result<MutationResult> {
         let n = ids.len() as u32;
         let url = self.base_url.join("/api/papers")?;
-        let resp = self.http.delete(url).json(&IdsBody { identifiers: ids }).send().await?;
+        let resp = self
+            .http
+            .delete(url)
+            .json(&IdsBody { identifiers: ids })
+            .send()
+            .await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn move_publications(
@@ -513,7 +658,10 @@ impl ImbibClient {
         let resp = self.http.post(url).json(&body).send().await?;
         let s: OkStatus = decode_envelope(resp).await?;
         check_ok(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn duplicate_publications(
@@ -531,7 +679,9 @@ impl ImbibClient {
             ids: Vec<String>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.ids)
     }
 
@@ -557,7 +707,8 @@ impl ImbibClient {
         cite_key: Option<String>,
     ) -> Result<Option<DismissedPaperRecord>> {
         let url = self.base_url.join("/api/dismissed-papers")?;
-        let body = json!({"doi": doi, "arxiv_id": arxiv_id, "bibcode": bibcode, "cite_key": cite_key});
+        let body =
+            json!({"doi": doi, "arxiv_id": arxiv_id, "bibcode": bibcode, "cite_key": cite_key});
         let resp = self.http.post(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -569,7 +720,9 @@ impl ImbibClient {
             dismissed: Option<DismissedPaperRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.dismissed)
     }
 
@@ -583,10 +736,18 @@ impl ImbibClient {
         let mut url = self.base_url.join("/api/dismissed-papers/check")?;
         {
             let mut qs = url.query_pairs_mut();
-            if let Some(v) = doi { qs.append_pair("doi", &v); }
-            if let Some(v) = arxiv_id { qs.append_pair("arxiv_id", &v); }
-            if let Some(v) = bibcode { qs.append_pair("bibcode", &v); }
-            if let Some(v) = cite_key { qs.append_pair("cite_key", &v); }
+            if let Some(v) = doi {
+                qs.append_pair("doi", &v);
+            }
+            if let Some(v) = arxiv_id {
+                qs.append_pair("arxiv_id", &v);
+            }
+            if let Some(v) = bibcode {
+                qs.append_pair("bibcode", &v);
+            }
+            if let Some(v) = cite_key {
+                qs.append_pair("cite_key", &v);
+            }
         }
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
@@ -599,7 +760,9 @@ impl ImbibClient {
             dismissed: bool,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.dismissed)
     }
 
@@ -623,7 +786,9 @@ impl ImbibClient {
             papers: Vec<DismissedPaperRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
@@ -639,7 +804,9 @@ impl ImbibClient {
             items: Vec<MutedItemRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.items)
     }
 
@@ -661,7 +828,9 @@ impl ImbibClient {
             item: Option<MutedItemRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.item)
     }
 }
@@ -694,7 +863,9 @@ impl ImbibClient {
             summary: ImportSummary,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.summary)
     }
 
@@ -712,7 +883,9 @@ impl ImbibClient {
             ids: Vec<String>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.ids)
     }
 
@@ -760,7 +933,9 @@ impl ImbibClient {
             files: Vec<LinkedFileRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.files)
     }
 
@@ -812,7 +987,9 @@ impl ImbibClient {
             file: Option<LinkedFileRecord>,
         }
         let body: R = decode_envelope(resp).await?;
-        check_ok(&OkStatus { status: body.status })?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
         Ok(body.file)
     }
 }

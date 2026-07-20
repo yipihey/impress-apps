@@ -228,9 +228,10 @@ impl RgDatasetHandle {
     ) -> Result<SliceData, RgError> {
         let ds = self.inner.read().expect("RgDataset lock poisoned");
 
-        let dq = DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
-            message: format!("Unknown quantity: '{}'", quantity),
-        })?;
+        let dq =
+            DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
+                message: format!("Unknown quantity: '{}'", quantity),
+            })?;
 
         let sa = SliceAxis::from_str(&axis).ok_or_else(|| RgError::OutOfBounds {
             message: format!("Unknown axis: '{}' (expected x, y, or z)", axis),
@@ -297,9 +298,10 @@ impl RgDatasetHandle {
     ) -> Result<RawSliceData, RgError> {
         let ds = self.inner.read().expect("RgDataset lock poisoned");
 
-        let dq = DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
-            message: format!("Unknown quantity: '{}'", quantity),
-        })?;
+        let dq =
+            DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
+                message: format!("Unknown quantity: '{}'", quantity),
+            })?;
 
         let sa = SliceAxis::from_str(&axis).ok_or_else(|| RgError::OutOfBounds {
             message: format!("Unknown axis: '{}' (expected x, y, or z)", axis),
@@ -346,9 +348,10 @@ impl RgDatasetHandle {
     pub fn get_field_statistics(&self, quantity: String) -> Result<FieldStatistics, RgError> {
         let ds = self.inner.read().expect("RgDataset lock poisoned");
 
-        let dq = DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
-            message: format!("Unknown quantity: '{}'", quantity),
-        })?;
+        let dq =
+            DerivedQuantity::from_str(&quantity).ok_or_else(|| RgError::QuantityNotAvailable {
+                message: format!("Unknown quantity: '{}'", quantity),
+            })?;
 
         let field = ds.get_field(dq).map_err(|e| RgError::ComputeFailed {
             message: e.to_string(),
@@ -369,8 +372,12 @@ impl RgDatasetHandle {
             } else if v.is_infinite() {
                 inf_count += 1;
             } else {
-                if v < min_val { min_val = v; }
-                if v > max_val { max_val = v; }
+                if v < min_val {
+                    min_val = v;
+                }
+                if v > max_val {
+                    max_val = v;
+                }
                 let vd = v as f64;
                 sum += vd;
                 sum_sq += vd * vd;
@@ -378,7 +385,11 @@ impl RgDatasetHandle {
             }
         }
 
-        let mean_val = if finite_count > 0 { (sum / finite_count as f64) as f32 } else { 0.0 };
+        let mean_val = if finite_count > 0 {
+            (sum / finite_count as f64) as f32
+        } else {
+            0.0
+        };
         let std_val = if finite_count > 1 {
             let variance = (sum_sq / finite_count as f64) - (mean_val as f64).powi(2);
             (variance.max(0.0).sqrt()) as f32
@@ -386,8 +397,12 @@ impl RgDatasetHandle {
             0.0
         };
 
-        if !min_val.is_finite() { min_val = 0.0; }
-        if !max_val.is_finite() { max_val = 0.0; }
+        if !min_val.is_finite() {
+            min_val = 0.0;
+        }
+        if !max_val.is_finite() {
+            max_val = 0.0;
+        }
 
         Ok(FieldStatistics {
             quantity,
@@ -475,9 +490,12 @@ impl RgDatasetHandle {
         let mut spec = crate::plot::types::PlotSpec::new().with_title(&title);
 
         for name in &names {
-            let values = ds.data_series.get(name).ok_or_else(|| RgError::QuantityNotAvailable {
-                message: format!("Data series '{}' not found", name),
-            })?;
+            let values = ds
+                .data_series
+                .get(name)
+                .ok_or_else(|| RgError::QuantityNotAvailable {
+                    message: format!("Data series '{}' not found", name),
+                })?;
             let x: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
             let y: Vec<f64> = values.iter().map(|&v| v as f64).collect();
             spec = spec.line(x, y, name.clone());
@@ -519,11 +537,7 @@ impl RgDatasetHandle {
     ///
     /// - `quantity`: derived quantity name
     /// - `num_bins`: number of bins (0 = auto)
-    pub fn plot_field_histogram(
-        &self,
-        quantity: String,
-        num_bins: u32,
-    ) -> Result<String, RgError> {
+    pub fn plot_field_histogram(&self, quantity: String, num_bins: u32) -> Result<String, RgError> {
         let ds = self.inner.read().expect("RgDataset lock poisoned");
 
         let dq = super::types::DerivedQuantity::from_str(&quantity).ok_or_else(|| {
@@ -536,7 +550,11 @@ impl RgDatasetHandle {
             message: e.to_string(),
         })?;
 
-        let data: Vec<f64> = field.iter().filter(|v| v.is_finite()).map(|&v| v as f64).collect();
+        let data: Vec<f64> = field
+            .iter()
+            .filter(|v| v.is_finite())
+            .map(|&v| v as f64)
+            .collect();
 
         let config = crate::render::Histogram1DConfig {
             field: quantity,
@@ -561,8 +579,12 @@ fn compute_slice_stats(slice: &ndarray::Array2<f32>) -> (f32, f32, f32, f32) {
 
     for &v in slice.iter() {
         if v.is_finite() {
-            if v < min_val { min_val = v; }
-            if v > max_val { max_val = v; }
+            if v < min_val {
+                min_val = v;
+            }
+            if v > max_val {
+                max_val = v;
+            }
             let vd = v as f64;
             sum += vd;
             sum_sq += vd * vd;
@@ -570,7 +592,11 @@ fn compute_slice_stats(slice: &ndarray::Array2<f32>) -> (f32, f32, f32, f32) {
         }
     }
 
-    let mean = if count > 0 { (sum / count as f64) as f32 } else { 0.0 };
+    let mean = if count > 0 {
+        (sum / count as f64) as f32
+    } else {
+        0.0
+    };
     let std = if count > 1 {
         let variance = (sum_sq / count as f64) - (mean as f64).powi(2);
         (variance.max(0.0).sqrt()) as f32
@@ -578,8 +604,12 @@ fn compute_slice_stats(slice: &ndarray::Array2<f32>) -> (f32, f32, f32, f32) {
         0.0
     };
 
-    if !min_val.is_finite() { min_val = 0.0; }
-    if !max_val.is_finite() { max_val = 0.0; }
+    if !min_val.is_finite() {
+        min_val = 0.0;
+    }
+    if !max_val.is_finite() {
+        max_val = 0.0;
+    }
 
     (min_val, max_val, mean, std)
 }

@@ -6,9 +6,7 @@
 
 mod types;
 
-pub use types::{
-    EnrichmentSource, ExtractedIdentifier, IdentifierType, PreferredIdentifier,
-};
+pub use types::{EnrichmentSource, ExtractedIdentifier, IdentifierType, PreferredIdentifier};
 
 use std::collections::HashMap;
 
@@ -243,8 +241,7 @@ pub fn preferred_identifier_for_source(
     identifiers: HashMap<String, String>,
     source: EnrichmentSource,
 ) -> Option<PreferredIdentifier> {
-    im_identifiers::preferred_identifier_for_source(identifiers, source.into())
-        .map(Into::into)
+    im_identifiers::preferred_identifier_for_source(identifiers, source.into()).map(Into::into)
 }
 
 #[cfg(feature = "uniffi")]

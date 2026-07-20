@@ -39,8 +39,7 @@ pub fn manuscript_collection_schema() -> Schema {
                 field_type: FieldType::Int,
                 required: false,
                 description: Some(
-                    "Position among siblings sharing the same parent. Lower sorts first."
-                        .into(),
+                    "Position among siblings sharing the same parent. Lower sorts first.".into(),
                 ),
             },
             FieldDef {
@@ -122,7 +121,11 @@ mod tests {
         for name in &optional {
             let field = s.fields.iter().find(|f| f.name == *name);
             assert!(field.is_some(), "field '{}' should exist", name);
-            assert!(!field.unwrap().required, "field '{}' should be optional", name);
+            assert!(
+                !field.unwrap().required,
+                "field '{}' should be optional",
+                name
+            );
         }
     }
 

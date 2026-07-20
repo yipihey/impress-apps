@@ -15,9 +15,9 @@ mod tools;
 #[allow(unused_imports)]
 use imbib_service as _force_link_imbib_service;
 #[allow(unused_imports)]
-use imprint_service as _force_link_imprint_service;
-#[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
+#[allow(unused_imports)]
+use imprint_service as _force_link_imprint_service;
 
 use imbib_core::search::{ChunkIndex, EmbeddingStore, SemanticSearch};
 use std::path::PathBuf;

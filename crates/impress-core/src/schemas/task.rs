@@ -40,10 +40,7 @@ pub fn agent_run_schema() -> Schema {
             field("token_count", FieldType::Int, false),
             field("duration_ms", FieldType::Int, false),
         ],
-        expected_edges: vec![
-            EdgeType::ProducedBy,
-            EdgeType::DerivedFrom,
-        ],
+        expected_edges: vec![EdgeType::ProducedBy, EdgeType::DerivedFrom],
         inherits: None,
     }
 }
@@ -59,15 +56,30 @@ pub fn register_task_schemas(registry: &mut SchemaRegistry) {
 }
 
 fn required_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: true, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: true,
+        description: None,
+    }
 }
 
 fn optional_string(name: &str) -> FieldDef {
-    FieldDef { name: name.into(), field_type: FieldType::String, required: false, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type: FieldType::String,
+        required: false,
+        description: None,
+    }
 }
 
 fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
-    FieldDef { name: name.into(), field_type, required, description: None }
+    FieldDef {
+        name: name.into(),
+        field_type,
+        required,
+        description: None,
+    }
 }
 
 #[cfg(test)]
@@ -106,7 +118,10 @@ mod tests {
             .collect();
         assert!(required.contains(&"agent_id"), "missing required agent_id");
         assert!(required.contains(&"model"), "missing required model");
-        assert!(required.contains(&"prompt_hash"), "missing required prompt_hash");
+        assert!(
+            required.contains(&"prompt_hash"),
+            "missing required prompt_hash"
+        );
     }
 
     #[test]

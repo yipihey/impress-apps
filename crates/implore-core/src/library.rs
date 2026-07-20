@@ -377,10 +377,9 @@ pub fn load_library_json(path: String) -> Result<FigureLibrary, LibraryError> {
     let data = std::fs::read_to_string(&path).map_err(|e| LibraryError::Io {
         message: e.to_string(),
     })?;
-    let library: FigureLibrary =
-        serde_json::from_str(&data).map_err(|e| LibraryError::Json {
-            message: e.to_string(),
-        })?;
+    let library: FigureLibrary = serde_json::from_str(&data).map_err(|e| LibraryError::Json {
+        message: e.to_string(),
+    })?;
     Ok(library)
 }
 

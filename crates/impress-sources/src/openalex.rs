@@ -42,11 +42,7 @@ impl OpenAlexSource {
 
     fn parse_work(item: &Value) -> Option<PaperMetadata> {
         let id_url = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let source_id = id_url
-            .rsplit('/')
-            .next()
-            .unwrap_or(id_url)
-            .to_string();
+        let source_id = id_url.rsplit('/').next().unwrap_or(id_url).to_string();
 
         let title = item
             .get("title")
@@ -118,20 +114,16 @@ impl OpenAlexSource {
             });
 
         // Try to extract an arXiv ID from the openalex ids dict.
-        let arxiv_id = item
-            .get("ids")
-            .and_then(|v| v.as_object())
-            .and_then(|m| {
-                m.iter().find_map(|(k, v)| {
-                    if k.eq_ignore_ascii_case("arxiv") {
-                        v.as_str().map(|s| {
-                            s.trim_start_matches("https://arxiv.org/abs/").to_string()
-                        })
-                    } else {
-                        None
-                    }
-                })
-            });
+        let arxiv_id = item.get("ids").and_then(|v| v.as_object()).and_then(|m| {
+            m.iter().find_map(|(k, v)| {
+                if k.eq_ignore_ascii_case("arxiv") {
+                    v.as_str()
+                        .map(|s| s.trim_start_matches("https://arxiv.org/abs/").to_string())
+                } else {
+                    None
+                }
+            })
+        });
 
         Some(PaperMetadata {
             source_id,

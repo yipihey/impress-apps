@@ -95,7 +95,11 @@ impl From<&imbib_core::unified::shaped_queries::CommentRow> for CommentRecord {
 pub trait ImbibAnnotationsService: Send + Sync + 'static {
     // ---- Annotations (PDF) ----
     #[impress_method]
-    async fn list_annotations(&self, linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord>;
+    async fn list_annotations(
+        &self,
+        linked_file_id: String,
+        page_number: Option<i32>,
+    ) -> Vec<AnnotationRecord>;
     #[impress_method]
     async fn count_annotations(&self, linked_file_id: String) -> u32;
     #[impress_method]
@@ -140,58 +144,148 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
 }
 
 #[derive(Clone)]
-pub struct DefaultImbibAnnotationsService { store: Arc<ImbibStore> }
-impl DefaultImbibAnnotationsService { pub fn new(store: Arc<ImbibStore>) -> Self { Self { store } } }
+pub struct DefaultImbibAnnotationsService {
+    store: Arc<ImbibStore>,
+}
+impl DefaultImbibAnnotationsService {
+    pub fn new(store: Arc<ImbibStore>) -> Self {
+        Self { store }
+    }
+}
 
-fn ok_n(n: u32) -> MutationResult { MutationResult { affected_count: n, ok: true } }
-fn fail() -> MutationResult { MutationResult { affected_count: 0, ok: false } }
-fn log(m: &str, e: impl std::fmt::Display) { eprintln!("[imbib-annotations-service] {m}: {e}"); }
+fn ok_n(n: u32) -> MutationResult {
+    MutationResult {
+        affected_count: n,
+        ok: true,
+    }
+}
+fn fail() -> MutationResult {
+    MutationResult {
+        affected_count: 0,
+        ok: false,
+    }
+}
+fn log(m: &str, e: impl std::fmt::Display) {
+    eprintln!("[imbib-annotations-service] {m}: {e}");
+}
 
 #[async_trait::async_trait]
 impl ImbibAnnotationsService for DefaultImbibAnnotationsService {
-    async fn list_annotations(&self, linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord> {
-        self.store.list_annotations(linked_file_id, page_number)
+    async fn list_annotations(
+        &self,
+        linked_file_id: String,
+        page_number: Option<i32>,
+    ) -> Vec<AnnotationRecord> {
+        self.store
+            .list_annotations(linked_file_id, page_number)
             .map(|rs| rs.iter().map(AnnotationRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_annotations", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_annotations", e);
+                vec![]
+            })
     }
     async fn count_annotations(&self, linked_file_id: String) -> u32 {
         self.store.count_annotations(linked_file_id).unwrap_or(0)
     }
-    async fn create_annotation(&self, linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, contents: Option<String>, selected_text: Option<String>) -> Option<AnnotationRecord> {
-        self.store.create_annotation(linked_file_id, annotation_type, page_number, bounds_json, color, contents, selected_text)
+    async fn create_annotation(
+        &self,
+        linked_file_id: String,
+        annotation_type: String,
+        page_number: i64,
+        bounds_json: Option<String>,
+        color: Option<String>,
+        contents: Option<String>,
+        selected_text: Option<String>,
+    ) -> Option<AnnotationRecord> {
+        self.store
+            .create_annotation(
+                linked_file_id,
+                annotation_type,
+                page_number,
+                bounds_json,
+                color,
+                contents,
+                selected_text,
+            )
             .map(|r| AnnotationRecord::from(&r))
             .map_err(|e| log("create_annotation", e))
             .ok()
     }
     async fn list_comments_for_item(&self, item_id: String) -> Vec<CommentRecord> {
-        self.store.list_comments_for_item(item_id)
+        self.store
+            .list_comments_for_item(item_id)
             .map(|rs| rs.iter().map(CommentRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_comments_for_item", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_comments_for_item", e);
+                vec![]
+            })
     }
     async fn list_comments(&self, publication_id: String) -> Vec<CommentRecord> {
-        self.store.list_comments(publication_id)
+        self.store
+            .list_comments(publication_id)
             .map(|rs| rs.iter().map(CommentRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_comments", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_comments", e);
+                vec![]
+            })
     }
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord> {
-        self.store.list_comments_since(item_id, since_clock)
+        self.store
+            .list_comments_since(item_id, since_clock)
             .map(|rs| rs.iter().map(CommentRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_comments_since", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_comments_since", e);
+                vec![]
+            })
     }
-    async fn create_comment(&self, publication_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord> {
-        self.store.create_comment(publication_id, text, author_identifier, author_display_name, parent_comment_id)
+    async fn create_comment(
+        &self,
+        publication_id: String,
+        text: String,
+        author_identifier: Option<String>,
+        author_display_name: Option<String>,
+        parent_comment_id: Option<String>,
+    ) -> Option<CommentRecord> {
+        self.store
+            .create_comment(
+                publication_id,
+                text,
+                author_identifier,
+                author_display_name,
+                parent_comment_id,
+            )
             .map(|r| CommentRecord::from(&r))
             .map_err(|e| log("create_comment", e))
             .ok()
     }
-    async fn create_comment_on_item(&self, item_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord> {
-        self.store.create_comment_on_item(item_id, text, author_identifier, author_display_name, parent_comment_id)
+    async fn create_comment_on_item(
+        &self,
+        item_id: String,
+        text: String,
+        author_identifier: Option<String>,
+        author_display_name: Option<String>,
+        parent_comment_id: Option<String>,
+    ) -> Option<CommentRecord> {
+        self.store
+            .create_comment_on_item(
+                item_id,
+                text,
+                author_identifier,
+                author_display_name,
+                parent_comment_id,
+            )
             .map(|r| CommentRecord::from(&r))
             .map_err(|e| log("create_comment_on_item", e))
             .ok()
     }
     async fn update_comment(&self, id: String, text: String) -> MutationResult {
-        match self.store.update_comment(id, text) { Ok(_) => ok_n(1), Err(e) => { log("update_comment", e); fail() } }
+        match self.store.update_comment(id, text) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("update_comment", e);
+                fail()
+            }
+        }
     }
 }
 

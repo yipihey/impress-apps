@@ -36,9 +36,7 @@ pub fn review_schema() -> Schema {
                 name: "subject_ref".into(),
                 field_type: FieldType::String,
                 required: true,
-                description: Some(
-                    "ItemId of the manuscript-revision being reviewed.".into(),
-                ),
+                description: Some("ItemId of the manuscript-revision being reviewed.".into()),
             },
             FieldDef {
                 name: "verdict".into(),
@@ -52,9 +50,7 @@ pub fn review_schema() -> Schema {
                 name: "body".into(),
                 field_type: FieldType::String,
                 required: true,
-                description: Some(
-                    "The reviewer's prose critique (markdown).".into(),
-                ),
+                description: Some("The reviewer's prose critique (markdown).".into()),
             },
             FieldDef {
                 name: "summary".into(),
@@ -80,9 +76,7 @@ pub fn review_schema() -> Schema {
                 name: "confidence".into(),
                 field_type: FieldType::Float,
                 required: false,
-                description: Some(
-                    "Reviewer's confidence in the verdict, 0.0–1.0.".into(),
-                ),
+                description: Some("Reviewer's confidence in the verdict, 0.0–1.0.".into()),
             },
             FieldDef {
                 name: "evidence_refs".into(),
@@ -107,7 +101,8 @@ pub fn review_schema() -> Schema {
                 field_type: FieldType::String,
                 required: false,
                 description: Some(
-                    "ItemId of the agent-run@1.0.0 record for this review (for reproducibility).".into(),
+                    "ItemId of the agent-run@1.0.0 record for this review (for reproducibility)."
+                        .into(),
                 ),
             },
         ],
@@ -137,9 +132,7 @@ pub fn revision_note_schema() -> Schema {
                 name: "subject_ref".into(),
                 field_type: FieldType::String,
                 required: true,
-                description: Some(
-                    "ItemId of the manuscript-revision the note is about.".into(),
-                ),
+                description: Some("ItemId of the manuscript-revision the note is about.".into()),
             },
             FieldDef {
                 name: "verdict".into(),
@@ -168,7 +161,8 @@ pub fn revision_note_schema() -> Schema {
                 field_type: FieldType::String,
                 required: false,
                 description: Some(
-                    "section_type value (e.g. \"methods\") if the note is scoped to one section.".into(),
+                    "section_type value (e.g. \"methods\") if the note is scoped to one section."
+                        .into(),
                 ),
             },
             FieldDef {
@@ -184,7 +178,8 @@ pub fn revision_note_schema() -> Schema {
                 field_type: FieldType::StringArray,
                 required: false,
                 description: Some(
-                    "ItemIds consulted (the review, the section being revised, related papers).".into(),
+                    "ItemIds consulted (the review, the section being revised, related papers)."
+                        .into(),
                 ),
             },
             FieldDef {
@@ -199,9 +194,7 @@ pub fn revision_note_schema() -> Schema {
                 name: "agent_run_ref".into(),
                 field_type: FieldType::String,
                 required: false,
-                description: Some(
-                    "ItemId of the agent-run@1.0.0 record for this note.".into(),
-                ),
+                description: Some("ItemId of the agent-run@1.0.0 record for this note.".into()),
             },
         ],
         expected_edges: vec![

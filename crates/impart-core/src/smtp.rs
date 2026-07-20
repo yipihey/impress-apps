@@ -1,7 +1,7 @@
 //! SMTP client for sending messages.
 
-use crate::{ImpartError, Result};
 use crate::types::AccountConfig;
+use crate::{ImpartError, Result};
 use lettre::{
     message::{header::ContentType, Mailbox as LettreMailbox, Message as LettreMessage},
     transport::smtp::authentication::Credentials,
@@ -57,23 +57,25 @@ impl SmtpClient {
 
     /// Send a message.
     pub fn send(&self, draft: &DraftMessage) -> Result<()> {
-        let from: LettreMailbox = draft.from_email.parse()
+        let from: LettreMailbox = draft
+            .from_email
+            .parse()
             .map_err(|e: lettre::address::AddressError| ImpartError::Smtp(e.to_string()))?;
 
-        let mut builder = LettreMessage::builder()
-            .from(from)
-            .subject(&draft.subject);
+        let mut builder = LettreMessage::builder().from(from).subject(&draft.subject);
 
         // Add To recipients
         for to in &draft.to_emails {
-            let mailbox: LettreMailbox = to.parse()
+            let mailbox: LettreMailbox = to
+                .parse()
                 .map_err(|e: lettre::address::AddressError| ImpartError::Smtp(e.to_string()))?;
             builder = builder.to(mailbox);
         }
 
         // Add CC recipients
         for cc in &draft.cc_emails {
-            let mailbox: LettreMailbox = cc.parse()
+            let mailbox: LettreMailbox = cc
+                .parse()
                 .map_err(|e: lettre::address::AddressError| ImpartError::Smtp(e.to_string()))?;
             builder = builder.cc(mailbox);
         }

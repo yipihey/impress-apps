@@ -5,8 +5,8 @@
 
 use std::collections::BTreeMap;
 
-use imprint_service::SectionRecord;
 use imprint_service::throughline::ThroughlineParagraph;
+use imprint_service::SectionRecord;
 
 use crate::{DraftResult, SyncDirection};
 
@@ -108,20 +108,18 @@ mod tests {
 
     #[test]
     fn parses_clean_reply() {
-        let d = parse_reply(
-            r#"{"paragraph_text": "We claim X.", "section_bodies": {}, "note": null}"#,
-        )
-        .unwrap();
+        let d =
+            parse_reply(r#"{"paragraph_text": "We claim X.", "section_bodies": {}, "note": null}"#)
+                .unwrap();
         assert_eq!(d.paragraph_text.as_deref(), Some("We claim X."));
         assert!(d.section_bodies.is_empty());
     }
 
     #[test]
     fn salvages_from_prose() {
-        let d = parse_reply(
-            "Here you go:\n{\"section_bodies\": {\"intro\": \"New body.\"}}\nDone.",
-        )
-        .unwrap();
+        let d =
+            parse_reply("Here you go:\n{\"section_bodies\": {\"intro\": \"New body.\"}}\nDone.")
+                .unwrap();
         assert_eq!(d.section_bodies["intro"], "New body.");
         assert_eq!(d.paragraph_text, None);
     }

@@ -69,11 +69,21 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     #[impress_method]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
     #[impress_method]
-    async fn create_tag(&self, path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult;
+    async fn create_tag(
+        &self,
+        path: String,
+        color_light: Option<String>,
+        color_dark: Option<String>,
+    ) -> MutationResult;
     #[impress_method]
     async fn delete_tag_undoable(&self, path: String) -> MutationResult;
     #[impress_method]
-    async fn update_tag(&self, path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult;
+    async fn update_tag(
+        &self,
+        path: String,
+        color_light: Option<String>,
+        color_dark: Option<String>,
+    ) -> MutationResult;
     #[impress_method]
     async fn rename_tag(&self, old_path: String, new_path: String) -> MutationResult;
     #[impress_method]
@@ -81,53 +91,151 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     #[impress_method]
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
     #[impress_method]
-    async fn query_by_tag(&self, tag_path: String, parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary>;
+    async fn query_by_tag(
+        &self,
+        tag_path: String,
+        parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+    ) -> Vec<PublicationSummary>;
     #[impress_method]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
 }
 
 #[derive(Clone)]
-pub struct DefaultImbibTagsService { store: Arc<ImbibStore> }
-impl DefaultImbibTagsService { pub fn new(store: Arc<ImbibStore>) -> Self { Self { store } } }
+pub struct DefaultImbibTagsService {
+    store: Arc<ImbibStore>,
+}
+impl DefaultImbibTagsService {
+    pub fn new(store: Arc<ImbibStore>) -> Self {
+        Self { store }
+    }
+}
 
-fn ok_n(n: u32) -> MutationResult { MutationResult { affected_count: n, ok: true } }
-fn fail() -> MutationResult { MutationResult { affected_count: 0, ok: false } }
-fn log(m: &str, e: impl std::fmt::Display) { eprintln!("[imbib-tags-service] {m}: {e}"); }
+fn ok_n(n: u32) -> MutationResult {
+    MutationResult {
+        affected_count: n,
+        ok: true,
+    }
+}
+fn fail() -> MutationResult {
+    MutationResult {
+        affected_count: 0,
+        ok: false,
+    }
+}
+fn log(m: &str, e: impl std::fmt::Display) {
+    eprintln!("[imbib-tags-service] {m}: {e}");
+}
 
 #[async_trait::async_trait]
 impl ImbibTagsService for DefaultImbibTagsService {
     async fn list_tags(&self) -> Vec<TagRecord> {
-        self.store.list_tags().map(|rs| rs.iter().map(TagRecord::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("list_tags", e); vec![] })
+        self.store
+            .list_tags()
+            .map(|rs| rs.iter().map(TagRecord::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("list_tags", e);
+                vec![]
+            })
     }
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount> {
-        self.store.list_tags_with_counts().map(|rs| rs.iter().map(TagWithCount::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("list_tags_with_counts", e); vec![] })
+        self.store
+            .list_tags_with_counts()
+            .map(|rs| rs.iter().map(TagWithCount::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("list_tags_with_counts", e);
+                vec![]
+            })
     }
-    async fn create_tag(&self, path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult {
-        match self.store.create_tag(path, color_light, color_dark) { Ok(_) => ok_n(1), Err(e) => { log("create_tag", e); fail() } }
+    async fn create_tag(
+        &self,
+        path: String,
+        color_light: Option<String>,
+        color_dark: Option<String>,
+    ) -> MutationResult {
+        match self.store.create_tag(path, color_light, color_dark) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("create_tag", e);
+                fail()
+            }
+        }
     }
     async fn delete_tag_undoable(&self, path: String) -> MutationResult {
-        match self.store.delete_tag_undoable(path) { Ok(_) => ok_n(1), Err(e) => { log("delete_tag_undoable", e); fail() } }
+        match self.store.delete_tag_undoable(path) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("delete_tag_undoable", e);
+                fail()
+            }
+        }
     }
-    async fn update_tag(&self, path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult {
-        match self.store.update_tag(path, color_light, color_dark) { Ok(_) => ok_n(1), Err(e) => { log("update_tag", e); fail() } }
+    async fn update_tag(
+        &self,
+        path: String,
+        color_light: Option<String>,
+        color_dark: Option<String>,
+    ) -> MutationResult {
+        match self.store.update_tag(path, color_light, color_dark) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("update_tag", e);
+                fail()
+            }
+        }
     }
     async fn rename_tag(&self, old_path: String, new_path: String) -> MutationResult {
-        match self.store.rename_tag(old_path, new_path) { Ok(_) => ok_n(1), Err(e) => { log("rename_tag", e); fail() } }
+        match self.store.rename_tag(old_path, new_path) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("rename_tag", e);
+                fail()
+            }
+        }
     }
     async fn add_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult {
         let n = ids.len() as u32;
-        match self.store.add_tag(ids, tag_path) { Ok(_) => ok_n(n), Err(e) => { log("add_tag", e); fail() } }
+        match self.store.add_tag(ids, tag_path) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("add_tag", e);
+                fail()
+            }
+        }
     }
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult {
         let n = ids.len() as u32;
-        match self.store.remove_tag(ids, tag_path) { Ok(_) => ok_n(n), Err(e) => { log("remove_tag", e); fail() } }
+        match self.store.remove_tag(ids, tag_path) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("remove_tag", e);
+                fail()
+            }
+        }
     }
-    async fn query_by_tag(&self, tag_path: String, parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary> {
+    async fn query_by_tag(
+        &self,
+        tag_path: String,
+        parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+    ) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        let sort = if sort_field.is_empty() { "date_added".to_string() } else { sort_field };
-        self.store.query_by_tag(tag_path, parent_id, sort, ascending, lim, None)
+        let sort = if sort_field.is_empty() {
+            "date_added".to_string()
+        } else {
+            sort_field
+        };
+        self.store
+            .query_by_tag(tag_path, parent_id, sort, ascending, lim, None)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("query_by_tag", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("query_by_tag", e);
+                vec![]
+            })
     }
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32 {
         self.store.count_by_tag(tag_path, parent_id).unwrap_or(0)

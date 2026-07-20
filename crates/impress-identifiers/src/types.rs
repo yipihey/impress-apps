@@ -81,8 +81,16 @@ macro_rules! bidir_enum {
 }
 
 bidir_enum!(
-    IdentifierType, im_identifiers::IdentifierType,
-    Doi, Arxiv, Pmid, Pmcid, Bibcode, SemanticScholar, OpenAlex, Dblp,
+    IdentifierType,
+    im_identifiers::IdentifierType,
+    Doi,
+    Arxiv,
+    Pmid,
+    Pmcid,
+    Bibcode,
+    SemanticScholar,
+    OpenAlex,
+    Dblp,
 );
 
 // ── EnrichmentSource ─────────────────────────────────────────────────────────
@@ -108,8 +116,15 @@ pub enum EnrichmentSource {
 }
 
 bidir_enum!(
-    EnrichmentSource, im_identifiers::EnrichmentSource,
-    Ads, SemanticScholar, OpenAlex, Crossref, Arxiv, Pubmed, Dblp,
+    EnrichmentSource,
+    im_identifiers::EnrichmentSource,
+    Ads,
+    SemanticScholar,
+    OpenAlex,
+    Crossref,
+    Arxiv,
+    Pubmed,
+    Dblp,
 );
 
 // ── PreferredIdentifier ──────────────────────────────────────────────────────

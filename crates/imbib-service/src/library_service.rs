@@ -485,11 +485,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
 
     // ---- BibTeX import/export ----
     #[impress_method]
-    async fn import_papers(
-        &self,
-        papers: Vec<PaperImport>,
-        library_id: String,
-    ) -> ImportSummary;
+    async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     #[impress_method]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
     #[impress_method]
@@ -530,8 +526,18 @@ impl DefaultImbibLibraryService {
     }
 }
 
-fn ok_n(n: u32) -> MutationResult { MutationResult { affected_count: n, ok: true } }
-fn fail() -> MutationResult { MutationResult { affected_count: 0, ok: false } }
+fn ok_n(n: u32) -> MutationResult {
+    MutationResult {
+        affected_count: n,
+        ok: true,
+    }
+}
+fn fail() -> MutationResult {
+    MutationResult {
+        affected_count: 0,
+        ok: false,
+    }
+}
 fn log(method: &str, e: impl std::fmt::Display) {
     eprintln!("[imbib-library-service] {method}: {e}");
 }
@@ -539,181 +545,476 @@ fn log(method: &str, e: impl std::fmt::Display) {
 #[async_trait::async_trait]
 impl ImbibLibraryService for DefaultImbibLibraryService {
     async fn list_libraries(&self) -> Vec<LibraryRecord> {
-        self.store.list_libraries().map(|rs| rs.iter().map(LibraryRecord::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("list_libraries", e); vec![] })
+        self.store
+            .list_libraries()
+            .map(|rs| rs.iter().map(LibraryRecord::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("list_libraries", e);
+                vec![]
+            })
     }
     async fn create_library(&self, name: String) -> Option<LibraryRecord> {
-        self.store.create_library(name).map(|r| LibraryRecord::from(&r)).map_err(|e| log("create_library", e)).ok()
+        self.store
+            .create_library(name)
+            .map(|r| LibraryRecord::from(&r))
+            .map_err(|e| log("create_library", e))
+            .ok()
     }
     async fn delete_library_undoable(&self, id: String) -> MutationResult {
-        match self.store.delete_library_undoable(id) { Ok(_) => ok_n(1), Err(e) => { log("delete_library_undoable", e); fail() } }
+        match self.store.delete_library_undoable(id) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("delete_library_undoable", e);
+                fail()
+            }
+        }
     }
     async fn get_default_library(&self) -> Option<LibraryRecord> {
-        self.store.get_default_library().ok().flatten().as_ref().map(LibraryRecord::from)
+        self.store
+            .get_default_library()
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(LibraryRecord::from)
     }
     async fn set_library_default(&self, id: String) -> MutationResult {
-        match self.store.set_library_default(id) { Ok(_) => ok_n(1), Err(e) => { log("set_library_default", e); fail() } }
+        match self.store.set_library_default(id) {
+            Ok(_) => ok_n(1),
+            Err(e) => {
+                log("set_library_default", e);
+                fail()
+            }
+        }
     }
     async fn get_inbox_library(&self) -> Option<LibraryRecord> {
-        self.store.get_inbox_library().ok().flatten().as_ref().map(LibraryRecord::from)
+        self.store
+            .get_inbox_library()
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(LibraryRecord::from)
     }
 
     async fn list_collections(&self, library_id: String) -> Vec<CollectionRecord> {
-        self.store.list_collections(library_id).map(|rs| rs.iter().map(CollectionRecord::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("list_collections", e); vec![] })
+        self.store
+            .list_collections(library_id)
+            .map(|rs| rs.iter().map(CollectionRecord::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("list_collections", e);
+                vec![]
+            })
     }
-    async fn create_collection(&self, name: String, library_id: String, is_smart: bool, query: Option<String>) -> Option<CollectionRecord> {
-        self.store.create_collection(name, library_id, is_smart, query).map(|r| CollectionRecord::from(&r)).map_err(|e| log("create_collection", e)).ok()
+    async fn create_collection(
+        &self,
+        name: String,
+        library_id: String,
+        is_smart: bool,
+        query: Option<String>,
+    ) -> Option<CollectionRecord> {
+        self.store
+            .create_collection(name, library_id, is_smart, query)
+            .map(|r| CollectionRecord::from(&r))
+            .map_err(|e| log("create_collection", e))
+            .ok()
     }
-    async fn add_to_collection(&self, publication_ids: Vec<String>, collection_id: String) -> MutationResult {
+    async fn add_to_collection(
+        &self,
+        publication_ids: Vec<String>,
+        collection_id: String,
+    ) -> MutationResult {
         let n = publication_ids.len() as u32;
-        match self.store.add_to_collection(publication_ids, collection_id) { Ok(_) => ok_n(n), Err(e) => { log("add_to_collection", e); fail() } }
+        match self.store.add_to_collection(publication_ids, collection_id) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("add_to_collection", e);
+                fail()
+            }
+        }
     }
-    async fn remove_from_collection(&self, publication_ids: Vec<String>, collection_id: String) -> MutationResult {
+    async fn remove_from_collection(
+        &self,
+        publication_ids: Vec<String>,
+        collection_id: String,
+    ) -> MutationResult {
         let n = publication_ids.len() as u32;
-        match self.store.remove_from_collection(publication_ids, collection_id) { Ok(_) => ok_n(n), Err(e) => { log("remove_from_collection", e); fail() } }
+        match self
+            .store
+            .remove_from_collection(publication_ids, collection_id)
+        {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("remove_from_collection", e);
+                fail()
+            }
+        }
     }
-    async fn list_collection_members(&self, collection_id: String, sort_field: String, ascending: bool, limit: u32, offset: u32) -> Vec<PublicationSummary> {
+    async fn list_collection_members(
+        &self,
+        collection_id: String,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+        offset: u32,
+    ) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
         let off = if offset == 0 { None } else { Some(offset) };
-        let sort = if sort_field.is_empty() { "date_added".to_string() } else { sort_field };
-        self.store.list_collection_members(collection_id, sort, ascending, lim, off)
+        let sort = if sort_field.is_empty() {
+            "date_added".to_string()
+        } else {
+            sort_field
+        };
+        self.store
+            .list_collection_members(collection_id, sort, ascending, lim, off)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_collection_members", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_collection_members", e);
+                vec![]
+            })
     }
     async fn purge_dismissed_from_collection(&self, collection_id: String) -> MutationResult {
         match self.store.purge_dismissed_from_collection(collection_id) {
-            Ok(n) => ok_n(n), Err(e) => { log("purge_dismissed_from_collection", e); fail() }
+            Ok(n) => ok_n(n),
+            Err(e) => {
+                log("purge_dismissed_from_collection", e);
+                fail()
+            }
         }
     }
 
     async fn list_publications(&self, limit: u32, offset: u32) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { 50 } else { limit };
-        self.store.query_all_publications(Some(lim), Some(offset))
+        self.store
+            .query_all_publications(Some(lim), Some(offset))
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_publications", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_publications", e);
+                vec![]
+            })
     }
-    async fn query_publications(&self, library_id: String, sort_field: String, ascending: bool, limit: u32, offset: u32) -> Vec<PublicationSummary> {
+    async fn query_publications(
+        &self,
+        library_id: String,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+        offset: u32,
+    ) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
         let off = if offset == 0 { None } else { Some(offset) };
-        let sort = if sort_field.is_empty() { "date_added".to_string() } else { sort_field };
-        self.store.query_publications(library_id, sort, ascending, lim, off)
+        let sort = if sort_field.is_empty() {
+            "date_added".to_string()
+        } else {
+            sort_field
+        };
+        self.store
+            .query_publications(library_id, sort, ascending, lim, off)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("query_publications", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("query_publications", e);
+                vec![]
+            })
     }
-    async fn query_unread(&self, parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary> {
+    async fn query_unread(
+        &self,
+        parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+    ) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        let sort = if sort_field.is_empty() { "date_added".to_string() } else { sort_field };
-        self.store.query_unread(parent_id, sort, ascending, lim, None)
+        let sort = if sort_field.is_empty() {
+            "date_added".to_string()
+        } else {
+            sort_field
+        };
+        self.store
+            .query_unread(parent_id, sort, ascending, lim, None)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("query_unread", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("query_unread", e);
+                vec![]
+            })
     }
-    async fn query_starred(&self, parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary> {
+    async fn query_starred(
+        &self,
+        parent_id: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: u32,
+    ) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        let sort = if sort_field.is_empty() { "date_added".to_string() } else { sort_field };
-        self.store.query_starred(parent_id, sort, ascending, lim, None)
+        let sort = if sort_field.is_empty() {
+            "date_added".to_string()
+        } else {
+            sort_field
+        };
+        self.store
+            .query_starred(parent_id, sort, ascending, lim, None)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("query_starred", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("query_starred", e);
+                vec![]
+            })
     }
     async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { 50 } else { limit };
-        self.store.query_recent(lim, parent_id)
+        self.store
+            .query_recent(lim, parent_id)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("query_recent", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("query_recent", e);
+                vec![]
+            })
     }
     async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary> {
         let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        self.store.search_publications(query, None, "date_added".into(), false, lim, None)
+        self.store
+            .search_publications(query, None, "date_added".into(), false, lim, None)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("search_publications", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("search_publications", e);
+                vec![]
+            })
     }
     async fn get_publication(&self, id: String) -> Option<PublicationSummary> {
-        self.store.get_publication(id).ok().flatten().as_ref().map(PublicationSummary::from)
+        self.store
+            .get_publication(id)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(PublicationSummary::from)
     }
     async fn get_publication_detail(&self, id: String) -> Option<PublicationDetailRecord> {
-        self.store.get_publication_detail(id).ok().flatten().as_ref().map(PublicationDetailRecord::from)
+        self.store
+            .get_publication_detail(id)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(PublicationDetailRecord::from)
     }
-    async fn count_publications(&self) -> u32 { self.store.count_publications(None).unwrap_or(0) }
-    async fn count_unread(&self, parent_id: Option<String>) -> u32 { self.store.count_unread(parent_id).unwrap_or(0) }
-    async fn count_starred(&self, parent_id: Option<String>) -> u32 { self.store.count_starred(parent_id).unwrap_or(0) }
-    async fn count_flagged(&self, color: Option<String>) -> u32 { self.store.count_flagged(color).unwrap_or(0) }
+    async fn count_publications(&self) -> u32 {
+        self.store.count_publications(None).unwrap_or(0)
+    }
+    async fn count_unread(&self, parent_id: Option<String>) -> u32 {
+        self.store.count_unread(parent_id).unwrap_or(0)
+    }
+    async fn count_starred(&self, parent_id: Option<String>) -> u32 {
+        self.store.count_starred(parent_id).unwrap_or(0)
+    }
+    async fn count_flagged(&self, color: Option<String>) -> u32 {
+        self.store.count_flagged(color).unwrap_or(0)
+    }
 
     async fn set_read(&self, ids: Vec<String>, read: bool) -> MutationResult {
         let n = ids.len() as u32;
-        match self.store.set_read(ids, read) { Ok(_) => ok_n(n), Err(e) => { log("set_read", e); fail() } }
+        match self.store.set_read(ids, read) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("set_read", e);
+                fail()
+            }
+        }
     }
     async fn set_starred(&self, ids: Vec<String>, starred: bool) -> MutationResult {
         let n = ids.len() as u32;
-        match self.store.set_starred(ids, starred) { Ok(_) => ok_n(n), Err(e) => { log("set_starred", e); fail() } }
+        match self.store.set_starred(ids, starred) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("set_starred", e);
+                fail()
+            }
+        }
     }
     async fn set_flag(&self, ids: Vec<String>, color: Option<String>) -> MutationResult {
         let n = ids.len() as u32;
-        match self.store.set_flag(ids, color, None, None) { Ok(_) => ok_n(n), Err(e) => { log("set_flag", e); fail() } }
+        match self.store.set_flag(ids, color, None, None) {
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("set_flag", e);
+                fail()
+            }
+        }
     }
     async fn delete_publications_undoable(&self, ids: Vec<String>) -> MutationResult {
         match self.store.delete_publications_undoable(ids) {
             Ok(snapshots) => ok_n(snapshots.len() as u32),
-            Err(e) => { log("delete_publications_undoable", e); fail() }
+            Err(e) => {
+                log("delete_publications_undoable", e);
+                fail()
+            }
         }
     }
-    async fn move_publications(&self, publication_ids: Vec<String>, to_library_id: String) -> MutationResult {
+    async fn move_publications(
+        &self,
+        publication_ids: Vec<String>,
+        to_library_id: String,
+    ) -> MutationResult {
         let n = publication_ids.len() as u32;
         match self.store.move_publications(publication_ids, to_library_id) {
-            Ok(_) => ok_n(n), Err(e) => { log("move_publications", e); fail() }
+            Ok(_) => ok_n(n),
+            Err(e) => {
+                log("move_publications", e);
+                fail()
+            }
         }
     }
     async fn duplicate_publications(&self, ids: Vec<String>, to_library_id: String) -> Vec<String> {
-        self.store.duplicate_publications(ids, to_library_id).unwrap_or_else(|e| { log("duplicate_publications", e); vec![] })
+        self.store
+            .duplicate_publications(ids, to_library_id)
+            .unwrap_or_else(|e| {
+                log("duplicate_publications", e);
+                vec![]
+            })
     }
     async fn deduplicate_library(&self, library_id: String) -> u32 {
         self.store.deduplicate_library(library_id).unwrap_or(0)
     }
 
-    async fn dismiss_paper(&self, doi: Option<String>, arxiv_id: Option<String>, bibcode: Option<String>, cite_key: Option<String>) -> Option<DismissedPaperRecord> {
-        self.store.dismiss_paper(doi, arxiv_id, bibcode, cite_key).map(|r| DismissedPaperRecord::from(&r)).map_err(|e| log("dismiss_paper", e)).ok()
+    async fn dismiss_paper(
+        &self,
+        doi: Option<String>,
+        arxiv_id: Option<String>,
+        bibcode: Option<String>,
+        cite_key: Option<String>,
+    ) -> Option<DismissedPaperRecord> {
+        self.store
+            .dismiss_paper(doi, arxiv_id, bibcode, cite_key)
+            .map(|r| DismissedPaperRecord::from(&r))
+            .map_err(|e| log("dismiss_paper", e))
+            .ok()
     }
-    async fn is_paper_dismissed(&self, doi: Option<String>, arxiv_id: Option<String>, bibcode: Option<String>, cite_key: Option<String>) -> bool {
-        self.store.is_paper_dismissed(doi, arxiv_id, bibcode, cite_key).unwrap_or(false)
+    async fn is_paper_dismissed(
+        &self,
+        doi: Option<String>,
+        arxiv_id: Option<String>,
+        bibcode: Option<String>,
+        cite_key: Option<String>,
+    ) -> bool {
+        self.store
+            .is_paper_dismissed(doi, arxiv_id, bibcode, cite_key)
+            .unwrap_or(false)
     }
     async fn list_dismissed_papers(&self, limit: u32, offset: u32) -> Vec<DismissedPaperRecord> {
         let lim = if limit == 0 { Some(100) } else { Some(limit) };
         let off = if offset == 0 { None } else { Some(offset) };
-        self.store.list_dismissed_papers(lim, off)
-            .map(|rs| rs.iter().map(DismissedPaperRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_dismissed_papers", e); vec![] })
+        self.store
+            .list_dismissed_papers(lim, off)
+            .map(|rs| {
+                rs.iter()
+                    .map(DismissedPaperRecord::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|e| {
+                log("list_dismissed_papers", e);
+                vec![]
+            })
     }
     async fn list_muted_items(&self) -> Vec<MutedItemRecord> {
-        self.store.list_muted_items(None)
+        self.store
+            .list_muted_items(None)
             .map(|rs| rs.iter().map(MutedItemRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_muted_items", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_muted_items", e);
+                vec![]
+            })
     }
     async fn create_muted_item(&self, mute_type: String, value: String) -> Option<MutedItemRecord> {
-        self.store.create_muted_item(mute_type, value).map(|r| MutedItemRecord::from(&r)).map_err(|e| log("create_muted_item", e)).ok()
+        self.store
+            .create_muted_item(mute_type, value)
+            .map(|r| MutedItemRecord::from(&r))
+            .map_err(|e| log("create_muted_item", e))
+            .ok()
     }
 
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary {
-        let inputs: Vec<imbib_core::unified::shaped_queries::SearchResultInput> = papers.into_iter().map(|p| imbib_core::unified::shaped_queries::SearchResultInput { bibtex: p.bibtex, doi: p.doi, arxiv_id: p.arxiv_id, bibcode: p.bibcode }).collect();
-        match self.store.batch_import_search_results(inputs, library_id, true) {
-            Ok(r) => ImportSummary { imported_ids: r.imported_ids, existing_ids: r.existing_ids, dismissed_count: r.dismissed_count, failed_count: r.failed_count },
-            Err(e) => { log("import_papers", e); ImportSummary { imported_ids: vec![], existing_ids: vec![], dismissed_count: 0, failed_count: 0 } }
+        let inputs: Vec<imbib_core::unified::shaped_queries::SearchResultInput> = papers
+            .into_iter()
+            .map(|p| imbib_core::unified::shaped_queries::SearchResultInput {
+                bibtex: p.bibtex,
+                doi: p.doi,
+                arxiv_id: p.arxiv_id,
+                bibcode: p.bibcode,
+            })
+            .collect();
+        match self
+            .store
+            .batch_import_search_results(inputs, library_id, true)
+        {
+            Ok(r) => ImportSummary {
+                imported_ids: r.imported_ids,
+                existing_ids: r.existing_ids,
+                dismissed_count: r.dismissed_count,
+                failed_count: r.failed_count,
+            },
+            Err(e) => {
+                log("import_papers", e);
+                ImportSummary {
+                    imported_ids: vec![],
+                    existing_ids: vec![],
+                    dismissed_count: 0,
+                    failed_count: 0,
+                }
+            }
         }
     }
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String> {
-        self.store.import_bibtex(bibtex, library_id).unwrap_or_else(|e| { log("import_bibtex", e); vec![] })
+        self.store
+            .import_bibtex(bibtex, library_id)
+            .unwrap_or_else(|e| {
+                log("import_bibtex", e);
+                vec![]
+            })
     }
     async fn export_bibtex(&self, ids: Vec<String>) -> String {
-        self.store.export_bibtex(ids).unwrap_or_else(|e| { log("export_bibtex", e); String::new() })
+        self.store.export_bibtex(ids).unwrap_or_else(|e| {
+            log("export_bibtex", e);
+            String::new()
+        })
     }
     async fn export_all_bibtex(&self, library_id: String) -> String {
-        self.store.export_all_bibtex(library_id).unwrap_or_else(|e| { log("export_all_bibtex", e); String::new() })
+        self.store
+            .export_all_bibtex(library_id)
+            .unwrap_or_else(|e| {
+                log("export_all_bibtex", e);
+                String::new()
+            })
     }
 
     async fn list_linked_files(&self, publication_id: String) -> Vec<LinkedFileRecord> {
-        self.store.list_linked_files(publication_id)
+        self.store
+            .list_linked_files(publication_id)
             .map(|rs| rs.iter().map(LinkedFileRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_linked_files", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_linked_files", e);
+                vec![]
+            })
     }
-    async fn count_pdfs(&self, publication_id: String) -> u32 { self.store.count_pdfs(publication_id).unwrap_or(0) }
-    async fn add_linked_file(&self, publication_id: String, filename: String, relative_path: Option<String>, file_type: Option<String>, file_size: i64, sha256: Option<String>, is_pdf: bool) -> Option<LinkedFileRecord> {
-        self.store.add_linked_file(publication_id, filename, relative_path, file_type, file_size, sha256, is_pdf).map(|r| LinkedFileRecord::from(&r)).map_err(|e| log("add_linked_file", e)).ok()
+    async fn count_pdfs(&self, publication_id: String) -> u32 {
+        self.store.count_pdfs(publication_id).unwrap_or(0)
+    }
+    async fn add_linked_file(
+        &self,
+        publication_id: String,
+        filename: String,
+        relative_path: Option<String>,
+        file_type: Option<String>,
+        file_size: i64,
+        sha256: Option<String>,
+        is_pdf: bool,
+    ) -> Option<LinkedFileRecord> {
+        self.store
+            .add_linked_file(
+                publication_id,
+                filename,
+                relative_path,
+                file_type,
+                file_size,
+                sha256,
+                is_pdf,
+            )
+            .map(|r| LinkedFileRecord::from(&r))
+            .map_err(|e| log("add_linked_file", e))
+            .ok()
     }
 }
 

@@ -42,7 +42,9 @@ fn persistent_renderer_recompiles_after_edit() {
     let mut renderer = PersistentTypstRenderer::new();
     let opts = RenderOptions::default();
     let first = renderer.render_pdf("= First", &opts).expect("first");
-    let second = renderer.render_pdf("= Second, longer document body", &opts).expect("second");
+    let second = renderer
+        .render_pdf("= Second, longer document body", &opts)
+        .expect("second");
     let (a, b) = match (first, second) {
         (RenderOutput::Pdf(a), RenderOutput::Pdf(b)) => (a, b),
         _ => panic!("expected PDFs"),

@@ -99,44 +99,35 @@ impress_service_impl! {
 
 // ---- Stateful services (Phase 3.5+) --------------------------------------
 
-pub mod store_singleton;
-pub mod library_service;
-pub mod tags_service;
-pub mod search_service;
-pub mod undo_service;
 pub mod annotations_service;
 pub mod artifacts_service;
+pub mod library_service;
 pub mod scix_service;
+pub mod search_service;
+pub mod store_singleton;
+pub mod tags_service;
+pub mod undo_service;
 
 // Pluggable backend registry (HTTP / SQLite).
 pub mod backend;
 pub use backend::{has_custom_backend, register_backend, ImbibBackend};
 
-pub use store_singleton::init_imbib_store;
-pub use library_service::{
-    init_imbib_library_service, DefaultImbibLibraryService, ImbibLibraryService,
-    LibraryRecord, CollectionRecord, PublicationSummary, PublicationDetailRecord,
-    LinkedFileRecord, AuthorRecord, MutationResult, ImportSummary, PaperImport,
-    DismissedPaperRecord, MutedItemRecord,
-};
-pub use tags_service::{
-    DefaultImbibTagsService, ImbibTagsService, TagRecord, TagWithCount,
-};
-pub use search_service::{
-    DefaultImbibSearchService, ImbibSearchService, SmartSearchRecord,
-};
-pub use undo_service::{
-    DefaultImbibUndoService, ImbibUndoService, UndoGroupRecord,
-};
 pub use annotations_service::{
     AnnotationRecord, CommentRecord, DefaultImbibAnnotationsService, ImbibAnnotationsService,
 };
 pub use artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, DefaultImbibArtifactsService, ImbibArtifactsService,
 };
-pub use scix_service::{
-    DefaultImbibScixService, ImbibScixService, SciXLibraryRecord,
+pub use library_service::{
+    init_imbib_library_service, AuthorRecord, CollectionRecord, DefaultImbibLibraryService,
+    DismissedPaperRecord, ImbibLibraryService, ImportSummary, LibraryRecord, LinkedFileRecord,
+    MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord, PublicationSummary,
 };
+pub use scix_service::{DefaultImbibScixService, ImbibScixService, SciXLibraryRecord};
+pub use search_service::{DefaultImbibSearchService, ImbibSearchService, SmartSearchRecord};
+pub use store_singleton::init_imbib_store;
+pub use tags_service::{DefaultImbibTagsService, ImbibTagsService, TagRecord, TagWithCount};
+pub use undo_service::{DefaultImbibUndoService, ImbibUndoService, UndoGroupRecord};
 
 #[cfg(test)]
 mod tests {

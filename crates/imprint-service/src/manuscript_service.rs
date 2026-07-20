@@ -84,7 +84,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// PDF length + diagnostics (not raw bytes). `filesystem_root` resolves
     /// on-disk `\includegraphics`/`\input`; pass "" for none.
     #[impress_method]
-    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto;
+    async fn compile_latex(&self, source: String, filesystem_root: String)
+        -> LatexCompileResultDto;
 
     // ---- Cross-document search ----
     #[impress_method]
@@ -316,12 +317,20 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         }
     }
 
-    async fn compile_latex(&self, source: String, filesystem_root: String) -> LatexCompileResultDto {
+    async fn compile_latex(
+        &self,
+        source: String,
+        filesystem_root: String,
+    ) -> LatexCompileResultDto {
         // Tectonic does blocking network I/O via its own runtime for the on-demand
         // bundle fetch; run it on a blocking thread so it doesn't nest inside this
         // async (tokio) context (which panics at runtime shutdown).
         tokio::task::spawn_blocking(move || {
-            let root = if filesystem_root.is_empty() { None } else { Some(filesystem_root.as_str()) };
+            let root = if filesystem_root.is_empty() {
+                None
+            } else {
+                Some(filesystem_root.as_str())
+            };
             compile_latex_dispatch(&source, root)
         })
         .await

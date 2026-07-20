@@ -116,9 +116,7 @@ impl CrossrefSource {
                 links.iter().find_map(|l| {
                     let ct = l.get("content-type").and_then(|v| v.as_str()).unwrap_or("");
                     if ct.contains("pdf") {
-                        l.get("URL")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
+                        l.get("URL").and_then(|v| v.as_str()).map(|s| s.to_string())
                     } else {
                         None
                     }
@@ -170,8 +168,7 @@ impl CrossrefSource {
         email: Option<&str>,
     ) -> Result<PaperMetadata, SourceError> {
         let encoded = urlencoding::encode(doi);
-        let mut url =
-            reqwest::Url::parse(&format!("{}/works/{}", self.base_url, encoded))?;
+        let mut url = reqwest::Url::parse(&format!("{}/works/{}", self.base_url, encoded))?;
         if let Some(email) = email {
             url.query_pairs_mut().append_pair("mailto", email);
         }
@@ -315,9 +312,7 @@ fn clean_html_tags(text: &str) -> String {
     lazy_static::lazy_static! {
         static ref TAG_RE: Regex = Regex::new(r"<[^>]+>").unwrap();
     }
-    let mut result = text
-        .replace("<jats:", "<")
-        .replace("</jats:", "</");
+    let mut result = text.replace("<jats:", "<").replace("</jats:", "</");
     result = TAG_RE.replace_all(&result, "").to_string();
     result = result
         .replace("&amp;", "&")

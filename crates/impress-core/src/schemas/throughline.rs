@@ -243,7 +243,10 @@ mod tests {
             Value::String("6e2a0000-0000-0000-0000-000000000000".into()),
         );
         payload.insert("paragraph_count".to_string(), Value::Int(4));
-        payload.insert("content_hash".to_string(), Value::String("sha256:abc".into()));
+        payload.insert(
+            "content_hash".to_string(),
+            Value::String("sha256:abc".into()),
+        );
         let now = chrono::Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),

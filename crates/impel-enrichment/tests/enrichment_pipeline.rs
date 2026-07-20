@@ -12,11 +12,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use imbib_core::enrichment::priority::SourcePriority;
 use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
+use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
     classify::HeuristicClassifier, EnrichmentSpawnRule, KeywordTagExecutor,
     MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
 };
-use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::sqlite_store::SqliteItemStore;
@@ -103,12 +103,15 @@ fn bibliography_entry(doi: &str, title: &str) -> Item {
 }
 
 fn pipeline_scheduler(store: Arc<SqliteItemStore>, threshold: f64) -> Scheduler {
-    let mut sched = Scheduler::new(store, SchedulerConfig {
-        actor: "impel".into(),
-        batch: 8,
-        start_delay: Duration::ZERO,
-        poll_interval: Duration::ZERO,
-    });
+    let mut sched = Scheduler::new(
+        store,
+        SchedulerConfig {
+            actor: "impel".into(),
+            batch: 8,
+            start_delay: Duration::ZERO,
+            poll_interval: Duration::ZERO,
+        },
+    );
     sched.register(Arc::new(MetadataResolveExecutor::new(
         vec![ConfiguredSource {
             plugin: Arc::new(FakeAds),
@@ -140,7 +143,9 @@ async fn pipeline_enriches_and_autotags_when_confident() {
     let entry_id = TaskStoreApi::create_item(store.as_ref(), entry.clone()).unwrap();
 
     // Spawn the DAG the way impel will: rule → specs → task items.
-    let trigger = TaskStoreApi::get_item(store.as_ref(), entry_id).unwrap().unwrap();
+    let trigger = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
     let specs = EnrichmentSpawnRule
         .spawn(&trigger, store.as_ref())
         .await
@@ -158,7 +163,9 @@ async fn pipeline_enriches_and_autotags_when_confident() {
     assert_eq!(state_of(&store, task_ids[1]), TaskState::Pending);
 
     // The publication was enriched — only changed fields written.
-    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id).unwrap().unwrap();
+    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
     assert!(matches!(publication.payload.get("abstract_text"),
                      Some(Value::String(a)) if a.contains("hydrodynamic")));
     assert!(matches!(publication.payload.get("title"),
@@ -171,7 +178,9 @@ async fn pipeline_enriches_and_autotags_when_confident() {
     assert_eq!(r2.completed, 1, "{r2:?}");
     assert_eq!(state_of(&store, task_ids[1]), TaskState::Done);
 
-    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id).unwrap().unwrap();
+    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
     assert!(
         publication.tags.iter().any(|t| t.starts_with("ai/")),
         "expected ai/* tags, got {:?}",
@@ -180,7 +189,9 @@ async fn pipeline_enriches_and_autotags_when_confident() {
 
     // Provenance: both tasks carry ProducedBy edges to agent-run items.
     for id in &task_ids {
-        let task = TaskStoreApi::get_item(store.as_ref(), *id).unwrap().unwrap();
+        let task = TaskStoreApi::get_item(store.as_ref(), *id)
+            .unwrap()
+            .unwrap();
         assert!(
             task.references
                 .iter()
@@ -195,7 +206,9 @@ async fn low_confidence_suspends_until_human_approves() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let entry = bibliography_entry("10.1000/xyz", "old title");
     let entry_id = TaskStoreApi::create_item(store.as_ref(), entry).unwrap();
-    let trigger = TaskStoreApi::get_item(store.as_ref(), entry_id).unwrap().unwrap();
+    let trigger = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
     let specs = EnrichmentSpawnRule
         .spawn(&trigger, store.as_ref())
         .await
@@ -243,7 +256,9 @@ async fn low_confidence_suspends_until_human_approves() {
     let r4 = sched.run_once().await.unwrap();
     assert_eq!(r4.resumed, 1, "{r4:?}");
     assert_eq!(state_of(&store, task_ids[1]), TaskState::Done);
-    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id).unwrap().unwrap();
+    let publication = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
     assert!(
         publication.tags.iter().any(|t| t.starts_with("ai/")),
         "approved tags applied: {:?}",

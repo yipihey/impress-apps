@@ -110,18 +110,15 @@ impl AdsDoc {
         let doi = self.doi.as_ref().and_then(|v| v.first()).cloned();
 
         // arXiv id may live in identifier list; ADS uses entries like "arXiv:2301.12345"
-        let arxiv_id = self
-            .identifier
-            .as_ref()
-            .and_then(|ids| {
-                ids.iter().find_map(|i| {
-                    if let Some(rest) = i.strip_prefix("arXiv:") {
-                        Some(rest.to_string())
-                    } else {
-                        None
-                    }
-                })
-            });
+        let arxiv_id = self.identifier.as_ref().and_then(|ids| {
+            ids.iter().find_map(|i| {
+                if let Some(rest) = i.strip_prefix("arXiv:") {
+                    Some(rest.to_string())
+                } else {
+                    None
+                }
+            })
+        });
 
         let authors = self
             .author
@@ -176,8 +173,8 @@ impl SourcePlugin for AdsSource {
         query: &SearchQuery,
         credentials: Option<&str>,
     ) -> Result<SearchResult, SourceError> {
-        let token = credentials
-            .ok_or_else(|| SourceError::AuthenticationRequired("ads".to_string()))?;
+        let token =
+            credentials.ok_or_else(|| SourceError::AuthenticationRequired("ads".to_string()))?;
 
         let rows = query.limit.clamp(1, 2000);
         let start = query.offset;
@@ -269,8 +266,8 @@ impl SourcePlugin for AdsSource {
         credentials: Option<&str>,
     ) -> Result<PaperMetadata, SourceError> {
         // ADS identifiers are bibcodes; use a targeted bibcode query.
-        let token = credentials
-            .ok_or_else(|| SourceError::AuthenticationRequired("ads".to_string()))?;
+        let token =
+            credentials.ok_or_else(|| SourceError::AuthenticationRequired("ads".to_string()))?;
 
         let url = reqwest::Url::parse_with_params(
             &format!("{}/search/query", self.base_url),

@@ -171,7 +171,10 @@ pub struct LatexCompileResultDto {
 /// feature is off (the default service/CLI/MCP build), returns a structured
 /// "not enabled" result — mirrors `compile_typst_dispatch`.
 #[cfg(feature = "tectonic-render")]
-pub fn compile_latex_dispatch(source: &str, filesystem_root: Option<&str>) -> LatexCompileResultDto {
+pub fn compile_latex_dispatch(
+    source: &str,
+    filesystem_root: Option<&str>,
+) -> LatexCompileResultDto {
     let r = imprint_core::latex::compile_latex_tectonic(source, false, None, filesystem_root);
     LatexCompileResultDto {
         pdf_len: r.pdf_data.as_ref().map(|d| d.len() as u32).unwrap_or(0),
@@ -192,7 +195,10 @@ pub fn compile_latex_dispatch(source: &str, filesystem_root: Option<&str>) -> La
 }
 
 #[cfg(not(feature = "tectonic-render"))]
-pub fn compile_latex_dispatch(_source: &str, _filesystem_root: Option<&str>) -> LatexCompileResultDto {
+pub fn compile_latex_dispatch(
+    _source: &str,
+    _filesystem_root: Option<&str>,
+) -> LatexCompileResultDto {
     LatexCompileResultDto {
         pdf_len: 0,
         diagnostics: Vec::new(),

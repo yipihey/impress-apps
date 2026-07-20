@@ -29,9 +29,9 @@ pub fn thread_messages(envelopes: &[Envelope]) -> Vec<Thread> {
         };
 
         // Create container for this message
-        let container = id_table.entry(message_id.clone()).or_insert_with(|| {
-            Container::new(message_id.clone())
-        });
+        let container = id_table
+            .entry(message_id.clone())
+            .or_insert_with(|| Container::new(message_id.clone()));
         container.envelope = Some(envelope.clone());
 
         // Process References header to build parent chain
@@ -41,9 +41,9 @@ pub fn thread_messages(envelopes: &[Envelope]) -> Vec<Thread> {
             let ref_id = normalize_message_id(reference);
 
             // Get or create container for this reference
-            id_table.entry(ref_id.clone()).or_insert_with(|| {
-                Container::new(ref_id.clone())
-            });
+            id_table
+                .entry(ref_id.clone())
+                .or_insert_with(|| Container::new(ref_id.clone()));
 
             // Link parent to child
             if let Some(pid) = &parent_id {
@@ -70,9 +70,9 @@ pub fn thread_messages(envelopes: &[Envelope]) -> Vec<Thread> {
         if let Some(in_reply_to) = &envelope.in_reply_to {
             let reply_id = normalize_message_id(in_reply_to);
             if reply_id != message_id {
-                let parent = id_table.entry(reply_id.clone()).or_insert_with(|| {
-                    Container::new(reply_id.clone())
-                });
+                let parent = id_table
+                    .entry(reply_id.clone())
+                    .or_insert_with(|| Container::new(reply_id.clone()));
                 if !parent.children.contains(&message_id) {
                     parent.children.push(message_id.clone());
                 }
@@ -100,10 +100,7 @@ pub fn thread_messages(envelopes: &[Envelope]) -> Vec<Thread> {
             // Only include if there's at least one real message
             let message_ids = collect_message_ids(container, &id_table);
             if !message_ids.is_empty() {
-                let subject = container
-                    .envelope
-                    .as_ref()
-                    .and_then(|e| e.subject.clone());
+                let subject = container.envelope.as_ref().and_then(|e| e.subject.clone());
 
                 threads.push(Thread {
                     root_message_id: root_id,
@@ -161,7 +158,10 @@ fn normalize_message_id(id: &str) -> String {
 }
 
 /// Collect all message IDs from a container and its children.
-fn collect_message_ids(container: &Container, id_table: &HashMap<String, Container>) -> Vec<String> {
+fn collect_message_ids(
+    container: &Container,
+    id_table: &HashMap<String, Container>,
+) -> Vec<String> {
     let mut result = Vec::new();
     collect_message_ids_recursive(container, id_table, &mut result, &mut HashSet::new());
     result
@@ -198,7 +198,12 @@ fn collect_message_ids_recursive(
 mod tests {
     use super::*;
 
-    fn make_envelope(uid: u32, message_id: &str, in_reply_to: Option<&str>, references: &[&str]) -> Envelope {
+    fn make_envelope(
+        uid: u32,
+        message_id: &str,
+        in_reply_to: Option<&str>,
+        references: &[&str],
+    ) -> Envelope {
         Envelope {
             uid,
             message_id: Some(message_id.to_string()),
@@ -253,10 +258,7 @@ mod tests {
 
     #[test]
     fn test_normalize_message_id() {
-        assert_eq!(
-            normalize_message_id("<MSG@Example.COM>"),
-            "msg@example.com"
-        );
+        assert_eq!(normalize_message_id("<MSG@Example.COM>"), "msg@example.com");
         assert_eq!(normalize_message_id("  <test>  "), "test");
     }
 }

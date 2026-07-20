@@ -2,8 +2,8 @@
 //!
 //! These types match the UDL schema and provide conversion to/from internal types.
 
-use crate::types;
 use crate::mime;
+use crate::types;
 
 // MARK: - Address
 
@@ -80,7 +80,9 @@ impl From<Envelope> for types::Envelope {
             to: env.to_addresses.into_iter().map(Into::into).collect(),
             cc: env.cc_addresses.into_iter().map(Into::into).collect(),
             bcc: env.bcc_addresses.into_iter().map(Into::into).collect(),
-            date: env.date_timestamp.and_then(|ts| chrono::DateTime::from_timestamp(ts, 0)),
+            date: env
+                .date_timestamp
+                .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0)),
             flags: env.flags,
         }
     }

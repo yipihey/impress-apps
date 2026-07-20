@@ -40,7 +40,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Simple CLI arg parser: --key value
 fn parse_arg(args: &[String], key: &str) -> Option<String> {
-    args.windows(2)
-        .find(|w| w[0] == key)
-        .map(|w| w[1].clone())
+    args.windows(2).find(|w| w[0] == key).map(|w| w[1].clone())
 }

@@ -21,12 +21,7 @@ pub fn extract_slice(field: &Array3<f32>, axis: SliceAxis, position: usize) -> A
 ///
 /// Values are linearly mapped from `[vmin, vmax]` to `[0, 1]` before sampling
 /// the colormap. Returns a row-major RGBA byte buffer suitable for texture upload.
-pub fn apply_colormap(
-    slice: &Array2<f32>,
-    colormap: &Colormap,
-    vmin: f32,
-    vmax: f32,
-) -> Vec<u8> {
+pub fn apply_colormap(slice: &Array2<f32>, colormap: &Colormap, vmin: f32, vmax: f32) -> Vec<u8> {
     let (h, w) = (slice.shape()[0], slice.shape()[1]);
     let range = if (vmax - vmin).abs() > f32::EPSILON {
         vmax - vmin
@@ -118,7 +113,7 @@ mod tests {
         let cmap = crate::colormap::viridis();
         let rgba = apply_colormap(&slice, &cmap, 0.0, 1.0);
         assert_eq!(rgba.len(), 4 * 4); // 2x2 pixels * 4 bytes
-        // Alpha should always be 255
+                                       // Alpha should always be 255
         assert_eq!(rgba[3], 255);
         assert_eq!(rgba[7], 255);
     }

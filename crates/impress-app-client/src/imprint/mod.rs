@@ -79,7 +79,11 @@ struct Ok {
     status: String,
 }
 fn ok(s: &Ok) -> Result<()> {
-    if s.status == "ok" { Result::Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Result::Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImprintClient {
@@ -87,9 +91,15 @@ impl ImprintClient {
         let url = self.base_url.join("/api/documents")?;
         let resp = self.http.get(url).send().await?;
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] documents: Vec<DocumentSummary> }
+        struct R {
+            status: String,
+            #[serde(default)]
+            documents: Vec<DocumentSummary>,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(body.documents)
     }
 
@@ -100,9 +110,14 @@ impl ImprintClient {
             return Result::Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, document: DocumentSummary }
+        struct R {
+            status: String,
+            document: DocumentSummary,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(Some(body.document))
     }
 
@@ -122,7 +137,10 @@ impl ImprintClient {
         let v: serde_json::Value = resp.json().await?;
         if v.get("status").and_then(|s| s.as_str()) != Some("ok") {
             return Err(AppClientError::Api(
-                v.get("error").and_then(|s| s.as_str()).unwrap_or("unknown").into(),
+                v.get("error")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("unknown")
+                    .into(),
             ));
         }
         let sections = v
@@ -157,11 +175,23 @@ impl ImprintClient {
         let v: serde_json::Value = resp.json().await?;
         if v.get("status").and_then(|s| s.as_str()) != Some("ok") {
             return Err(AppClientError::Api(
-                v.get("error").and_then(|s| s.as_str()).unwrap_or("unknown").into(),
+                v.get("error")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("unknown")
+                    .into(),
             ));
         }
-        let body_text = v.get("body").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        Result::Ok(Some(swift_section_value_to_record(&v, doc_id, section_key, &body_text)))
+        let body_text = v
+            .get("body")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        Result::Ok(Some(swift_section_value_to_record(
+            &v,
+            doc_id,
+            section_key,
+            &body_text,
+        )))
     }
 
     pub async fn put_section(
@@ -186,7 +216,9 @@ impl ImprintClient {
         let resp = self.http.patch(url).json(&payload).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             // Section doesn't exist yet — fall back to POST create.
-            return self.create_section(doc_id, section_key, body, &metadata).await;
+            return self
+                .create_section(doc_id, section_key, body, &metadata)
+                .await;
         }
         // Swift returns camelCase + extra fields ({status, documentId, id,
         // title, level, sectionType, orderIndex, start, end, body, ...}).
@@ -195,10 +227,18 @@ impl ImprintClient {
         let v: serde_json::Value = resp.json().await?;
         if v.get("status").and_then(|s| s.as_str()) != Some("ok") {
             return Err(AppClientError::Api(
-                v.get("error").and_then(|s| s.as_str()).unwrap_or("unknown").into(),
+                v.get("error")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("unknown")
+                    .into(),
             ));
         }
-        Result::Ok(Some(swift_section_value_to_record(&v, doc_id, section_key, body)))
+        Result::Ok(Some(swift_section_value_to_record(
+            &v,
+            doc_id,
+            section_key,
+            body,
+        )))
     }
 
     /// Internal: POST a new section. Used as fallback when PATCH 404s.
@@ -209,7 +249,9 @@ impl ImprintClient {
         body: &str,
         metadata: &SectionMetadata,
     ) -> Result<Option<SectionRecord>> {
-        let url = self.base_url.join(&format!("/api/documents/{}/sections", doc_id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{}/sections", doc_id))?;
         let payload = json!({
             "title": metadata.title.clone().unwrap_or_default(),
             "body": body,
@@ -247,7 +289,12 @@ impl ImprintClient {
     pub async fn document_outline(&self, source: &str) -> Result<Outline> {
         // imprint has a few outline endpoints — try the dedicated text route first.
         let url = self.base_url.join("/api/outline")?;
-        let resp = self.http.post(url).json(&json!({"source": source})).send().await?;
+        let resp = self
+            .http
+            .post(url)
+            .json(&json!({"source": source}))
+            .send()
+            .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             // Fall back to in-process extraction (deterministic, no network).
             return Result::Ok(Outline {
@@ -255,9 +302,14 @@ impl ImprintClient {
             });
         }
         #[derive(Deserialize)]
-        struct R { status: String, outline: Outline }
+        struct R {
+            status: String,
+            outline: Outline,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(body.outline)
     }
 
@@ -274,7 +326,11 @@ impl ImprintClient {
         case_sensitive: bool,
     ) -> Result<Vec<TextMatch>> {
         // In-process. Reuses imprint-service's plain-text search.
-        Result::Ok(imprint_service::handlers::search_text_plain(source, query, case_sensitive))
+        Result::Ok(imprint_service::handlers::search_text_plain(
+            source,
+            query,
+            case_sensitive,
+        ))
     }
 
     pub async fn compile_typst(
@@ -286,7 +342,9 @@ impl ImprintClient {
         let payload = json!({"source": source, "options": options});
         let resp = self.http.post(url).json(&payload).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Result::Ok(imprint_service::handlers::compile_typst_dispatch(source, options));
+            return Result::Ok(imprint_service::handlers::compile_typst_dispatch(
+                source, options,
+            ));
         }
         // On success the endpoint returns the PDF *bytes* (Content-Type
         // application/pdf) with metadata in `X-Imprint-*` headers, not a JSON
@@ -320,9 +378,15 @@ impl ImprintClient {
             });
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(flatten)] result: CompileResult }
+        struct R {
+            status: String,
+            #[serde(flatten)]
+            result: CompileResult,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(body.result)
     }
 
@@ -337,9 +401,15 @@ impl ImprintClient {
             return Result::Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] hits: Vec<SearchHitDto> }
+        struct R {
+            status: String,
+            #[serde(default)]
+            hits: Vec<SearchHitDto>,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(body.hits)
     }
 
@@ -350,7 +420,9 @@ impl ImprintClient {
         find: &str,
         replace: &str,
     ) -> Result<ReplaceResult> {
-        let url = self.base_url.join(&format!("/api/documents/{}/replace", doc_id))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{}/replace", doc_id))?;
         let payload = json!({
             "section_key": section_key,
             "find": find,
@@ -359,12 +431,21 @@ impl ImprintClient {
         });
         let resp = self.http.post(url).json(&payload).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound(format!("POST /api/documents/{}/replace", doc_id)));
+            return Err(AppClientError::NotFound(format!(
+                "POST /api/documents/{}/replace",
+                doc_id
+            )));
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(flatten)] result: ReplaceResult }
+        struct R {
+            status: String,
+            #[serde(flatten)]
+            result: ReplaceResult,
+        }
         let body: R = decode_envelope(resp).await?;
-        ok(&Ok { status: body.status })?;
+        ok(&Ok {
+            status: body.status,
+        })?;
         Result::Ok(body.result)
     }
 
@@ -374,7 +455,9 @@ impl ImprintClient {
             ExportFormat::Latex => "latex",
             ExportFormat::Text => "text",
         };
-        let url = self.base_url.join(&format!("/api/documents/{}/export/{}", id, fmt))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/documents/{}/export/{}", id, fmt))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Result::Ok(vec![]);
@@ -424,17 +507,28 @@ fn swift_section_value_to_record(
             if !fallback_section_key.is_empty() {
                 fallback_section_key.to_string()
             } else {
-                v.get("id").and_then(|s| s.as_str()).unwrap_or_default().to_string()
+                v.get("id")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or_default()
+                    .to_string()
             }
         });
-    let title = v.get("title").and_then(|s| s.as_str()).unwrap_or("").to_string();
+    let title = v
+        .get("title")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
     let body = v
         .get("body")
         .and_then(|s| s.as_str())
         .map(String::from)
         .unwrap_or_else(|| fallback_body.to_string());
     let section_type = v.get("sectionType").and_then(|s| s.as_str()).and_then(|s| {
-        if s.is_empty() { None } else { Some(s.to_string()) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
     });
     let order_index = v.get("orderIndex").and_then(|n| n.as_i64());
     let word_count = v
@@ -476,11 +570,7 @@ impl ImprintClient {
 
     /// POST /api/documents/{id}/throughline — explicit opt-in creation.
     /// `Err(Api("conflict"))` on HTTP 409 (already exists).
-    pub async fn create_throughline(
-        &self,
-        doc_id: &str,
-        title: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn create_throughline(&self, doc_id: &str, title: &str) -> Result<serde_json::Value> {
         let url = self
             .base_url
             .join(&format!("/api/documents/{doc_id}/throughline"))?;
@@ -497,10 +587,7 @@ impl ImprintClient {
     }
 
     /// GET /api/documents/{id}/throughline/anchors — derived states.
-    pub async fn get_throughline_anchors(
-        &self,
-        doc_id: &str,
-    ) -> Result<Option<serde_json::Value>> {
+    pub async fn get_throughline_anchors(&self, doc_id: &str) -> Result<Option<serde_json::Value>> {
         let url = self
             .base_url
             .join(&format!("/api/documents/{doc_id}/throughline/anchors"))?;

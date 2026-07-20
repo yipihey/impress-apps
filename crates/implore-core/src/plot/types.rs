@@ -522,8 +522,7 @@ mod tests {
 
     #[test]
     fn test_error_bars() {
-        let series = PlotSeries::line(vec![1.0], vec![2.0], "e")
-            .with_error(vec![0.5]);
+        let series = PlotSeries::line(vec![1.0], vec![2.0], "e").with_error(vec![0.5]);
         assert_eq!(series.error_low, Some(vec![0.5]));
         assert_eq!(series.error_high, Some(vec![0.5]));
     }

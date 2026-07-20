@@ -60,8 +60,7 @@ pub fn manuscript_section_schema() -> Schema {
                 field_type: FieldType::Int,
                 required: false,
                 description: Some(
-                    "Approximate word count of the section body (agent-readable summary)."
-                        .into(),
+                    "Approximate word count of the section body (agent-readable summary).".into(),
                 ),
             },
             FieldDef {
@@ -109,7 +108,10 @@ mod tests {
         let mut reg = SchemaRegistry::new();
         register_imprint_schemas(&mut reg);
         let schema = reg.get("manuscript-section");
-        assert!(schema.is_some(), "manuscript-section schema should be registered");
+        assert!(
+            schema.is_some(),
+            "manuscript-section schema should be registered"
+        );
         let schema = schema.unwrap();
         assert_eq!(schema.version, "1.0.0");
     }
@@ -125,11 +127,22 @@ mod tests {
     #[test]
     fn manuscript_section_optional_fields() {
         let schema = manuscript_section_schema();
-        let optional_fields = ["body", "section_type", "order_index", "word_count", "document_id", "content_hash"];
+        let optional_fields = [
+            "body",
+            "section_type",
+            "order_index",
+            "word_count",
+            "document_id",
+            "content_hash",
+        ];
         for name in &optional_fields {
             let field = schema.fields.iter().find(|f| f.name == *name);
             assert!(field.is_some(), "field '{}' should exist", name);
-            assert!(!field.unwrap().required, "field '{}' should be optional", name);
+            assert!(
+                !field.unwrap().required,
+                "field '{}' should be optional",
+                name
+            );
         }
     }
 
@@ -141,7 +154,9 @@ mod tests {
             "should expect Contains edges"
         );
         assert!(
-            schema.expected_edges.contains(&EdgeType::Custom("is-part-of".into())),
+            schema
+                .expected_edges
+                .contains(&EdgeType::Custom("is-part-of".into())),
             "should expect Custom(is-part-of) edges"
         );
     }

@@ -38,7 +38,10 @@ async fn arxiv_parses_atom_feed_from_recorded_fixture() {
     assert_eq!(first.authors.len(), 2);
     assert_eq!(first.authors[0].family_name, "Perlmutter");
     assert_eq!(first.authors[0].given_name.as_deref(), Some("Saul"));
-    assert_eq!(first.pdf_url.as_deref(), Some("http://arxiv.org/pdf/2301.12345v1"));
+    assert_eq!(
+        first.pdf_url.as_deref(),
+        Some("http://arxiv.org/pdf/2301.12345v1")
+    );
 
     let second = &result.items[1];
     // Old-style hep-th id

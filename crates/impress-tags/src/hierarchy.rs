@@ -1,7 +1,7 @@
 //! In-memory tag hierarchy with fast lookups.
 
-use std::collections::HashMap;
 use crate::tag::{Tag, TagColor};
+use std::collections::HashMap;
 
 /// An in-memory tag tree for fast hierarchy operations.
 pub struct TagHierarchy {
@@ -17,7 +17,10 @@ impl TagHierarchy {
 
         for tag in tags {
             if let Some(parent) = tag.parent_path() {
-                children.entry(parent.to_string()).or_default().push(tag.path.clone());
+                children
+                    .entry(parent.to_string())
+                    .or_default()
+                    .push(tag.path.clone());
             }
             tag_map.insert(tag.path.clone(), tag);
         }
@@ -50,12 +53,7 @@ impl TagHierarchy {
     pub fn children_of(&self, path: &str) -> Vec<&Tag> {
         self.children
             .get(path)
-            .map(|paths| {
-                paths
-                    .iter()
-                    .filter_map(|p| self.tags.get(p))
-                    .collect()
-            })
+            .map(|paths| paths.iter().filter_map(|p| self.tags.get(p)).collect())
             .unwrap_or_default()
     }
 
@@ -192,7 +190,11 @@ mod tests {
     #[test]
     fn children() {
         let h = sample_hierarchy();
-        let mut children: Vec<&str> = h.children_of("methods/sims").iter().map(|t| t.path.as_str()).collect();
+        let mut children: Vec<&str> = h
+            .children_of("methods/sims")
+            .iter()
+            .map(|t| t.path.as_str())
+            .collect();
         children.sort();
         assert_eq!(children, vec!["methods/sims/hydro", "methods/sims/nbody"]);
     }
@@ -200,18 +202,31 @@ mod tests {
     #[test]
     fn descendants() {
         let h = sample_hierarchy();
-        let mut descs: Vec<&str> = h.descendants_of("methods").iter().map(|t| t.path.as_str()).collect();
+        let mut descs: Vec<&str> = h
+            .descendants_of("methods")
+            .iter()
+            .map(|t| t.path.as_str())
+            .collect();
         descs.sort();
         assert_eq!(
             descs,
-            vec!["methods/obs", "methods/sims", "methods/sims/hydro", "methods/sims/nbody"]
+            vec![
+                "methods/obs",
+                "methods/sims",
+                "methods/sims/hydro",
+                "methods/sims/nbody"
+            ]
         );
     }
 
     #[test]
     fn ancestors() {
         let h = sample_hierarchy();
-        let ancs: Vec<&str> = h.ancestors_of("methods/sims/hydro").iter().map(|t| t.path.as_str()).collect();
+        let ancs: Vec<&str> = h
+            .ancestors_of("methods/sims/hydro")
+            .iter()
+            .map(|t| t.path.as_str())
+            .collect();
         assert_eq!(ancs, vec!["methods", "methods/sims"]);
     }
 

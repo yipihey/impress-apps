@@ -130,10 +130,7 @@ impl Scheduler {
         // assigned_to + attempts ride along as sibling operations.
         let attempts = payload_i64(task, "attempts").unwrap_or(0) + 1;
         for (field, value) in [
-            (
-                "assigned_to",
-                Value::String(self.config.actor.clone()),
-            ),
+            ("assigned_to", Value::String(self.config.actor.clone())),
             ("attempts", Value::Int(attempts)),
         ] {
             self.store.apply(OperationSpec {
@@ -186,12 +183,8 @@ impl Scheduler {
                 if executor.is_retryable(&err) && attempts <= executor.max_retries() {
                     // Retry: running → pending reset, visible in the op
                     // history as the retry ledger (ADR-0005 §2).
-                    self.store.transition(
-                        task.id,
-                        TaskState::Pending,
-                        &self.config.actor,
-                        None,
-                    )?;
+                    self.store
+                        .transition(task.id, TaskState::Pending, &self.config.actor, None)?;
                     report.retried += 1;
                 } else {
                     let intent = if executor.is_retryable(&err) {
@@ -214,7 +207,11 @@ impl Scheduler {
         Ok(())
     }
 
-    fn set_error(&self, task_id: impress_core::item::ItemId, msg: &str) -> Result<(), TaskStoreError> {
+    fn set_error(
+        &self,
+        task_id: impress_core::item::ItemId,
+        msg: &str,
+    ) -> Result<(), TaskStoreError> {
         self.store.apply(OperationSpec {
             target_id: task_id,
             op_type: OperationType::SetPayload("error".into(), Value::String(msg.into())),

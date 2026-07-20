@@ -1,8 +1,8 @@
 //! Core types for impart-core.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 // MARK: - Address
 
@@ -106,7 +106,9 @@ impl Envelope {
 
     /// Check if the message is flagged/starred.
     pub fn is_flagged(&self) -> bool {
-        self.flags.iter().any(|f| f.eq_ignore_ascii_case("\\Flagged"))
+        self.flags
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case("\\Flagged"))
     }
 
     /// Check if the message is a draft.
@@ -150,7 +152,10 @@ impl Mailbox {
 
     /// Check if this mailbox can be selected.
     pub fn is_selectable(&self) -> bool {
-        !self.flags.iter().any(|f| f.eq_ignore_ascii_case("\\Noselect"))
+        !self
+            .flags
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case("\\Noselect"))
     }
 
     /// Get the short name (last component).

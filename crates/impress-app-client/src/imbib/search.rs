@@ -15,7 +15,11 @@ struct StatusEnvelope {
     status: String,
 }
 fn check(s: &StatusEnvelope) -> Result<()> {
-    if s.status == "ok" { Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImbibClient {
@@ -24,29 +28,61 @@ impl ImbibClient {
         cite_key: String,
         _library_id: Option<String>,
     ) -> Result<Option<PublicationSummary>> {
-        let url = self.base_url.join(&format!("/api/papers/{}", urlencoding::encode(&cite_key)))?;
+        let url = self
+            .base_url
+            .join(&format!("/api/papers/{}", urlencoding::encode(&cite_key)))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, paper: PublicationSummary }
+        struct R {
+            status: String,
+            paper: PublicationSummary,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.paper))
     }
 
     pub async fn find_by_doi(&self, doi: String) -> Result<Vec<PublicationSummary>> {
         // Search by DOI string via /api/search.
-        self.search_with_params(Some(doi), None, None, None, None, None, 10, 0, None, None).await
+        self.search_with_params(Some(doi), None, None, None, None, None, 10, 0, None, None)
+            .await
     }
 
     pub async fn find_by_arxiv(&self, arxiv_id: String) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(Some(arxiv_id), None, None, None, None, None, 10, 0, None, None).await
+        self.search_with_params(
+            Some(arxiv_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            10,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn find_by_bibcode(&self, bibcode: String) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(Some(bibcode), None, None, None, None, None, 10, 0, None, None).await
+        self.search_with_params(
+            Some(bibcode),
+            None,
+            None,
+            None,
+            None,
+            None,
+            10,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn find_by_identifiers_batch(
@@ -62,9 +98,14 @@ impl ImbibClient {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, papers: Vec<PublicationSummary> }
+        struct R {
+            status: String,
+            papers: Vec<PublicationSummary>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
@@ -74,7 +115,19 @@ impl ImbibClient {
         parent_id: Option<String>,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
-        self.search_with_params(Some(query), None, None, None, None, parent_id, limit, 0, None, None).await
+        self.search_with_params(
+            Some(query),
+            None,
+            None,
+            None,
+            None,
+            parent_id,
+            limit,
+            0,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn list_smart_searches(
@@ -90,9 +143,15 @@ impl ImbibClient {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] searches: Vec<SmartSearchRecord> }
+        struct R {
+            status: String,
+            #[serde(default)]
+            searches: Vec<SmartSearchRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.searches)
     }
 
@@ -103,9 +162,14 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, search: SmartSearchRecord }
+        struct R {
+            status: String,
+            search: SmartSearchRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.search))
     }
 
@@ -134,12 +198,19 @@ impl ImbibClient {
         });
         let resp = self.http.post(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound("POST /api/smart-searches (Phase D)".into()));
+            return Err(AppClientError::NotFound(
+                "POST /api/smart-searches (Phase D)".into(),
+            ));
         }
         #[derive(Deserialize)]
-        struct R { status: String, search: SmartSearchRecord }
+        struct R {
+            status: String,
+            search: SmartSearchRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.search))
     }
 }

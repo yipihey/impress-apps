@@ -275,7 +275,11 @@ fn tool_validate(args: &Value) -> Result<String, String> {
         "doi" => is_valid_doi(value.to_string()),
         "arxiv" => is_valid_arxiv_id(value.to_string()),
         "isbn" => is_valid_isbn(value.to_string()),
-        other => return Err(format!("Unknown identifier type: {other}. Supported: doi, arxiv, isbn")),
+        other => {
+            return Err(format!(
+                "Unknown identifier type: {other}. Supported: doi, arxiv, isbn"
+            ))
+        }
     };
 
     Ok(json!({ "valid": valid, "type": id_type, "value": value }).to_string())
@@ -287,7 +291,10 @@ fn tool_normalize_doi(args: &Value) -> Result<String, String> {
 }
 
 fn tool_generate_cite_key(args: &Value) -> Result<String, String> {
-    let author = args.get("author").and_then(|v| v.as_str()).map(String::from);
+    let author = args
+        .get("author")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let year = args.get("year").and_then(|v| v.as_str()).map(String::from);
     let title = args.get("title").and_then(|v| v.as_str()).map(String::from);
 

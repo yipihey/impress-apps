@@ -27,9 +27,7 @@ pub fn manuscript_submission_schema() -> Schema {
                 name: "submission_kind".into(),
                 field_type: FieldType::String,
                 required: true,
-                description: Some(
-                    "One of: new-manuscript | new-revision | fragment.".into(),
-                ),
+                description: Some("One of: new-manuscript | new-revision | fragment.".into()),
             },
             FieldDef {
                 name: "title".into(),
@@ -185,7 +183,12 @@ mod tests {
             .filter(|f| f.required)
             .map(|f| f.name.as_str())
             .collect();
-        for f in &["submission_kind", "title", "source_format", "source_payload"] {
+        for f in &[
+            "submission_kind",
+            "title",
+            "source_format",
+            "source_payload",
+        ] {
             assert!(required.contains(f), "missing required field: {f}");
         }
     }

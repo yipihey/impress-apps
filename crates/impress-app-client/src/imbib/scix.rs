@@ -11,9 +11,15 @@ use imbib_service::library_service::{MutationResult, PublicationSummary};
 use imbib_service::scix_service::SciXLibraryRecord;
 
 #[derive(Deserialize)]
-struct StatusEnvelope { status: String }
+struct StatusEnvelope {
+    status: String,
+}
 fn check(s: &StatusEnvelope) -> Result<()> {
-    if s.status == "ok" { Ok(()) } else { Err(AppClientError::Api(s.status.clone())) }
+    if s.status == "ok" {
+        Ok(())
+    } else {
+        Err(AppClientError::Api(s.status.clone()))
+    }
 }
 
 impl ImbibClient {
@@ -24,9 +30,14 @@ impl ImbibClient {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, libraries: Vec<SciXLibraryRecord> }
+        struct R {
+            status: String,
+            libraries: Vec<SciXLibraryRecord>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.libraries)
     }
 
@@ -37,9 +48,14 @@ impl ImbibClient {
             return Ok(None);
         }
         #[derive(Deserialize)]
-        struct R { status: String, library: SciXLibraryRecord }
+        struct R {
+            status: String,
+            library: SciXLibraryRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.library))
     }
 
@@ -63,12 +79,19 @@ impl ImbibClient {
         });
         let resp = self.http.post(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(AppClientError::NotFound("POST /api/scix-libraries (Phase D)".into()));
+            return Err(AppClientError::NotFound(
+                "POST /api/scix-libraries (Phase D)".into(),
+            ));
         }
         #[derive(Deserialize)]
-        struct R { status: String, library: SciXLibraryRecord }
+        struct R {
+            status: String,
+            library: SciXLibraryRecord,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(Some(body.library))
     }
 
@@ -81,10 +104,18 @@ impl ImbibClient {
         let url = self
             .base_url
             .join(&format!("/api/scix-libraries/{}/papers", scix_library_id))?;
-        let resp = self.http.post(url).json(&json!({"publication_ids": publication_ids})).send().await?;
+        let resp = self
+            .http
+            .post(url)
+            .json(&json!({"publication_ids": publication_ids}))
+            .send()
+            .await?;
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn remove_from_scix_library(
@@ -96,10 +127,18 @@ impl ImbibClient {
         let url = self
             .base_url
             .join(&format!("/api/scix-libraries/{}/papers", scix_library_id))?;
-        let resp = self.http.delete(url).json(&json!({"publication_ids": publication_ids})).send().await?;
+        let resp = self
+            .http
+            .delete(url)
+            .json(&json!({"publication_ids": publication_ids}))
+            .send()
+            .await?;
         let s: StatusEnvelope = decode_envelope(resp).await?;
         check(&s)?;
-        Ok(MutationResult { affected_count: n, ok: true })
+        Ok(MutationResult {
+            affected_count: n,
+            ok: true,
+        })
     }
 
     pub async fn query_scix_library_publications(
@@ -122,24 +161,36 @@ impl ImbibClient {
             return Ok(vec![]);
         }
         #[derive(Deserialize)]
-        struct R { status: String, papers: Vec<PublicationSummary> }
+        struct R {
+            status: String,
+            papers: Vec<PublicationSummary>,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.papers)
     }
 
     pub async fn count_scix_library_publications(&self, scix_library_id: String) -> Result<u32> {
-        let url = self
-            .base_url
-            .join(&format!("/api/scix-libraries/{}/papers/count", scix_library_id))?;
+        let url = self.base_url.join(&format!(
+            "/api/scix-libraries/{}/papers/count",
+            scix_library_id
+        ))?;
         let resp = self.http.get(url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(0);
         }
         #[derive(Deserialize)]
-        struct R { status: String, #[serde(default)] count: u32 }
+        struct R {
+            status: String,
+            #[serde(default)]
+            count: u32,
+        }
         let body: R = decode_envelope(resp).await?;
-        check(&StatusEnvelope { status: body.status })?;
+        check(&StatusEnvelope {
+            status: body.status,
+        })?;
         Ok(body.count)
     }
 }

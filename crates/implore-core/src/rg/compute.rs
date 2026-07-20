@@ -8,18 +8,26 @@ use implore_io::IoError;
 use ndarray::{Array3, Array4, Ix3};
 
 /// Compute a derived quantity for a given RG level.
-pub fn compute_quantity(level: &RgLevel, quantity: DerivedQuantity) -> Result<Array3<f32>, IoError> {
+pub fn compute_quantity(
+    level: &RgLevel,
+    quantity: DerivedQuantity,
+) -> Result<Array3<f32>, IoError> {
     match quantity {
-        DerivedQuantity::GainFactor => {
-            level.gain_factor.clone().ok_or_else(|| {
-                IoError::DatasetNotFound("No gain_factor field in dataset".to_string())
-            })
-        }
+        DerivedQuantity::GainFactor => level
+            .gain_factor
+            .clone()
+            .ok_or_else(|| IoError::DatasetNotFound("No gain_factor field in dataset".to_string())),
         DerivedQuantity::LogGainFactor => {
             let gf = level.gain_factor.as_ref().ok_or_else(|| {
                 IoError::DatasetNotFound("No gain_factor field in dataset".to_string())
             })?;
-            Ok(gf.mapv(|v| if v > 0.0 { v.log10() } else { f32::NEG_INFINITY }))
+            Ok(gf.mapv(|v| {
+                if v > 0.0 {
+                    v.log10()
+                } else {
+                    f32::NEG_INFINITY
+                }
+            }))
         }
         DerivedQuantity::VelocityMagnitude => Ok(velocity_magnitude(&level.u)),
         DerivedQuantity::VelocityX => Ok(level.u.index_axis(ndarray::Axis(0), 0).to_owned()),
@@ -47,15 +55,17 @@ pub fn compute_quantity(level: &RgLevel, quantity: DerivedQuantity) -> Result<Ar
             Ok(invariant_i3(&a))
         }
         DerivedQuantity::DetG => {
-            let g = level.g.as_ref().ok_or_else(|| {
-                IoError::DatasetNotFound("No gain tensor in dataset".to_string())
-            })?;
+            let g = level
+                .g
+                .as_ref()
+                .ok_or_else(|| IoError::DatasetNotFound("No gain tensor in dataset".to_string()))?;
             Ok(det_g(g))
         }
         DerivedQuantity::LambdaMax => {
-            let g = level.g.as_ref().ok_or_else(|| {
-                IoError::DatasetNotFound("No gain tensor in dataset".to_string())
-            })?;
+            let g = level
+                .g
+                .as_ref()
+                .ok_or_else(|| IoError::DatasetNotFound("No gain tensor in dataset".to_string()))?;
             Ok(cauchy_green_lambda_max(g))
         }
     }
@@ -255,9 +265,15 @@ fn det_g(g: &ndarray::Array5<f32>) -> Array3<f32> {
         for iy in 0..n {
             for ix in 0..n {
                 let m = nalgebra::Matrix3::new(
-                    g[[0, 0, iz, iy, ix]], g[[0, 1, iz, iy, ix]], g[[0, 2, iz, iy, ix]],
-                    g[[1, 0, iz, iy, ix]], g[[1, 1, iz, iy, ix]], g[[1, 2, iz, iy, ix]],
-                    g[[2, 0, iz, iy, ix]], g[[2, 1, iz, iy, ix]], g[[2, 2, iz, iy, ix]],
+                    g[[0, 0, iz, iy, ix]],
+                    g[[0, 1, iz, iy, ix]],
+                    g[[0, 2, iz, iy, ix]],
+                    g[[1, 0, iz, iy, ix]],
+                    g[[1, 1, iz, iy, ix]],
+                    g[[1, 2, iz, iy, ix]],
+                    g[[2, 0, iz, iy, ix]],
+                    g[[2, 1, iz, iy, ix]],
+                    g[[2, 2, iz, iy, ix]],
                 );
                 result[[iz, iy, ix]] = m.determinant();
             }
@@ -277,9 +293,15 @@ fn cauchy_green_lambda_max(g: &ndarray::Array5<f32>) -> Array3<f32> {
         for iy in 0..n {
             for ix in 0..n {
                 let m = nalgebra::Matrix3::new(
-                    g[[0, 0, iz, iy, ix]], g[[0, 1, iz, iy, ix]], g[[0, 2, iz, iy, ix]],
-                    g[[1, 0, iz, iy, ix]], g[[1, 1, iz, iy, ix]], g[[1, 2, iz, iy, ix]],
-                    g[[2, 0, iz, iy, ix]], g[[2, 1, iz, iy, ix]], g[[2, 2, iz, iy, ix]],
+                    g[[0, 0, iz, iy, ix]],
+                    g[[0, 1, iz, iy, ix]],
+                    g[[0, 2, iz, iy, ix]],
+                    g[[1, 0, iz, iy, ix]],
+                    g[[1, 1, iz, iy, ix]],
+                    g[[1, 2, iz, iy, ix]],
+                    g[[2, 0, iz, iy, ix]],
+                    g[[2, 1, iz, iy, ix]],
+                    g[[2, 2, iz, iy, ix]],
                 );
 
                 if let Some(f) = m.try_inverse() {
@@ -325,7 +347,11 @@ mod tests {
         let a = velocity_gradient(&u, h);
         let vort = vorticity_magnitude(&a);
         for v in vort.iter() {
-            assert!(v.abs() < 1e-6, "Expected zero vorticity for uniform flow, got {}", v);
+            assert!(
+                v.abs() < 1e-6,
+                "Expected zero vorticity for uniform flow, got {}",
+                v
+            );
         }
     }
 
@@ -336,7 +362,11 @@ mod tests {
         let a = velocity_gradient(&u, h);
         let s = strain_magnitude(&a);
         for v in s.iter() {
-            assert!(v.abs() < 1e-6, "Expected zero strain for uniform flow, got {}", v);
+            assert!(
+                v.abs() < 1e-6,
+                "Expected zero strain for uniform flow, got {}",
+                v
+            );
         }
     }
 }

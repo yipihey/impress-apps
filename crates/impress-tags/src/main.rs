@@ -85,8 +85,8 @@ fn main() {
                     let ancestry: Vec<String> = (1..=segments.len())
                         .map(|n| segments[..n].join("/"))
                         .collect();
-                    let json =
-                        serde_json::to_string_pretty(&ancestry).unwrap_or_else(|_| "[]".to_string());
+                    let json = serde_json::to_string_pretty(&ancestry)
+                        .unwrap_or_else(|_| "[]".to_string());
                     println!("{}", json);
                 }
                 None => {

@@ -54,7 +54,11 @@ impl From<&imbib_core::unified::shaped_queries::SmartSearchRow> for SmartSearchR
 pub trait ImbibSearchService: Send + Sync + 'static {
     // ---- Identifier lookups ----
     #[impress_method]
-    async fn find_by_cite_key(&self, cite_key: String, library_id: Option<String>) -> Option<PublicationSummary>;
+    async fn find_by_cite_key(
+        &self,
+        cite_key: String,
+        library_id: Option<String>,
+    ) -> Option<PublicationSummary>;
     #[impress_method]
     async fn find_by_doi(&self, doi: String) -> Vec<PublicationSummary>;
     #[impress_method]
@@ -62,11 +66,21 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     #[impress_method]
     async fn find_by_bibcode(&self, bibcode: String) -> Vec<PublicationSummary>;
     #[impress_method]
-    async fn find_by_identifiers_batch(&self, dois: Vec<String>, arxiv_ids: Vec<String>, bibcodes: Vec<String>) -> Vec<PublicationSummary>;
+    async fn find_by_identifiers_batch(
+        &self,
+        dois: Vec<String>,
+        arxiv_ids: Vec<String>,
+        bibcodes: Vec<String>,
+    ) -> Vec<PublicationSummary>;
 
     // ---- Full-text search ----
     #[impress_method]
-    async fn full_text_search(&self, query: String, parent_id: Option<String>, limit: u32) -> Vec<PublicationSummary>;
+    async fn full_text_search(
+        &self,
+        query: String,
+        parent_id: Option<String>,
+        limit: u32,
+    ) -> Vec<PublicationSummary>;
 
     // ---- Smart search CRUD ----
     #[impress_method]
@@ -88,44 +102,128 @@ pub trait ImbibSearchService: Send + Sync + 'static {
 }
 
 #[derive(Clone)]
-pub struct DefaultImbibSearchService { store: Arc<ImbibStore> }
-impl DefaultImbibSearchService { pub fn new(store: Arc<ImbibStore>) -> Self { Self { store } } }
+pub struct DefaultImbibSearchService {
+    store: Arc<ImbibStore>,
+}
+impl DefaultImbibSearchService {
+    pub fn new(store: Arc<ImbibStore>) -> Self {
+        Self { store }
+    }
+}
 
-fn log(m: &str, e: impl std::fmt::Display) { eprintln!("[imbib-search-service] {m}: {e}"); }
+fn log(m: &str, e: impl std::fmt::Display) {
+    eprintln!("[imbib-search-service] {m}: {e}");
+}
 
 #[async_trait::async_trait]
 impl ImbibSearchService for DefaultImbibSearchService {
-    async fn find_by_cite_key(&self, cite_key: String, library_id: Option<String>) -> Option<PublicationSummary> {
-        self.store.find_by_cite_key(cite_key, library_id).ok().flatten().as_ref().map(PublicationSummary::from)
+    async fn find_by_cite_key(
+        &self,
+        cite_key: String,
+        library_id: Option<String>,
+    ) -> Option<PublicationSummary> {
+        self.store
+            .find_by_cite_key(cite_key, library_id)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(PublicationSummary::from)
     }
     async fn find_by_doi(&self, doi: String) -> Vec<PublicationSummary> {
-        self.store.find_by_doi(doi).map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("find_by_doi", e); vec![] })
+        self.store
+            .find_by_doi(doi)
+            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("find_by_doi", e);
+                vec![]
+            })
     }
     async fn find_by_arxiv(&self, arxiv_id: String) -> Vec<PublicationSummary> {
-        self.store.find_by_arxiv(arxiv_id).map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("find_by_arxiv", e); vec![] })
+        self.store
+            .find_by_arxiv(arxiv_id)
+            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("find_by_arxiv", e);
+                vec![]
+            })
     }
     async fn find_by_bibcode(&self, bibcode: String) -> Vec<PublicationSummary> {
-        self.store.find_by_bibcode(bibcode).map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("find_by_bibcode", e); vec![] })
-    }
-    async fn find_by_identifiers_batch(&self, dois: Vec<String>, arxiv_ids: Vec<String>, bibcodes: Vec<String>) -> Vec<PublicationSummary> {
-        self.store.find_by_identifiers_batch(dois, arxiv_ids, bibcodes).map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>()).unwrap_or_else(|e| { log("find_by_identifiers_batch", e); vec![] })
-    }
-    async fn full_text_search(&self, query: String, parent_id: Option<String>, limit: u32) -> Vec<PublicationSummary> {
-        let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        self.store.full_text_search(query, parent_id, lim, None)
+        self.store
+            .find_by_bibcode(bibcode)
             .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("full_text_search", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("find_by_bibcode", e);
+                vec![]
+            })
+    }
+    async fn find_by_identifiers_batch(
+        &self,
+        dois: Vec<String>,
+        arxiv_ids: Vec<String>,
+        bibcodes: Vec<String>,
+    ) -> Vec<PublicationSummary> {
+        self.store
+            .find_by_identifiers_batch(dois, arxiv_ids, bibcodes)
+            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("find_by_identifiers_batch", e);
+                vec![]
+            })
+    }
+    async fn full_text_search(
+        &self,
+        query: String,
+        parent_id: Option<String>,
+        limit: u32,
+    ) -> Vec<PublicationSummary> {
+        let lim = if limit == 0 { Some(50) } else { Some(limit) };
+        self.store
+            .full_text_search(query, parent_id, lim, None)
+            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
+            .unwrap_or_else(|e| {
+                log("full_text_search", e);
+                vec![]
+            })
     }
     async fn list_smart_searches(&self, library_id: Option<String>) -> Vec<SmartSearchRecord> {
-        self.store.list_smart_searches(library_id)
+        self.store
+            .list_smart_searches(library_id)
             .map(|rs| rs.iter().map(SmartSearchRecord::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| { log("list_smart_searches", e); vec![] })
+            .unwrap_or_else(|e| {
+                log("list_smart_searches", e);
+                vec![]
+            })
     }
     async fn get_smart_search(&self, id: String) -> Option<SmartSearchRecord> {
-        self.store.get_smart_search(id).ok().flatten().as_ref().map(SmartSearchRecord::from)
+        self.store
+            .get_smart_search(id)
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(SmartSearchRecord::from)
     }
-    async fn create_smart_search(&self, name: String, query: String, library_id: String, source_ids_json: Option<String>, max_results: i64, feeds_to_inbox: bool, auto_refresh_enabled: bool, refresh_interval_seconds: i64) -> Option<SmartSearchRecord> {
-        self.store.create_smart_search(name, query, library_id, source_ids_json, max_results, feeds_to_inbox, auto_refresh_enabled, refresh_interval_seconds)
+    async fn create_smart_search(
+        &self,
+        name: String,
+        query: String,
+        library_id: String,
+        source_ids_json: Option<String>,
+        max_results: i64,
+        feeds_to_inbox: bool,
+        auto_refresh_enabled: bool,
+        refresh_interval_seconds: i64,
+    ) -> Option<SmartSearchRecord> {
+        self.store
+            .create_smart_search(
+                name,
+                query,
+                library_id,
+                source_ids_json,
+                max_results,
+                feeds_to_inbox,
+                auto_refresh_enabled,
+                refresh_interval_seconds,
+            )
             .map(|r| SmartSearchRecord::from(&r))
             .map_err(|e| log("create_smart_search", e))
             .ok()

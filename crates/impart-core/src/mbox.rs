@@ -106,7 +106,8 @@ impl MboxMessage {
 
     /// Add a custom header (X-Impart-*).
     pub fn add_header(&mut self, name: &str, value: &str) {
-        self.custom_headers.push((name.to_string(), value.to_string()));
+        self.custom_headers
+            .push((name.to_string(), value.to_string()));
     }
 
     /// Format as mbox entry.
@@ -125,13 +126,21 @@ impl MboxMessage {
         output.push_str(&format!("From: {}\n", self.from.to_rfc5322()));
         output.push_str(&format!(
             "To: {}\n",
-            self.to.iter().map(|a| a.to_rfc5322()).collect::<Vec<_>>().join(", ")
+            self.to
+                .iter()
+                .map(|a| a.to_rfc5322())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
 
         if !self.cc.is_empty() {
             output.push_str(&format!(
                 "Cc: {}\n",
-                self.cc.iter().map(|a| a.to_rfc5322()).collect::<Vec<_>>().join(", ")
+                self.cc
+                    .iter()
+                    .map(|a| a.to_rfc5322())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -192,7 +201,9 @@ pub struct MboxFile {
 impl MboxFile {
     /// Create a new empty mbox.
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: Vec::new(),
+        }
     }
 
     /// Add a message to the mbox.
@@ -202,8 +213,7 @@ impl MboxFile {
 
     /// Write mbox to a file.
     pub fn write_to_file(&self, path: &Path) -> Result<()> {
-        let mut file = std::fs::File::create(path)
-            .map_err(|e| ImpartError::Io(e))?;
+        let mut file = std::fs::File::create(path).map_err(|e| ImpartError::Io(e))?;
 
         for message in &self.messages {
             file.write_all(message.to_mbox_string().as_bytes())
@@ -215,8 +225,7 @@ impl MboxFile {
 
     /// Read mbox from a file.
     pub fn read_from_file(path: &Path) -> Result<Self> {
-        let file = std::fs::File::open(path)
-            .map_err(|e| ImpartError::Io(e))?;
+        let file = std::fs::File::open(path).map_err(|e| ImpartError::Io(e))?;
         let reader = BufReader::new(file);
 
         let mut mbox = MboxFile::new();
@@ -273,7 +282,10 @@ fn parse_mbox_message(text: &str) -> Result<MboxMessage> {
     let raw = text.as_bytes();
     let parsed = crate::mime::parse_message(raw)?;
 
-    let from = parsed.envelope.from.first()
+    let from = parsed
+        .envelope
+        .from
+        .first()
         .cloned()
         .unwrap_or_else(|| Address::new("unknown@unknown"));
 
@@ -284,7 +296,10 @@ fn parse_mbox_message(text: &str) -> Result<MboxMessage> {
 
     Ok(MboxMessage {
         id,
-        message_id: parsed.envelope.message_id.unwrap_or_else(|| format!("<{}@parsed>", id)),
+        message_id: parsed
+            .envelope
+            .message_id
+            .unwrap_or_else(|| format!("<{}@parsed>", id)),
         in_reply_to: parsed.envelope.in_reply_to,
         references: parsed.envelope.references,
         from,
@@ -333,17 +348,23 @@ impl ConversationMbox {
         let mbox = MboxFile::read_from_file(path)?;
 
         // Extract conversation metadata from first message headers
-        let title = mbox.messages.first()
+        let title = mbox
+            .messages
+            .first()
             .and_then(|m| {
-                m.custom_headers.iter()
+                m.custom_headers
+                    .iter()
                     .find(|(k, _)| k == "X-Impart-Conversation-Title")
                     .map(|(_, v)| v.clone())
             })
             .unwrap_or_else(|| "Untitled Conversation".to_string());
 
-        let id = mbox.messages.first()
+        let id = mbox
+            .messages
+            .first()
             .and_then(|m| {
-                m.custom_headers.iter()
+                m.custom_headers
+                    .iter()
                     .find(|(k, _)| k == "X-Impart-Conversation-ID")
                     .and_then(|(_, v)| Uuid::parse_str(v).ok())
             })
@@ -391,7 +412,9 @@ impl ConversationMbox {
     /// Add an AI counsel message.
     pub fn add_counsel_message(&mut self, model: &str, content: &str) -> Result<Uuid> {
         let from = Address::with_name(format!("AI Counsel ({})", model), "counsel@impart.local");
-        let to: Vec<Address> = self.messages.first()
+        let to: Vec<Address> = self
+            .messages
+            .first()
             .map(|m| vec![m.from.clone()])
             .unwrap_or_default();
 
@@ -477,7 +500,12 @@ mod tests {
     fn test_from_escaping() {
         let from = Address::new("test@example.com");
         let to = vec![Address::new("recipient@example.com")];
-        let msg = MboxMessage::new(from, to, "Test".into(), "From the beginning\nFrom here too".into());
+        let msg = MboxMessage::new(
+            from,
+            to,
+            "Test".into(),
+            "From the beginning\nFrom here too".into(),
+        );
 
         let formatted = msg.to_mbox_string();
 
@@ -521,8 +549,10 @@ mod tests {
 
         let mut conv = ConversationMbox::new("Test Conversation".into(), temp_dir.path());
 
-        conv.add_user_message("user@example.com", "Hello, AI!").unwrap();
-        conv.add_counsel_message("opus-4.5", "Hello! How can I help you today?").unwrap();
+        conv.add_user_message("user@example.com", "Hello, AI!")
+            .unwrap();
+        conv.add_counsel_message("opus-4.5", "Hello! How can I help you today?")
+            .unwrap();
 
         assert_eq!(conv.messages.len(), 2);
 

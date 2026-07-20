@@ -63,14 +63,13 @@ impl ArxivSource {
                 _ => "all",
             };
             let cleaned = value.replace('"', "");
-            let term = if cleaned.contains(' ')
-                && !cleaned.contains(" AND ")
-                && !cleaned.contains(" OR ")
-            {
-                format!("{api_field}:\"{cleaned}\"")
-            } else {
-                format!("{api_field}:{cleaned}")
-            };
+            let term =
+                if cleaned.contains(' ') && !cleaned.contains(" AND ") && !cleaned.contains(" OR ")
+                {
+                    format!("{api_field}:\"{cleaned}\"")
+                } else {
+                    format!("{api_field}:{cleaned}")
+                };
             parts.push(term);
         }
 
@@ -277,10 +276,7 @@ struct EntryAccum {
 impl EntryAccum {
     fn into_paper_metadata(mut self) -> PaperMetadata {
         let arxiv_id = extract_arxiv_id(&self.id);
-        let year = self
-            .published
-            .get(0..4)
-            .and_then(|s| s.parse::<i32>().ok());
+        let year = self.published.get(0..4).and_then(|s| s.parse::<i32>().ok());
 
         let title = clean_whitespace(&self.title);
         let summary = if self.summary.is_empty() {

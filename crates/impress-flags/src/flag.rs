@@ -124,7 +124,12 @@ mod tests {
 
     #[test]
     fn flag_color_roundtrip() {
-        for color in [FlagColor::Red, FlagColor::Amber, FlagColor::Blue, FlagColor::Gray] {
+        for color in [
+            FlagColor::Red,
+            FlagColor::Amber,
+            FlagColor::Blue,
+            FlagColor::Gray,
+        ] {
             let c = color.shorthand();
             assert_eq!(FlagColor::from_char(c), Some(color));
         }

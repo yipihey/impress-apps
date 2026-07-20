@@ -16,9 +16,7 @@
 /// ```
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn parse_tag_path(input: &str) -> Option<String> {
-    let normalized = input
-        .trim()
-        .replace('\\', "/");
+    let normalized = input.trim().replace('\\', "/");
 
     let segments: Vec<&str> = normalized
         .split('/')
@@ -146,22 +144,34 @@ mod tests {
 
     #[test]
     fn parse_normal() {
-        assert_eq!(parse_tag_path("methods/sims/hydro"), Some("methods/sims/hydro".to_string()));
+        assert_eq!(
+            parse_tag_path("methods/sims/hydro"),
+            Some("methods/sims/hydro".to_string())
+        );
     }
 
     #[test]
     fn parse_with_whitespace() {
-        assert_eq!(parse_tag_path("  methods / sims  "), Some("methods/sims".to_string()));
+        assert_eq!(
+            parse_tag_path("  methods / sims  "),
+            Some("methods/sims".to_string())
+        );
     }
 
     #[test]
     fn parse_backslash() {
-        assert_eq!(parse_tag_path("methods\\sims\\hydro"), Some("methods/sims/hydro".to_string()));
+        assert_eq!(
+            parse_tag_path("methods\\sims\\hydro"),
+            Some("methods/sims/hydro".to_string())
+        );
     }
 
     #[test]
     fn parse_leading_trailing_slash() {
-        assert_eq!(parse_tag_path("/methods/sims/"), Some("methods/sims".to_string()));
+        assert_eq!(
+            parse_tag_path("/methods/sims/"),
+            Some("methods/sims".to_string())
+        );
     }
 
     #[test]
@@ -179,7 +189,10 @@ mod tests {
 
     #[test]
     fn parent_extraction() {
-        assert_eq!(tag_parent("methods/sims/hydro"), Some("methods/sims".to_string()));
+        assert_eq!(
+            tag_parent("methods/sims/hydro"),
+            Some("methods/sims".to_string())
+        );
         assert_eq!(tag_parent("methods"), None);
     }
 
@@ -210,7 +223,10 @@ mod tests {
     fn normalize_segment_spaces_and_underscores() {
         assert_eq!(normalize_tag_segment("Dark Energy"), "dark-energy");
         assert_eq!(normalize_tag_segment("dark_energy"), "dark-energy");
-        assert_eq!(normalize_tag_segment("Dark_Energy Models"), "dark-energy-models");
+        assert_eq!(
+            normalize_tag_segment("Dark_Energy Models"),
+            "dark-energy-models"
+        );
     }
 
     #[test]
@@ -231,7 +247,10 @@ mod tests {
     #[test]
     fn normalize_segment_outer_whitespace() {
         assert_eq!(normalize_tag_segment("  Dark Energy  "), "dark-energy");
-        assert_eq!(normalize_tag_segment("\n\tnumerical methods\t\n"), "numerical-methods");
+        assert_eq!(
+            normalize_tag_segment("\n\tnumerical methods\t\n"),
+            "numerical-methods"
+        );
     }
 
     #[test]
@@ -281,20 +300,14 @@ mod tests {
             normalize_tag_path("Methods/Sims/Hydro/AMR"),
             "methods/sims/hydro/amr"
         );
-        assert_eq!(
-            normalize_tag_path("a/b/c/d/e/f"),
-            "a/b/c/d/e/f"
-        );
+        assert_eq!(normalize_tag_path("a/b/c/d/e/f"), "a/b/c/d/e/f");
     }
 
     #[test]
     fn normalize_path_duplicate_segments_preserved() {
         // Normalization does NOT dedup repeated segments — that's a higher-layer
         // concern. "methods/methods" is a legal (if odd) path.
-        assert_eq!(
-            normalize_tag_path("Methods/Methods"),
-            "methods/methods"
-        );
+        assert_eq!(normalize_tag_path("Methods/Methods"), "methods/methods");
     }
 
     #[test]

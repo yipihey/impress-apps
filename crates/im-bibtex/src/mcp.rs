@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
 use crate::{
-    decode_latex, expand_journal_macro, format_complete, format_entry,
-    get_all_journal_macro_names, parse, parse_entry,
+    decode_latex, expand_journal_macro, format_complete, format_entry, get_all_journal_macro_names,
+    parse, parse_entry,
 };
 
 /// Run the MCP server, reading JSON-RPC requests from stdin and writing responses to stdout.
@@ -228,7 +228,11 @@ fn tool_format(args: &Value) -> Result<String, String> {
     let input = get_string_arg(args, "input")?;
     let result = parse(input.to_string()).map_err(|e| e.to_string())?;
     let strings: Vec<(String, String)> = result.strings.into_iter().collect();
-    Ok(format_complete(&strings, &result.preambles, &result.entries))
+    Ok(format_complete(
+        &strings,
+        &result.preambles,
+        &result.entries,
+    ))
 }
 
 fn tool_format_entry(args: &Value) -> Result<String, String> {

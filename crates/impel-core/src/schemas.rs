@@ -60,15 +60,10 @@ pub fn task_schema() -> Schema {
                 name: "external_id".into(),
                 field_type: FieldType::String,
                 required: false,
-                description: Some(
-                    "Stable GRDB task ID for deduplication across stores".into(),
-                ),
+                description: Some("Stable GRDB task ID for deduplication across stores".into()),
             },
         ],
-        expected_edges: vec![
-            EdgeType::DependsOn,
-            EdgeType::Custom("triggered-by".into()),
-        ],
+        expected_edges: vec![EdgeType::DependsOn, EdgeType::Custom("triggered-by".into())],
         inherits: None,
     }
 }
@@ -125,9 +120,7 @@ pub fn agent_run_schema() -> Schema {
                 name: "tool_calls".into(),
                 field_type: FieldType::StringArray,
                 required: false,
-                description: Some(
-                    "Names of tools invoked during this run, in order".into(),
-                ),
+                description: Some("Names of tools invoked during this run, in order".into()),
             },
             FieldDef {
                 name: "status".into(),
@@ -192,8 +185,14 @@ mod tests {
         let schema = task_schema();
         let required: Vec<_> = schema.fields.iter().filter(|f| f.required).collect();
         let required_names: Vec<_> = required.iter().map(|f| f.name.as_str()).collect();
-        assert!(required_names.contains(&"title"), "task schema missing required 'title'");
-        assert!(required_names.contains(&"state"), "task schema missing required 'state'");
+        assert!(
+            required_names.contains(&"title"),
+            "task schema missing required 'title'"
+        );
+        assert!(
+            required_names.contains(&"state"),
+            "task schema missing required 'state'"
+        );
     }
 
     #[test]

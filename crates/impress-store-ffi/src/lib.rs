@@ -119,8 +119,8 @@ impl SharedStore {
     /// WAL mode provides concurrent-reader, exclusive-writer access.
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open(path: String) -> Result<Arc<Self>, SharedStoreError> {
-        let store = SqliteItemStore::open(Path::new(&path))
-            .map_err(|e| SharedStoreError::Storage {
+        let store =
+            SqliteItemStore::open(Path::new(&path)).map_err(|e| SharedStoreError::Storage {
                 message: e.to_string(),
             })?;
         Ok(Arc::new(SharedStore { inner: store }))
@@ -150,11 +150,9 @@ impl SharedStore {
         schema_ref: String,
         payload_json: String,
     ) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
 
         let payload: BTreeMap<String, Value> =
             serde_json::from_str(&payload_json).map_err(|e| SharedStoreError::InvalidArgument {
@@ -182,11 +180,9 @@ impl SharedStore {
 
     /// Retrieve a single item by ID, or `nil` if not found.
     pub fn get_item(&self, id: String) -> Result<Option<SharedItemRow>, SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         let item = self.inner.get(item_id)?;
         Ok(item.map(item_to_row))
     }
@@ -195,11 +191,9 @@ impl SharedStore {
     ///
     /// Returns `NotFound` if no item with `id` exists.
     pub fn delete_item(&self, id: String) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         self.inner.delete(item_id)?;
         Ok(())
     }
@@ -266,11 +260,9 @@ impl SharedStore {
 
     /// Mark an item as read or unread.
     pub fn set_read(&self, id: String, is_read: bool) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         self.inner
             .update(item_id, vec![FieldMutation::SetRead(is_read)])?;
         Ok(())
@@ -278,11 +270,9 @@ impl SharedStore {
 
     /// Mark an item as starred or unstarred.
     pub fn set_starred(&self, id: String, is_starred: bool) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         self.inner
             .update(item_id, vec![FieldMutation::SetStarred(is_starred)])?;
         Ok(())
@@ -290,11 +280,9 @@ impl SharedStore {
 
     /// Add a hierarchical tag to an item (e.g. `"methods/sims/hydro"`).
     pub fn add_tag(&self, id: String, tag: String) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         self.inner
             .update(item_id, vec![FieldMutation::AddTag(tag)])?;
         Ok(())
@@ -302,11 +290,9 @@ impl SharedStore {
 
     /// Remove a tag from an item.
     pub fn remove_tag(&self, id: String, tag: String) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         self.inner
             .update(item_id, vec![FieldMutation::RemoveTag(tag)])?;
         Ok(())
@@ -323,11 +309,9 @@ impl SharedStore {
         style: Option<String>,
         length: Option<String>,
     ) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         let flag = color.map(|c| FlagState {
             color: c,
             style,
@@ -345,11 +329,9 @@ impl SharedStore {
         &self,
         id: String,
     ) -> Result<Vec<SharedReferenceRow>, SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         let item = self
             .inner
             .get(item_id)?
@@ -381,15 +363,15 @@ impl SharedStore {
         resolution: String,
         resolved_by: String,
     ) -> Result<(), SharedStoreError> {
-        let item_id: ItemId = id
-            .parse()
-            .map_err(|_| SharedStoreError::InvalidArgument {
-                message: format!("invalid UUID: {id}"),
-            })?;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
         let item = self
             .inner
             .get(item_id)?
-            .ok_or_else(|| SharedStoreError::NotFound { message: id.clone() })?;
+            .ok_or_else(|| SharedStoreError::NotFound {
+                message: id.clone(),
+            })?;
         if item.schema != "review-request@1.0.0" {
             return Err(SharedStoreError::InvalidArgument {
                 message: format!(
@@ -461,8 +443,7 @@ fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> I
 }
 
 fn item_to_row(item: Item) -> SharedItemRow {
-    let payload_json =
-        serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
+    let payload_json = serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
     let flag_color = item.flag.as_ref().map(|f| f.color.clone());
     SharedItemRow {
         id: item.id.to_string(),
@@ -522,7 +503,11 @@ mod tests {
         let store = SharedStore::open_in_memory().expect("open");
         let id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id.clone(), "task".into(), r#"{"title": "to delete"}"#.into())
+            .upsert_item(
+                id.clone(),
+                "task".into(),
+                r#"{"title": "to delete"}"#.into(),
+            )
             .expect("upsert");
         store.delete_item(id.clone()).expect("delete");
         let row = store.get_item(id).expect("get");
@@ -535,7 +520,11 @@ mod tests {
         let id1 = uuid::Uuid::new_v4().to_string();
         let id2 = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id1.clone(), "bibliography-entry".into(), r#"{"title": "P1"}"#.into())
+            .upsert_item(
+                id1.clone(),
+                "bibliography-entry".into(),
+                r#"{"title": "P1"}"#.into(),
+            )
             .expect("upsert1");
         store
             .upsert_item(id2.clone(), "task".into(), r#"{"title": "T1"}"#.into())
@@ -553,7 +542,11 @@ mod tests {
         let store = SharedStore::open_in_memory().expect("open");
         let id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id.clone(), "bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .upsert_item(
+                id.clone(),
+                "bibliography-entry".into(),
+                r#"{"title": "P"}"#.into(),
+            )
             .expect("upsert");
 
         store.set_read(id.clone(), true).expect("set_read");
@@ -569,7 +562,11 @@ mod tests {
         let store = SharedStore::open_in_memory().expect("open");
         let id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id.clone(), "bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .upsert_item(
+                id.clone(),
+                "bibliography-entry".into(),
+                r#"{"title": "P"}"#.into(),
+            )
             .expect("upsert");
 
         store
@@ -590,7 +587,11 @@ mod tests {
         let store = SharedStore::open_in_memory().expect("open");
         let id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id.clone(), "bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .upsert_item(
+                id.clone(),
+                "bibliography-entry".into(),
+                r#"{"title": "P"}"#.into(),
+            )
             .expect("upsert");
 
         // Verify initially unflagged
@@ -640,8 +641,7 @@ mod tests {
         // Read it back
         let row = store.get_item(id.clone()).expect("get").expect("exists");
         assert_eq!(row.schema_ref, "imbib/bibliography-entry");
-        let p: serde_json::Value =
-            serde_json::from_str(&row.payload_json).expect("parse payload");
+        let p: serde_json::Value = serde_json::from_str(&row.payload_json).expect("parse payload");
         assert_eq!(p["title"], "On the Electrodynamics of Moving Bodies");
         assert_eq!(p["year"], 1905);
         assert_eq!(p["journal"], "Annalen der Physik");
@@ -655,10 +655,19 @@ mod tests {
         assert_eq!(rows[0].id, id);
 
         // Verify tags/flags/read work on it
-        store.add_tag(id.clone(), "physics/relativity".into()).expect("tag");
+        store
+            .add_tag(id.clone(), "physics/relativity".into())
+            .expect("tag");
         store.set_read(id.clone(), true).expect("read");
         store.set_starred(id.clone(), true).expect("star");
-        store.set_flag(id.clone(), Some("amber".into()), Some("dashed".into()), None).expect("flag");
+        store
+            .set_flag(
+                id.clone(),
+                Some("amber".into()),
+                Some("dashed".into()),
+                None,
+            )
+            .expect("flag");
 
         let row = store.get_item(id).expect("get").expect("exists");
         assert!(row.is_read);
@@ -696,11 +705,13 @@ mod tests {
         let ops = store.inner.operations_for(item_id, None).expect("ops");
         let set_payload_ops: Vec<_> = ops
             .iter()
-            .filter(|op| {
-                op.payload.get("op_type") == Some(&Value::String("set_payload".into()))
-            })
+            .filter(|op| op.payload.get("op_type") == Some(&Value::String("set_payload".into())))
             .collect();
-        assert_eq!(set_payload_ops.len(), 2, "expected two SetPayload operations");
+        assert_eq!(
+            set_payload_ops.len(),
+            2,
+            "expected two SetPayload operations"
+        );
         for op in &set_payload_ops {
             assert_eq!(op.schema, "core/operation");
             assert_eq!(op.author, "tom");
@@ -717,7 +728,11 @@ mod tests {
         let store = SharedStore::open_in_memory().expect("open");
         let id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(id.clone(), "task".into(), r#"{"title": "not a review"}"#.into())
+            .upsert_item(
+                id.clone(),
+                "task".into(),
+                r#"{"title": "not a review"}"#.into(),
+            )
             .expect("upsert");
 
         let err = store
@@ -746,10 +761,18 @@ mod tests {
         let source_id = uuid::Uuid::new_v4().to_string();
         let target_id = uuid::Uuid::new_v4().to_string();
         store
-            .upsert_item(source_id.clone(), "review-request@1.0.0".into(), r#"{"question": "q"}"#.into())
+            .upsert_item(
+                source_id.clone(),
+                "review-request@1.0.0".into(),
+                r#"{"question": "q"}"#.into(),
+            )
             .expect("upsert source");
         store
-            .upsert_item(target_id.clone(), "imbib/bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .upsert_item(
+                target_id.clone(),
+                "imbib/bibliography-entry".into(),
+                r#"{"title": "P"}"#.into(),
+            )
             .expect("upsert target");
 
         // Empty at first
@@ -808,11 +831,17 @@ mod tests {
                 .expect("upsert");
         }
         store
-            .upsert_item(uuid::Uuid::new_v4().to_string(), "task".into(), r#"{"title": "t"}"#.into())
+            .upsert_item(
+                uuid::Uuid::new_v4().to_string(),
+                "task".into(),
+                r#"{"title": "t"}"#.into(),
+            )
             .expect("upsert task");
 
         assert_eq!(
-            store.count_by_schema("review-request@1.0.0".into()).expect("count"),
+            store
+                .count_by_schema("review-request@1.0.0".into())
+                .expect("count"),
             3
         );
         assert_eq!(store.count_by_schema("task".into()).expect("count"), 1);
@@ -828,28 +857,43 @@ mod tests {
         let email_id = uuid::Uuid::new_v4().to_string();
 
         store
-            .upsert_item(pub_id.clone(), "imbib/bibliography-entry".into(),
-                r#"{"cite_key": "Smith2024", "entry_type": "article", "title": "A Paper"}"#.into())
+            .upsert_item(
+                pub_id.clone(),
+                "imbib/bibliography-entry".into(),
+                r#"{"cite_key": "Smith2024", "entry_type": "article", "title": "A Paper"}"#.into(),
+            )
             .expect("upsert pub");
         store
-            .upsert_item(task_id.clone(), "task".into(),
-                r#"{"title": "Review paper", "state": "pending"}"#.into())
+            .upsert_item(
+                task_id.clone(),
+                "task".into(),
+                r#"{"title": "Review paper", "state": "pending"}"#.into(),
+            )
             .expect("upsert task");
         store
-            .upsert_item(email_id.clone(), "email-message".into(),
-                r#"{"subject": "Re: paper review", "body": "LGTM"}"#.into())
+            .upsert_item(
+                email_id.clone(),
+                "email-message".into(),
+                r#"{"subject": "Re: paper review", "body": "LGTM"}"#.into(),
+            )
             .expect("upsert email");
 
         // Each schema query returns only its own items
-        let pubs = store.query_by_schema("imbib/bibliography-entry".into(), 10, 0).expect("query pubs");
+        let pubs = store
+            .query_by_schema("imbib/bibliography-entry".into(), 10, 0)
+            .expect("query pubs");
         assert_eq!(pubs.len(), 1);
         assert_eq!(pubs[0].id, pub_id);
 
-        let tasks = store.query_by_schema("task".into(), 10, 0).expect("query tasks");
+        let tasks = store
+            .query_by_schema("task".into(), 10, 0)
+            .expect("query tasks");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, task_id);
 
-        let emails = store.query_by_schema("email-message".into(), 10, 0).expect("query emails");
+        let emails = store
+            .query_by_schema("email-message".into(), 10, 0)
+            .expect("query emails");
         assert_eq!(emails.len(), 1);
         assert_eq!(emails[0].id, email_id);
     }
