@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 // ── Series style ────────────────────────────────────────────────────
 
 /// How to render a data series.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SeriesStyle {
     #[default]
     Line,
@@ -19,12 +18,10 @@ pub enum SeriesStyle {
     Step,
 }
 
-
 // ── Color ───────────────────────────────────────────────────────────
 
 /// Named colors suitable for scientific plots (color-blind friendly).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum PlotColor {
     #[default]
     Blue,
@@ -38,7 +35,6 @@ pub enum PlotColor {
     /// Custom RGB (0-255).
     Rgb(u8, u8, u8),
 }
-
 
 impl PlotColor {
     /// CSS color string.
@@ -73,8 +69,7 @@ impl PlotColor {
 // ── Legend ───────────────────────────────────────────────────────────
 
 /// Legend position.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LegendPosition {
     #[default]
     TopRight,
@@ -82,7 +77,6 @@ pub enum LegendPosition {
     BottomRight,
     BottomLeft,
 }
-
 
 /// Legend configuration.
 #[derive(Clone, Debug, Serialize, Deserialize)]
