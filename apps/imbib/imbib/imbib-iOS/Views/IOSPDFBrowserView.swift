@@ -3,6 +3,10 @@
 //  imbib-iOS
 //
 //  Created by Claude on 2026-01-07.
+//  Revived 2026-07-20: ported from CDPublication/CDLibrary to the
+//  value-type + RustStoreAdapter world (id-based init; PublicationModel
+//  resolved via RustStoreAdapter.shared.getPublicationDetail(id:);
+//  PDFs saved via AttachmentManager.shared.importPDF(data:for:in:)).
 //
 
 import SwiftUI
@@ -19,9 +23,19 @@ private let browserLogger = Logger(subsystem: "com.imbib.app", category: "pdf-br
 struct IOSPDFBrowserView: View {
     @Environment(\.dismiss) private var dismiss
 
-    let publication: CDPublication
-    let library: CDLibrary?
-    let onPDFSaved: (() -> Void)?
+    let publicationID: UUID?
+    let libraryID: UUID?
+    var onPDFSaved: ((Data) -> Void)?
+
+    init(
+        publicationID: UUID? = nil,
+        libraryID: UUID? = nil,
+        onPDFSaved: ((Data) -> Void)? = nil
+    ) {
+        self.publicationID = publicationID
+        self.libraryID = libraryID
+        self.onPDFSaved = onPDFSaved
+    }
 
     @State private var viewModel: PDFBrowserViewModel?
     @State private var showShareSheet = false
@@ -156,9 +170,16 @@ struct IOSPDFBrowserView: View {
     // MARK: - Setup
 
     private func setupViewModel() async {
+        // Resolve the publication from the value-type store.
+        guard let pubID = publicationID,
+              let publication = RustStoreAdapter.shared.getPublicationDetail(id: pubID) else {
+            browserLogger.warning("No publication available for PDF browser")
+            return
+        }
+
         // Get the browser URL for this publication
-        guard let url = await getBrowserURL() else {
-            browserLogger.warning("No browser URL available for publication")
+        guard let url = await getBrowserURL(for: publication) else {
+            browserLogger.warning("No browser URL available for publication \(publication.citeKey)")
             return
         }
 
@@ -167,7 +188,7 @@ struct IOSPDFBrowserView: View {
         let vm = PDFBrowserViewModel(
             publication: publication,
             initialURL: url,
-            libraryID: library?.id ?? UUID()
+            libraryID: libraryID ?? UUID()
         )
 
         vm.onPDFCaptured = { data in
@@ -181,7 +202,7 @@ struct IOSPDFBrowserView: View {
         viewModel = vm
     }
 
-    private func getBrowserURL() async -> URL? {
+    private func getBrowserURL(for publication: PublicationModel) async -> URL? {
         // Try registered providers first
         if let url = await BrowserURLProviderRegistry.shared.browserURL(for: publication) {
             return url
@@ -200,19 +221,29 @@ struct IOSPDFBrowserView: View {
     private func savePDF(_ data: Data) {
         browserLogger.info("Saving PDF (\(data.count) bytes)")
 
+        guard let pubID = publicationID else {
+            browserLogger.error("Cannot save PDF: missing publicationID")
+            return
+        }
+
+        // Capture value-type ids before entering the async context.
+        let libID = libraryID
+        let saved = onPDFSaved
+
         Task {
             do {
-                // Save via PDFManager
+                // Save via AttachmentManager (value-type store: keyed by UUIDs).
+                // didMutate() is handled inside importPDF/importAttachment.
                 try AttachmentManager.shared.importPDF(
                     data: data,
-                    for: publication,
-                    in: library
+                    for: pubID,
+                    in: libID
                 )
 
                 browserLogger.info("PDF saved successfully")
 
                 await MainActor.run {
-                    onPDFSaved?()
+                    saved?(data)
                     dismiss()
                 }
             } catch {
@@ -347,8 +378,8 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 #Preview {
     IOSPDFBrowserView(
-        publication: CDPublication(),
-        library: nil,
+        publicationID: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA"),
+        libraryID: nil,
         onPDFSaved: nil
     )
 }

@@ -219,7 +219,11 @@ targets:
           # they're rewritten to the value-type + RustStoreAdapter world.
           # Stub replacements live alongside as `*Stub.swift`.
           - "Views/IOSSidebarView.swift"
-          - "Views/IOSPDFBrowserView.swift"
+          # IOSPDFBrowserView.swift REVIVED — ported to id-based init +
+          # RustStoreAdapter/PublicationModel (getPublicationDetail,
+          # BrowserURLProviderRegistry, AttachmentManager keyed by UUIDs).
+          # Its stub is excluded so the type is unique.
+          - "Views/IOSPDFBrowserViewStub.swift"
           # IOSUnifiedPublicationListWrapper.swift REVIVED — ported to the
           # value-type + RustStoreAdapter world (id-based Source enum,
           # getPublication/getSmartSearch/getScixLibrary, AttachmentManager
