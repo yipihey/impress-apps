@@ -570,8 +570,9 @@ pub fn search_index_add(
 
 /// Add multiple publications to the search index in a single FFI call.
 /// Much faster than calling search_index_add() in a loop because it:
-/// 1. Acquires the registry lock and writer lock once (not N times)
-/// 2. Avoids N FFI round-trips (each has ~0.1ms overhead)
+/// 1. acquires the registry lock and writer lock once (not N times)
+/// 2. avoids N FFI round-trips (each has ~0.1ms overhead)
+///
 /// Returns the number of publications successfully indexed.
 #[uniffi::export]
 pub fn search_index_add_batch(

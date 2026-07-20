@@ -83,7 +83,7 @@ pub fn normalize_tag_segment(segment: &str) -> String {
 
     // 2. Replace spaces and underscores with hyphens.
     //    (Done after lowercase so the substitution sees the final form.)
-    result = result.replace(' ', "-").replace('_', "-");
+    result = result.replace([' ', '_'], "-");
 
     // 3. Collapse multiple consecutive hyphens into a single hyphen.
     while result.contains("--") {

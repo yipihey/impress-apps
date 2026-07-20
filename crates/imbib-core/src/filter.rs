@@ -106,11 +106,10 @@ impl ReferenceFilter {
 
             // Year filter
             if token.starts_with("year:") || token.starts_with("y:") {
-                let value = if token.starts_with("year:") {
-                    &token[5..]
-                } else {
-                    &token[2..]
-                };
+                let value = token
+                    .strip_prefix("year:")
+                    .or_else(|| token.strip_prefix("y:"))
+                    .unwrap_or(token.as_str());
                 if let Some(yf) = parse_year_filter(value) {
                     filter.year_filter = Some(yf);
                     continue;

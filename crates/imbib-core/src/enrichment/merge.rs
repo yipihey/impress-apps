@@ -147,9 +147,8 @@ fn merge_extras(
 ) -> BTreeMap<String, String> {
     let mut out = loser.clone();
     for (k, v) in winner {
-        if !v.is_empty() {
-            out.insert(k.clone(), v.clone());
-        } else if !out.contains_key(k) {
+        // Non-empty winner values always land; empty ones only fill gaps.
+        if !v.is_empty() || !out.contains_key(k) {
             out.insert(k.clone(), v.clone());
         }
     }

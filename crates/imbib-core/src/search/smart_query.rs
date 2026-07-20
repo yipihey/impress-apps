@@ -461,12 +461,11 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
     }
 
     // Position 2: style or length.
-    let style: Option<FlagStyle>;
-    match chars[1] {
-        '*' => style = None,
-        '-' => style = Some(FlagStyle::Dashed),
-        '.' => style = Some(FlagStyle::Dotted),
-        's' => style = Some(FlagStyle::Solid),
+    let style: Option<FlagStyle> = match chars[1] {
+        '*' => None,
+        '-' => Some(FlagStyle::Dashed),
+        '.' => Some(FlagStyle::Dotted),
+        's' => Some(FlagStyle::Solid),
         other => {
             // Maybe it's actually a length char (e.g. "rh" = red, any style, half).
             if let Some(l) = FlagLength::from_shortcut(other) {
@@ -478,7 +477,7 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
             }
             return None;
         }
-    }
+    };
 
     if chars.len() == 2 {
         return Some(FlagQuery::Pattern {
@@ -579,7 +578,7 @@ mod tests {
     fn bare_text_term() {
         let q = parse("galaxy");
         assert_eq!(q.text_terms, vec!["galaxy"]);
-        assert!(q.is_empty() == false);
+        assert!(!q.is_empty());
     }
 
     #[test]
@@ -849,7 +848,7 @@ mod tests {
     #[test]
     fn combined_with_quoted_phrase_and_negation() {
         let q = parse("flag:red \"exact phrase\" -excluded unread");
-        assert_eq!(q.flag_query.is_some(), true);
+        assert!(q.flag_query.is_some());
         assert_eq!(q.text_terms, vec!["exact phrase"]);
         assert_eq!(q.negated_text_terms, vec!["excluded"]);
         assert_eq!(q.read_state, Some(ReadState::Unread));

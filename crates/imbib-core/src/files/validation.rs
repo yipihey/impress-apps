@@ -269,7 +269,7 @@ startxref\n\
         // %PDF- header + version, but no %%EOF anywhere.
         let mut bytes = b"%PDF-1.4\n".to_vec();
         // Pad with junk that does NOT contain %%EOF.
-        bytes.extend(std::iter::repeat(b'X').take(2000));
+        bytes.extend(std::iter::repeat_n(b'X', 2000));
         let issues = validate_pdf(&bytes);
         assert!(issues.iter().any(|i| i.code == "missing_eof"));
     }

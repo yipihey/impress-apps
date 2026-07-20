@@ -170,13 +170,10 @@ fn is_space_byte(b: u8) -> bool {
 }
 
 fn utf8_char_len(first_byte: u8) -> usize {
-    if first_byte < 0x80 {
+    if first_byte < 0xC0 {
+        // ASCII, or a continuation byte (shouldn't happen at start).
         1
-    } else if first_byte < 0xC0 {
-        1
-    }
-    // continuation byte; shouldn't happen at start
-    else if first_byte < 0xE0 {
+    } else if first_byte < 0xE0 {
         2
     } else if first_byte < 0xF0 {
         3
@@ -261,8 +258,9 @@ enum TokenKind {
         quoted: bool,
     },
     Word(String),
-    Operator(String),
-    Paren(String),
+    // Payload kept for parser symmetry/debugging; only the kind is matched.
+    Operator(#[allow(dead_code)] String),
+    Paren(#[allow(dead_code)] String),
 }
 
 #[derive(Debug)]

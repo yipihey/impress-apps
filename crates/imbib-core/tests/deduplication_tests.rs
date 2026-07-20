@@ -794,8 +794,8 @@ fn arb_planted_corpus() -> impl Strategy<Value = PlantedCorpus> {
     })
 }
 
-/// A corpus with planted duplicates dedups to exactly the distinct classes,
-/// regardless of insertion order and identifier formatting.
+// A corpus with planted duplicates dedups to exactly the distinct classes,
+// regardless of insertion order and identifier formatting.
 proptest! {
     #[test]
     fn planted_duplicates_dedup_to_distinct_set(corpus in arb_planted_corpus()) {

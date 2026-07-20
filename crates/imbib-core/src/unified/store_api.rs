@@ -415,10 +415,7 @@ impl ImbibStore {
                 Value::String(new_name),
             )],
         )?;
-        let updated = self
-            .store
-            .get(uuid)?
-            .ok_or_else(|| StoreApiError::NotFound(id))?;
+        let updated = self.store.get(uuid)?.ok_or(StoreApiError::NotFound(id))?;
         let pub_count = self.count_collection_members(updated.id)?;
         Ok(item_to_collection_row(&updated, pub_count as i32))
     }
@@ -3114,6 +3111,9 @@ impl ImbibStore {
     }
 
     /// Update an artifact's fields.
+    // Argument list mirrors the FFI surface one-to-one; bundling into a
+    // struct is a uniffi API change, not a lint fix.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_artifact(
         &self,
         id: String,
@@ -3305,7 +3305,7 @@ impl ImbibStore {
                 let stripped = arxiv
                     .trim_end_matches(|c: char| c == 'v' || c.is_ascii_digit())
                     .to_string();
-                if stripped != *arxiv && !stripped.is_empty() && stripped.ends_with('.') == false {
+                if stripped != *arxiv && !stripped.is_empty() && !stripped.ends_with('.') {
                     // Only add if stripping actually removed something and result is valid
                     let without_version = arxiv.split('v').next().unwrap_or(arxiv).to_string();
                     if without_version != *arxiv && !without_version.is_empty() {
@@ -3368,6 +3368,8 @@ impl ImbibStore {
 
     /// Load all linked-file items that are children of the given publication IDs.
     /// Returns a map from parent UUID to Vec of linked-file Items.
+    // Not wired to a caller yet (landed ahead of the iOS linked-files UI).
+    #[allow(dead_code)]
     fn load_linked_files_for_pubs(
         &self,
         pub_ids: &[Uuid],
@@ -5644,7 +5646,7 @@ mod tests {
         // This is a known limitation: within-batch dedup relies on is_duplicate_in_library
         // which only sees pre-existing rows. For search results this is acceptable because
         // the Swift-side deduplication service already handles cross-result dedup.
-        assert!(result.imported_ids.len() >= 1);
+        assert!(!result.imported_ids.is_empty());
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! PDF metadata extraction
 
 use super::extract::PdfError;
-use pdfium_render::prelude::*;
 
 /// PDF document metadata
 #[derive(uniffi::Record, Clone, Debug, Default)]
