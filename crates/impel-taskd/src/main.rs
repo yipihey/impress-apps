@@ -29,6 +29,9 @@ use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
 };
+use impel_throughline::{
+    TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor, MANUSCRIPT_SECTION_SCHEMA,
+};
 use imbib_core::enrichment::priority::SourcePriority;
 use impress_core::event::ItemEvent;
 use impress_core::item::ActorKind;
@@ -152,6 +155,42 @@ fn open_store(args: &Args) -> Arc<SqliteItemStore> {
 }
 
 /// Tasks already spawned for this entry? (idempotency guard)
+/// Whether a non-terminal `throughline-sync` task is already operating on
+/// this throughline item. Unlike `already_spawned` (once-ever semantics for
+/// enrichment), throughlines sync repeatedly over a document's life — the
+/// gate is only against CONCURRENT open tasks, and doubles as the loop's
+/// per-document debounce.
+fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bool {
+    let q = ItemQuery {
+        schema: Some("task@1.0.0".into()),
+        predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, throughline_id)],
+        limit: Some(16),
+        ..Default::default()
+    };
+    let tasks = ItemStore::query(store, &q).unwrap_or_default();
+    tasks.iter().any(|t| {
+        matches!(t.payload.get("state"),
+                 Some(impress_core::item::Value::String(s))
+                     if s == "pending" || s == "running")
+    })
+}
+
+/// Cross-process trigger detection for throughline sync: manuscript
+/// sections MODIFIED since the watermark (edits arrive as operations from
+/// the imprint app process, invisible to the in-process bus).
+fn scan_modified_sections(store: &SqliteItemStore, since_ms: i64) -> Vec<impress_core::item::Item> {
+    let q = ItemQuery {
+        schema: Some(MANUSCRIPT_SECTION_SCHEMA.into()),
+        predicates: vec![Predicate::Gte(
+            "modified".into(),
+            impress_core::item::Value::Int(since_ms),
+        )],
+        limit: Some(64),
+        ..Default::default()
+    };
+    ItemStore::query(store, &q).unwrap_or_default()
+}
+
 fn already_spawned(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
         schema: Some("task@1.0.0".into()),
@@ -240,6 +279,24 @@ async fn main() {
         classifier,
         args.confidence_threshold,
     )));
+    // Throughline sync (ADR-0016). LLM drafter when IMPEL_LLM_* are set
+    // (carries the D6 authority-split contract in its system prompt);
+    // deterministic TemplateDrafter otherwise — the review checkpoint
+    // carries the drift context either way.
+    let drafter: Box<dyn impel_throughline::ProposalDrafter> =
+        match impel_throughline::LlmDrafter::from_env() {
+            Some(llm) => {
+                eprintln!("impel-taskd: throughline drafter = {}", llm.model_id());
+                Box::new(llm)
+            }
+            None => {
+                eprintln!(
+                    "impel-taskd: throughline drafter = template/v1 (set IMPEL_LLM_* for LLM)"
+                );
+                Box::new(TemplateDrafter)
+            }
+        };
+    scheduler.register(Arc::new(ThroughlineSyncExecutor::new(drafter)));
 
     // Subscribe BEFORE the start delay so no Created events are missed.
     let events = ItemStore::subscribe(
@@ -260,6 +317,7 @@ async fn main() {
     }
 
     let rule = EnrichmentSpawnRule;
+    let tl_rule = ThroughlineSpawnRule;
     // Watermark for the cross-process scan (ms since epoch). A generous
     // slack window guards against clock skew and the insert-vs-startup
     // race; `already_spawned` makes re-scanning the overlap free.
@@ -267,6 +325,9 @@ async fn main() {
     let mut watermark_ms = chrono::Utc::now().timestamp_millis()
         - (args.backfill_hours as i64) * 3_600_000
         - SCAN_SLACK_MS;
+    // Throughline sync watches section MODIFICATIONS (not creations) and
+    // never backfills — pre-daemon drift is picked up on the next edit.
+    let mut tl_watermark_ms = chrono::Utc::now().timestamp_millis() - SCAN_SLACK_MS;
     eprintln!(
         "impel-taskd: running (dry_run={}, once={}, poll={}s, backfill={}h)",
         args.dry_run, args.once, args.poll_secs, args.backfill_hours
@@ -323,6 +384,52 @@ async fn main() {
                 }
                 Ok(_) => {}
                 Err(e) => eprintln!("impel-taskd: rule error for {}: {e}", item.id),
+            }
+        }
+
+        // ── Throughline sync triggers (ADR-0016) ───────────────────────
+        // Sections modified since the watermark. The spawn rule's first
+        // act is the D1 opt-in gate (one keyed get), so this scan costs
+        // nothing for documents without a throughline. `has_open_sync_task`
+        // debounces concurrent spawns per document.
+        let tl_scanned = scan_modified_sections(&store, tl_watermark_ms);
+        for section in tl_scanned {
+            tl_watermark_ms =
+                tl_watermark_ms.max(section.modified.timestamp_millis() - SCAN_SLACK_MS);
+            let Some(impress_core::item::Value::String(doc_str)) =
+                section.payload.get("document_id")
+            else {
+                continue;
+            };
+            let Ok(doc_id) = doc_str.parse::<uuid::Uuid>() else {
+                continue;
+            };
+            let tl_id = imprint_service::ThroughlineStore::item_id(doc_id);
+            if has_open_sync_task(&store, tl_id) {
+                continue;
+            }
+            match tl_rule
+                .spawn(&section, store.as_ref() as &dyn TaskStoreApi)
+                .await
+            {
+                Ok(specs) if !specs.is_empty() => {
+                    if args.dry_run {
+                        eprintln!(
+                            "impel-taskd[dry]: would spawn throughline-sync for doc {doc_id}"
+                        );
+                    } else {
+                        match create_task_dag(store.as_ref() as &dyn TaskStoreApi, &specs, ACTOR) {
+                            Ok(ids) => eprintln!(
+                                "impel-taskd: spawned throughline-sync for doc {doc_id}: {ids:?}"
+                            ),
+                            Err(e) => eprintln!(
+                                "impel-taskd: throughline spawn failed for {doc_id}: {e}"
+                            ),
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("impel-taskd: throughline rule error for {doc_id}: {e}"),
             }
         }
 

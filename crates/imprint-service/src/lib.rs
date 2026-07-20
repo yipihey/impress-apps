@@ -29,6 +29,8 @@ pub mod manuscript_service;
 pub mod search;
 pub mod sections;
 pub mod text_service;
+pub mod throughline;
+pub mod throughline_service;
 
 pub use backend::{has_custom_backend, register_backend, ImprintBackend};
 pub use manuscript_service::{
@@ -45,6 +47,15 @@ pub use handlers::{
 pub use search::{ManuscriptSearchIndex, SearchHit};
 pub use sections::{SectionMetadata, SectionRecord, SectionStore, SECTION_SCHEMA_REF};
 pub use text_service::{DefaultImprintTextService, ImprintTextService};
+pub use throughline::{
+    derive_anchor_states, derive_coverage, extract_paragraphs, AnchorAssessment, AnchorEntry,
+    AnchorMap, ThroughlineParagraph, ThroughlineRecord, ThroughlineStore,
+    THROUGHLINE_ANCHORS_FILENAME, THROUGHLINE_SCHEMA_REF, THROUGHLINE_SOURCE_FILENAME,
+};
+pub use throughline_service::{
+    AnchorStateDto, CoverageDto, DefaultImprintThroughlineService, ImprintThroughlineService,
+    ThroughlineInfoDto,
+};
 
 /// Convenience constructor: open a `SectionStore` + an in-memory tantivy
 /// `ManuscriptSearchIndex` rooted at `workspace_root` and rebuild the index

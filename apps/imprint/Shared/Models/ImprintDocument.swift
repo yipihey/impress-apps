@@ -78,6 +78,20 @@ struct ImprintDocument: FileDocument, Equatable {
     /// groundwork. Phase 3 replaces this with a per-document working directory.
     var figureFiles: [String: Data] = [:]
 
+    /// Throughline narrative sidecar (`throughline.typ`, ADR-0016 D2).
+    /// `nil` means the document has not opted in — the off state carries no
+    /// files, no UI, and no sync work (ADR-0016 D1).
+    var throughlineSource: String? = nil
+
+    /// Throughline anchor map sidecar (`throughline.anchors.json`) — the sync
+    /// ledger. Written only by creation, explicit anchoring, or the accept
+    /// path of a sync proposal (ADR-0016 D6). Carried verbatim through
+    /// read → write round-trips.
+    var throughlineAnchorsJSON: String? = nil
+
+    /// Whether this document has opted into a throughline.
+    var hasThroughline: Bool { throughlineSource != nil }
+
     // FAIR attribution (ADR-0014 D54, schema v1.4+). All optional. `embargoUntil`
     // is informational only — no enforcement code paths.
     var orcid: String? = nil
@@ -105,8 +119,42 @@ struct ImprintDocument: FileDocument, Equatable {
             && configuration.file.regularFileContents != nil
 
         if configuration.contentType == .imprintDocument && !isMisnamedRegularFile {
-            // Read from .imprint package
-            guard let wrapper = configuration.file.fileWrappers else {
+            try self.init(packageWrapper: configuration.file)
+        } else {
+            try self.init(
+                regularFileContents: configuration.file.regularFileContents,
+                contentType: configuration.contentType)
+        }
+    }
+
+    /// Plain text, LaTeX import, or recovery from a misnamed `.imprint`
+    /// regular file. Detects format from content rather than relying on
+    /// the (possibly wrong) extension.
+    init(regularFileContents data: Data?, contentType: UTType) throws {
+        guard let data, let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        id = UUID()
+        source = text
+        title = "Untitled"
+        authors = []
+        createdAt = Date()
+        modifiedAt = Date()
+        bibliography = [:]
+        linkedImbibManuscriptID = nil
+
+        if contentType == .latexSource {
+            format = .latex
+        } else {
+            format = DocumentFormat.detect(from: text)
+        }
+    }
+
+    /// Read a `.imprint` package from its directory wrapper. Internal (not
+    /// private) so tests can exercise the package round-trip directly —
+    /// SwiftUI's `ReadConfiguration` has no public initializer.
+    init(packageWrapper file: FileWrapper) throws {
+            guard let wrapper = file.fileWrappers else {
                 throw CocoaError(.fileReadCorruptFile)
             }
 
@@ -189,6 +237,19 @@ struct ImprintDocument: FileDocument, Equatable {
                 }
             }
 
+            // Read throughline sidecars (ADR-0016 D2). Absence is the
+            // opt-in "off" state — no defaults are synthesized.
+            if let tlWrapper = wrapper["throughline.typ"],
+               let data = tlWrapper.regularFileContents,
+               let text = String(data: data, encoding: .utf8) {
+                throughlineSource = text
+            }
+            if let tlAnchorsWrapper = wrapper["throughline.anchors.json"],
+               let data = tlAnchorsWrapper.regularFileContents,
+               let text = String(data: data, encoding: .utf8) {
+                throughlineAnchorsJSON = text
+            }
+
             // Read RO-Crate overlay (ADR-0014 D55). When the overlay is
             // present, its FAIR fields take precedence over metadata.json's
             // — this lets an external editor mutate the overlay and have
@@ -203,31 +264,6 @@ struct ImprintDocument: FileDocument, Equatable {
                 if let v = lifted.license { license = v }
                 if let v = lifted.embargoUntil { embargoUntil = v }
             }
-
-        } else {
-            // Plain text, LaTeX import, or recovery from a misnamed
-            // `.imprint` regular file. Detect format from content rather
-            // than relying on the (possibly wrong) extension.
-            guard let data = configuration.file.regularFileContents,
-                  let text = String(data: data, encoding: .utf8) else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-            id = UUID()
-            source = text
-            title = "Untitled"
-            authors = []
-            createdAt = Date()
-            modifiedAt = Date()
-            bibliography = [:]
-            linkedImbibManuscriptID = nil
-
-            // Detect LaTeX format from content type or content heuristics
-            if configuration.contentType == .latexSource {
-                format = .latex
-            } else {
-                format = DocumentFormat.detect(from: text)
-            }
-        }
     }
 
     init() {
@@ -289,6 +325,18 @@ struct ImprintDocument: FileDocument, Equatable {
         }
 
         // Typst: Create package wrapper
+        let package = try makePackageWrapper()
+        // Notify listeners that a save occurred
+        NotificationCenter.default.post(
+            name: .imprintDocumentDidSave, object: nil,
+            userInfo: ["documentID": id.uuidString])
+        return package
+    }
+
+    /// Assemble the `.imprint` package contents. Internal (not private) so
+    /// tests can exercise the package round-trip directly — SwiftUI's
+    /// `WriteConfiguration` has no public initializer.
+    func makePackageWrapper() throws -> FileWrapper {
         var wrappers: [String: FileWrapper] = [:]
 
         // Main source file
@@ -349,15 +397,21 @@ struct ImprintDocument: FileDocument, Equatable {
             wrappers["figures"] = figuresDirectory
         }
 
+        // Throughline sidecars (ADR-0016 D2): written iff the document has
+        // opted in, so non-opted documents stay byte-identical on disk.
+        if let tl = throughlineSource, let tlData = tl.data(using: .utf8) {
+            wrappers["throughline.typ"] = FileWrapper(regularFileWithContents: tlData)
+        }
+        if let tlAnchors = throughlineAnchorsJSON, let tlAnchorsData = tlAnchors.data(using: .utf8) {
+            wrappers["throughline.anchors.json"] = FileWrapper(regularFileWithContents: tlAnchorsData)
+        }
+
         // RO-Crate metadata overlay (ADR-0014 D55). Regenerated on every save.
         // metadata.json stays authoritative; this is a FAIR-tool-readable view.
         let bibKeys = Array(bibliography.keys).sorted()
         if let crateData = ROCrateBuilder.build(for: self, bibKeys: bibKeys) {
             wrappers[ROCrateBuilder.manifestFilename] = FileWrapper(regularFileWithContents: crateData)
         }
-
-        // Notify listeners that a save occurred
-        NotificationCenter.default.post(name: .imprintDocumentDidSave, object: nil, userInfo: ["documentID": id.uuidString])
 
         return FileWrapper(directoryWithFileWrappers: wrappers)
     }

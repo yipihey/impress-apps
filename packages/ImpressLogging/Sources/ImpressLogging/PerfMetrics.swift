@@ -38,6 +38,8 @@ public enum PerfBucket {
     public static let store = "store"
     public static let snapshot = "snapshot"
     public static let http = "http"
+    /// Throughline anchor-state derivation + coverage (ADR-0016).
+    public static let throughline = "throughline"
 }
 
 // MARK: - Per-bucket stat

@@ -25,6 +25,7 @@ struct PaneLayoutState: Codable, Equatable {
     var showOutline = true
     var showComments = false
     var showAIChat = false
+    var showThroughline = false
     var splitEditor = false
     /// `true` = second editor beside the first, `false` = stacked below.
     var splitEditorSideBySide = false
@@ -34,6 +35,25 @@ struct PaneLayoutState: Codable, Equatable {
     var editorAppearance = "follow"
     var pdfAppearance = "follow"
 
+    init() {}
+
+    /// Lenient decoding: every field falls back to its default when absent,
+    /// so layouts saved by older builds keep decoding after new panes are
+    /// added (synthesized Codable would throw and silently reset the user's
+    /// saved layouts).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        editMode = try c.decodeIfPresent(String.self, forKey: .editMode) ?? EditMode.splitView.rawValue
+        showOutline = try c.decodeIfPresent(Bool.self, forKey: .showOutline) ?? true
+        showComments = try c.decodeIfPresent(Bool.self, forKey: .showComments) ?? false
+        showAIChat = try c.decodeIfPresent(Bool.self, forKey: .showAIChat) ?? false
+        showThroughline = try c.decodeIfPresent(Bool.self, forKey: .showThroughline) ?? false
+        splitEditor = try c.decodeIfPresent(Bool.self, forKey: .splitEditor) ?? false
+        splitEditorSideBySide = try c.decodeIfPresent(Bool.self, forKey: .splitEditorSideBySide) ?? false
+        editorAppearance = try c.decodeIfPresent(String.self, forKey: .editorAppearance) ?? "follow"
+        pdfAppearance = try c.decodeIfPresent(String.self, forKey: .pdfAppearance) ?? "follow"
+    }
+
     /// Capture the current live arrangement.
     @MainActor
     static func capture(from appState: AppState) -> PaneLayoutState {
@@ -42,6 +62,7 @@ struct PaneLayoutState: Codable, Equatable {
         s.showOutline = appState.showingOutline
         s.showComments = appState.showingComments
         s.showAIChat = appState.showingAIAssistant
+        s.showThroughline = appState.showingThroughline
         s.splitEditor = appState.isEditorSplit
         s.splitEditorSideBySide = appState.editorSplitSideBySide
         s.editorAppearance = UserDefaults.standard.string(forKey: "editorAppearance") ?? "follow"
@@ -56,6 +77,7 @@ struct PaneLayoutState: Codable, Equatable {
         appState.showingOutline = showOutline
         appState.showingComments = showComments
         appState.showingAIAssistant = showAIChat
+        appState.showingThroughline = showThroughline
         appState.isEditorSplit = splitEditor
         appState.editorSplitSideBySide = splitEditorSideBySide
         UserDefaults.standard.set(editorAppearance, forKey: "editorAppearance")

@@ -168,6 +168,20 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
 
+                // Throughline routes (ADR-0016)
+                if remainderLower.hasSuffix("/throughline/anchors") {
+                    let docId = String(remainder.dropLast("/throughline/anchors".count))
+                    return await handleGetThroughlineAnchors(id: docId)
+                }
+                if remainderLower.hasSuffix("/throughline/coverage") {
+                    let docId = String(remainder.dropLast("/throughline/coverage".count))
+                    return await handleGetThroughlineCoverage(id: docId)
+                }
+                if remainderLower.hasSuffix("/throughline") {
+                    let docId = String(remainder.dropLast("/throughline".count))
+                    return await handleGetThroughline(id: docId)
+                }
+
                 // GET /api/documents/{id}/outline/v2 — richer outline with section UUIDs
                 if remainderLower.hasSuffix("/outline/v2") {
                     let docId = String(remainder.dropLast("/outline/v2".count))
@@ -332,6 +346,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
 
+                // POST /api/documents/{id}/throughline — create (ADR-0016 opt-in)
+                if remainderLower.hasSuffix("/throughline") {
+                    let docId = String(remainder.dropLast("/throughline".count))
+                    return await handleCreateThroughline(id: docId, request: request)
+                }
+
                 if remainderLower.hasSuffix("/compile") {
                     let docId = String(remainder.dropLast("/compile".count))
                     return await handleCompile(id: docId, request: request)
@@ -433,6 +453,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handlePatchComment(id: id, request: request)
             }
 
+            // PATCH /api/documents/{id}/throughline/anchors — ledger mutations (ADR-0016)
+            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/throughline/anchors") {
+                let remainder = String(path.dropFirst("/api/documents/".count))
+                let docId = String(remainder.dropLast("/throughline/anchors".count))
+                return await handlePatchThroughlineAnchors(id: docId, request: request)
+            }
+
             // PATCH /api/documents/{docId}/sections/{sectionKey} — replace section body or metadata
             if pathLower.hasPrefix("/api/documents/") && pathLower.contains("/sections/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
@@ -456,6 +483,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
+
+                // DELETE /api/documents/{id}/throughline — deactivation (ADR-0016 D1)
+                if remainderLower.hasSuffix("/throughline") {
+                    let docId = String(remainder.dropLast("/throughline".count))
+                    return await handleDeleteThroughline(id: docId)
+                }
 
                 // DELETE /api/documents/{docId}/sections/{sectionKey}
                 if remainderLower.contains("/sections/") {

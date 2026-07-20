@@ -13,6 +13,8 @@ use std::sync::{Arc, OnceLock};
 use crate::handlers::DefaultImprintHttpHandlers;
 use crate::manuscript_service::{DefaultImprintManuscriptService, ImprintManuscriptService};
 use crate::text_service::{DefaultImprintTextService, ImprintTextService};
+use crate::throughline::ThroughlineStore;
+use crate::throughline_service::{DefaultImprintThroughlineService, ImprintThroughlineService};
 
 /// Implemented by alternate backends (e.g. `imprint-service-http`'s
 /// `HttpBackend`). Each method returns an `Arc<dyn TraitName>` for the
@@ -20,6 +22,13 @@ use crate::text_service::{DefaultImprintTextService, ImprintTextService};
 pub trait ImprintBackend: Send + Sync + 'static {
     fn manuscript(&self) -> Arc<dyn ImprintManuscriptService>;
     fn text(&self) -> Arc<dyn ImprintTextService>;
+    /// Throughline service (ADR-0016). Default body falls back to the
+    /// store-backed implementation so existing backends (HTTP) keep
+    /// compiling; the HTTP backend can override once the Swift router
+    /// exposes throughline routes.
+    fn throughline(&self) -> Arc<dyn ImprintThroughlineService> {
+        default_throughline_service()
+    }
 }
 
 static BACKEND: OnceLock<Box<dyn ImprintBackend>> = OnceLock::new();
@@ -68,6 +77,21 @@ fn default_handlers() -> Arc<DefaultImprintHttpHandlers> {
 // ---------------------------------------------------------------------------
 // Per-service singleton getters
 // ---------------------------------------------------------------------------
+
+/// Store-backed throughline service over the default workspace handlers.
+fn default_throughline_service() -> Arc<dyn ImprintThroughlineService> {
+    let sections = Arc::new(default_handlers().sections().clone());
+    Arc::new(DefaultImprintThroughlineService::new(Arc::new(
+        ThroughlineStore::new(sections),
+    )))
+}
+
+pub fn throughline_service_instance() -> Arc<dyn ImprintThroughlineService> {
+    match BACKEND.get() {
+        Some(b) => b.throughline(),
+        None => default_throughline_service(),
+    }
+}
 
 pub fn manuscript_service_instance() -> Arc<dyn ImprintManuscriptService> {
     match BACKEND.get() {
