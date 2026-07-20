@@ -884,6 +884,22 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func listCollections(libraryId: String) throws  -> [CollectionRow]
     
+    /**
+     * List the collections a publication belongs to.
+     *
+     * Collection membership is stored as outgoing `EdgeType::Contains` edges from
+     * the collection item to the publication (see `add_to_collection`). The
+     * forward direction — "publications in collection X" — uses
+     * `ReferencedBy(Contains, coll)` (`list_collection_members`); the inverse used
+     * here — "collections that reference publication P" — uses
+     * `HasReference(Contains, pub)`, the same predicate `get_publication_detail`
+     * uses to populate a publication's collection ids.
+     *
+     * Returns the same `CollectionRow` shape as `create_collection` /
+     * `list_collections`, member counts included. Read-only.
+     */
+    func listCollectionsForPublication(publicationId: String) throws  -> [CollectionRow]
+    
     func listComments(publicationId: String) throws  -> [CommentRow]
     
     /**
@@ -1995,6 +2011,28 @@ open func listCollections(libraryId: String)throws  -> [CollectionRow] {
     return try  FfiConverterSequenceTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_collections(self.uniffiClonePointer(),
         FfiConverterString.lower(libraryId),$0
+    )
+})
+}
+    
+    /**
+     * List the collections a publication belongs to.
+     *
+     * Collection membership is stored as outgoing `EdgeType::Contains` edges from
+     * the collection item to the publication (see `add_to_collection`). The
+     * forward direction — "publications in collection X" — uses
+     * `ReferencedBy(Contains, coll)` (`list_collection_members`); the inverse used
+     * here — "collections that reference publication P" — uses
+     * `HasReference(Contains, pub)`, the same predicate `get_publication_detail`
+     * uses to populate a publication's collection ids.
+     *
+     * Returns the same `CollectionRow` shape as `create_collection` /
+     * `list_collections`, member counts included. Read-only.
+     */
+open func listCollectionsForPublication(publicationId: String)throws  -> [CollectionRow] {
+    return try  FfiConverterSequenceTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_collections_for_publication(self.uniffiClonePointer(),
+        FfiConverterString.lower(publicationId),$0
     )
 })
 }
@@ -22122,6 +22160,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_collections() != 19950) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_collections_for_publication() != 48719) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_comments() != 24687) {

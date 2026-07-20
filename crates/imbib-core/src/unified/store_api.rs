@@ -423,6 +423,41 @@ impl ImbibStore {
         Ok(item_to_collection_row(&updated, pub_count as i32))
     }
 
+    /// List the collections a publication belongs to.
+    ///
+    /// Collection membership is stored as outgoing `EdgeType::Contains` edges from
+    /// the collection item to the publication (see `add_to_collection`). The
+    /// forward direction — "publications in collection X" — uses
+    /// `ReferencedBy(Contains, coll)` (`list_collection_members`); the inverse used
+    /// here — "collections that reference publication P" — uses
+    /// `HasReference(Contains, pub)`, the same predicate `get_publication_detail`
+    /// uses to populate a publication's collection ids.
+    ///
+    /// Returns the same `CollectionRow` shape as `create_collection` /
+    /// `list_collections`, member counts included. Read-only.
+    pub fn list_collections_for_publication(
+        &self,
+        publication_id: String,
+    ) -> Result<Vec<CollectionRow>, StoreApiError> {
+        let pub_uuid = parse_uuid(&publication_id)?;
+        let q = ItemQuery {
+            schema: Some("imbib/collection".into()),
+            predicates: vec![Predicate::HasReference(EdgeType::Contains, pub_uuid)],
+            sort: vec![SortDescriptor {
+                field: "payload.sort_order".into(),
+                ascending: true,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let mut rows = Vec::new();
+        for item in &items {
+            let pub_count = self.count_collection_members(item.id)?;
+            rows.push(item_to_collection_row(item, pub_count as i32));
+        }
+        Ok(rows)
+    }
+
     /// Add publications to a library as members WITHOUT duplicating them.
     ///
     /// Multi-library membership uses `EdgeType::Contains` edges from the library
@@ -3886,6 +3921,61 @@ mod tests {
             store.delete_collection(coll.id.clone()),
             Err(StoreApiError::NotFound(_))
         ));
+    }
+
+    #[test]
+    fn list_collections_for_publication_reflects_membership() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = "@article{X, title={Test}}";
+        let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+        let pub_id = ids[0].clone();
+
+        let coll_a = store
+            .create_collection("A".into(), lib.id.clone(), false, None)
+            .unwrap();
+        let coll_b = store
+            .create_collection("B".into(), lib.id.clone(), false, None)
+            .unwrap();
+
+        // Not in any collection yet.
+        assert!(store
+            .list_collections_for_publication(pub_id.clone())
+            .unwrap()
+            .is_empty());
+
+        // Add to A → exactly A, member count 1.
+        store
+            .add_to_collection(vec![pub_id.clone()], coll_a.id.clone())
+            .unwrap();
+        let got = store
+            .list_collections_for_publication(pub_id.clone())
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, coll_a.id);
+        assert_eq!(got[0].publication_count, 1);
+
+        // Add to B as well → both, order by sort_order (A then B).
+        store
+            .add_to_collection(vec![pub_id.clone()], coll_b.id.clone())
+            .unwrap();
+        let got = store
+            .list_collections_for_publication(pub_id.clone())
+            .unwrap();
+        assert_eq!(got.len(), 2);
+        let names: Vec<&str> = got.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"A"));
+        assert!(names.contains(&"B"));
+
+        // Remove from A → only B remains.
+        store
+            .remove_from_collection(vec![pub_id.clone()], coll_a.id.clone())
+            .unwrap();
+        let got = store
+            .list_collections_for_publication(pub_id.clone())
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, coll_b.id);
     }
 
     #[test]

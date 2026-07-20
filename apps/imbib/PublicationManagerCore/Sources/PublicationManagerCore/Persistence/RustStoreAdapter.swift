@@ -1004,6 +1004,18 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// List the collections a publication belongs to (read-only, no mutation).
+    public func listCollections(forPublication id: UUID) -> [CollectionModel] {
+        StoreTimings.shared.measure("listCollectionsForPublication") {
+            do {
+                return try store.listCollectionsForPublication(publicationId: id.uuidString).map { CollectionModel(from: $0) }
+            } catch {
+                Logger.library.error("listCollections(forPublication:) failed: \(error)")
+                return []
+            }
+        }
+    }
+
     /// Create a collection (undoable).
     public func createCollection(name: String, libraryId: UUID, isSmart: Bool = false, query: String? = nil) -> CollectionModel? {
         do {
