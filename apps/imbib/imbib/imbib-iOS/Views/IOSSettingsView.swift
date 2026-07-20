@@ -81,7 +81,7 @@ struct IOSSettingsView: View {
                 // iCloud Sync Settings
                 Section {
                     NavigationLink {
-                        CloudKitSyncSettingsView()
+                        IOSCloudKitSyncSettingsView()
                     } label: {
                         Label("iCloud Sync", systemImage: "icloud")
                     }
@@ -656,7 +656,7 @@ struct IOSInboxSettingsView: View {
     @Environment(SettingsViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
 
-    @State private var mutedItems: [CDMutedItem] = []
+    @State private var mutedItems: [MutedItem] = []
     @State private var showAddMute = false
     @State private var selectedSaveLibraryID: UUID?
 
@@ -667,7 +667,7 @@ struct IOSInboxSettingsView: View {
                 Picker("Save to", selection: $selectedSaveLibraryID) {
                     Text("Auto (create Save library)").tag(nil as UUID?)
                     ForEach(availableSaveLibraries, id: \.id) { library in
-                        Text(library.displayName).tag(library.id as UUID?)
+                        Text(library.name).tag(library.id as UUID?)
                     }
                 }
                 .onChange(of: selectedSaveLibraryID) { _, newValue in
@@ -709,7 +709,7 @@ struct IOSInboxSettingsView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(item.value)
-                                if let muteType = item.muteType {
+                                if let muteType = MuteType(rawValue: item.muteType) {
                                     Text(muteType.displayName)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -760,12 +760,12 @@ struct IOSInboxSettingsView: View {
 
     // MARK: - Save Library Setting
 
-    private var availableSaveLibraries: [CDLibrary] {
+    private var availableSaveLibraries: [LibraryModel] {
         libraryManager.libraries.filter { library in
-            !library.isInbox &&
-            !library.isDismissedLibrary &&
-            !library.isSystemLibrary
-        }.sorted { $0.displayName < $1.displayName }
+            // TODO: Re-add filters for isDismissedLibrary and isSystemLibrary
+            // when those properties are added to LibraryModel (mirrors macOS SettingsView).
+            !library.isInbox
+        }.sorted { $0.name < $1.name }
     }
 
     private func loadSaveLibrarySetting() {
@@ -795,16 +795,16 @@ struct IOSInboxSettingsView: View {
 struct AddMuteRuleSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedType: CDMutedItem.MuteType = .author
+    @State private var selectedType: MuteType = .author
     @State private var value: String = ""
 
-    let onAdd: (CDMutedItem.MuteType, String) -> Void
+    let onAdd: (MuteType, String) -> Void
 
     var body: some View {
         NavigationStack {
             Form {
                 Picker("Type", selection: $selectedType) {
-                    ForEach(CDMutedItem.MuteType.allCases, id: \.self) { type in
+                    ForEach(MuteType.allCases, id: \.self) { type in
                         Text(type.displayName).tag(type)
                     }
                 }
@@ -858,7 +858,7 @@ struct AddMuteRuleSheet: View {
 
 // MARK: - MuteType Display Name (iOS)
 
-extension CDMutedItem.MuteType {
+extension MuteType {
     var displayName: String {
         switch self {
         case .author: return "Author"
@@ -1106,6 +1106,71 @@ struct IOSExplorationSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will delete all exploration collections (References, Citations, Similar, Co-Reads). This action cannot be undone.")
+        }
+    }
+}
+
+// MARK: - iCloud Sync Settings (iOS)
+
+/// Minimal iOS iCloud sync settings surface.
+///
+/// The shared `CloudKitSyncSettingsView` was removed during the Rust migration
+/// (it depended on deleted Core Data types). This lightweight shim reads/writes
+/// the surviving `CloudKitSyncSettingsStore` so the "iCloud Sync" row stays
+/// functional on iOS without reviving the 240-line deleted view. Parity with
+/// the macOS `SyncSettingsTab` can be restored later.
+struct IOSCloudKitSyncSettingsView: View {
+    @State private var syncEnabled = true
+    @State private var commentSyncEnabled = true
+    @State private var lastSyncDate: Date?
+    @State private var lastError: String?
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Enable iCloud Sync", isOn: $syncEnabled)
+                Toggle("Sync Comments", isOn: $commentSyncEnabled)
+                    .disabled(!syncEnabled)
+            } header: {
+                Text("iCloud")
+            } footer: {
+                Text("Sync your library, papers, and settings across devices using your iCloud account.")
+            }
+
+            Section {
+                HStack {
+                    Text("Last Sync")
+                    Spacer()
+                    if let date = lastSyncDate {
+                        Text(date, style: .relative)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Never")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let error = lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Status")
+            }
+        }
+        .navigationTitle("iCloud Sync")
+        .onAppear {
+            let store = CloudKitSyncSettingsStore.shared
+            syncEnabled = !store.isDisabledByUser
+            commentSyncEnabled = store.commentSyncEnabled
+            lastSyncDate = store.lastSyncDate
+            lastError = store.lastError
+        }
+        .onChange(of: syncEnabled) { _, newValue in
+            CloudKitSyncSettingsStore.shared.isDisabledByUser = !newValue
+        }
+        .onChange(of: commentSyncEnabled) { _, newValue in
+            CloudKitSyncSettingsStore.shared.commentSyncEnabled = newValue
         }
     }
 }
