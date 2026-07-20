@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImprintCore
 
 // MARK: - imprint iOS App
 
@@ -27,6 +28,13 @@ struct ImprintIOSApp: App {
             }
             .onOpenURL { url in
                 handleIncomingURL(url)
+            }
+            .task {
+                // Best-effort: keep the stored-section outline snapshot fresh
+                // for multi-section documents. Cheap — a single subscription to
+                // the store event bus. The outline UI's regex parser is the
+                // reliable path and does not depend on this.
+                await OutlineSnapshotMaintainer.shared.start()
             }
         }
     }

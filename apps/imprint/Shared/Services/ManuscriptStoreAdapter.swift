@@ -380,6 +380,37 @@ public final class ManuscriptStoreAdapter {
         }
     }
 
+    // MARK: - Publication queries (cross-app, read-only)
+
+    /// Query imbib publications (`bibliography-entry` items) from the shared
+    /// store. An empty `query` lists recent entries; a non-empty query runs
+    /// FTS across title/author/abstract. Runs synchronously on the main
+    /// actor like the other adapter reads — the underlying SQLite lookup is
+    /// fast and the row count is bounded by `limit`.
+    public func queryPublications(matching query: String, limit: UInt32 = 200) -> [SharedItemRow] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            if trimmed.isEmpty {
+                return try sharedStore.queryBySchema(
+                    schemaRef: "bibliography-entry",
+                    limit: limit,
+                    offset: 0
+                )
+            } else {
+                return try sharedStore.search(
+                    query: trimmed,
+                    schemaFilter: "bibliography-entry",
+                    limit: limit
+                )
+            }
+        } catch {
+            Logger.sharedStore.error(
+                "queryPublications failed: \(error.localizedDescription)"
+            )
+            return []
+        }
+    }
+
     // MARK: - Collection CRUD (minimal — fleshed out in phase 3)
 
     /// Create a new collection. Returns its UUID.

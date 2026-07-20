@@ -28,8 +28,25 @@ struct IOSSourceEditorView: View {
     /// Current selection range
     @Binding var selection: NSRange?
 
+    /// One-shot navigation request: set to a 1-based line number to scroll
+    /// the editor there and place the caret at the line start. The editor
+    /// resets it to `nil` once handled so repeated taps on the same line
+    /// re-trigger navigation. Defaults to a constant `nil` binding so
+    /// existing call sites compile unchanged.
+    @Binding var goToLine: Int?
+
     /// Focus state
     @FocusState private var isFocused: Bool
+
+    init(
+        text: Binding<String>,
+        selection: Binding<NSRange?>,
+        goToLine: Binding<Int?> = .constant(nil)
+    ) {
+        self._text = text
+        self._selection = selection
+        self._goToLine = goToLine
+    }
 
     // MARK: - Body
 
@@ -37,6 +54,7 @@ struct IOSSourceEditorView: View {
         IOSSourceEditorRepresentable(
             text: $text,
             selection: $selection,
+            goToLine: $goToLine,
             isFocused: $isFocused
         )
         .focused($isFocused)
@@ -52,6 +70,7 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
 
     @Binding var text: String
     @Binding var selection: NSRange?
+    @Binding var goToLine: Int?
     @FocusState.Binding var isFocused: Bool
 
     // MARK: - UIViewRepresentable
@@ -97,6 +116,41 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         } else if !isFocused && textView.isFirstResponder {
             textView.resignFirstResponder()
         }
+
+        // Handle a one-shot go-to-line request (from the document outline).
+        if let line = goToLine {
+            let range = Self.range(forLine: line, in: textView.text ?? "")
+            textView.selectedRange = range
+            textView.scrollRangeToVisible(range)
+            // Reset the pulse after this update cycle so the same line can be
+            // navigated to again. Async avoids mutating @Binding mid-update.
+            DispatchQueue.main.async {
+                self.goToLine = nil
+                self.selection = range
+            }
+        }
+    }
+
+    /// UTF-16 NSRange (zero length) at the start of the given 1-based line.
+    /// Clamps out-of-range lines to the end of the text.
+    static func range(forLine line: Int, in text: String) -> NSRange {
+        let ns = text as NSString
+        let length = ns.length
+        guard line > 1 else { return NSRange(location: 0, length: 0) }
+
+        var currentLine = 1
+        var index = 0
+        while index < length {
+            let searchRange = NSRange(location: index, length: length - index)
+            let newline = ns.rangeOfCharacter(from: .newlines, options: [], range: searchRange)
+            if newline.location == NSNotFound { break }
+            index = newline.location + newline.length
+            currentLine += 1
+            if currentLine == line {
+                return NSRange(location: index, length: 0)
+            }
+        }
+        return NSRange(location: min(index, length), length: 0)
     }
 
     func makeCoordinator() -> Coordinator {
