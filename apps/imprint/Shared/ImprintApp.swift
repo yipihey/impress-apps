@@ -59,6 +59,7 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             PerfBucket.search: 200,     // cross-document search
             PerfBucket.store: 50,       // unified-store reads
             PerfBucket.snapshot: 100,   // snapshot rebuilds
+            PerfBucket.throughline: 50, // anchor-state derivation (ADR-0016)
         ])
 
         #if IMPRINT_TECTONIC

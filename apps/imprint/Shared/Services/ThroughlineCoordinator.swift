@@ -102,11 +102,15 @@ enum ThroughlineCoordinator {
     /// Derived anchor assessments for the pane badges.
     static func anchorStates(of document: ImprintDocument) -> [ThroughlineAnchorAssessment] {
         guard let source = document.throughlineSource else { return [] }
-        return ThroughlineDerivation.anchorStates(
-            map: anchorMap(of: document),
-            sectionHashes: sectionHashes(of: document),
-            paragraphs: ThroughlineText.extractParagraphs(source)
-        )
+        return PerfMetrics.shared.measure(
+            PerfBucket.throughline, detail: "anchorStates"
+        ) {
+            ThroughlineDerivation.anchorStates(
+                map: anchorMap(of: document),
+                sectionHashes: sectionHashes(of: document),
+                paragraphs: ThroughlineText.extractParagraphs(source)
+            )
+        }
     }
 
     /// Unanchored, non-supporting section keys (ADR-0016 D7).

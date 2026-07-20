@@ -323,6 +323,41 @@ before applying — current answer: yes, ledger records what was actually applie
 excluded; would require `document_ref` to become a list. (OQ3) Whether
 `narrates` warrants a core `EdgeType` variant once renderers exist.
 
+## Amendment (2026-07-20, post-implementation)
+
+Recorded during the Phase 1–4 build (branch `worktree-throughline`); the
+decisions above stand, with these refinements surfaced by the code:
+
+1. **Unified-store pivot parity.** The manuscript unified-store pivot
+   (`manuscript.body_content` et al., landed after this ADR's survey) moved
+   the router's read path to the store. Accordingly `throughline@1.0.0`
+   carries optional `body_content` / `anchor_map_json` payload fields: the
+   sidecar files remain authoritative where they exist (D2), and the store
+   mirror is a full copy, so store-resident manuscripts can carry their
+   throughline wholly in-store. The HTTP routes and the headless service
+   read the mirror — the same rows on both paths.
+2. **Section-key canonicalization is concrete now:** slugified heading
+   titles (`ThroughlineText.sectionKey(forHeading:)`) produced by the Swift
+   mirror, matched by deterministic UUID-v5 ids on both sides
+   (Rust `SectionStore::item_id` ↔ Swift `ThroughlineIdentity.sectionItemID`,
+   parity vectors pinned in tests). Document ids are lowercase in payloads
+   (Rust `Uuid::to_string` convention).
+3. **Repair mechanics (D4):** the rename heuristic is
+   `rebind_candidate` — a pure function matching the broken key's ledger
+   hash against current section bodies, refusing zero/ambiguous matches;
+   candidates feed the review's `repair_action = rebind | drop`, applied
+   only on approval as a ledger edit.
+4. **Broken-anchor spawn refinement (D6):** an edit to an *unanchored*
+   section does spawn a sync task when any anchor is broken — a heading
+   rename surfaces exactly as (new unanchored key + broken ledger key).
+5. **Drafter boundary:** proposal text generation sits behind a
+   `ProposalDrafter` trait; `TemplateDrafter` (deterministic) ships first,
+   and the LLM drafter carries the D6 authority-split contract in its
+   system prompt when wired.
+6. **Verification caveat:** the `impel-taskd` registration compiles only
+   on rustc ≥ 1.94 (pre-existing aws-* dependency floor); everything else
+   is test-verified (see `docs/plan-throughline.md` status notes).
+
 ## References
 
 - Implementation plan: `docs/plan-throughline.md`

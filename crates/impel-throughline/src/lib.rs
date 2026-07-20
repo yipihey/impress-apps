@@ -181,15 +181,20 @@ impl SpawnRule for ThroughlineSpawnRule {
             .anchors
             .values()
             .any(|e| e.section_keys.iter().any(|k| k == section_key));
-        if !anchored {
-            return Ok(vec![]);
-        }
         let sections = ledger_sections(store, document_id, &map)
             .map_err(|e| SpawnError::InvalidSpec(e.to_string()))?;
         let paragraphs = extract_paragraphs(&source);
-        let any_stale = derive_anchor_states(&map, &sections, &paragraphs)
+        let states = derive_anchor_states(&map, &sections, &paragraphs);
+        let any_broken = states
             .iter()
-            .any(|a| !a.is_synced());
+            .any(|a| !a.broken.is_empty() || a.missing_paragraph);
+        // An edit to an UNANCHORED section is only sync work when an anchor
+        // is broken — a heading rename surfaces as (new unanchored key +
+        // broken ledger key), and the repair proposal must spawn.
+        if !anchored && !any_broken {
+            return Ok(vec![]);
+        }
+        let any_stale = states.iter().any(|a| !a.is_synced());
         if !any_stale {
             return Ok(vec![]);
         }
@@ -473,6 +478,11 @@ impl ThroughlineSyncExecutor {
         if let Some(note) = &draft.note {
             context.insert("note".into(), Value::String(note.clone()));
         }
+        if direction == SyncDirection::Broken {
+            if let Some(first_broken) = assessment.broken.first() {
+                context.insert("broken_key".into(), Value::String(first_broken.clone()));
+            }
+        }
         context.insert(
             "current_paragraph".into(),
             Value::String(paragraph.body.clone()),
@@ -618,10 +628,65 @@ impl ThroughlineSyncExecutor {
                     applied = true;
                 }
             }
-            _ => {
-                // "broken" repairs carry their resolution in the review
-                // itself (rebind/drop); Phase 4 wires the repair actions.
+            "broken" => {
+                // Repair actions ride on the review: the reviewer (or the
+                // UI, via imprint-service's repair_candidates) sets
+                // context_repair_action = "rebind" (+ context_rebind_to)
+                // or "drop". Applied as a ledger edit only.
+                let action = match review.payload.get("context_repair_action") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => return Ok(false),
+                };
+                let Some(entry) = map.anchors.get_mut(&label) else {
+                    return Ok(false);
+                };
+                let broken_key = match review.payload.get("context_broken_key") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => return Ok(false),
+                };
+                match action.as_str() {
+                    "rebind" => {
+                        let Some(Value::String(new_key)) =
+                            review.payload.get("context_rebind_to")
+                        else {
+                            return Ok(false);
+                        };
+                        // The rebind target must actually resolve.
+                        let new_id =
+                            imprint_service::SectionStore::item_id(document_id, new_key);
+                        if store.get_item(new_id)?.is_none() {
+                            return Ok(false);
+                        }
+                        for key in entry.section_keys.iter_mut() {
+                            if key == &broken_key {
+                                *key = new_key.clone();
+                            }
+                        }
+                        entry.manuscript_hashes.remove(&broken_key);
+                    }
+                    "drop" => {
+                        entry.section_keys.retain(|k| k != &broken_key);
+                        entry.manuscript_hashes.remove(&broken_key);
+                        if entry.section_keys.is_empty() {
+                            map.anchors.remove(&label);
+                        }
+                    }
+                    _ => return Ok(false),
+                }
+                // Re-load sections under the repaired ledger so the
+                // rebaseline records the rebind target's current hash.
+                let repaired_sections = ledger_sections(store, document_id, &map)?;
+                self.write_throughline(
+                    tl_item.id,
+                    &source,
+                    &mut map,
+                    &label,
+                    &repaired_sections,
+                    store,
+                )?;
+                applied = true;
             }
+            _ => {}
         }
         Ok(applied)
     }

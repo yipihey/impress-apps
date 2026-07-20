@@ -325,9 +325,40 @@ pub fn derive_coverage(map: &AnchorMap, sections: &[SectionRecord]) -> Vec<Strin
         .collect()
 }
 
+/// Rename-repair heuristic (ADR-0016 D4): a heading rename produces a new
+/// section key whose BODY is (usually) unchanged. For a broken ledger key,
+/// scan the document's other sections for one whose current body hash
+/// equals the ledger's recorded hash for the broken key. Exactly one match
+/// → a rebind candidate; zero or ambiguous → `None` (no false rebinds).
+/// Pure; the result only ever feeds a review proposal, never a silent fix.
+pub fn rebind_candidate(
+    broken_key: &str,
+    ledger_hash: Option<&str>,
+    sections: &[SectionRecord],
+) -> Option<String> {
+    let ledger_hash = ledger_hash?;
+    let matches: Vec<&SectionRecord> = sections
+        .iter()
+        .filter(|s| s.section_key != broken_key && section_body_hash(s) == ledger_hash)
+        .collect();
+    match matches.as_slice() {
+        [only] => Some(only.section_key.clone()),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Store persistence (mirror item; sidecars remain authoritative on macOS)
 // ---------------------------------------------------------------------------
+
+/// A proposed fix for one broken anchor key (ADR-0016 D4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RepairCandidate {
+    pub label: String,
+    pub broken_key: String,
+    /// Unambiguous rename target, if the heuristic found exactly one.
+    pub rebind_to: Option<String>,
+}
 
 /// A throughline as persisted in the shared store.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -544,6 +575,37 @@ impl ThroughlineStore {
         };
         let sections = self.sections.list_sections(document_id, 0)?;
         Ok(Some(derive_coverage(&rec.anchor_map, &sections)))
+    }
+
+    /// Repair candidates for every broken anchor of a document
+    /// (ADR-0016 D4). Read-only; feeds repair proposals, never applies.
+    pub fn repair_candidates(
+        &self,
+        document_id: Uuid,
+    ) -> Result<Option<Vec<RepairCandidate>>, ServiceError> {
+        let Some(rec) = self.get_throughline(document_id)? else {
+            return Ok(None);
+        };
+        let sections = self.sections.list_sections(document_id, 0)?;
+        let paragraphs = extract_paragraphs(&rec.source);
+        let states = derive_anchor_states(&rec.anchor_map, &sections, &paragraphs);
+        let mut out = Vec::new();
+        for a in states {
+            for broken_key in &a.broken {
+                let ledger_hash = rec
+                    .anchor_map
+                    .anchors
+                    .get(&a.label)
+                    .and_then(|e| e.manuscript_hashes.get(broken_key))
+                    .map(String::as_str);
+                out.push(RepairCandidate {
+                    label: a.label.clone(),
+                    broken_key: broken_key.clone(),
+                    rebind_to: rebind_candidate(broken_key, ledger_hash, &sections),
+                });
+            }
+        }
+        Ok(Some(out))
     }
 
     /// Anchor a paragraph label to a set of section keys, baselining the

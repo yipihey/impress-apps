@@ -380,6 +380,136 @@ async fn rejected_proposal_leaves_anchor_stale() {
     );
 }
 
+// ─── Broken-anchor repair (ADR-0016 D4, Phase 4) ───────────────────────────
+
+#[tokio::test]
+async fn broken_anchor_rebind_round_trip() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    seed_throughline(&store, doc, "introduction", "We measure X.");
+
+    // Simulate a heading rename: same body under a new key, old key gone.
+    put_section(&store, doc, "background", "We measure X.");
+    impress_core::store::ItemStore::delete(&store, SectionStore::item_id(doc, "introduction"))
+        .unwrap();
+    assert_eq!(anchor_state(&store, doc), "broken");
+
+    // The pure heuristic finds the unambiguous rename target.
+    let sections = ledger_sections(
+        &store,
+        doc,
+        &AnchorMap {
+            version: 1,
+            document_id: doc.to_string(),
+            anchors: [(
+                "tl-overview".to_string(),
+                AnchorEntry {
+                    section_keys: vec!["background".into()],
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            supporting: vec![],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        imprint_service::throughline::rebind_candidate(
+            "introduction",
+            Some(&BlobStore::sha256_hex("We measure X.")),
+            &sections
+        ),
+        Some("background".to_string())
+    );
+
+    // Spawn via the renamed section, execute → broken proposal.
+    let trigger = section_trigger(&store, doc, "background");
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
+    assert_eq!(specs.len(), 1, "broken anchor must spawn a repair task");
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    let review = &unresolved[0];
+    assert_eq!(
+        review.payload.get("context_direction"),
+        Some(&Value::String("broken".into()))
+    );
+    assert_eq!(
+        review.payload.get("context_broken_key"),
+        Some(&Value::String("introduction".into()))
+    );
+
+    // Human chooses the rebind and approves.
+    for (key, value) in [
+        ("context_repair_action", "rebind"),
+        ("context_rebind_to", "background"),
+    ] {
+        TaskStoreApi::apply(
+            &store,
+            OperationSpec {
+                target_id: review.id,
+                op_type: OperationType::SetPayload(key.into(), Value::String(value.into())),
+                intent: OperationIntent::Editorial,
+                reason: None,
+                batch_id: None,
+                author: HUMAN.into(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            },
+        )
+        .unwrap();
+    }
+    resolve_review(&store, review.id, "approved");
+
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Complete
+    );
+    assert_eq!(
+        anchor_state(&store, doc),
+        "synced",
+        "rebound anchor must rebaseline to the renamed section"
+    );
+}
+
+#[test]
+fn rebind_candidate_refuses_ambiguity() {
+    let mk = |key: &str, body: &str| SectionRecord {
+        item_id: Uuid::new_v4(),
+        document_id: Uuid::new_v4(),
+        section_key: key.into(),
+        title: key.into(),
+        body: body.into(),
+        section_type: None,
+        order_index: None,
+        word_count: 0,
+        content_hash: None,
+        created_ms: 0,
+    };
+    let hash = BlobStore::sha256_hex("same body");
+    // Two sections share the ledger hash → ambiguous → None.
+    let sections = vec![mk("a", "same body"), mk("b", "same body")];
+    assert_eq!(
+        imprint_service::throughline::rebind_candidate("old", Some(&hash), &sections),
+        None
+    );
+    // No match → None.
+    assert_eq!(
+        imprint_service::throughline::rebind_candidate(
+            "old",
+            Some(&hash),
+            &[mk("c", "different")]
+        ),
+        None
+    );
+}
+
 // ─── Stale-proposal guard (ADR-0016 D9) ────────────────────────────────────
 
 #[tokio::test]

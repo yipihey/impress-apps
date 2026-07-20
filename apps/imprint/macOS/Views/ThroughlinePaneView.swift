@@ -24,6 +24,7 @@ struct ThroughlinePaneView: View {
     /// Bumped to re-derive anchor states after edits.
     @State private var derivationTick = 0
     @State private var editingSource = false
+    @State private var confirmingRemoval = false
 
     var body: some View {
         Group {
@@ -86,6 +87,27 @@ struct ThroughlinePaneView: View {
             .pickerStyle(.segmented)
             .frame(width: 110)
             .help("Story shows paragraphs with sync badges; Edit is the raw Typst source")
+
+            Menu {
+                Button("Remove Throughline…", role: .destructive) {
+                    confirmingRemoval = true
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 26)
+        }
+        .confirmationDialog(
+            "Remove this document's throughline?",
+            isPresented: $confirmingRemoval
+        ) {
+            Button("Remove Throughline", role: .destructive) {
+                ThroughlineCoordinator.remove(from: &document)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The sidecar files are removed on next save. Anchors and the sync ledger are deleted; the manuscript itself is untouched.")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

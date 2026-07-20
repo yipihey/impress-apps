@@ -2,6 +2,17 @@
 
 **Companion to:** `docs/ADR-0016-throughline.md`
 **Date:** 2026-07-20
+**Status (2026-07-20, branch `worktree-throughline`):** Phases 1–4
+implemented and test-verified — impress-core schema (7 tests),
+imprint-service throughline module + service trait (15 unit + 7 property
+tests; 9 CLI/MCP methods via codegen), 4 Tier-A selftest capabilities,
+Swift sidecars/pane/routes (app builds; 13 unit tests incl. Rust↔Swift
+parity vectors), impel-throughline pipeline (8 gates incl. both sync
+directions, reject-leaves-stale, stale-guard, rebind repair). Outstanding:
+`impel-taskd` registration awaits a rustc ≥ 1.94 toolchain (pre-existing
+aws-* floor — not compile-checkable on this machine); Tier-B live-app HTTP
+capabilities; LLM `ProposalDrafter`; review-resolution UI polish
+(inline-card grammar currently reachable via HTTP/CLI resolution).
 **Ground rules for every phase:**
 
 - **Opt-in invariant (ADR-0016 D1):** at the end of every phase, a document
