@@ -325,6 +325,10 @@ final class ImbibSidebarViewModel {
         case .dismissed:
             guard let lib = libraryManager?.dismissedLibrary else { return false }
             return lib.publicationCount > 0
+        case .reviewQueue:
+            // Only surface the section while agents are actually waiting on
+            // a human decision — keeps the sidebar quiet otherwise.
+            return RustStoreAdapter.shared.countPendingReviews() > 0
         case .citedInManuscripts:
             // Only show the section when imprint has written at least
             // one resolved citation-usage record. Keeps the sidebar
@@ -390,6 +394,8 @@ final class ImbibSidebarViewModel {
             return dismissedChildren()
         case .citedInManuscripts:
             return citedInManuscriptsChildren()
+        case .reviewQueue:
+            return reviewQueueChildren()
         case .journal:
             return journalChildren()
         }
@@ -443,6 +449,26 @@ final class ImbibSidebarViewModel {
                 displayName: "Submissions",
                 iconName: "tray.and.arrow.down"
             ),
+        ]
+    }
+
+    // MARK: Review Queue
+
+    /// One pseudo-row representing the pending agent review-requests
+    /// (`review-request@1.0.0` items in the shared impress store). Badge
+    /// shows the unresolved count; the section itself is hidden when zero
+    /// (see `shouldShowSection`).
+    private func reviewQueueChildren() -> [ImbibSidebarNode] {
+        let count = RustStoreAdapter.shared.countPendingReviews()
+        guard count > 0 else { return [] }
+        return [
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.reviewQueue,
+                nodeType: .reviewQueue,
+                displayName: "Pending Reviews",
+                iconName: "checklist",
+                displayCount: count
+            )
         ]
     }
 

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use impress_core::{
     item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility},
+    operation::{OperationIntent, OperationSpec, OperationType, RetentionTier},
     query::{ItemQuery, Predicate, SortDescriptor},
     sqlite_store::SqliteItemStore,
     store::{FieldMutation, ItemStore, StoreError},
@@ -84,6 +85,18 @@ pub struct SharedItemRow {
     pub tags: Vec<String>,
     /// Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
     pub flag_color: Option<String>,
+}
+
+/// A flat representation of a typed reference (graph edge) on an item.
+///
+/// `edge_type` is the JSON-serialized `EdgeType` enum with surrounding quotes
+/// stripped — e.g. `"Cites"`, `"RelatesTo"`, or `{"Custom":"my-edge"}` for
+/// custom edges.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedReferenceRow {
+    pub target_id: String,
+    pub edge_type: String,
 }
 
 // ─── Store object ────────────────────────────────────────────────────────────
@@ -324,6 +337,96 @@ impl SharedStore {
             .update(item_id, vec![FieldMutation::SetFlag(flag)])?;
         Ok(())
     }
+
+    /// List the typed references (graph edges) of an item.
+    ///
+    /// Returns `NotFound` if no item with `id` exists.
+    pub fn get_item_references(
+        &self,
+        id: String,
+    ) -> Result<Vec<SharedReferenceRow>, SharedStoreError> {
+        let item_id: ItemId = id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {id}"),
+            })?;
+        let item = self
+            .inner
+            .get(item_id)?
+            .ok_or_else(|| SharedStoreError::NotFound { message: id })?;
+        Ok(item
+            .references
+            .into_iter()
+            .map(|r| SharedReferenceRow {
+                target_id: r.target.to_string(),
+                edge_type: serde_json::to_string(&r.edge_type)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string(),
+            })
+            .collect())
+    }
+
+    /// Resolve a review-request item with an attributed human write.
+    ///
+    /// Validates that the item exists and has schema `review-request@1.0.0`,
+    /// then applies two operations authored by `resolved_by` (Human, Editorial,
+    /// Durable): `SetPayload("resolution", resolution)` and
+    /// `SetPayload("resolved_by", resolved_by)`. Unlike `upsert_item` (which
+    /// writes as the local system actor), this preserves the human author in
+    /// the operation audit trail.
+    pub fn resolve_review(
+        &self,
+        id: String,
+        resolution: String,
+        resolved_by: String,
+    ) -> Result<(), SharedStoreError> {
+        let item_id: ItemId = id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {id}"),
+            })?;
+        let item = self
+            .inner
+            .get(item_id)?
+            .ok_or_else(|| SharedStoreError::NotFound { message: id.clone() })?;
+        if item.schema != "review-request@1.0.0" {
+            return Err(SharedStoreError::InvalidArgument {
+                message: format!(
+                    "resolve_review requires schema review-request@1.0.0, got {}",
+                    item.schema
+                ),
+            });
+        }
+
+        let ops = [
+            OperationType::SetPayload("resolution".into(), Value::String(resolution)),
+            OperationType::SetPayload("resolved_by".into(), Value::String(resolved_by.clone())),
+        ];
+        for op_type in ops {
+            self.inner.apply_operation(OperationSpec {
+                target_id: item_id,
+                op_type,
+                intent: OperationIntent::Editorial,
+                reason: None,
+                batch_id: None,
+                author: resolved_by.clone(),
+                author_kind: ActorKind::Human,
+                retention: RetentionTier::Durable,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Count items with the given schema (e.g. for sidebar badges).
+    pub fn count_by_schema(&self, schema_ref: String) -> Result<u32, SharedStoreError> {
+        let q = ItemQuery {
+            schema: Some(schema_ref),
+            ..ItemQuery::default()
+        };
+        let count = self.inner.count(&q)?;
+        Ok(count as u32)
+    }
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
@@ -562,6 +665,158 @@ mod tests {
         assert!(row.is_starred);
         assert!(row.tags.contains(&"physics/relativity".to_string()));
         assert_eq!(row.flag_color, Some("amber".to_string()));
+    }
+
+    #[test]
+    fn resolve_review_writes_attributed_operations() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                id.clone(),
+                "review-request@1.0.0".into(),
+                r#"{"question": "Apply these tags?", "context_proposed_tags": ["ai/cosmology"]}"#
+                    .into(),
+            )
+            .expect("upsert review request");
+
+        store
+            .resolve_review(id.clone(), "approved".into(), "tom".into())
+            .expect("resolve");
+
+        // Payload materialized
+        let row = store.get_item(id.clone()).expect("get").expect("row");
+        let payload: serde_json::Value =
+            serde_json::from_str(&row.payload_json).expect("parse payload");
+        assert_eq!(payload["resolution"], "approved");
+        assert_eq!(payload["resolved_by"], "tom");
+
+        // Operation items carry the human author (not system:local)
+        let item_id: ItemId = id.parse().unwrap();
+        let ops = store.inner.operations_for(item_id, None).expect("ops");
+        let set_payload_ops: Vec<_> = ops
+            .iter()
+            .filter(|op| {
+                op.payload.get("op_type") == Some(&Value::String("set_payload".into()))
+            })
+            .collect();
+        assert_eq!(set_payload_ops.len(), 2, "expected two SetPayload operations");
+        for op in &set_payload_ops {
+            assert_eq!(op.schema, "core/operation");
+            assert_eq!(op.author, "tom");
+            assert_eq!(op.author_kind, ActorKind::Human);
+            assert_eq!(
+                op.payload.get("intent"),
+                Some(&Value::String("editorial".into()))
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_review_rejects_wrong_schema() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(id.clone(), "task".into(), r#"{"title": "not a review"}"#.into())
+            .expect("upsert");
+
+        let err = store
+            .resolve_review(id, "approved".into(), "tom".into())
+            .expect_err("must reject wrong schema");
+        match err {
+            SharedStoreError::InvalidArgument { message } => {
+                assert!(message.contains("review-request@1.0.0"), "{message}");
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+
+        // Missing item -> NotFound
+        let missing = uuid::Uuid::new_v4().to_string();
+        let err = store
+            .resolve_review(missing, "approved".into(), "tom".into())
+            .expect_err("must reject missing item");
+        assert!(matches!(err, SharedStoreError::NotFound { .. }));
+    }
+
+    #[test]
+    fn references_round_trip() {
+        use impress_core::reference::{EdgeType, TypedReference};
+
+        let store = SharedStore::open_in_memory().expect("open");
+        let source_id = uuid::Uuid::new_v4().to_string();
+        let target_id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(source_id.clone(), "review-request@1.0.0".into(), r#"{"question": "q"}"#.into())
+            .expect("upsert source");
+        store
+            .upsert_item(target_id.clone(), "imbib/bibliography-entry".into(), r#"{"title": "P"}"#.into())
+            .expect("upsert target");
+
+        // Empty at first
+        let refs = store.get_item_references(source_id.clone()).expect("refs");
+        assert!(refs.is_empty());
+
+        // Add references via the inner store (enum + custom variants)
+        let source_uuid: ItemId = source_id.parse().unwrap();
+        let target_uuid: ItemId = target_id.parse().unwrap();
+        store
+            .inner
+            .update(
+                source_uuid,
+                vec![
+                    FieldMutation::AddReference(TypedReference {
+                        target: target_uuid,
+                        edge_type: EdgeType::OperatesOn,
+                        metadata: None,
+                    }),
+                    FieldMutation::AddReference(TypedReference {
+                        target: target_uuid,
+                        edge_type: EdgeType::Custom("proposed-for".into()),
+                        metadata: None,
+                    }),
+                ],
+            )
+            .expect("add references");
+
+        let refs = store.get_item_references(source_id).expect("refs");
+        assert_eq!(refs.len(), 2);
+        assert!(refs.iter().all(|r| r.target_id == target_id));
+        let edge_types: Vec<&str> = refs.iter().map(|r| r.edge_type.as_str()).collect();
+        assert!(edge_types.contains(&"OperatesOn"), "{edge_types:?}");
+        assert!(
+            edge_types.contains(&r#"{"Custom":"proposed-for"}"#),
+            "{edge_types:?}"
+        );
+
+        // Missing item -> NotFound
+        let err = store
+            .get_item_references(uuid::Uuid::new_v4().to_string())
+            .expect_err("missing");
+        assert!(matches!(err, SharedStoreError::NotFound { .. }));
+    }
+
+    #[test]
+    fn count_by_schema_counts_matching() {
+        let store = SharedStore::open_in_memory().expect("open");
+        for i in 0..3 {
+            store
+                .upsert_item(
+                    uuid::Uuid::new_v4().to_string(),
+                    "review-request@1.0.0".into(),
+                    format!(r#"{{"question": "q{i}"}}"#),
+                )
+                .expect("upsert");
+        }
+        store
+            .upsert_item(uuid::Uuid::new_v4().to_string(), "task".into(), r#"{"title": "t"}"#.into())
+            .expect("upsert task");
+
+        assert_eq!(
+            store.count_by_schema("review-request@1.0.0".into()).expect("count"),
+            3
+        );
+        assert_eq!(store.count_by_schema("task".into()).expect("count"), 1);
+        assert_eq!(store.count_by_schema("nothing".into()).expect("count"), 0);
     }
 
     #[test]

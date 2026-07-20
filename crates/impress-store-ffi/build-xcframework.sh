@@ -87,9 +87,17 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
     mkdir -p "$dir/Headers" "$dir/Modules"
 done
 
+# Nest headers in a unique subdirectory to avoid Xcode conflicts when
+# multiple XCFrameworks are used in the same workspace. Without nesting,
+# e.g. impress_store_ffiFFI and ScixClientCore both produce
+# Headers/module.modulemap, which collide in
+# DerivedData/Build/Products/Debug/include/ ("Multiple commands produce").
+# Same pattern as crates/imbib-core/build-xcframework.sh.
 for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR"; do
+    NESTED_DIR="$dir/Headers/${LIB_NAME}FFI"
+    mkdir -p "$NESTED_DIR"
     if [ -n "$HEADER_FILE" ] && [ -f "$HEADER_FILE" ]; then
-        cp "$HEADER_FILE" "$dir/Headers/"
+        cp "$HEADER_FILE" "$NESTED_DIR/"
     fi
     # Copy modulemap so SPM can import the module by name (e.g. impress_store_ffiFFI)
     MODULEMAP_FILE="$BINDINGS_DIR/${XCFRAMEWORK_NAME}FFI.modulemap"
@@ -97,7 +105,7 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
         MODULEMAP_FILE=$(ls "$BINDINGS_DIR"/*.modulemap 2>/dev/null | head -1)
     fi
     if [ -n "$MODULEMAP_FILE" ] && [ -f "$MODULEMAP_FILE" ]; then
-        cp "$MODULEMAP_FILE" "$dir/Headers/module.modulemap"
+        cp "$MODULEMAP_FILE" "$NESTED_DIR/module.modulemap"
     fi
 done
 

@@ -39,6 +39,7 @@ enum ImbibTab: Hashable {
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
     case citedInManuscripts   // pseudo smart library — papers cited in any imprint manuscript
+    case reviewQueue          // pending agent review-requests from the shared impress store
 
     // Journal pipeline (per ADR-0011 D8)
     case journalAll                                  // root: all manuscripts in any status
@@ -62,6 +63,7 @@ enum ImbibContentRoute: Equatable {
     case publicationList(PublicationSource)
     case searchForm(ImbibSearchFormRoute)
     case artifacts(ArtifactType?)
+    case reviewQueue
     case feedFormPicker
     case journal(ImbibJournalRoute)
 
@@ -74,6 +76,8 @@ enum ImbibContentRoute: Equatable {
             return "search-\(route.stableID)"
         case .artifacts(let type):
             return "artifacts-\(type?.rawValue ?? "all")"
+        case .reviewQueue:
+            return "reviewQueue"
         case .feedFormPicker:
             return "feedFormPicker"
         case .journal(let route):

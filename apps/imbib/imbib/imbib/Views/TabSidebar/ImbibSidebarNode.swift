@@ -35,6 +35,7 @@ enum ImbibSidebarNodeType: Hashable {
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
     case citedInManuscripts
+    case reviewQueue
 
     // Journal pipeline (per ADR-0011 D8)
     case journalAll
@@ -112,6 +113,8 @@ extension ImbibSidebarNode {
             return .dismissed
         case .citedInManuscripts:
             return .citedInManuscripts
+        case .reviewQueue:
+            return .reviewQueue
         case .journalAll:
             return .journalAll
         case .journalByStatus(let status):
@@ -161,6 +164,7 @@ enum ImbibSidebarNodeID {
     static let anyFlag = stable("anyFlag")
     static let dismissed = stable("dismissed")
     static let citedInManuscripts = stable("citedInManuscripts")
+    static let reviewQueue = stable("reviewQueue")
 
     static func section(_ type: SidebarSectionType) -> UUID {
         stable("section.\(type.rawValue)")

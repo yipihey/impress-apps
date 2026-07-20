@@ -510,6 +510,11 @@ public protocol SharedStoreProtocol : AnyObject {
     func addTag(id: String, tag: String) throws 
     
     /**
+     * Count items with the given schema (e.g. for sidebar badges).
+     */
+    func countBySchema(schemaRef: String) throws  -> UInt32
+    
+    /**
      * Delete an item by ID.
      *
      * Returns `NotFound` if no item with `id` exists.
@@ -520,6 +525,13 @@ public protocol SharedStoreProtocol : AnyObject {
      * Retrieve a single item by ID, or `nil` if not found.
      */
     func getItem(id: String) throws  -> SharedItemRow?
+    
+    /**
+     * List the typed references (graph edges) of an item.
+     *
+     * Returns `NotFound` if no item with `id` exists.
+     */
+    func getItemReferences(id: String) throws  -> [SharedReferenceRow]
     
     /**
      * List items by schema, sorted by creation time (newest first).
@@ -534,6 +546,18 @@ public protocol SharedStoreProtocol : AnyObject {
      * Remove a tag from an item.
      */
     func removeTag(id: String, tag: String) throws 
+    
+    /**
+     * Resolve a review-request item with an attributed human write.
+     *
+     * Validates that the item exists and has schema `review-request@1.0.0`,
+     * then applies two operations authored by `resolved_by` (Human, Editorial,
+     * Durable): `SetPayload("resolution", resolution)` and
+     * `SetPayload("resolved_by", resolved_by)`. Unlike `upsert_item` (which
+     * writes as the local system actor), this preserves the human author in
+     * the operation audit trail.
+     */
+    func resolveReview(id: String, resolution: String, resolvedBy: String) throws 
     
     /**
      * Full-text search across all items, with optional schema filter.
@@ -669,6 +693,17 @@ open func addTag(id: String, tag: String)throws  {try rustCallWithError(FfiConve
 }
     
     /**
+     * Count items with the given schema (e.g. for sidebar badges).
+     */
+open func countBySchema(schemaRef: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_count_by_schema(self.uniffiClonePointer(),
+        FfiConverterString.lower(schemaRef),$0
+    )
+})
+}
+    
+    /**
      * Delete an item by ID.
      *
      * Returns `NotFound` if no item with `id` exists.
@@ -686,6 +721,19 @@ open func deleteItem(id: String)throws  {try rustCallWithError(FfiConverterTypeS
 open func getItem(id: String)throws  -> SharedItemRow? {
     return try  FfiConverterOptionTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_get_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * List the typed references (graph edges) of an item.
+     *
+     * Returns `NotFound` if no item with `id` exists.
+     */
+open func getItemReferences(id: String)throws  -> [SharedReferenceRow] {
+    return try  FfiConverterSequenceTypeSharedReferenceRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_get_item_references(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 })
@@ -715,6 +763,25 @@ open func removeTag(id: String, tag: String)throws  {try rustCallWithError(FfiCo
     uniffi_impress_store_ffi_fn_method_sharedstore_remove_tag(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(tag),$0
+    )
+}
+}
+    
+    /**
+     * Resolve a review-request item with an attributed human write.
+     *
+     * Validates that the item exists and has schema `review-request@1.0.0`,
+     * then applies two operations authored by `resolved_by` (Human, Editorial,
+     * Durable): `SetPayload("resolution", resolution)` and
+     * `SetPayload("resolved_by", resolved_by)`. Unlike `upsert_item` (which
+     * writes as the local system actor), this preserves the human author in
+     * the operation audit trail.
+     */
+open func resolveReview(id: String, resolution: String, resolvedBy: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_resolve_review(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(resolution),
+        FfiConverterString.lower(resolvedBy),$0
     )
 }
 }
@@ -981,6 +1048,79 @@ public func FfiConverterTypeSharedItemRow_lower(_ value: SharedItemRow) -> RustB
 
 
 /**
+ * A flat representation of a typed reference (graph edge) on an item.
+ *
+ * `edge_type` is the JSON-serialized `EdgeType` enum with surrounding quotes
+ * stripped — e.g. `"Cites"`, `"RelatesTo"`, or `{"Custom":"my-edge"}` for
+ * custom edges.
+ */
+public struct SharedReferenceRow {
+    public var targetId: String
+    public var edgeType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(targetId: String, edgeType: String) {
+        self.targetId = targetId
+        self.edgeType = edgeType
+    }
+}
+
+
+
+extension SharedReferenceRow: Equatable, Hashable {
+    public static func ==(lhs: SharedReferenceRow, rhs: SharedReferenceRow) -> Bool {
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.edgeType != rhs.edgeType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(targetId)
+        hasher.combine(edgeType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedReferenceRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedReferenceRow {
+        return
+            try SharedReferenceRow(
+                targetId: FfiConverterString.read(from: &buf), 
+                edgeType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedReferenceRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.edgeType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedReferenceRow_lift(_ buf: RustBuffer) throws -> SharedReferenceRow {
+    return try FfiConverterTypeSharedReferenceRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedReferenceRow_lower(_ value: SharedReferenceRow) -> RustBuffer {
+    return FfiConverterTypeSharedReferenceRow.lower(value)
+}
+
+
+/**
  * Errors returned by the shared store FFI.
  */
 public enum SharedStoreError {
@@ -1165,6 +1305,31 @@ fileprivate struct FfiConverterSequenceTypeSharedItemRow: FfiConverterRustBuffer
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedReferenceRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedReferenceRow]
+
+    public static func write(_ value: [SharedReferenceRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedReferenceRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedReferenceRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedReferenceRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedReferenceRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -1183,16 +1348,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_tag() != 31254) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_delete_item() != 14439) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_get_item() != 16629) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_get_item_references() != 59059) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 32264) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_remove_tag() != 18835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_resolve_review() != 13522) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_search() != 42949) {

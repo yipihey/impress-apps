@@ -84,6 +84,8 @@ struct SectionContentView: View {
             return .artifacts(nil)
         case .artifactType(let rawValue):
             return .artifacts(ArtifactType(rawValue: rawValue))
+        case .reviewQueue:
+            return .reviewQueue
         case .addFeed:
             if let formType = feedCreationFormType {
                 return .searchForm(ImbibSearchFormRoute(
@@ -188,7 +190,7 @@ struct SectionContentView: View {
             return libraryManager.dismissedLibrary.map { _ in .dismissed }
         case .citedInManuscripts:
             return .citedInManuscripts
-        case .allArtifacts, .artifactType:
+        case .allArtifacts, .artifactType, .reviewQueue:
             return nil
         case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
             // Journal pipeline tabs are NOT publication sources. They route
@@ -222,7 +224,7 @@ struct SectionContentView: View {
         case .citedInManuscripts:
             // Cross-library pseudo source — no owning library.
             return nil
-        case .allArtifacts, .artifactType:
+        case .allArtifacts, .artifactType, .reviewQueue:
             return nil
         case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
             return nil
@@ -542,6 +544,9 @@ struct SectionContentView: View {
                 typeFilter: typeFilter,
                 selectedArtifactID: $selectedArtifactID
             )
+
+        case .reviewQueue:
+            ReviewQueueListView()
 
         case .feedFormPicker:
             feedFormPickerView

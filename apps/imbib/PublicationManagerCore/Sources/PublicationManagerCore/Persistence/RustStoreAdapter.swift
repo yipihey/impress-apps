@@ -13,6 +13,7 @@ import ImbibRustCore
 import ImpressFTUI
 import ImpressKit
 import ImpressLogging
+import ImpressRustCore
 import ImpressStoreKit
 import OSLog
 
@@ -70,6 +71,37 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// Accumulates publication IDs with field changes during a batch, so one coalesced
     /// `.fieldDidChange` notification fires at `endBatchMutation()` instead of per-field.
     private var batchChangedFieldIDs: Set<UUID> = []
+
+    /// Lazy handle on the shared impress-core store (`impress.sqlite`).
+    ///
+    /// `ImbibStore` (the adapter's primary store) only speaks publication-typed
+    /// operations — review-request items live in the suite-wide SharedStore,
+    /// so the review-queue methods open their own handle here, mirroring the
+    /// `ManuscriptBridge.handle()` pattern (WAL mode permits concurrent
+    /// handles within and across processes).
+    @ObservationIgnored private var reviewSharedStore: ImpressRustCore.SharedStore?
+    @ObservationIgnored private var reviewStoreOpenAttempted = false
+
+    /// Open (once) and return the SharedStore handle for review items.
+    func sharedReviewStore() -> ImpressRustCore.SharedStore? {
+        if let reviewSharedStore { return reviewSharedStore }
+        if reviewStoreOpenAttempted { return nil }
+        reviewStoreOpenAttempted = true
+        do {
+            try SharedWorkspace.ensureDirectoryExists()
+            let path = SharedWorkspace.databaseURL.path
+            let s = try ImpressRustCore.SharedStore.open(path: path)
+            self.reviewSharedStore = s
+            Logger.library.infoCapture("Review queue opened SharedStore at \(path)", category: "reviews")
+            return s
+        } catch {
+            Logger.library.warningCapture(
+                "Review queue could not open SharedStore: \(error.localizedDescription)",
+                category: "reviews"
+            )
+            return nil
+        }
+    }
 
     // MARK: - Initialization
 
@@ -2982,5 +3014,100 @@ nonisolated extension PublicationRowData {
 
         self.enrichmentDate = row.enrichmentDate
         self.libraryName = row.libraryName
+    }
+}
+
+// MARK: - Review Queue (impel AwaitHumanResponse checkpoints)
+
+/// A pending `review-request@1.0.0` item from the shared impress-core store.
+///
+/// Written by impel's enrichment pipeline when an agent wants human sign-off
+/// (e.g. proposed auto-tags). Resolved by the human via `resolveReview`.
+public struct PendingReview: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let question: String
+    public let proposedTags: [String]
+    public let resolution: String?
+    public let created: Date
+
+    public var isResolved: Bool {
+        guard let resolution else { return false }
+        return !resolution.isEmpty
+    }
+
+    init?(row: SharedItemRow) {
+        guard let data = row.payloadJson.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        self.id = row.id
+        self.question = payload["question"] as? String ?? "(no question)"
+        self.proposedTags = payload["context_proposed_tags"] as? [String] ?? []
+        self.resolution = payload["resolution"] as? String
+        self.created = Date(timeIntervalSince1970: TimeInterval(row.createdMs) / 1000.0)
+    }
+}
+
+extension RustStoreAdapter {
+
+    /// Schema string for agent review requests in the shared store.
+    public static let reviewRequestSchema = "review-request@1.0.0"
+
+    /// List unresolved review requests, newest first.
+    public func listPendingReviews() -> [PendingReview] {
+        guard let shared = sharedReviewStore() else { return [] }
+        do {
+            let rows = try shared.queryBySchema(schemaRef: Self.reviewRequestSchema, limit: 500, offset: 0)
+            let pending = rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }
+            Logger.library.infoCapture(
+                "Display: \(pending.count) pending reviews (of \(rows.count) review items)",
+                category: "reviews"
+            )
+            return pending
+        } catch {
+            Logger.library.errorCapture("Failed to list reviews: \(error)", category: "reviews")
+            return []
+        }
+    }
+
+    /// Count unresolved review requests (sidebar badge / section gating).
+    ///
+    /// Fast path: `count_by_schema` == 0 means nothing to parse. When review
+    /// items exist, resolved ones must be excluded, which requires payload
+    /// parsing — bounded by the same limit as `listPendingReviews`.
+    public func countPendingReviews() -> Int {
+        guard let shared = sharedReviewStore() else { return 0 }
+        do {
+            let total = try shared.countBySchema(schemaRef: Self.reviewRequestSchema)
+            guard total > 0 else { return 0 }
+            let rows = try shared.queryBySchema(schemaRef: Self.reviewRequestSchema, limit: 500, offset: 0)
+            return rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }.count
+        } catch {
+            return 0
+        }
+    }
+
+    /// Resolve a review request as the current human user.
+    ///
+    /// Uses the `resolve_review` FFI, which writes attributed operation items
+    /// (author = the human, intent = editorial, durable retention) rather than
+    /// the system-authored writes `upsert_item` would produce.
+    public func resolveReview(id: String, resolution: String) {
+        guard let shared = sharedReviewStore() else {
+            Logger.library.warningCapture("resolveReview: SharedStore unavailable", category: "reviews")
+            return
+        }
+        let fullName = NSFullUserName()
+        let resolvedBy = fullName.isEmpty ? "tom" : fullName
+        Logger.library.infoCapture(
+            "Resolving review \(id) as '\(resolution)' by \(resolvedBy)",
+            category: "reviews"
+        )
+        do {
+            try shared.resolveReview(id: id, resolution: resolution, resolvedBy: resolvedBy)
+            Logger.library.infoCapture("Save: review \(id) resolution persisted", category: "reviews")
+            didMutate(structural: false)
+        } catch {
+            Logger.library.errorCapture("Failed to resolve review \(id): \(error)", category: "reviews")
+        }
     }
 }
