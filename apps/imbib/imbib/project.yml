@@ -218,7 +218,13 @@ targets:
           # and APIs removed during the Rust migration. Excluded until
           # they're rewritten to the value-type + RustStoreAdapter world.
           # Stub replacements live alongside as `*Stub.swift`.
-          - "Views/IOSSidebarView.swift"
+          # IOSSidebarView.swift REVIVED 2026-07-20 — full navigation ported
+          # to id-based SidebarSection + RustStoreAdapter value types
+          # (listLibraries/listCollections/listSmartSearches/getInboxLibrary/
+          # getScixLibrary). Edit ops lacking a store API (delete/rename/
+          # reorder collection, nested-collection create, delete smart search)
+          # degrade to logged no-ops. Its stub is excluded so the type is unique.
+          - "Views/IOSSidebarViewStub.swift"
           # IOSPDFBrowserView.swift REVIVED — ported to id-based init +
           # RustStoreAdapter/PublicationModel (getPublicationDetail,
           # BrowserURLProviderRegistry, AttachmentManager keyed by UUIDs).
@@ -230,17 +236,21 @@ targets:
           # keyed by UUIDs, id-based smart-search/SciX refresh services).
           # Its stub is excluded so the type is unique.
           - "Views/IOSUnifiedPublicationListWrapperStub.swift"
-          # IOSNoPDFView.swift (real, CDPublication-based) stays excluded;
-          # IOSNoPDFViewStub.swift provides the (publicationID:libraryID:)
-          # shape that the revived IOSPDFTab needs.
-          - "Views/Detail/IOSNoPDFView.swift"
+          # IOSNoPDFView.swift REVIVED — ported to RustStoreAdapter/PublicationModel
+          # (getPublicationDetail + AttachmentManager.importPDF(data:for:in:) +
+          # id-based IOSPDFBrowserView). Its stub is excluded so the type is unique.
+          - "Views/Detail/IOSNoPDFViewStub.swift"
           # IOSPDFTab.swift REVIVED — ported to RustStoreAdapter/PublicationModel
           # (getPublicationDetail + LinkedFileModel + PDFViewerWithControls +
           # AttachmentManager). Its stub is excluded so the type is unique.
           - "Views/Detail/IOSPDFTabStub.swift"
           - "Views/IOSSettingsView.swift"
           - "Views/Sharing/IOSMailComposer.swift"
-          - "Views/Detail/IOSInfoTab.swift"
+          # IOSInfoTab.swift REVIVED — id-based metadata tab (attachments, file
+          # import, explore/references, cite badges) ported off LibraryModel
+          # .containerURL to AttachmentManager UUID-keyed paths. Its stub is
+          # excluded so the type is unique.
+          - "Views/Detail/IOSInfoTabStub.swift"
       - path: imbib/Resources/Assets.xcassets
       - path: imbib/Resources/DefaultLibrarySet.json
       - path: imbib/Resources/PrivacyInfo.xcprivacy

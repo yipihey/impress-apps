@@ -9,6 +9,7 @@ import SwiftUI
 import PublicationManagerCore
 import ImpressFTUI
 import QuickLook
+import OSLog
 
 /// iOS Info tab showing publication details, abstract, identifiers, and attachments.
 /// Uses RustStoreAdapter for all data access (no Core Data).
@@ -16,7 +17,6 @@ struct IOSInfoTab: View {
     let publicationID: UUID
     let libraryID: UUID
 
-    @Environment(LibraryManager.self) private var libraryManager
     @Environment(\.themeColors) private var theme
     @Environment(\.fontScale) private var fontScale
     @State private var showPDFBrowser = false
@@ -554,39 +554,46 @@ struct IOSInfoTab: View {
     // MARK: - Actions
 
     private func openFile(_ file: LinkedFileModel) {
-        guard let library = libraryManager.find(id: libraryID),
-              let path = file.relativePath else {
-            fileError = "Library not found."
+        guard let url = resolveFileURL(file) else {
+            fileError = "The file \"\(file.filename)\" is no longer available."
             return
         }
-
-        let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        if FileManager.default.fileExists(atPath: containerURL.path) {
-            fileToPreview = containerURL
-        } else {
-            fileError = "The file \"\(file.filename)\" is no longer available."
-        }
+        fileToPreview = url
     }
 
     private func shareFile(_ file: LinkedFileModel) {
-        guard let library = libraryManager.find(id: libraryID),
-              let path = file.relativePath else {
-            fileError = "Library not found."
+        guard let url = resolveFileURL(file) else {
+            fileError = "The file \"\(file.filename)\" is no longer available."
             return
         }
+        fileToShare = url
+        showShareSheet = true
+    }
 
+    /// Resolve a linked file to an on-disk URL using the value-type store's
+    /// UUID-keyed container path (mirrors IOSPDFTab.pdfFileExists), with a
+    /// fallback to the legacy pre-v1.3.0 `imbib/` app-support location.
+    private func resolveFileURL(_ file: LinkedFileModel) -> URL? {
+        guard let path = file.relativePath else { return nil }
         let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
-        if FileManager.default.fileExists(atPath: containerURL.path) {
-            fileToShare = containerURL
-            showShareSheet = true
-        } else {
-            fileError = "The file \"\(file.filename)\" is no longer available."
+        let fileManager = FileManager.default
+
+        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
+            .appendingPathComponent(normalizedPath)
+        if fileManager.fileExists(atPath: containerURL.path) { return containerURL }
+
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("imbib") {
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: legacyURL.path) { return legacyURL }
         }
+        return nil
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
+        // publicationID / libraryID are immutable `let` properties — safe to read directly.
+        let pubID = publicationID
+        let libID = libraryID
         switch result {
         case .success(let urls):
             for url in urls {
@@ -596,24 +603,32 @@ struct IOSInfoTab: View {
                 do {
                     let data = try Data(contentsOf: url)
                     let fileExtension = url.pathExtension.isEmpty ? "pdf" : url.pathExtension
-                    // Use Rust store to import attachment
-                    // For now, we need to go through library manager for file system operations
-                    if let library = libraryManager.find(id: libraryID) {
-                        try AttachmentManager.shared.importAttachment(
-                            data: data,
-                            publicationID: publicationID,
-                            in: library,
-                            fileExtension: fileExtension,
-                            displayName: url.lastPathComponent
-                        )
-                    }
+                    Logger.files.infoCapture(
+                        "iOS InfoTab: importing attachment '\(url.lastPathComponent)' (\(data.count) bytes) for \(pubID)",
+                        category: "files"
+                    )
+                    // Value-type store: import keyed by publication + library UUIDs.
+                    let linked = try AttachmentManager.shared.importAttachment(
+                        data: data,
+                        for: pubID,
+                        in: libID,
+                        fileExtension: fileExtension,
+                        displayName: url.lastPathComponent
+                    )
+                    Logger.files.infoCapture(
+                        "iOS InfoTab: imported linked file \(linked.id) (\(linked.filename))",
+                        category: "files"
+                    )
                 } catch {
-                    print("Failed to import file: \(error)")
+                    Logger.files.errorCapture(
+                        "iOS InfoTab: failed to import file '\(url.lastPathComponent)': \(error.localizedDescription)",
+                        category: "files"
+                    )
                 }
             }
             loadPublication()
         case .failure(let error):
-            print("File picker error: \(error)")
+            Logger.files.errorCapture("iOS InfoTab: file picker error: \(error.localizedDescription)", category: "files")
         }
     }
 

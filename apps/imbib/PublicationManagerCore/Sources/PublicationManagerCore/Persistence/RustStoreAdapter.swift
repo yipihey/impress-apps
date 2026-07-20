@@ -1053,6 +1053,35 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Delete a collection and its membership edges. Publications are untouched.
+    public func deleteCollection(id: UUID) {
+        Logger.library.infoCapture("deleteCollection: requested \(id)", category: "collections")
+        do {
+            try store.deleteCollection(id: id.uuidString)
+            Logger.library.infoCapture("deleteCollection: store removed \(id)", category: "collections")
+            didMutate()
+            Logger.library.infoCapture("deleteCollection: didMutate posted (v\(dataVersion))", category: "collections")
+        } catch {
+            Logger.library.error("deleteCollection failed: \(error)")
+        }
+    }
+
+    /// Rename a collection. Returns the updated model, or nil on failure.
+    @discardableResult
+    public func renameCollection(id: UUID, name: String) -> CollectionModel? {
+        Logger.library.infoCapture("renameCollection: requested \(id) → '\(name)'", category: "collections")
+        do {
+            let row = try store.renameCollection(id: id.uuidString, newName: name)
+            Logger.library.infoCapture("renameCollection: store updated \(id) → '\(row.name)'", category: "collections")
+            didMutate()
+            Logger.library.infoCapture("renameCollection: didMutate posted (v\(dataVersion))", category: "collections")
+            return CollectionModel(from: row)
+        } catch {
+            Logger.library.error("renameCollection failed: \(error)")
+            return nil
+        }
+    }
+
     /// Add publications to a library as members WITHOUT duplicating them.
     ///
     /// Multi-library membership uses `Contains` edges from the library item
@@ -1615,6 +1644,19 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         } catch {
             Logger.library.error("createSmartSearch failed: \(error)")
             return nil
+        }
+    }
+
+    /// Delete a smart search.
+    public func deleteSmartSearch(id: UUID) {
+        Logger.library.infoCapture("deleteSmartSearch: requested \(id)", category: "smart-search")
+        do {
+            try store.deleteSmartSearch(id: id.uuidString)
+            Logger.library.infoCapture("deleteSmartSearch: store removed \(id)", category: "smart-search")
+            didMutate()
+            Logger.library.infoCapture("deleteSmartSearch: didMutate posted (v\(dataVersion))", category: "smart-search")
+        } catch {
+            Logger.library.error("deleteSmartSearch failed: \(error)")
         }
     }
 

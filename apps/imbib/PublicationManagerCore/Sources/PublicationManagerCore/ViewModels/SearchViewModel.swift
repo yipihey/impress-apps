@@ -484,6 +484,15 @@ public final class SearchViewModel {
     /// Number of results from the last search execution.
     public private(set) var lastSearchResultCount: Int = 0
 
+    /// UUIDs of the publications surfaced by the last successful search —
+    /// deduplicated existing members plus newly imported results, all living
+    /// in the Exploration library (ADR-016). Additive read surface: ADR-016
+    /// removed the old `.publications` array, so clients (e.g. imbib-iOS)
+    /// read these IDs and hydrate rows via `RustStoreAdapter.getPublication(id:)`.
+    /// macOS behaviour is unchanged (it surfaces the same set via the
+    /// Exploration smart search created below).
+    public private(set) var lastImportedPublicationIDs: [UUID] = []
+
     // MARK: - Available Sources
 
     public var availableSources: [SourceMetadata] {
@@ -580,6 +589,7 @@ public final class SearchViewModel {
             }
 
             lastSearchResultCount = collectionMemberIds.count
+            lastImportedPublicationIDs = collectionMemberIds
 
             // Create exploration smart search for sidebar display
             await createExplorationSearch(
