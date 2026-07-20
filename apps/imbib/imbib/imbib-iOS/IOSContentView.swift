@@ -548,21 +548,20 @@ struct IOSSearchView: View {
     @State private var isSearchBarExpanded = true
     @FocusState private var isSearchFieldFocused: Bool
 
-    /// iOS migration debt: `SearchViewModel.publications` was removed
-    /// when ADR-016 routed auto-imports into the active library instead
-    /// of exposing a separate results array. The iOS search UI hasn't
-    /// been updated to query the resulting publications from the
-    /// library yet, so we render an empty array here to keep the file
-    /// compiling. The "Search Online" ContentUnavailableView is shown
-    /// instead of results.
-    private var searchResultStub: [PublicationRowData] { [] }
+    /// Rows for the last online search. ADR-016 auto-imports deduped results
+    /// into the Exploration library and `SearchViewModel` no longer keeps a
+    /// `.publications` array — it exposes `lastImportedPublicationIDs` instead.
+    /// We hydrate those IDs into row data via `RustStoreAdapter.getPublication(id:)`
+    /// (the same row shape the revived list wrapper renders), refreshed after
+    /// each search completes and on `store.dataVersion` bumps (async enrichment).
+    @State private var searchResults: [PublicationRowData] = []
 
     var body: some View {
         VStack(spacing: 0) {
             // Search bar section - stays pinned at top regardless of keyboard
             VStack(spacing: 0) {
                 // Collapsed search bar (shows when results are displayed and search bar is collapsed)
-                if !isSearchBarExpanded && !searchResultStub.isEmpty {
+                if !isSearchBarExpanded && !searchResults.isEmpty {
                     collapsedSearchBar
                         .padding(.horizontal)
                         .padding(.vertical, 8)
@@ -594,10 +593,12 @@ struct IOSSearchView: View {
         .toolbar {
             // Clear results / Cancel button
             ToolbarItem(placement: .topBarLeading) {
-                if !searchResultStub.isEmpty {
+                if !searchResults.isEmpty {
                     Button("Clear") {
                         searchText = ""
                         searchViewModel.query = ""
+                        searchResults = []
+                        multiSelection.removeAll()
                         isSearchBarExpanded = true
                     }
                 }
@@ -626,6 +627,11 @@ struct IOSSearchView: View {
                 hasAppliedInitialQuery = false
                 applyInitialQueryIfNeeded()
             }
+        }
+        .onChange(of: RustStoreAdapter.shared.dataVersion) { _, _ in
+            // Async enrichment/indexing after import mutates rows — re-hydrate.
+            guard !searchViewModel.lastImportedPublicationIDs.isEmpty else { return }
+            refreshSearchResults()
         }
     }
 
@@ -727,14 +733,14 @@ struct IOSSearchView: View {
         if searchViewModel.isSearching {
             ProgressView("Searching...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if searchResultStub.isEmpty {
+        } else if searchResults.isEmpty {
             ContentUnavailableView(
                 "Search Online",
                 systemImage: "magnifyingglass",
                 description: Text("Search arXiv, ADS, Crossref, and more")
             )
         } else {
-            List(searchResultStub, id: \.id, selection: $multiSelection) { publication in
+            List(searchResults, id: \.id, selection: $multiSelection) { publication in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(publication.title ?? "Untitled")
                         .font(.headline)
@@ -778,7 +784,23 @@ struct IOSSearchView: View {
 
         Task {
             await searchViewModel.search()
+            refreshSearchResults()
         }
+    }
+
+    /// Hydrate row data for the last search's imported/deduped publications.
+    ///
+    /// ADR-016 imports results into the Exploration library; we resolve the
+    /// view model's `lastImportedPublicationIDs` into `PublicationRowData`
+    /// via the same store accessor the list wrapper uses.
+    private func refreshSearchResults() {
+        let store = RustStoreAdapter.shared
+        let ids = searchViewModel.lastImportedPublicationIDs
+        searchResults = ids.compactMap { store.getPublication(id: $0) }
+        Logger.search.infoCapture(
+            "iOS search results hydrated: \(searchResults.count)/\(ids.count) rows",
+            category: "search"
+        )
     }
 
     private func sendSelectedToInbox() {
