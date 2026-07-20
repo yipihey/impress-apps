@@ -248,7 +248,7 @@ lazy_static! {
         patterns.extend(SPECIAL_CHARACTERS.iter().copied());
         patterns.extend(MATH_SYMBOLS.iter().copied());
         // Sort by pattern length, longest first
-        patterns.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        patterns.sort_by_key(|p| std::cmp::Reverse(p.0.len()));
         patterns
     };
 }
