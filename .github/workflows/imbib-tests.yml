@@ -235,7 +235,10 @@ jobs:
         working-directory: apps/imbib/imbib
         run: |
           set -eo pipefail
-          UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          # First AVAILABLE iPhone/iPad — an unfiltered head -1 can pick an
+          # Apple Vision Pro on runners where visionOS sims list first, and
+          # xcodebuild then rejects the destination for the iOS scheme.
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone|iPad" | grep -oE '[0-9A-F-]{36}' | head -1)
           echo "sim: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
