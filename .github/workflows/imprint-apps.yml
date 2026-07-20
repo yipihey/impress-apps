@@ -10,6 +10,10 @@ on:
     paths:
       - 'apps/imprint/**'
       - 'crates/imprint-core/**'
+      # Sibling cores whose xcframeworks this workflow builds and links.
+      - 'crates/impress-helix/**'
+      - 'crates/impress-store-ffi/**'
+      - 'crates/imbib-core/**'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'
   pull_request:
@@ -17,6 +21,10 @@ on:
     paths:
       - 'apps/imprint/**'
       - 'crates/imprint-core/**'
+      # Sibling cores whose xcframeworks this workflow builds and links.
+      - 'crates/impress-helix/**'
+      - 'crates/impress-store-ffi/**'
+      - 'crates/imbib-core/**'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'
 
