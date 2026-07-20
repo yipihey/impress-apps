@@ -38,13 +38,21 @@ public enum UITestingEnvironment {
     // MARK: - Detection
 
     /// Whether the app was launched in UI testing mode.
+    ///
+    /// Accepts both spellings: `RustStoreAdapter`, `LibraryManager`, and
+    /// `TestApp` gate the in-memory store on `--ui-testing`, while earlier
+    /// helpers here used `--uitesting`. Honoring both keeps the in-memory
+    /// store switch and this environment on the same flag (they were
+    /// silently divergent before).
     public static var isUITesting: Bool {
-        ProcessInfo.processInfo.arguments.contains("--uitesting")
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--uitesting") || args.contains("--ui-testing")
     }
 
     /// Whether test data should be seeded on launch.
     public static var shouldSeedTestData: Bool {
-        ProcessInfo.processInfo.arguments.contains("--uitesting-seed")
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--uitesting-seed") || args.contains("--ui-testing-seed")
     }
 
     /// Get custom fixture name from launch arguments (e.g., `--uitesting-fixture=large`).

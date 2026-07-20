@@ -67,13 +67,27 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build | tail -50
 
-      - name: Build imprint-iOS (Simulator)
+      # Install-smoke: boot a sim, build for it, install, launch. A plain
+      # `build` (generic destination) never installs, so it CANNOT catch
+      # Info.plist/appex install rejections — exactly the class of bug that
+      # broke imprint-iOS install (missing NSExtension/CFBundleDisplayName).
+      - name: imprint-iOS install smoke (Simulator)
         working-directory: apps/imprint
         run: |
-          set -o pipefail
-          xcodebuild -project imprint.xcodeproj \
-            -scheme imprint-iOS \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            build | tail -50
+          set -eo pipefail
+          UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          echo "sim: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
+            -destination "id=$UDID" -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO build | tail -30
+          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imprint.app' | head -1)
+          echo "installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.imbib.imprint
+          sleep 5
+          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint" \
+            && echo "imprint-iOS launched OK" \
+            || (echo "imprint-iOS did not launch" && exit 1)

@@ -42,7 +42,8 @@ Modes:
   performance  Run deterministic Swift perf smoke; opt into Criterion with IMBIB_AUTONOMOUS_RUN_CARGO_BENCH=1
   full         Full no-human gate: swift-core + rust-core + build
   ui-smoke     Runs the existing basic XCUITest smoke; launches the app
-  all          Full no-human gate plus ui-smoke
+  ios          Boot a simulator, build+install imbib-iOS, launch smoke
+  all          Full no-human gate plus ui-smoke + ios
 
 Environment:
   IMBIB_AUTONOMOUS_LOG_DIR       Directory for per-step logs (default: /tmp/imbib-autonomous-tests)
@@ -220,6 +221,71 @@ run_build() {
         CODE_SIGNING_ALLOWED=NO
 }
 
+# iOS install-smoke: build for a booted simulator, install, launch, verify
+# the process is alive. A plain `build` never installs, so it cannot catch
+# appex/Info.plist install rejections (the class of bug that broke
+# imprint-iOS install). Device selectable via IMBIB_IOS_SIM_NAME.
+run_ios() {
+    require_command xcodebuild
+    require_command xcrun
+    prepare_xcode_project
+
+    local sim_name="${IMBIB_IOS_SIM_NAME:-iPad Pro}"
+    local udid
+    udid="$(xcrun simctl list devices available \
+        | grep -F "$sim_name" | grep -oE '[0-9A-F-]{36}' | head -1)"
+    if [ -z "$udid" ]; then
+        udid="$(xcrun simctl list devices available \
+            | grep -oE '[0-9A-F-]{36}' | head -1)"
+    fi
+    if [ -z "$udid" ]; then
+        printf "FAIL no iOS simulator available\n"
+        record_summary "FAIL  ios no simulator available"
+        FAILED_STEPS+=("imbib iOS install smoke")
+        return
+    fi
+    printf "iOS simulator: %s (%s)\n" "$sim_name" "$udid"
+    xcrun simctl boot "$udid" >/dev/null 2>&1 || true
+    xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
+
+    local source_packages="$RUN_DIR/SourcePackages"
+    local xcode_home="$RUN_DIR/xcode-home"
+    mkdir -p "$source_packages" "$xcode_home"
+
+    run_step \
+        "imbib iOS build (device sim)" \
+        "$RUN_DIR/xcode-ios-devicesim-build.log" \
+        env HOME="$xcode_home" TMPDIR="$TMPDIR" \
+        xcodebuild build \
+        -project "$XCODE_PROJECT" \
+        -scheme imbib-iOS \
+        -destination "id=$udid" \
+        -derivedDataPath "$DERIVED_DATA/ios-sim" \
+        -clonedSourcePackagesDirPath "$source_packages" \
+        CODE_SIGNING_ALLOWED=NO
+
+    local app
+    app="$(find "$DERIVED_DATA/ios-sim/Build/Products/Debug-iphonesimulator" \
+        -maxdepth 1 -name 'imbib.app' 2>/dev/null | head -1)"
+    if [ -z "$app" ]; then
+        printf "FAIL imbib.app not produced — skipping install smoke\n"
+        record_summary "FAIL  ios build produced no app"
+        FAILED_STEPS+=("imbib iOS install smoke")
+        return
+    fi
+
+    run_step \
+        "imbib iOS install + launch smoke" \
+        "$RUN_DIR/ios-install-smoke.log" \
+        bash -c "
+            set -eo pipefail
+            xcrun simctl install '$udid' '$app'
+            xcrun simctl launch '$udid' com.impress.imbib
+            sleep 5
+            xcrun simctl spawn '$udid' launchctl list 2>/dev/null | grep -q com.impress.imbib
+        "
+}
+
 run_performance() {
     require_command swift
     run_step \
@@ -284,11 +350,15 @@ case "$MODE" in
     ui-smoke)
         run_ui_smoke
         ;;
+    ios)
+        run_ios
+        ;;
     all)
         run_swift_core
         run_rust_core
         run_build
         run_ui_smoke
+        run_ios
         ;;
     *)
         printf "Unknown mode: %s\n\n" "$MODE"

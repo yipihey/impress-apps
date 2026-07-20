@@ -202,6 +202,28 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee build-output-ios.txt
 
+      # Install-smoke: a `build` never installs, so it can't catch appex /
+      # Info.plist install rejections. Boot a sim, install, launch.
+      - name: imbib-iOS install smoke (Simulator)
+        working-directory: apps/imbib/imbib
+        run: |
+          set -eo pipefail
+          UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          echo "sim: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -scheme imbib-iOS -configuration Debug \
+            -destination "id=$UDID" -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO build | tail -30
+          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
+          echo "installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.impress.imbib
+          sleep 5
+          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.impress.imbib" \
+            && echo "imbib-iOS launched OK" \
+            || (echo "imbib-iOS did not launch" && exit 1)
+
       - name: Upload iOS build results
         if: always()
         uses: actions/upload-artifact@v4
