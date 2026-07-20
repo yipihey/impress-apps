@@ -36,6 +36,11 @@ struct IOSKeyboardShortcutsSettingsView: View {
                     Image(systemName: "keyboard")
                         .foregroundStyle(Color.accentColor)
                 }
+            } footer: {
+                // Honesty note: the recorder below writes to KeyboardShortcutsStore,
+                // but on iOS the active chords are fixed (bound in KeyboardShortcutButtons).
+                // Custom rebinding is only honored on macOS today. See task/CLAUDE notes.
+                Text("Rebinding shortcuts is currently macOS-only. On iPad the chords shown here are fixed; edits are saved but not yet applied.")
             }
 
             ForEach(ShortcutCategory.allCases, id: \.self) { category in

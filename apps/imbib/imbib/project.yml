@@ -251,7 +251,12 @@ targets:
           # IOSCloudKitSyncSettingsView shim over CloudKitSyncSettingsStore).
           # Its stub is excluded so the type is unique.
           - "Views/IOSSettingsViewStub.swift"
-          - "Views/Sharing/IOSMailComposer.swift"
+          # IOSMailComposer.swift REVIVED 2026-07-20 — MFMailComposeViewController
+          # wrapper ported off CDPublication to id-based PublicationModel
+          # (RustStoreAdapter.getPublicationDetail; BibTeX via exportBibTeX; PDF
+          # via AttachmentManager UUID-keyed paths). Its stub is excluded so the
+          # type is unique.
+          - "Views/Sharing/IOSMailComposerStub.swift"
           # IOSInfoTab.swift REVIVED — id-based metadata tab (attachments, file
           # import, explore/references, cite badges) ported off LibraryModel
           # .containerURL to AttachmentManager UUID-keyed paths. Its stub is

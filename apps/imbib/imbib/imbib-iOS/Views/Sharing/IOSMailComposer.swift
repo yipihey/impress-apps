@@ -3,6 +3,10 @@
 //  imbib-iOS
 //
 //  Created by Claude on 2026-01-18.
+//  Revived 2026-07-20: migrated from the CDPublication reference type to the
+//  value-type `PublicationModel` store. The view now takes a `publicationID`
+//  (matching the interim stub's init) and resolves the full detail via
+//  `RustStoreAdapter.shared.getPublicationDetail(id:)`.
 //
 
 import SwiftUI
@@ -15,11 +19,16 @@ struct IOSMailComposer: UIViewControllerRepresentable {
 
     // MARK: - Properties
 
-    /// The publication to share
-    let publication: CDPublication
+    /// The publication to share, resolved from the value-type store by id.
+    let publicationID: UUID?
 
     /// Closure called when the mail composer is dismissed
     let onDismiss: () -> Void
+
+    init(publicationID: UUID? = nil, onDismiss: @escaping () -> Void = {}) {
+        self.publicationID = publicationID
+        self.onDismiss = onDismiss
+    }
 
     // MARK: - Static Check
 
@@ -28,29 +37,40 @@ struct IOSMailComposer: UIViewControllerRepresentable {
         MFMailComposeViewController.canSendMail()
     }
 
+    // MARK: - Resolution
+
+    /// Resolve the full publication detail from the shared value-type store.
+    @MainActor
+    private var publication: PublicationModel? {
+        guard let publicationID else { return nil }
+        return RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
+    }
+
     // MARK: - UIViewControllerRepresentable
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onDismiss: onDismiss)
     }
 
+    @MainActor
     func makeUIViewController(context: Context) -> MFMailComposeViewController {
         let composer = MFMailComposeViewController()
         composer.mailComposeDelegate = context.coordinator
 
+        guard let publication else { return composer }
+
         // Set subject
-        let title = publication.title ?? "Untitled"
-        composer.setSubject("Paper: \(title)")
+        composer.setSubject("Paper: \(publication.title)")
 
         // Build email body
-        var body = buildEmailBody()
+        let body = buildEmailBody(for: publication)
         composer.setMessageBody(body, isHTML: false)
 
         // Attach PDF if available
-        attachPDF(to: composer)
+        attachPDF(to: composer, publication: publication)
 
         // Attach BibTeX
-        attachBibTeX(to: composer)
+        attachBibTeX(to: composer, publication: publication)
 
         return composer
     }
@@ -61,31 +81,28 @@ struct IOSMailComposer: UIViewControllerRepresentable {
 
     // MARK: - Email Body
 
-    private func buildEmailBody() -> String {
+    private func buildEmailBody(for publication: PublicationModel) -> String {
         var lines: [String] = []
 
         // Title
-        if let title = publication.title {
-            lines.append(title)
-            lines.append("")
-        }
+        lines.append(publication.title)
+        lines.append("")
 
         // Authors
-        let authors = publication.sortedAuthors.map { $0.displayName }.joined(separator: ", ")
+        let authors = publication.authors.map { $0.displayName }.joined(separator: ", ")
         if !authors.isEmpty {
             lines.append("Authors: \(authors)")
         }
 
         // Year
-        if publication.year > 0 {
-            lines.append("Year: \(publication.year)")
+        if let year = publication.year, year > 0 {
+            lines.append("Year: \(year)")
         }
 
         // Venue
-        let fields = publication.fields
-        if let journal = fields["journal"], !journal.isEmpty {
+        if let journal = publication.journal, !journal.isEmpty {
             lines.append("Journal: \(journal)")
-        } else if let booktitle = fields["booktitle"], !booktitle.isEmpty {
+        } else if let booktitle = publication.booktitle, !booktitle.isEmpty {
             lines.append("Conference: \(booktitle)")
         }
 
@@ -123,59 +140,51 @@ struct IOSMailComposer: UIViewControllerRepresentable {
 
     // MARK: - Attachments
 
-    private func attachPDF(to composer: MFMailComposeViewController) {
-        // Get the first linked PDF file
-        guard let linkedFiles = publication.linkedFiles,
-              let pdfFile = linkedFiles.first(where: { $0.fileExtension == "pdf" }) else {
+    private func attachPDF(to composer: MFMailComposeViewController, publication: PublicationModel) {
+        // Get the first linked PDF file that resolves to an on-disk URL.
+        guard let libraryID = publication.libraryIDs.first else { return }
+
+        for pdfFile in publication.linkedFiles where pdfFile.isPDF {
+            guard let pdfURL = resolveFileURL(pdfFile, libraryID: libraryID),
+                  let pdfData = try? Data(contentsOf: pdfURL) else {
+                continue
+            }
+            composer.addAttachmentData(pdfData, mimeType: "application/pdf", fileName: pdfFile.filename)
             return
         }
-
-        let filename = pdfFile.filename
-
-        // Construct the PDF path
-        guard let library = publication.libraries?.first,
-              let folderURL = library.folderURL else {
-            return
-        }
-
-        let pdfURL = folderURL.appendingPathComponent("Papers").appendingPathComponent(filename)
-
-        // Read and attach
-        guard let pdfData = try? Data(contentsOf: pdfURL) else {
-            return
-        }
-
-        let attachmentName = pdfFile.effectiveDisplayName
-        composer.addAttachmentData(pdfData, mimeType: "application/pdf", fileName: attachmentName)
     }
 
-    private func attachBibTeX(to composer: MFMailComposeViewController) {
-        // Generate BibTeX
+    /// Resolve a linked file to an on-disk URL using the value-type store's
+    /// UUID-keyed container path (mirrors IOSInfoTab.resolveFileURL), with a
+    /// fallback to the legacy pre-v1.3.0 `imbib/` app-support location.
+    private func resolveFileURL(_ file: LinkedFileModel, libraryID: UUID) -> URL? {
+        guard let path = file.relativePath else { return nil }
+        let normalizedPath = path.precomposedStringWithCanonicalMapping
+        let fileManager = FileManager.default
+
+        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
+            .appendingPathComponent(normalizedPath)
+        if fileManager.fileExists(atPath: containerURL.path) { return containerURL }
+
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("imbib") {
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: legacyURL.path) { return legacyURL }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func attachBibTeX(to composer: MFMailComposeViewController, publication: PublicationModel) {
+        // Prefer the stored raw BibTeX; otherwise export a fresh entry from the store.
         let bibtex: String
         if let rawBibTeX = publication.rawBibTeX, !rawBibTeX.isEmpty {
             bibtex = rawBibTeX
         } else {
-            // Generate BibTeX entry from LocalPaper wrapper
-            if let libraryID = publication.libraries?.first?.id,
-               let paper = LocalPaper(publication: publication, libraryID: libraryID) {
-                let entry = BibTeXExporter.generateEntry(from: paper)
-                bibtex = BibTeXExporter().export(entry)
-            } else {
-                // Fallback: construct minimal BibTeX manually
-                let title = publication.title ?? "Untitled"
-                let authors = publication.sortedAuthors.map { $0.bibtexName }.joined(separator: " and ")
-                let year = publication.year > 0 ? String(publication.year) : ""
-                bibtex = """
-                @article{\(publication.citeKey),
-                    title = {\(title)},
-                    author = {\(authors)},
-                    year = {\(year)}
-                }
-                """
-            }
+            bibtex = RustStoreAdapter.shared.exportBibTeX(ids: [publication.id])
         }
 
-        guard let bibtexData = bibtex.data(using: .utf8) else {
+        guard !bibtex.isEmpty, let bibtexData = bibtex.data(using: .utf8) else {
             return
         }
 
@@ -203,14 +212,14 @@ struct IOSMailComposer: UIViewControllerRepresentable {
 // MARK: - Mail Composer View Modifier
 
 extension View {
-    /// Presents a mail composer sheet for sharing a publication.
+    /// Presents a mail composer sheet for sharing a publication by id.
     func mailComposer(
         isPresented: Binding<Bool>,
-        publication: CDPublication?
+        publicationID: UUID?
     ) -> some View {
         self.sheet(isPresented: isPresented) {
-            if let publication = publication, IOSMailComposer.canSendEmail {
-                IOSMailComposer(publication: publication) {
+            if let publicationID, IOSMailComposer.canSendEmail {
+                IOSMailComposer(publicationID: publicationID) {
                     isPresented.wrappedValue = false
                 }
                 .ignoresSafeArea()
