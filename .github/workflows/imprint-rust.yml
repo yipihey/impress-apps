@@ -140,16 +140,38 @@ jobs:
 
       # tectonic-render pulls its C deps from the vcpkg tree (static, no Homebrew
       # dylibs). The tests fetch the TeX bundle on first run (needs network).
+      # The TeX bundle + generated format files persist across runs; a cold
+      # or flaky first fetch otherwise fails the end-to-end compile test
+      # with "could not open format file latex".
+      - name: Cache Tectonic bundle + formats
+        uses: actions/cache@v4
+        with:
+          path: ~/tectonic-cache
+          key: ${{ runner.os }}-tectonic-bundle-v1
+
       - name: Test tectonic-render (imprint-core)
         env:
           VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
           TECTONIC_DEP_BACKEND: vcpkg
-        run: cargo test -p imprint-core --features tectonic-render
+          TECTONIC_CACHE_DIR: ~/tectonic-cache
+        run: |
+          # Warm the bundle/format cache with retries before the real tests:
+          # the first fetch is network-dependent and occasionally partial.
+          for i in 1 2 3; do
+            if cargo test -p imprint-core --features tectonic-render --test tectonic_spike -- compiles_to_pdf_with_synctex; then
+              break
+            fi
+            echo "warm-up attempt $i failed; clearing format cache and retrying"
+            rm -rf ~/tectonic-cache/formats
+            sleep 10
+          done
+          cargo test -p imprint-core --features tectonic-render
 
       - name: Tier-A self-test with tectonic-render
         env:
           VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
           TECTONIC_DEP_BACKEND: vcpkg
+          TECTONIC_CACHE_DIR: ~/tectonic-cache
         run: cargo run -p imprint-selftest --features tectonic-render --bin imprint-selftest -- --tier a
 
   generate-bindings:
