@@ -169,7 +169,8 @@ public final class ImprintStoreAdapter {
         body: String,
         sectionType: String?,
         orderIndex: Int?,
-        documentID: String?
+        documentID: String?,
+        sectionKey: String? = nil
     ) {
         guard isReady else {
             logger.debugCapture("ImprintStoreAdapter.storeSection skipped — adapter not ready", category: "shared-store")
@@ -198,8 +199,11 @@ public final class ImprintStoreAdapter {
         ]
         if let sectionType = sectionType { payload["section_type"] = sectionType }
         if let orderIndex = orderIndex   { payload["order_index"] = orderIndex }
-        if let documentID = documentID   { payload["document_id"] = documentID }
+        // Rust `SectionStore` compares this as a lowercase string
+        // (`Uuid::to_string`); normalize so cross-layer queries match.
+        if let documentID = documentID   { payload["document_id"] = documentID.lowercased() }
         if let hash = contentHash        { payload["content_hash"] = hash }
+        if let sectionKey = sectionKey   { payload["section_key"] = sectionKey }
 
         guard let payloadJSON = try? JSONSerialization.data(withJSONObject: payload),
               let payloadString = String(data: payloadJSON, encoding: .utf8) else {
@@ -372,5 +376,75 @@ public final class ImprintStoreAdapter {
             _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &digest)
         }
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - Throughline mirror (ADR-0016)
+
+    /// Mirror a document's throughline sidecars into the shared store as a
+    /// `throughline` item. Payload field names match
+    /// `imprint_service::throughline::ThroughlinePayload`; the item id is
+    /// the deterministic UUID-v5 the Rust side derives, so both layers
+    /// address the same row. Non-fatal like `storeSection`.
+    ///
+    /// Opt-in invariant (ADR-0016 D1): callers only invoke this for
+    /// documents that HAVE a throughline; there is no code path that
+    /// mirrors an absent one.
+    public func storeThroughline(
+        itemID: String,
+        documentID: String,
+        title: String,
+        source: String,
+        anchorMapJSON: String,
+        paragraphCount: Int
+    ) {
+        guard isReady else { return }
+        let payload: [String: Any] = [
+            "title": title,
+            "document_ref": documentID.lowercased(),
+            "body_content": source,
+            "anchor_map_json": anchorMapJSON,
+            "content_hash": sha256Hex(source),
+            "anchor_map_hash": sha256Hex(anchorMapJSON),
+            "paragraph_count": paragraphCount,
+        ]
+        guard let payloadData = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadString = String(data: payloadData, encoding: .utf8) else {
+            logger.warningCapture(
+                "storeThroughline: failed to encode payload for \(documentID)",
+                category: "throughline")
+            return
+        }
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.upsertItem(id: itemID, schemaRef: "throughline", payloadJson: payloadString)
+            logger.infoCapture(
+                "storeThroughline: mirrored doc=\(documentID) paragraphs=\(paragraphCount)",
+                category: "throughline")
+            didMutate(structural: knownSectionIDs.insert("throughline:\(itemID)").inserted)
+        } catch {
+            logger.warningCapture(
+                "storeThroughline: upsert failed for \(documentID) — \(error.localizedDescription)",
+                category: "throughline")
+        }
+        #endif
+    }
+
+    /// Remove a document's throughline mirror (deactivation, ADR-0016 D1).
+    public func deleteThroughline(itemID: String, documentID: String) {
+        guard isReady else { return }
+        #if canImport(ImpressRustCore)
+        do {
+            try store?.deleteItem(id: itemID)
+            knownSectionIDs.remove("throughline:\(itemID)")
+            logger.infoCapture(
+                "deleteThroughline: removed mirror for doc=\(documentID)",
+                category: "throughline")
+            didMutate(structural: true)
+        } catch {
+            logger.debugCapture(
+                "deleteThroughline ignored for \(documentID): \(error.localizedDescription)",
+                category: "throughline")
+        }
+        #endif
     }
 }

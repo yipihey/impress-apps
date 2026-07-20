@@ -623,6 +623,18 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
 
             #if os(macOS)
+            if appState.showingThroughline {
+                Divider()
+
+                ThroughlinePaneView(
+                    document: $document,
+                    onNavigateToSection: { sectionKey in
+                        navigateToSection(slugKey: sectionKey)
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            }
+
             if appState.showingAIAssistant {
                 Divider()
 
@@ -642,6 +654,24 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: appState.showingComments)
         .animation(.easeInOut(duration: 0.15), value: appState.showingAIAssistant)
+        .animation(.easeInOut(duration: 0.15), value: appState.showingThroughline)
+    }
+
+    /// Move the cursor to the heading whose slug key matches (throughline
+    /// anchor click-through). Slug keys are derived from heading titles by
+    /// `ThroughlineText.sectionKey(forHeading:)`.
+    private func navigateToSection(slugKey: String) {
+        #if os(macOS)
+        for section in ThroughlineCoordinator.extractSections(of: document)
+        where section.key == slugKey {
+            if let range = document.source.range(of: "= \(section.title)")
+                ?? document.source.range(of: section.title) {
+                cursorPosition = document.source.distance(
+                    from: document.source.startIndex, to: range.lowerBound)
+            }
+            return
+        }
+        #endif
     }
 
     /// The source editor area: one editor, or two views into the same document
@@ -1425,6 +1455,7 @@ private struct NotificationHandlersModifier: ViewModifier {
                 (.toggleFocusMode, { _ in appState.isFocusMode.toggle() }),
                 (.toggleAIAssistant, { _ in withAnimation { appState.showingAIAssistant.toggle() } }),
                 (.toggleCommentsSidebar, { _ in withAnimation { appState.showingComments.toggle() } }),
+                (.toggleThroughlinePane, { _ in withAnimation { appState.showingThroughline.toggle() } }),
                 (.toggleVeuszPlotsPanel, { _ in withAnimation { appState.showingVeuszPlots.toggle() } }),
                 (.exportPDF, { _ in onExportPDF() }),
                 (.printPDF, { _ in onPrintPDF() }),

@@ -73,7 +73,9 @@ targets:
       - name: Install to ~/Applications (Debug)
         basedOnDependencyAnalysis: false
         script: |
-          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ]; then
+          # IMPRESS_SKIP_INSTALL=1 opts out (worktree/CI builds must not
+          # hijack the ~/Applications copy a developer is actively using).
+          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ] && [ -z "$IMPRESS_SKIP_INSTALL" ]; then
             DEST="$HOME/Applications"
             LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
             mkdir -p "$DEST"

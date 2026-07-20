@@ -814,6 +814,11 @@ struct ImprintApp: App {
             }
             .keyboardShortcut("K", modifiers: [.command, .option])
 
+            Button(appState.showingThroughline ? "Hide Throughline" : "Show Throughline") {
+                NotificationCenter.default.post(name: .toggleThroughlinePane, object: nil)
+            }
+            .keyboardShortcut("T", modifiers: [.command, .option])
+
             appearanceMenu
 
             Divider()
@@ -973,6 +978,10 @@ class AppState {
 
     /// Whether the comments sidebar is visible
     var showingComments = false
+
+    /// Whether the throughline pane is visible (ADR-0016). Off by default;
+    /// the pane itself is inert for documents without a throughline.
+    var showingThroughline = false
 
     /// Whether the Veusz plots inspector panel is visible
     var showingVeuszPlots = false
