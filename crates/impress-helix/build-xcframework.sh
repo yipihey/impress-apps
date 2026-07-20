@@ -90,7 +90,7 @@ cargo run --features ffi --bin uniffi-bindgen generate \
 
 # Create headers directory with unique subdirectory to avoid Xcode conflicts
 # This puts headers in impress_helix/ subdirectory so multiple xcframeworks don't conflict
-HEADERS_DIR="$FRAMEWORK_DIR/headers/impress_helix"
+HEADERS_DIR="$FRAMEWORK_DIR/headers/impress_helixFFI"
 mkdir -p "$HEADERS_DIR"
 cp "$FRAMEWORK_DIR/generated/impress_helixFFI.h" "$HEADERS_DIR/"
 
