@@ -400,6 +400,9 @@ fn render_step(
     }
 }
 
+// Plot-render signatures mirror the SVG element parameter lists;
+// bundling into a struct is the implore owner's refactor call.
+#[allow(clippy::too_many_arguments)]
 fn render_bars(
     svg: &mut SvgBuilder,
     series: &PlotSeries,
@@ -887,6 +890,7 @@ impl SvgBuilder {
         self.parts.push(s.to_string());
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn line(
         &mut self,
         x1: f64,
@@ -904,6 +908,7 @@ impl SvgBuilder {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn rect(
         &mut self,
         x: f64,
@@ -938,6 +943,7 @@ impl SvgBuilder {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn text(
         &mut self,
         x: f64,

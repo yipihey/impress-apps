@@ -17,6 +17,9 @@ pub enum SliceAxis {
 }
 
 impl SliceAxis {
+    // Option-returning parser predates std FromStr adoption; renaming is
+    // a public-API change for the implore owner.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "x" => Some(Self::X),
@@ -65,6 +68,7 @@ pub enum DerivedQuantity {
 }
 
 impl DerivedQuantity {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "gain_factor" => Some(Self::GainFactor),
@@ -506,8 +510,10 @@ fn parse_cascade_stats(npz: &NpzFile, names: &[String]) -> Option<RgCascadeStats
         return None;
     }
 
-    let mut stats = RgCascadeStats::default();
-    stats.sigma_max = f32::NAN;
+    let mut stats = RgCascadeStats {
+        sigma_max: f32::NAN,
+        ..Default::default()
+    };
 
     if has_mu {
         stats.mu_per_level = read_1d_or_empty(npz, "mu_per_level");

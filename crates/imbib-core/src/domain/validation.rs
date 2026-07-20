@@ -79,32 +79,26 @@ pub fn validate_publication(publication: &Publication) -> Vec<ValidationError> {
                 });
             }
         }
-        "inproceedings" | "conference" => {
-            if publication.booktitle.is_none() {
-                errors.push(ValidationError {
-                    field: "booktitle".to_string(),
-                    message: "Booktitle is required for conference entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
+        "inproceedings" | "conference" if publication.booktitle.is_none() => {
+            errors.push(ValidationError {
+                field: "booktitle".to_string(),
+                message: "Booktitle is required for conference entries".to_string(),
+                severity: ValidationSeverity::Warning,
+            });
         }
-        "book" | "inbook" => {
-            if publication.publisher.is_none() {
-                errors.push(ValidationError {
-                    field: "publisher".to_string(),
-                    message: "Publisher is recommended for book entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
+        "book" | "inbook" if publication.publisher.is_none() => {
+            errors.push(ValidationError {
+                field: "publisher".to_string(),
+                message: "Publisher is recommended for book entries".to_string(),
+                severity: ValidationSeverity::Warning,
+            });
         }
-        "phdthesis" | "mastersthesis" => {
-            if publication.school.is_none() {
-                errors.push(ValidationError {
-                    field: "school".to_string(),
-                    message: "School is required for thesis entries".to_string(),
-                    severity: ValidationSeverity::Warning,
-                });
-            }
+        "phdthesis" | "mastersthesis" if publication.school.is_none() => {
+            errors.push(ValidationError {
+                field: "school".to_string(),
+                message: "School is required for thesis entries".to_string(),
+                severity: ValidationSeverity::Warning,
+            });
         }
         _ => {}
     }

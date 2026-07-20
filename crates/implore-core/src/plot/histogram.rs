@@ -405,7 +405,7 @@ mod tests {
     fn test_auto_bin_count() {
         let data: Vec<f64> = (0..1000).map(|i| i as f64 / 100.0).collect();
         let bins = auto_bin_count(&data);
-        assert!(bins >= 5 && bins <= 200);
+        assert!((5..=200).contains(&bins));
     }
 
     #[test]
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_compute_stats() {
-        let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let stats = compute_stats(&data);
         assert_eq!(stats.count, 5);
         assert!((stats.mean - 3.0).abs() < 1e-10);
@@ -451,7 +451,7 @@ mod tests {
         let result = compute_histogram(&data, &config);
         let spec = histogram_to_plot_spec(&result, &config);
 
-        assert!(spec.series.len() >= 1);
+        assert!(!spec.series.is_empty());
         assert_eq!(spec.series[0].style, SeriesStyle::Bar);
     }
 

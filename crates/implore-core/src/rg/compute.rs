@@ -114,7 +114,7 @@ fn velocity_gradient(u: &Array4<f32>, h: f32) -> Array4<f32> {
 
                 for i in 0..3usize {
                     // du_i/dx (j=0)
-                    a[[i * 3 + 0, iz, iy, ix]] =
+                    a[[(i * 3), iz, iy, ix]] =
                         (u[[i, iz, iy, ixp]] - u[[i, iz, iy, ixm]]) * inv_2h;
                     // du_i/dy (j=1)
                     a[[i * 3 + 1, iz, iy, ix]] =

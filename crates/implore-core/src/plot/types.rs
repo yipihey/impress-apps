@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 /// How to render a data series.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SeriesStyle {
+    #[default]
     Line,
     Scatter,
     LineScatter,
@@ -17,17 +19,14 @@ pub enum SeriesStyle {
     Step,
 }
 
-impl Default for SeriesStyle {
-    fn default() -> Self {
-        Self::Line
-    }
-}
 
 // ── Color ───────────────────────────────────────────────────────────
 
 /// Named colors suitable for scientific plots (color-blind friendly).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum PlotColor {
+    #[default]
     Blue,
     Red,
     Green,
@@ -40,11 +39,6 @@ pub enum PlotColor {
     Rgb(u8, u8, u8),
 }
 
-impl Default for PlotColor {
-    fn default() -> Self {
-        Self::Blue
-    }
-}
 
 impl PlotColor {
     /// CSS color string.
@@ -80,18 +74,15 @@ impl PlotColor {
 
 /// Legend position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LegendPosition {
+    #[default]
     TopRight,
     TopLeft,
     BottomRight,
     BottomLeft,
 }
 
-impl Default for LegendPosition {
-    fn default() -> Self {
-        Self::TopRight
-    }
-}
 
 /// Legend configuration.
 #[derive(Clone, Debug, Serialize, Deserialize)]
