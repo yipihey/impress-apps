@@ -93,7 +93,11 @@ public final class ToolboxLifecycle: Sendable {
 
     /// The app group container directory for the toolbox binary.
     public static var appGroupBinaryURL: URL? {
-        // Team-ID prefix on macOS avoids the app-group TCC prompt.
+        // Never hardcode a single app-group id: macOS needs the Team-ID-
+        // prefixed form to avoid the "access data from other apps" TCC
+        // prompt; iOS requires the `group.` prefix. This mirrors
+        // ImpressKit's SiblingDiscovery.suiteGroupID — kept inline because
+        // ImpressToolbox deliberately does not depend on ImpressKit.
         #if os(macOS)
         let groupID = "QG3MEYVHMS.com.impress.suite"
         #else

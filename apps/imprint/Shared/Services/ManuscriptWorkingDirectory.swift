@@ -1,4 +1,5 @@
 import Foundation
+import ImpressKit
 
 /// Maps a manuscript's UUID to a stable on-disk working directory under the
 /// app-group container, used to expose figures (`.vsz` sources + rendered
@@ -53,14 +54,11 @@ struct ManuscriptWorkingDirectory {
     /// Falls back to the per-app Application Support when the app-group
     /// container is unavailable (UI tests, headless contexts).
     static func defaultContainerRoot() -> URL {
-        // Team-ID prefix on macOS avoids the app-group TCC prompt.
-        #if os(macOS)
-        let groupID = "QG3MEYVHMS.com.impress.suite"
-        #else
-        let groupID = "group.com.impress.suite"
-        #endif
+        // Never hardcode the app-group id: macOS needs the Team-ID-prefixed
+        // form to avoid the "access data from other apps" TCC prompt.
+        // SiblingDiscovery.suiteGroupID picks the right form per platform.
         if let groupContainer = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupID
+            forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         ) {
             return groupContainer
                 .appending(path: "Library/Application Support/impress/manuscripts",
