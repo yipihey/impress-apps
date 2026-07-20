@@ -7,7 +7,7 @@
 //! deterministic helpers).
 
 use imbib_core::search::ads_normalizer::normalize;
-use imbib_core::search::local_filter::{apply, Filterable, FilterFlag};
+use imbib_core::search::local_filter::{apply, FilterFlag, Filterable};
 use imbib_core::search::smart_query::{
     parse, FieldTerm, FlagColor, FlagLength, FlagQuery, FlagStyle, ReadState, SearchField,
     SmartQuery, TagQuery, YearFilter,
@@ -52,7 +52,11 @@ fn print_query(q: &SmartQuery) -> String {
         match fq {
             FlagQuery::HasAny => parts.push("flag:*".to_string()),
             FlagQuery::HasNone => parts.push("-flag:*".to_string()),
-            FlagQuery::Pattern { color, style, length } => {
+            FlagQuery::Pattern {
+                color,
+                style,
+                length,
+            } => {
                 let c = color.map(flag_color_char).unwrap_or('*');
                 let s = style.map(flag_style_char).unwrap_or('*');
                 let l = length.map(flag_length_char).unwrap_or('*');
@@ -129,7 +133,9 @@ fn arb_search_field() -> impl Strategy<Value = SearchField> {
 fn arb_year_filter() -> impl Strategy<Value = YearFilter> {
     prop_oneof![
         (1000i32..=9998).prop_map(YearFilter::Exact),
-        (1000i32..=9998).prop_flat_map(|lo| (Just(lo), lo..=9998).prop_map(|(lo, hi)| YearFilter::Range(lo, hi))),
+        (1000i32..=9998).prop_flat_map(
+            |lo| (Just(lo), lo..=9998).prop_map(|(lo, hi)| YearFilter::Range(lo, hi))
+        ),
         (1000i32..=9998).prop_map(YearFilter::After),
         (1000i32..=9998).prop_map(YearFilter::Before),
     ]
@@ -186,7 +192,15 @@ fn arb_smart_query() -> impl Strategy<Value = SmartQuery> {
         prop::option::of(prop_oneof![Just(ReadState::Read), Just(ReadState::Unread)]),
     )
         .prop_map(
-            |(text_terms, negated_text_terms, field_terms, year_filter, flag_query, tag_queries, read_state)| SmartQuery {
+            |(
+                text_terms,
+                negated_text_terms,
+                field_terms,
+                year_filter,
+                flag_query,
+                tag_queries,
+                read_state,
+            )| SmartQuery {
                 text_terms,
                 negated_text_terms,
                 field_terms,
@@ -243,7 +257,15 @@ impl Filterable for Row {
 
 /// Small closed vocabulary so random queries actually hit rows.
 const VOCAB: &[&str] = &[
-    "galaxy", "quantum", "dark", "energy", "matter", "hydro", "cosmology", "smith", "jones",
+    "galaxy",
+    "quantum",
+    "dark",
+    "energy",
+    "matter",
+    "hydro",
+    "cosmology",
+    "smith",
+    "jones",
 ];
 
 const TAG_VOCAB: &[&str] = &[
@@ -282,7 +304,11 @@ fn arb_flag() -> impl Strategy<Value = FilterFlag> {
             Just(FlagLength::Quarter),
         ],
     )
-        .prop_map(|(color, style, length)| FilterFlag { color, style, length })
+        .prop_map(|(color, style, length)| FilterFlag {
+            color,
+            style,
+            length,
+        })
 }
 
 fn arb_row() -> impl Strategy<Value = Row> {
@@ -296,16 +322,18 @@ fn arb_row() -> impl Strategy<Value = Row> {
         prop::collection::vec(vocab_tag(), 0..3),
         any::<bool>(),
     )
-        .prop_map(|(title_words, author, abs, venue, year, flag, tags, read)| Row {
-            title: title_words.join(" "),
-            author,
-            abstract_: abs.map(|w| w.join(" ")),
-            venue,
-            year,
-            flag,
-            tags,
-            read,
-        })
+        .prop_map(
+            |(title_words, author, abs, venue, year, flag, tags, read)| Row {
+                title: title_words.join(" "),
+                author,
+                abstract_: abs.map(|w| w.join(" ")),
+                venue,
+                year,
+                flag,
+                tags,
+                read,
+            },
+        )
 }
 
 fn arb_corpus() -> impl Strategy<Value = Vec<Row>> {
@@ -527,18 +555,38 @@ proptest! {
 /// ADS-shaped query fragments: exercises the interesting rewrite paths
 /// (field prefixes, spaces after colons, quotes, booleans, shorthands).
 fn ads_like_query() -> impl Strategy<Value = String> {
-    let field = prop::sample::select(&[
-        "author", "first_author", "title", "abs", "bibcode", "year", "object", "a", "t", "b",
-    ][..]);
+    let field = prop::sample::select(
+        &[
+            "author",
+            "first_author",
+            "title",
+            "abs",
+            "bibcode",
+            "year",
+            "object",
+            "a",
+            "t",
+            "b",
+        ][..],
+    );
     let word = "[A-Za-z]{1,8}";
     let fragment = prop_oneof![
         // field:value with optional space after the colon and optional quotes
         (field, "[ ]{0,2}", word).prop_map(|(f, sp, w)| format!("{}:{}{}", f, sp, w)),
-        (prop::sample::select(&["author", "first_author"][..]), word, word)
+        (
+            prop::sample::select(&["author", "first_author"][..]),
+            word,
+            word
+        )
             .prop_map(|(f, a, b)| format!("{}:\"{} {}\"", f, a, b)),
-        (prop::sample::select(&["author", "first_author"][..]), word, word)
+        (
+            prop::sample::select(&["author", "first_author"][..]),
+            word,
+            word
+        )
             .prop_map(|(f, a, b)| format!("{}:{}, {}", f, a, b)),
-        prop::sample::select(&["and", "or", "not", "AND", "OR", "NOT"][..]).prop_map(str::to_string),
+        prop::sample::select(&["and", "or", "not", "AND", "OR", "NOT"][..])
+            .prop_map(str::to_string),
         word.prop_map(|w| w.to_string()),
         (word).prop_map(|w| format!("citations(bibcode:{})", w)),
         Just("(".to_string()),

@@ -418,7 +418,11 @@ fn parse_year_value(value: &str) -> Option<YearFilter> {
 
 fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
     if negated {
-        return if value == "*" { Some(FlagQuery::HasNone) } else { None };
+        return if value == "*" {
+            Some(FlagQuery::HasNone)
+        } else {
+            None
+        };
     }
 
     if value.is_empty() {
@@ -449,7 +453,11 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
     };
 
     if chars.len() == 1 {
-        return Some(FlagQuery::Pattern { color, style: None, length: None });
+        return Some(FlagQuery::Pattern {
+            color,
+            style: None,
+            length: None,
+        });
     }
 
     // Position 2: style or length.
@@ -462,14 +470,22 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
         other => {
             // Maybe it's actually a length char (e.g. "rh" = red, any style, half).
             if let Some(l) = FlagLength::from_shortcut(other) {
-                return Some(FlagQuery::Pattern { color, style: None, length: Some(l) });
+                return Some(FlagQuery::Pattern {
+                    color,
+                    style: None,
+                    length: Some(l),
+                });
             }
             return None;
         }
     }
 
     if chars.len() == 2 {
-        return Some(FlagQuery::Pattern { color, style, length: None });
+        return Some(FlagQuery::Pattern {
+            color,
+            style,
+            length: None,
+        });
     }
 
     // Position 3: length.
@@ -479,7 +495,11 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
         FlagLength::from_shortcut(chars[2])
     };
 
-    Some(FlagQuery::Pattern { color, style, length })
+    Some(FlagQuery::Pattern {
+        color,
+        style,
+        length,
+    })
 }
 
 fn parse_tag_value(value: &str, negated: bool) -> Option<TagQuery> {
@@ -759,7 +779,10 @@ mod tests {
     #[test]
     fn tag_has() {
         let q = parse("tags:methods/hydro");
-        assert_eq!(q.tag_queries, vec![TagQuery::Has("methods/hydro".to_string())]);
+        assert_eq!(
+            q.tag_queries,
+            vec![TagQuery::Has("methods/hydro".to_string())]
+        );
     }
 
     #[test]
@@ -773,7 +796,11 @@ mod tests {
         let q = parse("tags:a+b+c");
         assert_eq!(
             q.tag_queries,
-            vec![TagQuery::HasAll(vec!["a".to_string(), "b".to_string(), "c".to_string()])]
+            vec![TagQuery::HasAll(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string()
+            ])]
         );
     }
 
@@ -809,7 +836,10 @@ mod tests {
                 length: None,
             })
         );
-        assert_eq!(q.tag_queries, vec![TagQuery::Has("methods/hydro".to_string())]);
+        assert_eq!(
+            q.tag_queries,
+            vec![TagQuery::Has("methods/hydro".to_string())]
+        );
         assert_eq!(q.year_filter, Some(YearFilter::After(2020)));
         assert_eq!(q.field_terms.len(), 1);
         assert_eq!(q.field_terms[0].field, SearchField::Title);
@@ -872,6 +902,9 @@ mod tests {
         let q = parse("tags:methods tags:topic/galaxies");
         assert_eq!(q.tag_queries.len(), 2);
         assert_eq!(q.tag_queries[0], TagQuery::Has("methods".to_string()));
-        assert_eq!(q.tag_queries[1], TagQuery::Has("topic/galaxies".to_string()));
+        assert_eq!(
+            q.tag_queries[1],
+            TagQuery::Has("topic/galaxies".to_string())
+        );
     }
 }

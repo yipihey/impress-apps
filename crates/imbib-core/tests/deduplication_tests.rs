@@ -554,8 +554,8 @@ fn arb_dedup_input() -> impl Strategy<Value = DeduplicationInput> {
         opt_ident(),
         prop_oneof![Just(None), (1900i32..2100).prop_map(Some)],
     )
-        .prop_map(
-            |(id, source, title, doi, arxiv_id, pmid, bibcode, year)| DeduplicationInput {
+        .prop_map(|(id, source, title, doi, arxiv_id, pmid, bibcode, year)| {
+            DeduplicationInput {
                 id,
                 source_id: source.to_string(),
                 title,
@@ -565,8 +565,8 @@ fn arb_dedup_input() -> impl Strategy<Value = DeduplicationInput> {
                 arxiv_id,
                 pmid,
                 bibcode,
-            },
-        )
+            }
+        })
 }
 
 /// Publication with sane years and unique author surnames per list
@@ -769,28 +769,29 @@ struct PlantedCorpus {
 }
 
 fn arb_planted_corpus() -> impl Strategy<Value = PlantedCorpus> {
-    prop::collection::vec((1usize..4, 0usize..4, any::<bool>()), 1..5)
-        .prop_flat_map(|classes| {
-            let mut entries = Vec::new();
-            for (ci, (size, prefix_seed, upper)) in classes.iter().enumerate() {
-                for di in 0..*size {
-                    // Vary the DOI rendering per duplicate.
-                    let prefix = DOI_PREFIXES[(prefix_seed + di) % DOI_PREFIXES.len()];
-                    let core = format!("10.5555/class{}", ci);
-                    let doi = if *upper && di % 2 == 0 {
-                        format!("{}{}", prefix, core).to_uppercase()
-                    } else {
-                        format!("{}{}", prefix, core)
-                    };
-                    entries.push((ci, di, doi));
-                }
+    prop::collection::vec((1usize..4, 0usize..4, any::<bool>()), 1..5).prop_flat_map(|classes| {
+        let mut entries = Vec::new();
+        for (ci, (size, prefix_seed, upper)) in classes.iter().enumerate() {
+            for di in 0..*size {
+                // Vary the DOI rendering per duplicate.
+                let prefix = DOI_PREFIXES[(prefix_seed + di) % DOI_PREFIXES.len()];
+                let core = format!("10.5555/class{}", ci);
+                let doi = if *upper && di % 2 == 0 {
+                    format!("{}{}", prefix, core).to_uppercase()
+                } else {
+                    format!("{}{}", prefix, core)
+                };
+                entries.push((ci, di, doi));
             }
-            let n = classes.len();
-            Just(entries).prop_shuffle().prop_map(move |entries| PlantedCorpus {
+        }
+        let n = classes.len();
+        Just(entries)
+            .prop_shuffle()
+            .prop_map(move |entries| PlantedCorpus {
                 entries,
                 num_classes: n,
             })
-        })
+    })
 }
 
 /// A corpus with planted duplicates dedups to exactly the distinct classes,

@@ -359,11 +359,7 @@ pub fn item_to_bibliography_row(
                 .find(|td| td.path == *tag_path)
                 .cloned()
                 .unwrap_or_else(|| {
-                    let leaf = tag_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(tag_path)
-                        .to_string();
+                    let leaf = tag_path.rsplit('/').next().unwrap_or(tag_path).to_string();
                     TagDisplayRow {
                         path: tag_path.clone(),
                         leaf_name: leaf,
@@ -469,11 +465,7 @@ pub fn item_to_publication_detail(
                 .find(|td| td.path == *tag_path)
                 .cloned()
                 .unwrap_or_else(|| {
-                    let leaf = tag_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(tag_path)
-                        .to_string();
+                    let leaf = tag_path.rsplit('/').next().unwrap_or(tag_path).to_string();
                     TagDisplayRow {
                         path: tag_path.clone(),
                         leaf_name: leaf,
@@ -535,14 +527,8 @@ fn parse_authors_json(payload: &BTreeMap<String, Value>) -> Vec<AuthorRow> {
                             .and_then(|v| v.as_str())
                             .map(String::from),
                         family_name,
-                        suffix: obj
-                            .get("suffix")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
-                        orcid: obj
-                            .get("orcid")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
+                        suffix: obj.get("suffix").and_then(|v| v.as_str()).map(String::from),
+                        orcid: obj.get("orcid").and_then(|v| v.as_str()).map(String::from),
                         affiliation: obj
                             .get("affiliation")
                             .and_then(|v| v.as_str())
@@ -608,7 +594,8 @@ pub fn item_to_smart_search_row(item: &Item) -> SmartSearchRow {
         max_results: get_i64(payload, "max_results").unwrap_or(100) as i32,
         feeds_to_inbox: get_bool(payload, "feeds_to_inbox"),
         auto_refresh_enabled: get_bool(payload, "auto_refresh_enabled"),
-        refresh_interval_seconds: get_i64(payload, "refresh_interval_seconds").unwrap_or(3600) as i32,
+        refresh_interval_seconds: get_i64(payload, "refresh_interval_seconds").unwrap_or(3600)
+            as i32,
         last_fetch_count: get_i64(payload, "last_fetch_count").unwrap_or(0) as i32,
         last_executed: get_i64(payload, "last_executed"),
         library_id: item.parent.map(|p| p.to_string()),
@@ -749,11 +736,7 @@ pub fn item_to_artifact_row(item: &Item, tag_defs: &[TagDisplayRow]) -> Artifact
                 .find(|td| td.path == *tag_path)
                 .cloned()
                 .unwrap_or_else(|| {
-                    let leaf = tag_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(tag_path)
-                        .to_string();
+                    let leaf = tag_path.rsplit('/').next().unwrap_or(tag_path).to_string();
                     TagDisplayRow {
                         path: tag_path.clone(),
                         leaf_name: leaf,
@@ -830,8 +813,8 @@ fn get_bool(payload: &BTreeMap<String, Value>, key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unified::conversion::publication_to_item;
     use crate::domain::{Author, Identifiers, Publication};
+    use crate::unified::conversion::publication_to_item;
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -942,14 +925,8 @@ mod tests {
 
     #[test]
     fn library_row_from_item() {
-        let item = super::super::conversion::library_to_item(
-            "My Library",
-            None,
-            None,
-            true,
-            false,
-            false,
-        );
+        let item =
+            super::super::conversion::library_to_item("My Library", None, None, true, false, false);
         let row = item_to_library_row(&item, 42);
         assert_eq!(row.name, "My Library");
         assert!(row.is_default);
@@ -958,13 +935,8 @@ mod tests {
 
     #[test]
     fn collection_row_from_item() {
-        let item = super::super::conversion::collection_to_item(
-            "Favorites",
-            None,
-            false,
-            None,
-            Some(3),
-        );
+        let item =
+            super::super::conversion::collection_to_item("Favorites", None, false, None, Some(3));
         let row = item_to_collection_row(&item, 10);
         assert_eq!(row.name, "Favorites");
         assert!(!row.is_smart);

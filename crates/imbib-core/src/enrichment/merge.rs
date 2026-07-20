@@ -101,7 +101,10 @@ pub fn merge_metadata(
 
     let changed_fields = diff_fields(&base, &merged);
 
-    MergeOutcome { merged, changed_fields }
+    MergeOutcome {
+        merged,
+        changed_fields,
+    }
 }
 
 /// Higher-priority wins; if missing or empty, fall back.
@@ -262,9 +265,15 @@ mod tests {
     fn pdf_urls_union_dedup_winner_first() {
         let p = SourcePriority::default();
         let mut ads = ads_record();
-        ads.pdf_urls = vec!["https://ads/paper.pdf".to_string(), "https://shared/p.pdf".to_string()];
+        ads.pdf_urls = vec![
+            "https://ads/paper.pdf".to_string(),
+            "https://shared/p.pdf".to_string(),
+        ];
         let mut crossref = crossref_record();
-        crossref.pdf_urls = vec!["https://shared/p.pdf".to_string(), "https://crossref/p.pdf".to_string()];
+        crossref.pdf_urls = vec![
+            "https://shared/p.pdf".to_string(),
+            "https://crossref/p.pdf".to_string(),
+        ];
         let outcome = merge_metadata(crossref, ads, &p);
         // Winner = ADS → ADS URLs first, then Crossref-only URL appended.
         assert_eq!(
@@ -332,18 +341,33 @@ mod tests {
     fn extras_merge_higher_priority_wins() {
         let p = SourcePriority::default();
         let mut ads = ads_record();
-        ads.extras.insert("ads_uid".to_string(), "ADS-1".to_string());
-        ads.extras.insert("shared".to_string(), "from-ads".to_string());
+        ads.extras
+            .insert("ads_uid".to_string(), "ADS-1".to_string());
+        ads.extras
+            .insert("shared".to_string(), "from-ads".to_string());
 
         let mut crossref = crossref_record();
-        crossref.extras.insert("crossref_member".to_string(), "297".to_string());
-        crossref.extras.insert("shared".to_string(), "from-crossref".to_string());
+        crossref
+            .extras
+            .insert("crossref_member".to_string(), "297".to_string());
+        crossref
+            .extras
+            .insert("shared".to_string(), "from-crossref".to_string());
 
         let outcome = merge_metadata(crossref, ads, &p);
-        assert_eq!(outcome.merged.extras.get("ads_uid"), Some(&"ADS-1".to_string()));
-        assert_eq!(outcome.merged.extras.get("crossref_member"), Some(&"297".to_string()));
+        assert_eq!(
+            outcome.merged.extras.get("ads_uid"),
+            Some(&"ADS-1".to_string())
+        );
+        assert_eq!(
+            outcome.merged.extras.get("crossref_member"),
+            Some(&"297".to_string())
+        );
         // Shared key resolved in favor of ADS.
-        assert_eq!(outcome.merged.extras.get("shared"), Some(&"from-ads".to_string()));
+        assert_eq!(
+            outcome.merged.extras.get("shared"),
+            Some(&"from-ads".to_string())
+        );
     }
 
     #[test]
@@ -355,7 +379,10 @@ mod tests {
         crossref.authors = vec!["Roe, R.".to_string()];
         let outcome = merge_metadata(crossref, ads, &p);
         // ADS wins outright.
-        assert_eq!(outcome.merged.authors, vec!["Smith, J.".to_string(), "Doe, J.".to_string()]);
+        assert_eq!(
+            outcome.merged.authors,
+            vec!["Smith, J.".to_string(), "Doe, J.".to_string()]
+        );
     }
 
     #[test]
@@ -382,6 +409,9 @@ mod tests {
         // ADS is known → wins.
         assert_eq!(outcome.merged.title.as_deref(), Some("ADS Title"));
         // Source propagated to result.
-        assert_eq!(outcome.merged.source.as_ref().map(|s| s.as_str()), Some("ads"));
+        assert_eq!(
+            outcome.merged.source.as_ref().map(|s| s.as_str()),
+            Some("ads")
+        );
     }
 }

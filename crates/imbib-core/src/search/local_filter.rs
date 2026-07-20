@@ -92,7 +92,11 @@ pub fn matches<I: Filterable>(item: &I, query: &SmartQuery) -> bool {
     // Flag.
     if let Some(fq) = &query.flag_query {
         match fq {
-            FlagQuery::Pattern { color, style, length } => {
+            FlagQuery::Pattern {
+                color,
+                style,
+                length,
+            } => {
                 let Some(f) = item.flag() else { return false };
                 if let Some(c) = color {
                     if f.color != *c {
@@ -129,20 +133,29 @@ pub fn matches<I: Filterable>(item: &I, query: &SmartQuery) -> bool {
         match tq {
             TagQuery::Has(path) => {
                 let lower = path.to_ascii_lowercase();
-                if !tag_paths.iter().any(|t| t.to_ascii_lowercase().starts_with(&lower)) {
+                if !tag_paths
+                    .iter()
+                    .any(|t| t.to_ascii_lowercase().starts_with(&lower))
+                {
                     return false;
                 }
             }
             TagQuery::HasNot(path) => {
                 let lower = path.to_ascii_lowercase();
-                if tag_paths.iter().any(|t| t.to_ascii_lowercase().starts_with(&lower)) {
+                if tag_paths
+                    .iter()
+                    .any(|t| t.to_ascii_lowercase().starts_with(&lower))
+                {
                     return false;
                 }
             }
             TagQuery::HasAll(paths) => {
                 for p in paths {
                     let lower = p.to_ascii_lowercase();
-                    if !tag_paths.iter().any(|t| t.to_ascii_lowercase().starts_with(&lower)) {
+                    if !tag_paths
+                        .iter()
+                        .any(|t| t.to_ascii_lowercase().starts_with(&lower))
+                    {
                         return false;
                     }
                 }
@@ -150,7 +163,9 @@ pub fn matches<I: Filterable>(item: &I, query: &SmartQuery) -> bool {
             TagQuery::HasAny(paths) => {
                 let any = paths.iter().any(|p| {
                     let lower = p.to_ascii_lowercase();
-                    tag_paths.iter().any(|t| t.to_ascii_lowercase().starts_with(&lower))
+                    tag_paths
+                        .iter()
+                        .any(|t| t.to_ascii_lowercase().starts_with(&lower))
                 });
                 if !any {
                     return false;
@@ -292,14 +307,30 @@ mod tests {
     }
 
     impl Filterable for Row {
-        fn title(&self) -> &str { &self.title }
-        fn author_string(&self) -> &str { &self.author }
-        fn abstract_text(&self) -> Option<&str> { self.abstract_.as_deref() }
-        fn venue(&self) -> Option<&str> { self.venue.as_deref() }
-        fn year(&self) -> Option<i32> { self.year }
-        fn flag(&self) -> Option<FilterFlag> { self.flag }
-        fn tag_paths(&self) -> &[String] { &self.tags }
-        fn is_read(&self) -> bool { self.read }
+        fn title(&self) -> &str {
+            &self.title
+        }
+        fn author_string(&self) -> &str {
+            &self.author
+        }
+        fn abstract_text(&self) -> Option<&str> {
+            self.abstract_.as_deref()
+        }
+        fn venue(&self) -> Option<&str> {
+            self.venue.as_deref()
+        }
+        fn year(&self) -> Option<i32> {
+            self.year
+        }
+        fn flag(&self) -> Option<FilterFlag> {
+            self.flag
+        }
+        fn tag_paths(&self) -> &[String] {
+            &self.tags
+        }
+        fn is_read(&self) -> bool {
+            self.read
+        }
     }
 
     fn corpus() -> Vec<Row> {
@@ -320,7 +351,10 @@ mod tests {
 
         let mut c = Row::new("Cosmology with type Ia supernovae", "Smith", Some(2024));
         c.venue = Some("ApJ".to_string());
-        c.tags = vec!["topic/cosmology".to_string(), "methods/observation".to_string()];
+        c.tags = vec![
+            "topic/cosmology".to_string(),
+            "methods/observation".to_string(),
+        ];
         c.flag = Some(FilterFlag {
             color: FlagColor::Blue,
             style: FlagStyle::Dashed,

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::conversion;
 use super::schemas;
-use super::shaped_queries::*;  // includes ArtifactRow, ArtifactRelation, item_to_artifact_row
+use super::shaped_queries::*; // includes ArtifactRow, ArtifactRelation, item_to_artifact_row
 
 /// Error type for the store API, exposed via UniFFI.
 #[derive(Debug, thiserror::Error)]
@@ -139,7 +139,9 @@ impl ImbibStore {
         ids: &[String],
         mutation: FieldMutation,
     ) -> Result<UndoInfo, StoreApiError> {
-        use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier, undo_description};
+        use impress_core::operation::{
+            undo_description, OperationIntent, OperationSpec, OperationType, RetentionTier,
+        };
 
         let op_type: OperationType = mutation.clone().into();
         let count = ids.len();
@@ -227,7 +229,11 @@ impl ImbibStore {
         let store = SqliteItemStore::open(Path::new(&path))?;
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
-        Ok(Arc::new(Self { store, registry, tag_defs_cache: std::sync::Mutex::new(None) }))
+        Ok(Arc::new(Self {
+            store,
+            registry,
+            tag_defs_cache: std::sync::Mutex::new(None),
+        }))
     }
 
     /// Open an in-memory store (for testing).
@@ -236,7 +242,11 @@ impl ImbibStore {
         let store = SqliteItemStore::open_in_memory()?;
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
-        Ok(Arc::new(Self { store, registry, tag_defs_cache: std::sync::Mutex::new(None) }))
+        Ok(Arc::new(Self {
+            store,
+            registry,
+            tag_defs_cache: std::sync::Mutex::new(None),
+        }))
     }
 
     // --- Library operations ---
@@ -400,7 +410,10 @@ impl ImbibStore {
         }
         self.store.update_with_undo(
             uuid,
-            vec![FieldMutation::SetPayload("name".into(), Value::String(new_name))],
+            vec![FieldMutation::SetPayload(
+                "name".into(),
+                Value::String(new_name),
+            )],
         )?;
         let updated = self
             .store
@@ -617,10 +630,7 @@ impl ImbibStore {
     }
 
     /// Return just the UUID strings of publications in a library (skips full row conversion).
-    pub fn query_publication_ids(
-        &self,
-        parent_id: String,
-    ) -> Result<Vec<String>, StoreApiError> {
+    pub fn query_publication_ids(&self, parent_id: String) -> Result<Vec<String>, StoreApiError> {
         let parent_uuid = parse_uuid(&parent_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -811,12 +821,7 @@ impl ImbibStore {
                 .as_ref()
                 .and_then(|d| doi_to_id.get(d))
                 .or_else(|| result.arxiv_id.as_ref().and_then(|a| arxiv_to_id.get(a)))
-                .or_else(|| {
-                    result
-                        .bibcode
-                        .as_ref()
-                        .and_then(|b| bibcode_to_id.get(b))
-                });
+                .or_else(|| result.bibcode.as_ref().and_then(|b| bibcode_to_id.get(b)));
 
             if let Some(id) = existing_id {
                 if filter_dismissed && is_input_dismissed(result, &dismissed_ids) {
@@ -932,7 +937,11 @@ impl ImbibStore {
         self.apply_mutation_to_ids(&ids, FieldMutation::AddTag(tag_path))
     }
 
-    pub fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> Result<UndoInfo, StoreApiError> {
+    pub fn remove_tag(
+        &self,
+        ids: Vec<String>,
+        tag_path: String,
+    ) -> Result<UndoInfo, StoreApiError> {
         self.apply_mutation_to_ids(&ids, FieldMutation::RemoveTag(tag_path))
     }
 
@@ -1051,10 +1060,7 @@ impl ImbibStore {
                 let collection_ids: Vec<String> =
                     collections.iter().map(|c| c.id.to_string()).collect();
 
-                let library_ids = item
-                    .parent
-                    .map(|p| vec![p.to_string()])
-                    .unwrap_or_default();
+                let library_ids = item.parent.map(|p| vec![p.to_string()]).unwrap_or_default();
 
                 Ok(Some(item_to_publication_detail(
                     &item,
@@ -1137,11 +1143,16 @@ impl ImbibStore {
     }
 
     /// Delete a library with snapshot for undo.
-    pub fn delete_library_undoable(&self, id: String) -> Result<LibraryDeleteSnapshot, StoreApiError> {
+    pub fn delete_library_undoable(
+        &self,
+        id: String,
+    ) -> Result<LibraryDeleteSnapshot, StoreApiError> {
         let uuid = parse_uuid(&id)?;
 
         // Snapshot the library item
-        let lib_item = self.store.get(uuid)?
+        let lib_item = self
+            .store
+            .get(uuid)?
             .ok_or_else(|| StoreApiError::NotFound(id.clone()))?;
         let library_json = serde_json::to_string(&lib_item)
             .map_err(|e| StoreApiError::Storage(format!("serialize library: {}", e)))?;
@@ -1152,8 +1163,12 @@ impl ImbibStore {
             predicates: vec![Predicate::HasParent(uuid)],
             ..Default::default()
         };
-        let child_publication_ids: Vec<String> = self.store.query(&pub_q)?
-            .iter().map(|p| p.id.to_string()).collect();
+        let child_publication_ids: Vec<String> = self
+            .store
+            .query(&pub_q)?
+            .iter()
+            .map(|p| p.id.to_string())
+            .collect();
 
         // Record child collection IDs
         let coll_q = ItemQuery {
@@ -1161,8 +1176,12 @@ impl ImbibStore {
             predicates: vec![Predicate::HasParent(uuid)],
             ..Default::default()
         };
-        let child_collection_ids: Vec<String> = self.store.query(&coll_q)?
-            .iter().map(|c| c.id.to_string()).collect();
+        let child_collection_ids: Vec<String> = self
+            .store
+            .query(&coll_q)?
+            .iter()
+            .map(|c| c.id.to_string())
+            .collect();
 
         // Delete the library (children get parent_id = NULL via ON DELETE SET NULL)
         self.store.delete(uuid)?;
@@ -1186,13 +1205,15 @@ impl ImbibStore {
         // Re-parent publications
         for pub_id_str in &snapshot.child_publication_ids {
             let pub_uuid = parse_uuid(pub_id_str)?;
-            self.store.update(pub_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
+            self.store
+                .update(pub_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
         }
 
         // Re-parent collections
         for coll_id_str in &snapshot.child_collection_ids {
             let coll_uuid = parse_uuid(coll_id_str)?;
-            self.store.update(coll_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
+            self.store
+                .update(coll_uuid, vec![FieldMutation::SetParent(Some(lib_id))])?;
         }
 
         Ok(())
@@ -1248,7 +1269,10 @@ impl ImbibStore {
         // Re-tag publications
         for pub_id_str in &snapshot.tagged_publication_ids {
             let pub_uuid = parse_uuid(pub_id_str)?;
-            self.store.update(pub_uuid, vec![FieldMutation::AddTag(snapshot.tag_path.clone())])?;
+            self.store.update(
+                pub_uuid,
+                vec![FieldMutation::AddTag(snapshot.tag_path.clone())],
+            )?;
         }
 
         self.invalidate_tag_cache();
@@ -1304,10 +1328,13 @@ impl ImbibStore {
         value: bool,
     ) -> Result<UndoInfo, StoreApiError> {
         let uuid = parse_uuid(&id)?;
-        Ok(self.store.update_with_undo(
-            uuid,
-            vec![FieldMutation::SetPayload(field, Value::Bool(value))],
-        )?.into())
+        Ok(self
+            .store
+            .update_with_undo(
+                uuid,
+                vec![FieldMutation::SetPayload(field, Value::Bool(value))],
+            )?
+            .into())
     }
 
     // --- Library extensions ---
@@ -1328,10 +1355,7 @@ impl ImbibStore {
         // Unset current default(s)
         let q = ItemQuery {
             schema: Some("imbib/library".into()),
-            predicates: vec![Predicate::Eq(
-                "is_default".into(),
-                Value::Bool(true),
-            )],
+            predicates: vec![Predicate::Eq("is_default".into(), Value::Bool(true))],
             ..Default::default()
         };
         for item in self.store.query(&q)? {
@@ -1357,10 +1381,7 @@ impl ImbibStore {
     pub fn get_default_library(&self) -> Result<Option<LibraryRow>, StoreApiError> {
         let q = ItemQuery {
             schema: Some("imbib/library".into()),
-            predicates: vec![Predicate::Eq(
-                "is_default".into(),
-                Value::Bool(true),
-            )],
+            predicates: vec![Predicate::Eq("is_default".into(), Value::Bool(true))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -1551,10 +1572,7 @@ impl ImbibStore {
         Ok(items.iter().map(item_to_smart_search_row).collect())
     }
 
-    pub fn get_smart_search(
-        &self,
-        id: String,
-    ) -> Result<Option<SmartSearchRow>, StoreApiError> {
+    pub fn get_smart_search(&self, id: String) -> Result<Option<SmartSearchRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
             Some(item) if item.schema == "imbib/smart-search" => {
@@ -1720,16 +1738,10 @@ impl ImbibStore {
         self.items_to_bibliography_rows(&items, &tag_defs)
     }
 
-    pub fn find_by_arxiv(
-        &self,
-        arxiv_id: String,
-    ) -> Result<Vec<BibliographyRow>, StoreApiError> {
+    pub fn find_by_arxiv(&self, arxiv_id: String) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::Eq(
-                "arxiv_id".into(),
-                Value::String(arxiv_id),
-            )],
+            predicates: vec![Predicate::Eq("arxiv_id".into(), Value::String(arxiv_id))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -1737,16 +1749,10 @@ impl ImbibStore {
         self.items_to_bibliography_rows(&items, &tag_defs)
     }
 
-    pub fn find_by_bibcode(
-        &self,
-        bibcode: String,
-    ) -> Result<Vec<BibliographyRow>, StoreApiError> {
+    pub fn find_by_bibcode(&self, bibcode: String) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::Eq(
-                "bibcode".into(),
-                Value::String(bibcode),
-            )],
+            predicates: vec![Predicate::Eq("bibcode".into(), Value::String(bibcode))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -1844,9 +1850,11 @@ impl ImbibStore {
         };
         let items = self.store.query(&q)?;
 
-        let mut seen_cite_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_cite_keys: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut seen_dois: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut seen_arxiv_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_arxiv_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut to_delete = Vec::new();
 
         for item in &items {
@@ -2025,10 +2033,7 @@ impl ImbibStore {
     }
 
     /// Count unread publications referenced by a collection. Uses Contains-edge join + is_read filter.
-    pub fn count_unread_in_collection(
-        &self,
-        collection_id: String,
-    ) -> Result<u32, StoreApiError> {
+    pub fn count_unread_in_collection(&self, collection_id: String) -> Result<u32, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
@@ -2161,8 +2166,7 @@ impl ImbibStore {
         cite_key: String,
         library_id: Option<String>,
     ) -> Result<Option<BibliographyRow>, StoreApiError> {
-        let mut predicates =
-            vec![Predicate::Eq("cite_key".into(), Value::String(cite_key))];
+        let mut predicates = vec![Predicate::Eq("cite_key".into(), Value::String(cite_key))];
         if let Some(lid) = library_id {
             predicates.push(Predicate::HasParent(parse_uuid(&lid)?));
         }
@@ -2230,10 +2234,7 @@ impl ImbibStore {
         Ok(rows)
     }
 
-    pub fn get_scix_library(
-        &self,
-        id: String,
-    ) -> Result<Option<SciXLibraryRow>, StoreApiError> {
+    pub fn get_scix_library(&self, id: String) -> Result<Option<SciXLibraryRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
             Some(item) if item.schema == "imbib/scix-library" => {
@@ -2332,11 +2333,7 @@ impl ImbibStore {
     }
 
     /// Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
-    pub fn reparent_item(
-        &self,
-        id: String,
-        new_parent_id: String,
-    ) -> Result<(), StoreApiError> {
+    pub fn reparent_item(&self, id: String, new_parent_id: String) -> Result<(), StoreApiError> {
         let uuid = parse_uuid(&id)?;
         let parent_uuid = parse_uuid(&new_parent_id)?;
         self.store
@@ -2379,10 +2376,7 @@ impl ImbibStore {
         let file_uuid = parse_uuid(&linked_file_id)?;
         let mut predicates = vec![Predicate::HasParent(file_uuid)];
         if let Some(page) = page_number {
-            predicates.push(Predicate::Eq(
-                "page_number".into(),
-                Value::Int(page as i64),
-            ));
+            predicates.push(Predicate::Eq("page_number".into(), Value::Int(page as i64)));
         }
         let q = ItemQuery {
             schema: Some("imbib/annotation".into()),
@@ -2397,10 +2391,7 @@ impl ImbibStore {
         Ok(items.iter().map(item_to_annotation_row).collect())
     }
 
-    pub fn count_annotations(
-        &self,
-        linked_file_id: String,
-    ) -> Result<u32, StoreApiError> {
+    pub fn count_annotations(&self, linked_file_id: String) -> Result<u32, StoreApiError> {
         let file_uuid = parse_uuid(&linked_file_id)?;
         let q = ItemQuery {
             schema: Some("imbib/annotation".into()),
@@ -2420,7 +2411,13 @@ impl ImbibStore {
         author_display_name: Option<String>,
         parent_comment_id: Option<String>,
     ) -> Result<CommentRow, StoreApiError> {
-        self.create_comment_on_item(publication_id, text, author_identifier, author_display_name, parent_comment_id)
+        self.create_comment_on_item(
+            publication_id,
+            text,
+            author_identifier,
+            author_display_name,
+            parent_comment_id,
+        )
     }
 
     /// Create a comment on any item (publication, artifact, or any future item type).
@@ -2442,15 +2439,11 @@ impl ImbibStore {
         );
         self.store.insert(item.clone())?;
         // Look up parent schema for the returned row
-        let parent_schema = self.store.get(parent_uuid)?
-            .map(|p| p.schema.to_string());
+        let parent_schema = self.store.get(parent_uuid)?.map(|p| p.schema.to_string());
         Ok(item_to_comment_row_with_schema(&item, parent_schema))
     }
 
-    pub fn list_comments(
-        &self,
-        publication_id: String,
-    ) -> Result<Vec<CommentRow>, StoreApiError> {
+    pub fn list_comments(&self, publication_id: String) -> Result<Vec<CommentRow>, StoreApiError> {
         self.list_comments_for_item(publication_id)
     }
 
@@ -2471,9 +2464,11 @@ impl ImbibStore {
         };
         let items = self.store.query(&q)?;
         // Resolve parent schema once for all comments
-        let parent_schema = self.store.get(parent_uuid)?
-            .map(|p| p.schema.to_string());
-        Ok(items.iter().map(|i| item_to_comment_row_with_schema(i, parent_schema.clone())).collect())
+        let parent_schema = self.store.get(parent_uuid)?.map(|p| p.schema.to_string());
+        Ok(items
+            .iter()
+            .map(|i| item_to_comment_row_with_schema(i, parent_schema.clone()))
+            .collect())
     }
 
     pub fn update_comment(&self, id: String, text: String) -> Result<(), StoreApiError> {
@@ -2500,20 +2495,31 @@ impl ImbibStore {
 
     /// Set the canonical_id field on an item (maps to CKRecord.recordID for CloudKit round-trip).
     /// Bypasses the operation log — this is metadata for sync coordination.
-    pub fn set_item_canonical_id(&self, id: String, canonical_id: String) -> Result<(), StoreApiError> {
+    pub fn set_item_canonical_id(
+        &self,
+        id: String,
+        canonical_id: String,
+    ) -> Result<(), StoreApiError> {
         let uuid = parse_uuid(&id)?;
         self.store.set_canonical_id(uuid, &canonical_id)?;
         Ok(())
     }
 
     /// Find an item by its canonical_id (for dedup on CloudKit pull).
-    pub fn find_by_canonical_id(&self, canonical_id: String) -> Result<Option<String>, StoreApiError> {
+    pub fn find_by_canonical_id(
+        &self,
+        canonical_id: String,
+    ) -> Result<Option<String>, StoreApiError> {
         let item = self.store.find_by_canonical_id(&canonical_id)?;
         Ok(item.map(|i| i.id.to_string()))
     }
 
     /// List comments created since a given logical clock value (for incremental sync).
-    pub fn list_comments_since(&self, item_id: String, since_clock: u64) -> Result<Vec<CommentRow>, StoreApiError> {
+    pub fn list_comments_since(
+        &self,
+        item_id: String,
+        since_clock: u64,
+    ) -> Result<Vec<CommentRow>, StoreApiError> {
         let parent_uuid = parse_uuid(&item_id)?;
         let q = ItemQuery {
             schema: Some("imbib/comment".into()),
@@ -2621,10 +2627,7 @@ impl ImbibStore {
         Ok(items.iter().map(item_to_activity_record_row).collect())
     }
 
-    pub fn clear_activity_records(
-        &self,
-        library_id: String,
-    ) -> Result<(), StoreApiError> {
+    pub fn clear_activity_records(&self, library_id: String) -> Result<(), StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
             schema: Some("imbib/activity-record".into()),
@@ -2653,8 +2656,7 @@ impl ImbibStore {
         };
         let items = self.store.query(&q)?;
         if let Some(item) = items.first() {
-            let json = serde_json::to_string(&item.payload)
-                .unwrap_or_else(|_| "{}".into());
+            let json = serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
             Ok(Some(json))
         } else {
             Ok(None)
@@ -2719,10 +2721,7 @@ impl ImbibStore {
         Ok(())
     }
 
-    pub fn delete_recommendation_profile(
-        &self,
-        library_id: String,
-    ) -> Result<(), StoreApiError> {
+    pub fn delete_recommendation_profile(&self, library_id: String) -> Result<(), StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
             schema: Some("imbib/recommendation-profile".into()),
@@ -2776,10 +2775,7 @@ impl ImbibStore {
     ) -> Result<(), StoreApiError> {
         let q = ItemQuery {
             schema: Some("imbib/tag-definition".into()),
-            predicates: vec![Predicate::Eq(
-                "canonical_path".into(),
-                Value::String(path),
-            )],
+            predicates: vec![Predicate::Eq("canonical_path".into(), Value::String(path))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
@@ -2806,11 +2802,7 @@ impl ImbibStore {
     }
 
     /// Rename a tag (definition + all assignments on publications).
-    pub fn rename_tag(
-        &self,
-        old_path: String,
-        new_path: String,
-    ) -> Result<(), StoreApiError> {
+    pub fn rename_tag(&self, old_path: String, new_path: String) -> Result<(), StoreApiError> {
         let new_leaf = new_path.rsplit('/').next().unwrap_or(&new_path);
         // Update tag definition
         let q = ItemQuery {
@@ -2830,10 +2822,7 @@ impl ImbibStore {
                         "canonical_path".into(),
                         Value::String(new_path.clone()),
                     ),
-                    FieldMutation::SetPayload(
-                        "name".into(),
-                        Value::String(new_leaf.into()),
-                    ),
+                    FieldMutation::SetPayload("name".into(), Value::String(new_leaf.into())),
                 ],
             )?;
         }
@@ -2886,7 +2875,10 @@ impl ImbibStore {
         ids: Vec<String>,
         to_library_id: String,
     ) -> Result<UndoInfo, StoreApiError> {
-        self.apply_mutation_to_ids(&ids, FieldMutation::SetParent(Some(parse_uuid(&to_library_id)?)))
+        self.apply_mutation_to_ids(
+            &ids,
+            FieldMutation::SetParent(Some(parse_uuid(&to_library_id)?)),
+        )
     }
 
     pub fn duplicate_publications(
@@ -3036,7 +3028,11 @@ impl ImbibStore {
                         }
                         _ => a.created.cmp(&b.created),
                     };
-                    if ascending { cmp } else { cmp.reverse() }
+                    if ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
                 });
                 // Apply offset/limit
                 let start = offset.unwrap_or(0) as usize;
@@ -3101,25 +3097,43 @@ impl ImbibStore {
             mutations.push(FieldMutation::SetPayload("title".into(), Value::String(v)));
         }
         if let Some(v) = source_url {
-            mutations.push(FieldMutation::SetPayload("source_url".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "source_url".into(),
+                Value::String(v),
+            ));
         }
         if let Some(v) = notes {
             mutations.push(FieldMutation::SetPayload("notes".into(), Value::String(v)));
         }
         if let Some(v) = artifact_subtype {
-            mutations.push(FieldMutation::SetPayload("artifact_subtype".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "artifact_subtype".into(),
+                Value::String(v),
+            ));
         }
         if let Some(v) = capture_context {
-            mutations.push(FieldMutation::SetPayload("capture_context".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "capture_context".into(),
+                Value::String(v),
+            ));
         }
         if let Some(v) = original_author {
-            mutations.push(FieldMutation::SetPayload("original_author".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "original_author".into(),
+                Value::String(v),
+            ));
         }
         if let Some(v) = event_name {
-            mutations.push(FieldMutation::SetPayload("event_name".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "event_name".into(),
+                Value::String(v),
+            ));
         }
         if let Some(v) = event_date {
-            mutations.push(FieldMutation::SetPayload("event_date".into(), Value::String(v)));
+            mutations.push(FieldMutation::SetPayload(
+                "event_date".into(),
+                Value::String(v),
+            ));
         }
         if !mutations.is_empty() {
             Ok(self.store.update_with_undo(uuid, mutations)?.into())
@@ -3147,16 +3161,19 @@ impl ImbibStore {
     ) -> Result<UndoInfo, StoreApiError> {
         let art_uuid = parse_uuid(&artifact_id)?;
         let pub_uuid = parse_uuid(&publication_id)?;
-        Ok(self.store.update_with_undo(
-            art_uuid,
-            vec![FieldMutation::AddReference(
-                impress_core::reference::TypedReference {
-                    target: pub_uuid,
-                    edge_type: EdgeType::RelatesTo,
-                    metadata: None,
-                },
-            )],
-        )?.into())
+        Ok(self
+            .store
+            .update_with_undo(
+                art_uuid,
+                vec![FieldMutation::AddReference(
+                    impress_core::reference::TypedReference {
+                        target: pub_uuid,
+                        edge_type: EdgeType::RelatesTo,
+                        metadata: None,
+                    },
+                )],
+            )?
+            .into())
     }
 
     /// Get relations from an artifact to other items.
@@ -3165,10 +3182,7 @@ impl ImbibStore {
         id: String,
     ) -> Result<Vec<ArtifactRelation>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
-        let item = self
-            .store
-            .get(uuid)?
-            .ok_or(StoreApiError::NotFound(id))?;
+        let item = self.store.get(uuid)?.ok_or(StoreApiError::NotFound(id))?;
         let mut relations = Vec::new();
         for reference in &item.references {
             let target_item = self.store.get(reference.target)?;
@@ -3196,10 +3210,7 @@ impl ImbibStore {
     }
 
     /// Count all artifacts, optionally filtered by schema.
-    pub fn count_artifacts(
-        &self,
-        schema_filter: Option<String>,
-    ) -> Result<u32, StoreApiError> {
+    pub fn count_artifacts(&self, schema_filter: Option<String>) -> Result<u32, StoreApiError> {
         match schema_filter {
             Some(schema) => {
                 let q = ItemQuery {
@@ -3261,8 +3272,7 @@ impl ImbibStore {
                     .to_string();
                 if stripped != *arxiv && !stripped.is_empty() && stripped.ends_with('.') == false {
                     // Only add if stripping actually removed something and result is valid
-                    let without_version =
-                        arxiv.split('v').next().unwrap_or(arxiv).to_string();
+                    let without_version = arxiv.split('v').next().unwrap_or(arxiv).to_string();
                     if without_version != *arxiv && !without_version.is_empty() {
                         or_preds.push(Predicate::Eq(
                             "arxiv_id".into(),
@@ -3416,8 +3426,10 @@ impl ImbibStore {
                 placeholders
             );
             let params: Vec<String> = chunk.iter().map(|id| id.to_string()).collect();
-            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> = params
+                .iter()
+                .map(|p| p as &dyn rusqlite::types::ToSql)
+                .collect();
 
             let rows = self.store.query_raw(&sql, &params_ref, |row| {
                 let parent_str: String = row.get(0)?;
@@ -3713,19 +3725,16 @@ mod tests {
         let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         store
-            .set_flag(
-                ids.clone(),
-                Some("red".into()),
-                Some("solid".into()),
-                None,
-            )
+            .set_flag(ids.clone(), Some("red".into()), Some("solid".into()), None)
             .unwrap();
         let pub_row = store.get_publication(ids[0].clone()).unwrap().unwrap();
         assert_eq!(pub_row.flag_color, Some("red".into()));
         assert_eq!(pub_row.flag_style, Some("solid".into()));
 
         // Get flagged
-        let flagged = store.get_flagged_publications(Some("red".into()), "created".into(), false, None, None).unwrap();
+        let flagged = store
+            .get_flagged_publications(Some("red".into()), "created".into(), false, None, None)
+            .unwrap();
         assert_eq!(flagged.len(), 1);
 
         // Clear flag
@@ -3751,9 +3760,7 @@ mod tests {
             .unwrap();
 
         // Add tag to publication
-        store
-            .add_tag(ids.clone(), "methods/sims".into())
-            .unwrap();
+        store.add_tag(ids.clone(), "methods/sims".into()).unwrap();
 
         let pub_row = store.get_publication(ids[0].clone()).unwrap().unwrap();
         assert_eq!(pub_row.tags.len(), 1);
@@ -3779,7 +3786,14 @@ mod tests {
         store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         let results = store
-            .search_publications("Dark Matter".into(), Some(lib.id.clone()), "created".into(), false, None, None)
+            .search_publications(
+                "Dark Matter".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].title.contains("Dark Matter"));
@@ -3850,7 +3864,12 @@ mod tests {
         store
             .add_to_collection(ids.clone(), coll.id.clone())
             .unwrap();
-        assert_eq!(store.count_collection_members_public(coll.id.clone()).unwrap(), 1);
+        assert_eq!(
+            store
+                .count_collection_members_public(coll.id.clone())
+                .unwrap(),
+            1
+        );
 
         store.delete_collection(coll.id.clone()).unwrap();
 
@@ -3885,10 +3904,19 @@ mod tests {
                 3600,
             )
             .unwrap();
-        assert_eq!(store.list_smart_searches(Some(lib.id.clone())).unwrap().len(), 1);
+        assert_eq!(
+            store
+                .list_smart_searches(Some(lib.id.clone()))
+                .unwrap()
+                .len(),
+            1
+        );
 
         store.delete_smart_search(ss.id.clone()).unwrap();
-        assert!(store.list_smart_searches(Some(lib.id.clone())).unwrap().is_empty());
+        assert!(store
+            .list_smart_searches(Some(lib.id.clone()))
+            .unwrap()
+            .is_empty());
         assert!(store.get_smart_search(ss.id.clone()).unwrap().is_none());
 
         // Deleting a missing smart search is NotFound.
@@ -3947,9 +3975,7 @@ mod tests {
         store
             .create_tag("methods/sims".into(), Some("#ff0".into()), None)
             .unwrap();
-        store
-            .create_tag("topics/cosmo".into(), None, None)
-            .unwrap();
+        store.create_tag("topics/cosmo".into(), None, None).unwrap();
 
         let tags = store.list_tags().unwrap();
         assert_eq!(tags.len(), 2);
@@ -4007,9 +4033,7 @@ mod tests {
 
         assert_eq!(store.count_pdfs(ids[0].clone()).unwrap(), 1);
 
-        store
-            .set_pdf_cloud_available(lf.id.clone(), true)
-            .unwrap();
+        store.set_pdf_cloud_available(lf.id.clone(), true).unwrap();
         let updated = store.get_linked_file(lf.id.clone()).unwrap().unwrap();
         assert!(updated.pdf_cloud_available);
 
@@ -4069,9 +4093,7 @@ mod tests {
         let all_muted = store.list_muted_items(None).unwrap();
         assert_eq!(all_muted.len(), 1);
 
-        let by_type = store
-            .list_muted_items(Some("author".into()))
-            .unwrap();
+        let by_type = store.list_muted_items(Some("author".into())).unwrap();
         assert_eq!(by_type.len(), 1);
 
         store.delete_item(muted.id).unwrap();
@@ -4140,9 +4162,7 @@ mod tests {
             .unwrap());
 
         // No identifiers at all should return false
-        assert!(!store
-            .is_paper_dismissed(None, None, None, None)
-            .unwrap());
+        assert!(!store.is_paper_dismissed(None, None, None, None).unwrap());
     }
 
     #[test]
@@ -4162,9 +4182,7 @@ mod tests {
         let by_arxiv = store.find_by_arxiv("2401.00001".into()).unwrap();
         assert_eq!(by_arxiv.len(), 1);
 
-        let by_bibcode = store
-            .find_by_bibcode("2024ApJ...900....1S".into())
-            .unwrap();
+        let by_bibcode = store.find_by_bibcode("2024ApJ...900....1S".into()).unwrap();
         assert_eq!(by_bibcode.len(), 1);
 
         let by_ids = store
@@ -4189,7 +4207,9 @@ mod tests {
         let ids = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         // All unread initially
-        let unread = store.query_unread(Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let unread = store
+            .query_unread(Some(lib.id.clone()), "created".into(), false, None, None)
+            .unwrap();
         assert_eq!(unread.len(), 2);
         assert_eq!(store.count_unread(Some(lib.id.clone())).unwrap(), 2);
 
@@ -4199,17 +4219,17 @@ mod tests {
 
         // Starred
         store.set_starred(vec![ids[0].clone()], true).unwrap();
-        let starred = store.query_starred(Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let starred = store
+            .query_starred(Some(lib.id.clone()), "created".into(), false, None, None)
+            .unwrap();
         assert_eq!(starred.len(), 1);
 
         // By tag
-        store
-            .create_tag("cosmo".into(), None, None)
+        store.create_tag("cosmo".into(), None, None).unwrap();
+        store.add_tag(vec![ids[0].clone()], "cosmo".into()).unwrap();
+        let by_tag = store
+            .query_by_tag("cosmo".into(), None, "created".into(), false, None, None)
             .unwrap();
-        store
-            .add_tag(vec![ids[0].clone()], "cosmo".into())
-            .unwrap();
-        let by_tag = store.query_by_tag("cosmo".into(), None, "created".into(), false, None, None).unwrap();
         assert_eq!(by_tag.len(), 1);
 
         // Recent
@@ -4223,9 +4243,7 @@ mod tests {
         assert_eq!(fts.len(), 1);
 
         // Find by cite key
-        let found = store
-            .find_by_cite_key("A".into(), Some(lib.id))
-            .unwrap();
+        let found = store.find_by_cite_key("A".into(), Some(lib.id)).unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().cite_key, "A");
     }
@@ -4298,13 +4316,7 @@ mod tests {
 
         // Query should also return 2
         let rows = store
-            .query_scix_library_publications(
-                scix.id.clone(),
-                "created".into(),
-                false,
-                None,
-                None,
-            )
+            .query_scix_library_publications(scix.id.clone(), "created".into(), false, None, None)
             .unwrap();
         assert_eq!(
             rows.len(),
@@ -4333,7 +4345,15 @@ mod tests {
             .import_bibtex("@article{X, title={Test}}".into(), lib.id)
             .unwrap();
         let lf = store
-            .add_linked_file(ids[0].clone(), "paper.pdf".into(), None, None, 0, None, true)
+            .add_linked_file(
+                ids[0].clone(),
+                "paper.pdf".into(),
+                None,
+                None,
+                0,
+                None,
+                true,
+            )
             .unwrap();
 
         let ann = store
@@ -4511,13 +4531,8 @@ mod tests {
             .unwrap();
         assert!(updated.contains("0.9"));
 
-        store
-            .delete_recommendation_profile(lib.id.clone())
-            .unwrap();
-        assert!(store
-            .get_recommendation_profile(lib.id)
-            .unwrap()
-            .is_none());
+        store.delete_recommendation_profile(lib.id.clone()).unwrap();
+        assert!(store.get_recommendation_profile(lib.id).unwrap().is_none());
     }
 
     #[test]
@@ -4556,7 +4571,10 @@ mod tests {
             .rename_tag("methods/sims".into(), "techniques/numerical".into())
             .unwrap();
         let pub_row = store.get_publication(ids[0].clone()).unwrap().unwrap();
-        assert!(pub_row.tags.iter().any(|t| t.path == "techniques/numerical"));
+        assert!(pub_row
+            .tags
+            .iter()
+            .any(|t| t.path == "techniques/numerical"));
         assert!(!pub_row.tags.iter().any(|t| t.path == "methods/sims"));
 
         // Delete tag
@@ -4622,9 +4640,7 @@ mod tests {
         assert_eq!(pubs2.len(), 1);
 
         // Duplicate back
-        let new_ids = store
-            .duplicate_publications(ids, lib1.id.clone())
-            .unwrap();
+        let new_ids = store.duplicate_publications(ids, lib1.id.clone()).unwrap();
         assert_eq!(new_ids.len(), 1);
         let pubs1_after = store
             .query_publications(lib1.id, "created".into(), true, None, None)
@@ -4703,22 +4719,58 @@ mod tests {
         store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         // Search by title
-        let r1 = store.search_publications("Stellar".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let r1 = store
+            .search_publications(
+                "Stellar".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(r1.len(), 1);
         assert_eq!(r1[0].cite_key, "A");
 
         // Search by author
-        let r2 = store.search_publications("Jones".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let r2 = store
+            .search_publications(
+                "Jones".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(r2.len(), 1);
         assert_eq!(r2[0].cite_key, "B");
 
         // Search by abstract
-        let r3 = store.search_publications("star formation".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let r3 = store
+            .search_publications(
+                "star formation".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(r3.len(), 1);
         assert_eq!(r3[0].cite_key, "A");
 
         // Search by note
-        let r4 = store.search_publications("merging galaxies".into(), Some(lib.id.clone()), "created".into(), false, None, None).unwrap();
+        let r4 = store
+            .search_publications(
+                "merging galaxies".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(r4.len(), 1);
         assert_eq!(r4[0].cite_key, "B");
     }
@@ -4749,9 +4801,7 @@ mod tests {
                 true,
             )
             .unwrap();
-        store
-            .set_locally_materialized(lf.id.clone(), true)
-            .unwrap();
+        store.set_locally_materialized(lf.id.clone(), true).unwrap();
 
         let row2 = store.get_publication(pub_id.clone()).unwrap().unwrap();
         assert!(row2.has_downloaded_pdf);
@@ -4786,7 +4836,15 @@ mod tests {
 
         // Add linked file
         store
-            .add_linked_file(pub_id.clone(), "paper.pdf".into(), None, None, 2048, None, true)
+            .add_linked_file(
+                pub_id.clone(),
+                "paper.pdf".into(),
+                None,
+                None,
+                2048,
+                None,
+                true,
+            )
             .unwrap();
 
         // Add to a collection
@@ -4924,7 +4982,15 @@ mod tests {
                 "Notes on Dark Matter Paper".into(),
                 None,
                 Some("Key findings from Smith2024".into()),
-                None, None, None, None, None, None, None, None, None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 vec![],
             )
             .unwrap();
@@ -4947,7 +5013,17 @@ mod tests {
         let result = store.create_artifact(
             "imbib/bibliography-entry".into(),
             "Should Fail".into(),
-            None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             vec![],
         );
         assert!(result.is_err());
@@ -4959,7 +5035,10 @@ mod tests {
         let lib = store.create_library("Test".into()).unwrap();
         // Import 5 publications with distinct years for deterministic sorting
         for i in 0..5 {
-            let bibtex = format!("@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}", 2020 + i);
+            let bibtex = format!(
+                "@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}",
+                2020 + i
+            );
             store.import_bibtex(bibtex, lib.id.clone()).unwrap();
         }
 
@@ -5018,21 +5097,39 @@ mod tests {
 
         // Tag one
         store.create_tag("test-tag".into(), None, None).unwrap();
-        store.add_tag(vec![ids[1].clone()], "test-tag".into()).unwrap();
+        store
+            .add_tag(vec![ids[1].clone()], "test-tag".into())
+            .unwrap();
         assert_eq!(store.count_by_tag("test-tag".into(), None).unwrap(), 1);
 
         // Flag one
-        store.set_flag(vec![ids[2].clone()], Some("blue".into()), None, None).unwrap();
+        store
+            .set_flag(vec![ids[2].clone()], Some("blue".into()), None, None)
+            .unwrap();
         assert_eq!(store.count_flagged(Some("blue".into())).unwrap(), 1);
         assert_eq!(store.count_flagged(None).unwrap(), 1); // any flag
 
         // Search count
-        assert_eq!(store.count_search_results("Paper".into(), Some(lib.id.clone())).unwrap(), 3);
-        assert_eq!(store.count_search_results("Paper A".into(), Some(lib.id.clone())).unwrap(), 1);
+        assert_eq!(
+            store
+                .count_search_results("Paper".into(), Some(lib.id.clone()))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            store
+                .count_search_results("Paper A".into(), Some(lib.id.clone()))
+                .unwrap(),
+            1
+        );
 
         // Collection count
-        let coll = store.create_collection("Coll".into(), lib.id.clone(), false, None).unwrap();
-        store.add_to_collection(vec![ids[0].clone(), ids[1].clone()], coll.id.clone()).unwrap();
+        let coll = store
+            .create_collection("Coll".into(), lib.id.clone(), false, None)
+            .unwrap();
+        store
+            .add_to_collection(vec![ids[0].clone(), ids[1].clone()], coll.id.clone())
+            .unwrap();
         assert_eq!(store.count_collection_members_public(coll.id).unwrap(), 2);
     }
 
@@ -5058,7 +5155,10 @@ mod tests {
         let store = make_store();
         let lib = store.create_library("Test".into()).unwrap();
         for i in 0..10 {
-            let bibtex = format!("@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}", 2015 + i);
+            let bibtex = format!(
+                "@article{{P{i}, title={{Paper {i}}}, year={{{}}}}}",
+                2015 + i
+            );
             store.import_bibtex(bibtex, lib.id.clone()).unwrap();
         }
 
@@ -5079,7 +5179,12 @@ mod tests {
         let all = store
             .query_publications(lib.id.clone(), "year".into(), true, None, None)
             .unwrap();
-        store.set_starred(vec![all[0].id.clone(), all[1].id.clone(), all[2].id.clone()], true).unwrap();
+        store
+            .set_starred(
+                vec![all[0].id.clone(), all[1].id.clone(), all[2].id.clone()],
+                true,
+            )
+            .unwrap();
         let starred_page = store
             .query_starred(Some(lib.id.clone()), "year".into(), true, Some(2), Some(0))
             .unwrap();
@@ -5087,9 +5192,18 @@ mod tests {
 
         // Tag and paginate
         store.create_tag("physics".into(), None, None).unwrap();
-        store.add_tag(vec![all[0].id.clone(), all[4].id.clone()], "physics".into()).unwrap();
+        store
+            .add_tag(vec![all[0].id.clone(), all[4].id.clone()], "physics".into())
+            .unwrap();
         let tag_page = store
-            .query_by_tag("physics".into(), None, "year".into(), true, Some(1), Some(0))
+            .query_by_tag(
+                "physics".into(),
+                None,
+                "year".into(),
+                true,
+                Some(1),
+                Some(0),
+            )
             .unwrap();
         assert_eq!(tag_page.len(), 1);
         assert_eq!(tag_page[0].year, Some(2015));
@@ -5112,14 +5226,18 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
 
         // Verify deleted
-        let pubs = store.query_publications(lib.id.clone(), "title".into(), true, None, None).unwrap();
+        let pubs = store
+            .query_publications(lib.id.clone(), "title".into(), true, None, None)
+            .unwrap();
         assert_eq!(pubs.len(), 0);
 
         // Restore from snapshots
         store.restore_snapshots(snapshots).unwrap();
 
         // Verify restored
-        let pubs = store.query_publications(lib.id.clone(), "title".into(), true, None, None).unwrap();
+        let pubs = store
+            .query_publications(lib.id.clone(), "title".into(), true, None, None)
+            .unwrap();
         assert_eq!(pubs.len(), 2);
     }
 
@@ -5131,7 +5249,9 @@ mod tests {
         store
             .import_bibtex("@article{x, title={Dark Matter}}".into(), lib_id.clone())
             .unwrap();
-        store.create_collection("Favorites".into(), lib_id.clone(), false, None).unwrap();
+        store
+            .create_collection("Favorites".into(), lib_id.clone(), false, None)
+            .unwrap();
 
         // Delete library
         let snapshot = store.delete_library_undoable(lib_id.clone()).unwrap();
@@ -5142,7 +5262,9 @@ mod tests {
         assert!(store.get_library(lib_id.clone()).unwrap().is_none());
 
         // Publications still exist but orphaned (parent = NULL)
-        let detail = store.get_publication_detail(snapshot.child_publication_ids[0].clone()).unwrap();
+        let detail = store
+            .get_publication_detail(snapshot.child_publication_ids[0].clone())
+            .unwrap();
         assert!(detail.is_some()); // item still exists
 
         // Restore library
@@ -5154,7 +5276,9 @@ mod tests {
         assert_eq!(restored.unwrap().name, "Physics");
 
         // Publications are re-parented
-        let pubs = store.query_publications(lib_id.clone(), "title".into(), true, None, None).unwrap();
+        let pubs = store
+            .query_publications(lib_id.clone(), "title".into(), true, None, None)
+            .unwrap();
         assert_eq!(pubs.len(), 1);
         assert_eq!(pubs[0].title, "Dark Matter");
 
@@ -5172,7 +5296,9 @@ mod tests {
             .unwrap();
 
         // Create tag and assign
-        store.create_tag("methods/ml".into(), Some("#ff0000".into()), None).unwrap();
+        store
+            .create_tag("methods/ml".into(), Some("#ff0000".into()), None)
+            .unwrap();
         store.add_tag(ids.clone(), "methods/ml".into()).unwrap();
 
         // Verify tag exists
@@ -5190,7 +5316,10 @@ mod tests {
         assert!(!tags.iter().any(|t| t.path == "methods/ml"));
 
         // Publication no longer has tag
-        let detail = store.get_publication_detail(ids[0].clone()).unwrap().unwrap();
+        let detail = store
+            .get_publication_detail(ids[0].clone())
+            .unwrap()
+            .unwrap();
         assert!(!detail.tags.iter().any(|t| t.path == "methods/ml"));
 
         // Restore tag
@@ -5201,7 +5330,10 @@ mod tests {
         assert!(tags.iter().any(|t| t.path == "methods/ml"));
 
         // Publication has tag again
-        let detail = store.get_publication_detail(ids[0].clone()).unwrap().unwrap();
+        let detail = store
+            .get_publication_detail(ids[0].clone())
+            .unwrap()
+            .unwrap();
         assert!(detail.tags.iter().any(|t| t.path == "methods/ml"));
     }
 
@@ -5213,7 +5345,8 @@ mod tests {
         let lib = store.create_library("Test".into()).unwrap();
 
         // Pre-import one paper
-        let bibtex = r#"@article{Smith2024, title={Existing}, doi={10.1234/existing}, author={Smith}}"#;
+        let bibtex =
+            r#"@article{Smith2024, title={Existing}, doi={10.1234/existing}, author={Smith}}"#;
         store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
 
         // Batch import: one existing (by DOI), one new
@@ -5248,12 +5381,7 @@ mod tests {
 
         // Dismiss a paper
         store
-            .dismiss_paper(
-                Some("10.1234/dismissed".into()),
-                None,
-                None,
-                None,
-            )
+            .dismiss_paper(Some("10.1234/dismissed".into()), None, None, None)
             .unwrap();
 
         let results = vec![
@@ -5311,7 +5439,11 @@ mod tests {
         let second = store
             .batch_import_search_results(results2, lib.id.clone(), true)
             .unwrap();
-        assert_eq!(second.existing_ids.len(), 0, "dismissed paper must not appear in existing_ids");
+        assert_eq!(
+            second.existing_ids.len(),
+            0,
+            "dismissed paper must not appear in existing_ids"
+        );
         assert_eq!(second.dismissed_count, 1);
         assert_eq!(second.imported_ids.len(), 0);
     }
@@ -5343,7 +5475,11 @@ mod tests {
         let second = store
             .batch_import_search_results(results2, lib.id.clone(), true)
             .unwrap();
-        assert_eq!(second.existing_ids.len(), 1, "non-dismissed existing paper must be returned");
+        assert_eq!(
+            second.existing_ids.len(),
+            1,
+            "non-dismissed existing paper must be returned"
+        );
         assert_eq!(second.dismissed_count, 0);
         assert_eq!(second.imported_ids.len(), 0);
     }
@@ -5478,10 +5614,7 @@ mod tests {
 
         // Paper lives in `home` via parent
         let ids = store
-            .import_bibtex(
-                "@article{X, title={Paper}}".into(),
-                home.id.clone(),
-            )
+            .import_bibtex("@article{X, title={Paper}}".into(), home.id.clone())
             .unwrap();
         let paper_id = ids[0].clone();
 
@@ -5490,7 +5623,11 @@ mod tests {
             .library_add_members(extra.id.clone(), vec![paper_id.clone()])
             .unwrap();
 
-        let item = store.store.get(parse_uuid(&paper_id).unwrap()).unwrap().unwrap();
+        let item = store
+            .store
+            .get(parse_uuid(&paper_id).unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(
             item.parent.map(|u| u.to_string()),
             Some(home.id.clone()),
@@ -5575,11 +5712,12 @@ mod tests {
         let self_edges: Vec<_> = home_item
             .references
             .iter()
-            .filter(|r| {
-                r.edge_type == EdgeType::Contains && r.target.to_string() == paper
-            })
+            .filter(|r| r.edge_type == EdgeType::Contains && r.target.to_string() == paper)
             .collect();
-        assert!(self_edges.is_empty(), "no Contains edge needed for own children");
+        assert!(
+            self_edges.is_empty(),
+            "no Contains edge needed for own children"
+        );
     }
 
     #[test]
@@ -5600,11 +5738,12 @@ mod tests {
             .unwrap();
 
         // Paper still exists, parent still home
-        let item = store.store.get(parse_uuid(&paper).unwrap()).unwrap().unwrap();
-        assert_eq!(
-            item.parent.map(|u| u.to_string()),
-            Some(home.id.clone())
-        );
+        let item = store
+            .store
+            .get(parse_uuid(&paper).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.parent.map(|u| u.to_string()), Some(home.id.clone()));
 
         // extra no longer Contains it
         let extra_item = store
@@ -5612,9 +5751,10 @@ mod tests {
             .get(parse_uuid(&extra.id).unwrap())
             .unwrap()
             .unwrap();
-        let still_contains = extra_item.references.iter().any(|r| {
-            r.edge_type == EdgeType::Contains && r.target.to_string() == paper
-        });
+        let still_contains = extra_item
+            .references
+            .iter()
+            .any(|r| r.edge_type == EdgeType::Contains && r.target.to_string() == paper);
         assert!(!still_contains, "Contains edge must be removed");
     }
 }

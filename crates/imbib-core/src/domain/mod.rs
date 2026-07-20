@@ -19,8 +19,8 @@ mod tag;
 mod validation;
 
 // Re-export all types from local modules
-pub use author::{parse_author_string, Author};
 pub(crate) use author::parse_author_string_internal;
+pub use author::{parse_author_string, Author};
 pub use collection::Collection;
 pub use enrichment::{
     AuthorStats, EnrichmentCapability, EnrichmentData, EnrichmentPriority, OpenAccessStatus,
@@ -28,10 +28,10 @@ pub use enrichment::{
 pub use identifiers::Identifiers;
 pub use library::Library;
 pub use linked_file::{FileStorageType, LinkedFile};
+pub use paper_stub::PaperStub;
 pub use publication::{
     publication_from_bibtex, publication_to_bibtex, publication_to_bibtex_string, Publication,
 };
-pub use paper_stub::PaperStub;
 pub use search_result::{PdfLink, PdfLinkType, SearchResult, Source};
 pub use tag::Tag;
 pub use validation::{is_valid, validate_publication, ValidationError, ValidationSeverity};

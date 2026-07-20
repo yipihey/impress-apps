@@ -113,7 +113,10 @@ pub(crate) fn merge_publications_internal(
             let local_newer = match (&local.modified_at, &remote.modified_at) {
                 (Some(l), Some(r)) => {
                     // Parse as ISO 8601 timestamps for correct chronological comparison
-                    match (DateTime::parse_from_rfc3339(l), DateTime::parse_from_rfc3339(r)) {
+                    match (
+                        DateTime::parse_from_rfc3339(l),
+                        DateTime::parse_from_rfc3339(r),
+                    ) {
                         (Ok(lt), Ok(rt)) => lt > rt,
                         _ => l > r, // Fall back to lexicographic if parse fails
                     }

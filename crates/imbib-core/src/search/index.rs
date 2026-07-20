@@ -742,9 +742,7 @@ mod tests {
         pub1.authors
             .push(Author::new("Hawking".to_string()).with_given_name("Stephen"));
 
-        index
-            .index_publication(&mut writer, &pub1, None)
-            .unwrap();
+        index.index_publication(&mut writer, &pub1, None).unwrap();
         index.commit(&mut writer).unwrap();
 
         let results = index

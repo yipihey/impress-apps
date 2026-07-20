@@ -63,6 +63,10 @@ pub use domain::{
 };
 pub use error::FfiError;
 
+pub use annotations::{
+    Annotation, AnnotationColor, AnnotationHistory, AnnotationOperation, AnnotationStorageError,
+    AnnotationType, DrawingAnnotation, DrawingStroke, Point, PublicationAnnotations, Rect,
+};
 pub use export::{ExportFormat, ExportOptions};
 pub use filename::FilenameOptions;
 pub use identifiers::{
@@ -71,7 +75,14 @@ pub use identifiers::{
 };
 pub use import::{ImportError, ImportFormat, ImportResult};
 pub use merge::{Conflict, MergeResult, MergeStrategy};
+#[cfg(not(target_arch = "wasm32"))]
+pub use pdf::{
+    extract_pdf_text, generate_thumbnail, get_page_count, get_page_dimensions, search_in_pdf,
+    HeuristicConfidence, HeuristicExtractedFields, PageDimensions, PageText, PdfError, PdfMetadata,
+    PdfTextResult, TextMatch, ThumbnailConfig,
+};
 pub use ris::{RISEntry, RISTag, RISType};
+pub use search::snippets::{extract_snippet, highlight_terms};
 pub use search::{ADSDatabase, QueryLogic};
 #[cfg(feature = "native")]
 pub use search::{AnnIndex, AnnIndexConfig, AnnIndexItem, AnnSimilarityResult};
@@ -79,17 +90,6 @@ pub use search::{AnnIndex, AnnIndexConfig, AnnIndexItem, AnnSimilarityResult};
 pub use search::{HelpDocument, HelpPlatform, HelpSearchError, HelpSearchIndex, HelpSearchResult};
 #[cfg(not(target_arch = "wasm32"))]
 pub use search::{SearchHit, SearchIndex, SearchIndexError};
-pub use annotations::{
-    Annotation, AnnotationColor, AnnotationHistory, AnnotationOperation, AnnotationStorageError,
-    AnnotationType, DrawingAnnotation, DrawingStroke, Point, PublicationAnnotations, Rect,
-};
-#[cfg(not(target_arch = "wasm32"))]
-pub use pdf::{
-    extract_pdf_text, generate_thumbnail, get_page_count, get_page_dimensions, search_in_pdf,
-    HeuristicConfidence, HeuristicExtractedFields, PageDimensions, PageText, PdfError, PdfMetadata,
-    PdfTextResult, TextMatch, ThumbnailConfig,
-};
-pub use search::snippets::{extract_snippet, highlight_terms};
 
 pub use recommendation::{
     FeatureType, FeatureVector, LibraryContext, MutedItems, ProfileData, PublicationFeatureInput,

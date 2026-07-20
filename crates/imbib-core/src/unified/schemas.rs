@@ -176,10 +176,7 @@ pub fn muted_item_schema() -> Schema {
         id: "imbib/muted-item".into(),
         name: "Muted Item".into(),
         version: "1.0.0".into(),
-        fields: vec![
-            required_string("mute_type"),
-            required_string("value"),
-        ],
+        fields: vec![required_string("mute_type"), required_string("value")],
         expected_edges: vec![],
         inherits: None,
     }

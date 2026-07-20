@@ -398,18 +398,14 @@ proptest! {
 // === Retry properties ===
 
 fn arb_policy() -> impl Strategy<Value = RetryPolicy> {
-    (
-        1u32..=32,
-        0u64..=10_000,
-        0u64..=120_000,
-        0.0f64..=1.0,
-    )
-        .prop_map(|(max_attempts, base_ms, max_ms, jitter_factor)| RetryPolicy {
+    (1u32..=32, 0u64..=10_000, 0u64..=120_000, 0.0f64..=1.0).prop_map(
+        |(max_attempts, base_ms, max_ms, jitter_factor)| RetryPolicy {
             max_attempts,
             base_backoff: Duration::from_millis(base_ms),
             max_backoff: Duration::from_millis(max_ms),
             jitter_factor,
-        })
+        },
+    )
 }
 
 proptest! {

@@ -295,15 +295,19 @@ pub fn parse_reference_filter(input: String) -> ParsedFilter {
 
     let tag_query_raws: Vec<String> = filter.tag_queries.iter().map(format_tag_query).collect();
 
-    let field_term_raws: Vec<String> = filter.field_terms.iter().map(|ft| {
-        let field_name = match ft.field {
-            SearchField::Title => "title",
-            SearchField::Author => "author",
-            SearchField::Abstract => "abstract",
-            SearchField::Venue => "venue",
-        };
-        format!("{}:{}", field_name, ft.term)
-    }).collect();
+    let field_term_raws: Vec<String> = filter
+        .field_terms
+        .iter()
+        .map(|ft| {
+            let field_name = match ft.field {
+                SearchField::Title => "title",
+                SearchField::Author => "author",
+                SearchField::Abstract => "abstract",
+                SearchField::Venue => "venue",
+            };
+            format!("{}:{}", field_name, ft.term)
+        })
+        .collect();
 
     let year_filter_raw = filter.year_filter.as_ref().map(|yf| match yf {
         YearFilter::Exact(y) => format!("{}", y),

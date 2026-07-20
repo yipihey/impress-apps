@@ -173,8 +173,7 @@ mod store_impl {
                 }
             }
 
-            tx.commit()
-                .map_err(|e| format!("Commit error: {}", e))?;
+            tx.commit().map_err(|e| format!("Commit error: {}", e))?;
 
             Ok(count)
         }
@@ -348,8 +347,7 @@ mod store_impl {
                 }
             }
 
-            tx.commit()
-                .map_err(|e| format!("Commit error: {}", e))?;
+            tx.commit().map_err(|e| format!("Commit error: {}", e))?;
 
             Ok(count)
         }

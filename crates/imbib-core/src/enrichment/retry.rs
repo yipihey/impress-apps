@@ -144,10 +144,7 @@ impl Default for RetryPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetryDecision {
     /// Caller should wait `delay`, then attempt `next_attempt` (1-indexed).
-    Retry {
-        next_attempt: u32,
-        delay: Duration,
-    },
+    Retry { next_attempt: u32, delay: Duration },
     /// Retry budget exhausted; caller should fail the operation.
     Stop,
 }
@@ -210,7 +207,10 @@ mod tests {
         };
         let d1 = p.decide(1);
         match d1 {
-            RetryDecision::Retry { next_attempt, delay } => {
+            RetryDecision::Retry {
+                next_attempt,
+                delay,
+            } => {
                 assert_eq!(next_attempt, 2);
                 assert_eq!(delay, Duration::from_secs(1));
             }
@@ -218,7 +218,10 @@ mod tests {
         }
         let d2 = p.decide(2);
         match d2 {
-            RetryDecision::Retry { next_attempt, delay } => {
+            RetryDecision::Retry {
+                next_attempt,
+                delay,
+            } => {
                 assert_eq!(next_attempt, 3);
                 assert_eq!(delay, Duration::from_secs(2));
             }

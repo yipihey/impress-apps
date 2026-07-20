@@ -72,7 +72,9 @@ pub fn generate_filename(
         // multi-byte char in the middle. Filesystem cap is in *bytes* but
         // 200 ASCII-ish chars is generous enough that the worst case is
         // bounded.
-        base.chars().take(options.max_overall_len).collect::<String>()
+        base.chars()
+            .take(options.max_overall_len)
+            .collect::<String>()
     } else {
         base
     };
@@ -162,7 +164,12 @@ mod tests {
 
     #[test]
     fn einstein_basic() {
-        let f = generate_filename("Einstein", Some(1905), "On the Electrodynamics of Moving Bodies", &Default::default());
+        let f = generate_filename(
+            "Einstein",
+            Some(1905),
+            "On the Electrodynamics of Moving Bodies",
+            &Default::default(),
+        );
         // Swift only strips leading "The/A/An" — "On" and "Of" remain as
         // title words. CamelCase concatenation removes word separators.
         assert_eq!(f, "Einstein_1905_OnTheElectrodynamicsOfMovingBodies.pdf");
@@ -170,13 +177,23 @@ mod tests {
 
     #[test]
     fn strips_leading_the() {
-        let f = generate_filename("Smith", Some(2024), "The Quick Brown Fox", &Default::default());
+        let f = generate_filename(
+            "Smith",
+            Some(2024),
+            "The Quick Brown Fox",
+            &Default::default(),
+        );
         assert_eq!(f, "Smith_2024_QuickBrownFox.pdf");
     }
 
     #[test]
     fn strips_leading_a_and_an() {
-        let f_a = generate_filename("Smith", Some(2024), "A Tale of Two Cities", &Default::default());
+        let f_a = generate_filename(
+            "Smith",
+            Some(2024),
+            "A Tale of Two Cities",
+            &Default::default(),
+        );
         assert_eq!(f_a, "Smith_2024_TaleOfTwoCities.pdf");
 
         let f_an = generate_filename("Smith", Some(2024), "An Apple a Day", &Default::default());
@@ -203,7 +220,12 @@ mod tests {
 
     #[test]
     fn diacritics_stripped() {
-        let f = generate_filename("Müller", Some(2024), "Über die Quantenmechanik", &Default::default());
+        let f = generate_filename(
+            "Müller",
+            Some(2024),
+            "Über die Quantenmechanik",
+            &Default::default(),
+        );
         // Müller → Muller, Über → Uber
         assert_eq!(f, "Muller_2024_UberDieQuantenmechanik.pdf");
     }
@@ -238,9 +260,16 @@ mod tests {
         // First few words concatenated up to 20 char budget.
         assert!(f.starts_with("Smith_2024_"));
         // Title part shouldn't exceed budget; words add atomically.
-        let title_part = f.strip_prefix("Smith_2024_").unwrap()
-            .strip_suffix(".pdf").unwrap();
-        assert!(title_part.len() <= 20, "title `{}` exceeds 20-char budget", title_part);
+        let title_part = f
+            .strip_prefix("Smith_2024_")
+            .unwrap()
+            .strip_suffix(".pdf")
+            .unwrap();
+        assert!(
+            title_part.len() <= 20,
+            "title `{}` exceeds 20-char budget",
+            title_part
+        );
     }
 
     #[test]

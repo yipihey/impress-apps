@@ -147,21 +147,14 @@ mod tests {
 
     #[test]
     fn custom_order_overrides_default() {
-        let p = SourcePriority::new(vec![
-            "openalex".into(),
-            "ads".into(),
-        ]);
+        let p = SourcePriority::new(vec!["openalex".into(), "ads".into()]);
         assert!(p.outranks(&"openalex".into(), &"ads".into()));
         assert_eq!(p.rank(&"crossref".into()), usize::MAX);
     }
 
     #[test]
     fn duplicates_in_order_keep_first_index() {
-        let p = SourcePriority::new(vec![
-            "ads".into(),
-            "crossref".into(),
-            "ads".into(),
-        ]);
+        let p = SourcePriority::new(vec!["ads".into(), "crossref".into(), "ads".into()]);
         // ADS keeps rank 0 (first occurrence), Crossref at 1.
         assert_eq!(p.rank(&"ads".into()), 0);
         assert_eq!(p.rank(&"crossref".into()), 1);

@@ -54,7 +54,12 @@ fn cased(s: String, upper: bool) -> String {
     }
 }
 
-fn result_for(idx: usize, upper_doi: bool, upper_arxiv: bool, upper_bibcode: bool) -> SearchResultInput {
+fn result_for(
+    idx: usize,
+    upper_doi: bool,
+    upper_arxiv: bool,
+    upper_bibcode: bool,
+) -> SearchResultInput {
     SearchResultInput {
         bibtex: bibtex(idx),
         doi: Some(cased(doi(idx), upper_doi)),

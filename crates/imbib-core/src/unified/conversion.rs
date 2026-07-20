@@ -67,7 +67,11 @@ pub fn publication_to_item(pub_data: &Publication, library_id: Option<ItemId>) -
     insert_opt_int(&mut payload, "citation_count", &pub_data.citation_count);
     insert_opt_int(&mut payload, "reference_count", &pub_data.reference_count);
     insert_opt_string(&mut payload, "source_id", &pub_data.source_id);
-    insert_opt_string(&mut payload, "enrichment_source", &pub_data.enrichment_source);
+    insert_opt_string(
+        &mut payload,
+        "enrichment_source",
+        &pub_data.enrichment_source,
+    );
     insert_opt_string(&mut payload, "enrichment_date", &pub_data.enrichment_date);
     insert_opt_string(&mut payload, "raw_bibtex", &pub_data.raw_bibtex);
     insert_opt_string(&mut payload, "raw_ris", &pub_data.raw_ris);
@@ -236,7 +240,11 @@ pub fn library_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "name", name);
-    insert_opt_string(&mut payload, "bib_file_path", &bib_file_path.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "bib_file_path",
+        &bib_file_path.map(String::from),
+    );
     insert_opt_string(
         &mut payload,
         "papers_directory_path",
@@ -371,7 +379,11 @@ pub fn linked_file_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "filename", filename);
-    insert_opt_string(&mut payload, "relative_path", &relative_path.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "relative_path",
+        &relative_path.map(String::from),
+    );
     insert_opt_string(&mut payload, "file_type", &file_type.map(String::from));
     payload.insert("file_size".into(), Value::Int(file_size));
     insert_opt_string(&mut payload, "sha256", &sha256.map(String::from));
@@ -422,11 +434,21 @@ pub fn smart_search_to_item(
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "name", name);
     insert_string(&mut payload, "query", query);
-    insert_opt_string(&mut payload, "source_ids_json", &source_ids_json.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "source_ids_json",
+        &source_ids_json.map(String::from),
+    );
     payload.insert("max_results".into(), Value::Int(max_results));
     payload.insert("feeds_to_inbox".into(), Value::Bool(feeds_to_inbox));
-    payload.insert("auto_refresh_enabled".into(), Value::Bool(auto_refresh_enabled));
-    payload.insert("refresh_interval_seconds".into(), Value::Int(refresh_interval_seconds));
+    payload.insert(
+        "auto_refresh_enabled".into(),
+        Value::Bool(auto_refresh_enabled),
+    );
+    payload.insert(
+        "refresh_interval_seconds".into(),
+        Value::Int(refresh_interval_seconds),
+    );
     payload.insert("last_fetch_count".into(), Value::Int(0));
     if let Some(order) = sort_order {
         payload.insert("sort_order".into(), Value::Int(order));
@@ -595,7 +617,11 @@ pub fn annotation_to_item(
     insert_opt_string(&mut payload, "bounds_json", &bounds_json.map(String::from));
     insert_opt_string(&mut payload, "color", &color.map(String::from));
     insert_opt_string(&mut payload, "contents", &contents.map(String::from));
-    insert_opt_string(&mut payload, "selected_text", &selected_text.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "selected_text",
+        &selected_text.map(String::from),
+    );
 
     Item {
         id: Uuid::new_v4(),
@@ -634,9 +660,21 @@ pub fn comment_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "text", text);
-    insert_opt_string(&mut payload, "author_identifier", &author_identifier.map(String::from));
-    insert_opt_string(&mut payload, "author_display_name", &author_display_name.map(String::from));
-    insert_opt_string(&mut payload, "parent_comment_id", &parent_comment_id.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "author_identifier",
+        &author_identifier.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "author_display_name",
+        &author_display_name.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "parent_comment_id",
+        &parent_comment_id.map(String::from),
+    );
 
     Item {
         id: Uuid::new_v4(),
@@ -675,7 +713,11 @@ pub fn assignment_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "assignee_name", assignee_name);
-    insert_opt_string(&mut payload, "assigned_by_name", &assigned_by_name.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "assigned_by_name",
+        &assigned_by_name.map(String::from),
+    );
     insert_opt_string(&mut payload, "note", &note.map(String::from));
     if let Some(dd) = due_date {
         payload.insert("due_date".into(), Value::Int(dd));
@@ -719,8 +761,16 @@ pub fn activity_record_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "activity_type", activity_type);
-    insert_opt_string(&mut payload, "actor_display_name", &actor_display_name.map(String::from));
-    insert_opt_string(&mut payload, "target_title", &target_title.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "actor_display_name",
+        &actor_display_name.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "target_title",
+        &target_title.map(String::from),
+    );
     insert_opt_string(&mut payload, "target_id", &target_id.map(String::from));
     insert_opt_string(&mut payload, "detail", &detail.map(String::from));
 
@@ -760,10 +810,26 @@ pub fn recommendation_profile_to_item(
     training_events_json: Option<&str>,
 ) -> Item {
     let mut payload = BTreeMap::new();
-    insert_opt_string(&mut payload, "topic_affinities_json", &topic_affinities_json.map(String::from));
-    insert_opt_string(&mut payload, "author_affinities_json", &author_affinities_json.map(String::from));
-    insert_opt_string(&mut payload, "venue_affinities_json", &venue_affinities_json.map(String::from));
-    insert_opt_string(&mut payload, "training_events_json", &training_events_json.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "topic_affinities_json",
+        &topic_affinities_json.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "author_affinities_json",
+        &author_affinities_json.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "venue_affinities_json",
+        &venue_affinities_json.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "training_events_json",
+        &training_events_json.map(String::from),
+    );
 
     Item {
         id: Uuid::new_v4(),
@@ -814,15 +880,31 @@ pub fn artifact_to_item(
     insert_string(&mut payload, "title", title);
     insert_opt_string(&mut payload, "source_url", &source_url.map(String::from));
     insert_opt_string(&mut payload, "notes", &notes.map(String::from));
-    insert_opt_string(&mut payload, "artifact_subtype", &artifact_subtype.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "artifact_subtype",
+        &artifact_subtype.map(String::from),
+    );
     insert_opt_string(&mut payload, "file_name", &file_name.map(String::from));
     insert_opt_string(&mut payload, "file_hash", &file_hash.map(String::from));
     if let Some(size) = file_size {
         payload.insert("file_size".into(), Value::Int(size));
     }
-    insert_opt_string(&mut payload, "file_mime_type", &file_mime_type.map(String::from));
-    insert_opt_string(&mut payload, "capture_context", &capture_context.map(String::from));
-    insert_opt_string(&mut payload, "original_author", &original_author.map(String::from));
+    insert_opt_string(
+        &mut payload,
+        "file_mime_type",
+        &file_mime_type.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "capture_context",
+        &capture_context.map(String::from),
+    );
+    insert_opt_string(
+        &mut payload,
+        "original_author",
+        &original_author.map(String::from),
+    );
     insert_opt_string(&mut payload, "event_name", &event_name.map(String::from));
     insert_opt_string(&mut payload, "event_date", &event_date.map(String::from));
 
@@ -924,10 +1006,7 @@ mod tests {
             title: "Dark Matter in Galaxies".into(),
             year: Some(2024),
             month: None,
-            authors: vec![
-                make_author("John", "Smith"),
-                make_author("Jane", "Doe"),
-            ],
+            authors: vec![make_author("John", "Smith"), make_author("Jane", "Doe")],
             editors: vec![],
             journal: Some("ApJ".into()),
             booktitle: None,
@@ -1030,19 +1109,26 @@ mod tests {
         let item_no_json = Item { payload, ..item };
 
         let pub_back = item_to_publication(&item_no_json);
-        assert!(!pub_back.authors.is_empty(), "should parse authors from author_text");
+        assert!(
+            !pub_back.authors.is_empty(),
+            "should parse authors from author_text"
+        );
         assert_eq!(pub_back.authors[0].family_name, "Smith");
     }
 
     #[test]
     fn library_to_item_fields() {
-        let item = library_to_item("My Library", Some("/path/to/lib.bib"), None, true, false, false);
+        let item = library_to_item(
+            "My Library",
+            Some("/path/to/lib.bib"),
+            None,
+            true,
+            false,
+            false,
+        );
         assert_eq!(item.schema, "imbib/library");
         assert_eq!(get_string(&item.payload, "name"), Some("My Library".into()));
-        assert_eq!(
-            item.payload.get("is_default"),
-            Some(&Value::Bool(true))
-        );
+        assert_eq!(item.payload.get("is_default"), Some(&Value::Bool(true)));
     }
 
     #[test]
@@ -1051,10 +1137,7 @@ mod tests {
         let item = collection_to_item("Favorites", Some(parent), false, None, Some(5));
         assert_eq!(item.schema, "imbib/collection");
         assert_eq!(item.parent, Some(parent));
-        assert_eq!(
-            get_string(&item.payload, "name"),
-            Some("Favorites".into())
-        );
+        assert_eq!(get_string(&item.payload, "name"), Some("Favorites".into()));
         assert_eq!(get_int(&item.payload, "sort_order"), Some(5));
     }
 
@@ -1098,10 +1181,21 @@ mod tests {
     #[test]
     fn linked_file_to_item_fields() {
         let pub_id = Uuid::new_v4();
-        let item = linked_file_to_item(pub_id, "paper.pdf", Some("Papers/paper.pdf"), Some("pdf"), 1024, Some("abc123"), true);
+        let item = linked_file_to_item(
+            pub_id,
+            "paper.pdf",
+            Some("Papers/paper.pdf"),
+            Some("pdf"),
+            1024,
+            Some("abc123"),
+            true,
+        );
         assert_eq!(item.schema, "imbib/linked-file");
         assert_eq!(item.parent, Some(pub_id));
-        assert_eq!(get_string(&item.payload, "filename"), Some("paper.pdf".into()));
+        assert_eq!(
+            get_string(&item.payload, "filename"),
+            Some("paper.pdf".into())
+        );
         assert_eq!(item.payload.get("is_pdf"), Some(&Value::Bool(true)));
         assert_eq!(item.payload.get("file_size"), Some(&Value::Int(1024)));
     }
@@ -1109,11 +1203,24 @@ mod tests {
     #[test]
     fn smart_search_to_item_fields() {
         let lib_id = Uuid::new_v4();
-        let item = smart_search_to_item("My Search", "dark matter", lib_id, Some("[\"ADS\",\"arXiv\"]"), 50, true, false, 3600, Some(1));
+        let item = smart_search_to_item(
+            "My Search",
+            "dark matter",
+            lib_id,
+            Some("[\"ADS\",\"arXiv\"]"),
+            50,
+            true,
+            false,
+            3600,
+            Some(1),
+        );
         assert_eq!(item.schema, "imbib/smart-search");
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "name"), Some("My Search".into()));
-        assert_eq!(get_string(&item.payload, "query"), Some("dark matter".into()));
+        assert_eq!(
+            get_string(&item.payload, "query"),
+            Some("dark matter".into())
+        );
         assert_eq!(item.payload.get("feeds_to_inbox"), Some(&Value::Bool(true)));
         assert_eq!(item.payload.get("max_results"), Some(&Value::Int(50)));
     }
@@ -1122,8 +1229,14 @@ mod tests {
     fn muted_item_to_item_fields() {
         let item = muted_item_to_item("author", "Smith, John");
         assert_eq!(item.schema, "imbib/muted-item");
-        assert_eq!(get_string(&item.payload, "mute_type"), Some("author".into()));
-        assert_eq!(get_string(&item.payload, "value"), Some("Smith, John".into()));
+        assert_eq!(
+            get_string(&item.payload, "mute_type"),
+            Some("author".into())
+        );
+        assert_eq!(
+            get_string(&item.payload, "value"),
+            Some("Smith, John".into())
+        );
         assert!(item.parent.is_none());
     }
 
@@ -1131,17 +1244,34 @@ mod tests {
     fn dismissed_paper_to_item_fields() {
         let item = dismissed_paper_to_item(Some("10.1234/test"), Some("2401.00001"), None, None);
         assert_eq!(item.schema, "imbib/dismissed-paper");
-        assert_eq!(get_string(&item.payload, "doi"), Some("10.1234/test".into()));
-        assert_eq!(get_string(&item.payload, "arxiv_id"), Some("2401.00001".into()));
+        assert_eq!(
+            get_string(&item.payload, "doi"),
+            Some("10.1234/test".into())
+        );
+        assert_eq!(
+            get_string(&item.payload, "arxiv_id"),
+            Some("2401.00001".into())
+        );
         assert!(get_string(&item.payload, "bibcode").is_none());
         assert!(get_string(&item.payload, "cite_key").is_none());
     }
 
     #[test]
     fn scix_library_to_item_fields() {
-        let item = scix_library_to_item("remote-123", "My ADS Lib", Some("A test library"), true, "owner", Some("test@example.com"), None);
+        let item = scix_library_to_item(
+            "remote-123",
+            "My ADS Lib",
+            Some("A test library"),
+            true,
+            "owner",
+            Some("test@example.com"),
+            None,
+        );
         assert_eq!(item.schema, "imbib/scix-library");
-        assert_eq!(get_string(&item.payload, "remote_id"), Some("remote-123".into()));
+        assert_eq!(
+            get_string(&item.payload, "remote_id"),
+            Some("remote-123".into())
+        );
         assert_eq!(get_string(&item.payload, "name"), Some("My ADS Lib".into()));
         assert_eq!(item.payload.get("is_public"), Some(&Value::Bool(true)));
     }
@@ -1149,50 +1279,102 @@ mod tests {
     #[test]
     fn annotation_to_item_fields() {
         let file_id = Uuid::new_v4();
-        let item = annotation_to_item(file_id, "highlight", 5, Some("{\"x\":10}"), Some("#ffff00"), None, Some("dark matter"));
+        let item = annotation_to_item(
+            file_id,
+            "highlight",
+            5,
+            Some("{\"x\":10}"),
+            Some("#ffff00"),
+            None,
+            Some("dark matter"),
+        );
         assert_eq!(item.schema, "imbib/annotation");
         assert_eq!(item.parent, Some(file_id));
-        assert_eq!(get_string(&item.payload, "annotation_type"), Some("highlight".into()));
+        assert_eq!(
+            get_string(&item.payload, "annotation_type"),
+            Some("highlight".into())
+        );
         assert_eq!(item.payload.get("page_number"), Some(&Value::Int(5)));
-        assert_eq!(get_string(&item.payload, "selected_text"), Some("dark matter".into()));
+        assert_eq!(
+            get_string(&item.payload, "selected_text"),
+            Some("dark matter".into())
+        );
     }
 
     #[test]
     fn comment_to_item_fields() {
         let pub_id = Uuid::new_v4();
-        let item = comment_to_item(pub_id, "Great paper!", Some("user-123"), Some("Jane Doe"), None);
+        let item = comment_to_item(
+            pub_id,
+            "Great paper!",
+            Some("user-123"),
+            Some("Jane Doe"),
+            None,
+        );
         assert_eq!(item.schema, "imbib/comment");
         assert_eq!(item.parent, Some(pub_id));
-        assert_eq!(get_string(&item.payload, "text"), Some("Great paper!".into()));
-        assert_eq!(get_string(&item.payload, "author_display_name"), Some("Jane Doe".into()));
+        assert_eq!(
+            get_string(&item.payload, "text"),
+            Some("Great paper!".into())
+        );
+        assert_eq!(
+            get_string(&item.payload, "author_display_name"),
+            Some("Jane Doe".into())
+        );
     }
 
     #[test]
     fn assignment_to_item_fields() {
         let pub_id = Uuid::new_v4();
-        let item = assignment_to_item(pub_id, "Alice", Some("Bob"), Some("Read by Friday"), Some(1700000000000));
+        let item = assignment_to_item(
+            pub_id,
+            "Alice",
+            Some("Bob"),
+            Some("Read by Friday"),
+            Some(1700000000000),
+        );
         assert_eq!(item.schema, "imbib/assignment");
         assert_eq!(item.parent, Some(pub_id));
-        assert_eq!(get_string(&item.payload, "assignee_name"), Some("Alice".into()));
-        assert_eq!(item.payload.get("due_date"), Some(&Value::Int(1700000000000)));
+        assert_eq!(
+            get_string(&item.payload, "assignee_name"),
+            Some("Alice".into())
+        );
+        assert_eq!(
+            item.payload.get("due_date"),
+            Some(&Value::Int(1700000000000))
+        );
     }
 
     #[test]
     fn activity_record_to_item_fields() {
         let lib_id = Uuid::new_v4();
-        let item = activity_record_to_item(lib_id, "added", Some("Jane"), Some("Dark Matter Paper"), None, None);
+        let item = activity_record_to_item(
+            lib_id,
+            "added",
+            Some("Jane"),
+            Some("Dark Matter Paper"),
+            None,
+            None,
+        );
         assert_eq!(item.schema, "imbib/activity-record");
         assert_eq!(item.parent, Some(lib_id));
-        assert_eq!(get_string(&item.payload, "activity_type"), Some("added".into()));
+        assert_eq!(
+            get_string(&item.payload, "activity_type"),
+            Some("added".into())
+        );
     }
 
     #[test]
     fn recommendation_profile_to_item_fields() {
         let lib_id = Uuid::new_v4();
-        let item = recommendation_profile_to_item(lib_id, Some("{\"cosmo\":0.8}"), None, None, None);
+        let item =
+            recommendation_profile_to_item(lib_id, Some("{\"cosmo\":0.8}"), None, None, None);
         assert_eq!(item.schema, "imbib/recommendation-profile");
         assert_eq!(item.parent, Some(lib_id));
-        assert_eq!(get_string(&item.payload, "topic_affinities_json"), Some("{\"cosmo\":0.8}".into()));
+        assert_eq!(
+            get_string(&item.payload, "topic_affinities_json"),
+            Some("{\"cosmo\":0.8}".into())
+        );
     }
 
     #[test]
@@ -1204,15 +1386,51 @@ mod tests {
         let lib_id = Uuid::new_v4();
         let file_id = Uuid::new_v4();
 
-        assert!(reg.validate(&linked_file_to_item(pub_id, "test.pdf", None, None, 0, None, true)).is_ok());
-        assert!(reg.validate(&smart_search_to_item("q", "test", lib_id, None, 100, false, false, 3600, None)).is_ok());
+        assert!(reg
+            .validate(&linked_file_to_item(
+                pub_id, "test.pdf", None, None, 0, None, true
+            ))
+            .is_ok());
+        assert!(reg
+            .validate(&smart_search_to_item(
+                "q", "test", lib_id, None, 100, false, false, 3600, None
+            ))
+            .is_ok());
         assert!(reg.validate(&muted_item_to_item("author", "Smith")).is_ok());
-        assert!(reg.validate(&dismissed_paper_to_item(Some("10.1/x"), None, None, None)).is_ok());
-        assert!(reg.validate(&scix_library_to_item("r1", "lib", None, false, "read", None, None)).is_ok());
-        assert!(reg.validate(&annotation_to_item(file_id, "highlight", 1, None, None, None, None)).is_ok());
-        assert!(reg.validate(&comment_to_item(pub_id, "hi", None, None, None)).is_ok());
-        assert!(reg.validate(&assignment_to_item(pub_id, "Alice", None, None, None)).is_ok());
-        assert!(reg.validate(&activity_record_to_item(lib_id, "added", None, None, None, None)).is_ok());
-        assert!(reg.validate(&recommendation_profile_to_item(lib_id, None, None, None, None)).is_ok());
+        assert!(reg
+            .validate(&dismissed_paper_to_item(Some("10.1/x"), None, None, None))
+            .is_ok());
+        assert!(reg
+            .validate(&scix_library_to_item(
+                "r1", "lib", None, false, "read", None, None
+            ))
+            .is_ok());
+        assert!(reg
+            .validate(&annotation_to_item(
+                file_id,
+                "highlight",
+                1,
+                None,
+                None,
+                None,
+                None
+            ))
+            .is_ok());
+        assert!(reg
+            .validate(&comment_to_item(pub_id, "hi", None, None, None))
+            .is_ok());
+        assert!(reg
+            .validate(&assignment_to_item(pub_id, "Alice", None, None, None))
+            .is_ok());
+        assert!(reg
+            .validate(&activity_record_to_item(
+                lib_id, "added", None, None, None, None
+            ))
+            .is_ok());
+        assert!(reg
+            .validate(&recommendation_profile_to_item(
+                lib_id, None, None, None, None
+            ))
+            .is_ok());
     }
 }

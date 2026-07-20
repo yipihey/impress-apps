@@ -90,10 +90,7 @@ impl ChunkIndex {
             .into_iter()
             .map(|r| ChunkSimilarityResult {
                 chunk_id: r.publication_id.clone(), // AnnIndex stores chunk_id as "publication_id"
-                publication_id: map
-                    .get(&r.publication_id)
-                    .cloned()
-                    .unwrap_or_default(),
+                publication_id: map.get(&r.publication_id).cloned().unwrap_or_default(),
                 similarity: r.similarity,
             })
             .collect()
@@ -156,8 +153,7 @@ use std::sync::Mutex;
 
 #[cfg(feature = "native")]
 lazy_static! {
-    static ref CHUNK_INDEX_REGISTRY: RwLock<HashMap<u64, ChunkIndex>> =
-        RwLock::new(HashMap::new());
+    static ref CHUNK_INDEX_REGISTRY: RwLock<HashMap<u64, ChunkIndex>> = RwLock::new(HashMap::new());
     static ref CHUNK_INDEX_COUNTER: Mutex<u64> = Mutex::new(0);
 }
 

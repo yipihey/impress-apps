@@ -105,10 +105,7 @@ pub fn validate_pdf(bytes: &[u8]) -> Vec<ValidationIssue> {
         if major != b'1' && major != b'2' {
             issues.push(ValidationIssue::warning(
                 "unknown_version",
-                format!(
-                    "unexpected PDF version major: {:?}",
-                    char::from(major)
-                ),
+                format!("unexpected PDF version major: {:?}", char::from(major)),
             ));
         }
     } else {
@@ -174,7 +171,9 @@ fn approximate_page_count(bytes: &[u8]) -> usize {
         if &bytes[i..i + needle.len()] == needle {
             // Skip whitespace
             let mut j = i + needle.len();
-            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n') {
+            while j < bytes.len()
+                && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n')
+            {
                 j += 1;
             }
             // Expect "/Page" next
@@ -239,7 +238,12 @@ startxref\n\
         let issues = validate_pdf(&minimal_pdf());
         // No errors should be reported.
         for issue in &issues {
-            assert_ne!(issue.severity, ValidationSeverity::Error, "unexpected error: {:?}", issue);
+            assert_ne!(
+                issue.severity,
+                ValidationSeverity::Error,
+                "unexpected error: {:?}",
+                issue
+            );
         }
     }
 
@@ -255,7 +259,9 @@ startxref\n\
     fn rejects_missing_header() {
         let bytes = b"this is not a pdf";
         let issues = validate_pdf(bytes);
-        assert!(issues.iter().any(|i| i.code == "missing_header" && i.severity == ValidationSeverity::Error));
+        assert!(issues
+            .iter()
+            .any(|i| i.code == "missing_header" && i.severity == ValidationSeverity::Error));
     }
 
     #[test]
@@ -274,7 +280,9 @@ startxref\n\
         let mut bytes = b"%PDF-9.0\n".to_vec();
         bytes.extend_from_slice(b"%%EOF\n");
         let issues = validate_pdf(&bytes);
-        assert!(issues.iter().any(|i| i.code == "unknown_version" && i.severity == ValidationSeverity::Warning));
+        assert!(issues
+            .iter()
+            .any(|i| i.code == "unknown_version" && i.severity == ValidationSeverity::Warning));
     }
 
     #[test]
@@ -290,7 +298,9 @@ some padding to keep avg page size above 100 bytes per page so the sanity warnin
         // No error- or warning-level issues expected for this synthetic PDF.
         let issues = validate_pdf(bytes);
         assert!(
-            !issues.iter().any(|i| i.severity == ValidationSeverity::Error),
+            !issues
+                .iter()
+                .any(|i| i.severity == ValidationSeverity::Error),
             "unexpected errors: {:?}",
             issues
         );
@@ -320,7 +330,9 @@ some padding to keep avg page size above 100 bytes per page so the sanity warnin
 1 0 obj<</Type /Catalog>>endobj\n\
 %%EOF\n";
         let issues = validate_pdf(bytes);
-        assert!(issues.iter().any(|i| i.code == "no_pages_detected" && i.severity == ValidationSeverity::Info));
+        assert!(issues
+            .iter()
+            .any(|i| i.code == "no_pages_detected" && i.severity == ValidationSeverity::Info));
     }
 
     #[test]

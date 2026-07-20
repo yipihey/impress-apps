@@ -119,7 +119,12 @@ fn expand_shorthands(query: &str) -> (String, Vec<String>) {
     (result, corrections)
 }
 
-fn expand_one_shorthand(input: &str, short: &str, full: &str, corrections: &mut Vec<String>) -> String {
+fn expand_one_shorthand(
+    input: &str,
+    short: &str,
+    full: &str,
+    corrections: &mut Vec<String>,
+) -> String {
     let bytes = input.as_bytes();
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
@@ -165,11 +170,19 @@ fn is_space_byte(b: u8) -> bool {
 }
 
 fn utf8_char_len(first_byte: u8) -> usize {
-    if first_byte < 0x80 { 1 }
-    else if first_byte < 0xC0 { 1 } // continuation byte; shouldn't happen at start
-    else if first_byte < 0xE0 { 2 }
-    else if first_byte < 0xF0 { 3 }
-    else { 4 }
+    if first_byte < 0x80 {
+        1
+    } else if first_byte < 0xC0 {
+        1
+    }
+    // continuation byte; shouldn't happen at start
+    else if first_byte < 0xE0 {
+        2
+    } else if first_byte < 0xF0 {
+        3
+    } else {
+        4
+    }
 }
 
 // --- Rule 1: remove space after colon -------------------------------------
@@ -212,7 +225,8 @@ fn remove_spaces_after_colons(query: &str) -> (String, Vec<String>) {
 // --- Rule 2: quote unquoted authors with commas ---------------------------
 
 lazy_static! {
-    static ref AUTHOR_COMMA_RE: Regex = Regex::new(r#"((?:first_)?author):([^"\s]+,\s*[^"\s]+)"#).unwrap();
+    static ref AUTHOR_COMMA_RE: Regex =
+        Regex::new(r#"((?:first_)?author):([^"\s]+,\s*[^"\s]+)"#).unwrap();
 }
 
 fn quote_unquoted_authors(query: &str) -> (String, Vec<String>) {
@@ -241,7 +255,11 @@ fn quote_unquoted_authors(query: &str) -> (String, Vec<String>) {
 
 #[derive(Debug)]
 enum TokenKind {
-    FieldValue { field: String, value: String, quoted: bool },
+    FieldValue {
+        field: String,
+        value: String,
+        quoted: bool,
+    },
     Word(String),
     Operator(String),
     Paren(String),
@@ -266,7 +284,11 @@ fn quote_multi_word_values(query: &str) -> (String, Vec<String>) {
     while i < tokens.len() {
         let token = &tokens[i];
         match &token.kind {
-            TokenKind::FieldValue { field, value, quoted } => {
+            TokenKind::FieldValue {
+                field,
+                value,
+                quoted,
+            } => {
                 out.push_str(&token.leading_ws);
                 if !quoted && TEXT_FIELDS.contains(field.to_lowercase().as_str()) {
                     // Scan forward collecting bare words.
@@ -297,7 +319,10 @@ fn quote_multi_word_values(query: &str) -> (String, Vec<String>) {
                         out.push('"');
                         out.push_str(&full_value);
                         out.push('"');
-                        corrections.push(format!("Quoted multi-word value: {}:\"{}\"", field, full_value));
+                        corrections.push(format!(
+                            "Quoted multi-word value: {}:\"{}\"",
+                            field, full_value
+                        ));
                         i = j;
                         continue;
                     } else {
@@ -377,7 +402,11 @@ fn tokenize_for_quoting(query: &str) -> Vec<Token> {
 
         // Bare word — read until whitespace or paren.
         let word_start = pos;
-        while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '(' && chars[pos] != ')' {
+        while pos < chars.len()
+            && !chars[pos].is_whitespace()
+            && chars[pos] != '('
+            && chars[pos] != ')'
+        {
             pos += 1;
         }
         let word: String = chars[word_start..pos].iter().collect();
@@ -435,8 +464,17 @@ fn match_field_value(chars: &[char], start: usize) -> Option<FieldValueMatch> {
             q_end += 1;
         }
         let value: String = chars[q_start..q_end].iter().collect();
-        let end = if q_end < chars.len() { q_end + 1 } else { q_end };
-        return Some(FieldValueMatch { field, value, quoted: true, end });
+        let end = if q_end < chars.len() {
+            q_end + 1
+        } else {
+            q_end
+        };
+        return Some(FieldValueMatch {
+            field,
+            value,
+            quoted: true,
+            end,
+        });
     }
 
     if chars[pos] == '(' {
@@ -451,15 +489,26 @@ fn match_field_value(chars: &[char], start: usize) -> Option<FieldValueMatch> {
             p += 1;
         }
         let value: String = chars[pos..p].iter().collect();
-        return Some(FieldValueMatch { field, value, quoted: true, end: p });
+        return Some(FieldValueMatch {
+            field,
+            value,
+            quoted: true,
+            end: p,
+        });
     }
 
     let v_start = pos;
-    while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '(' && chars[pos] != ')' {
+    while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '(' && chars[pos] != ')'
+    {
         pos += 1;
     }
     let value: String = chars[v_start..pos].iter().collect();
-    Some(FieldValueMatch { field, value, quoted: false, end: pos })
+    Some(FieldValueMatch {
+        field,
+        value,
+        quoted: false,
+        end: pos,
+    })
 }
 
 fn match_functional_operator(chars: &[char], start: usize) -> Option<usize> {
@@ -482,8 +531,11 @@ fn match_functional_operator(chars: &[char], start: usize) -> Option<usize> {
         let mut depth = 1;
         let mut p = after + 1;
         while p < chars.len() && depth > 0 {
-            if chars[p] == '(' { depth += 1; }
-            else if chars[p] == ')' { depth -= 1; }
+            if chars[p] == '(' {
+                depth += 1;
+            } else if chars[p] == ')' {
+                depth -= 1;
+            }
             p += 1;
         }
         return Some(p);
@@ -494,7 +546,8 @@ fn match_functional_operator(chars: &[char], start: usize) -> Option<usize> {
 // --- Rule 4: uppercase boolean operators ----------------------------------
 
 lazy_static! {
-    static ref BOOL_OP_RE: Regex = Regex::new(r#"(?i)(?:^|[^"\w])(and|or|not)(?:$|[^"\w])"#).unwrap();
+    static ref BOOL_OP_RE: Regex =
+        Regex::new(r#"(?i)(?:^|[^"\w])(and|or|not)(?:$|[^"\w])"#).unwrap();
 }
 
 fn uppercase_boolean_operators(query: &str) -> (String, Vec<String>) {
@@ -684,13 +737,29 @@ mod tests {
         let r = normalize("a:Albert and title:dark energy author:\"Marie Curie\"");
         assert!(r.was_modified());
         // Shorthand expanded.
-        assert!(r.corrected_query.contains("author:Albert"), "got `{}`", r.corrected_query);
+        assert!(
+            r.corrected_query.contains("author:Albert"),
+            "got `{}`",
+            r.corrected_query
+        );
         // Boolean uppercased.
-        assert!(r.corrected_query.contains(" AND "), "got `{}`", r.corrected_query);
+        assert!(
+            r.corrected_query.contains(" AND "),
+            "got `{}`",
+            r.corrected_query
+        );
         // Multi-word title value quoted.
-        assert!(r.corrected_query.contains("title:\"dark energy\""), "got `{}`", r.corrected_query);
+        assert!(
+            r.corrected_query.contains("title:\"dark energy\""),
+            "got `{}`",
+            r.corrected_query
+        );
         // Author name reordered.
-        assert!(r.corrected_query.contains("author:\"Curie, M\""), "got `{}`", r.corrected_query);
+        assert!(
+            r.corrected_query.contains("author:\"Curie, M\""),
+            "got `{}`",
+            r.corrected_query
+        );
     }
 
     #[test]
