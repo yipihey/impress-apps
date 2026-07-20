@@ -5,6 +5,7 @@
 //! Usage:
 //!   cargo run -p impel-taskd --example review_cli -- <workspace-dir> list
 //!   cargo run -p impel-taskd --example review_cli -- <workspace-dir> resolve <review-id> approved|rejected
+//!   cargo run -p impel-taskd --example review_cli -- <workspace-dir> seed "<question>" tag1,tag2
 
 use impress_core::item::{ActorKind, Value};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
@@ -82,6 +83,50 @@ fn main() {
                 .expect("apply");
             println!("review {id} → {resolution}");
         }
-        other => eprintln!("unknown command '{other}' (list | resolve)"),
+        "seed" => {
+            // Demo/testing helper: create a review-request the way
+            // KeywordTagExecutor does.
+            use chrono::Utc;
+            use impress_core::item::{Item, Priority, Visibility};
+            use std::collections::BTreeMap;
+            let question = args.next().unwrap_or_else(|| "Apply proposed tags?".into());
+            let tags: Vec<Value> = args
+                .next()
+                .unwrap_or_default()
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| Value::String(s.trim().to_string()))
+                .collect();
+            let mut payload = BTreeMap::new();
+            payload.insert("question".into(), Value::String(question.clone()));
+            payload.insert("context_proposed_tags".into(), Value::Array(tags));
+            let item = Item {
+                id: uuid::Uuid::new_v4(),
+                schema: "review-request@1.0.0".into(),
+                payload,
+                created: Utc::now(),
+                modified: Utc::now(),
+                author: "impel/keyword-tag".into(),
+                author_kind: ActorKind::Agent,
+                logical_clock: 0,
+                origin: None,
+                canonical_id: None,
+                tags: vec![],
+                flag: None,
+                is_read: false,
+                is_starred: false,
+                priority: Priority::Normal,
+                visibility: Visibility::Private,
+                message_type: None,
+                produced_by: None,
+                version: None,
+                batch_id: None,
+                references: vec![],
+                parent: None,
+            };
+            let id = store.insert(item).expect("insert review");
+            println!("seeded review-request {id}: {question}");
+        }
+        other => eprintln!("unknown command '{other}' (list | resolve | seed)"),
     }
 }
