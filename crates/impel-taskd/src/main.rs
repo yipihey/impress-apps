@@ -1,0 +1,346 @@
+//! impel-taskd — the live task scheduler daemon (ADR-0015).
+//!
+//! Watches the shared impress-core store for new `bibliography-entry@1.0.0`
+//! items (broadcast event bus, schema-filtered), spawns the enrichment DAG
+//! via `EnrichmentSpawnRule`, and drives the ADR-0005 §6 scheduler loop
+//! with the `impel-enrichment` executors.
+//!
+//! Safety posture:
+//! - Touching the LIVE group-container store requires the explicit
+//!   `--enable` flag; otherwise the daemon refuses and explains itself.
+//! - `--workspace <dir>` points at an alternate workspace (its
+//!   `impress.sqlite` is created if absent) — the testing path.
+//! - `--dry-run` observes and logs but never writes.
+//! - The live store gets a start delay (default 90 s — the CLAUDE.md
+//!   startup-settling guard); workspace runs default to 0.
+//!
+//! Signing: like impress-mcp, the release binary must be codesigned with
+//! a team identity + the group-container entitlement to read the live
+//! store (see sign.sh; Full Disk Access may additionally be required).
+
+use std::path::PathBuf;
+use std::sync::mpsc::TryRecvError;
+use std::sync::Arc;
+use std::time::Duration;
+
+use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
+use impel_enrichment::classify::HeuristicClassifier;
+use impel_enrichment::metadata_resolve::ConfiguredSource;
+use impel_enrichment::{
+    EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
+};
+use imbib_core::enrichment::priority::SourcePriority;
+use impress_core::event::ItemEvent;
+use impress_core::item::ActorKind;
+use impress_core::query::{ItemQuery, Predicate};
+use impress_core::reference::EdgeType;
+use impress_core::sqlite_store::{SqliteItemStore, StoreConfig};
+use impress_core::store::ItemStore;
+use impress_sources::arxiv::ArxivSource;
+use impress_sources::crossref::CrossrefSource;
+use impress_sources::openalex::OpenAlexSource;
+
+const ACTOR: &str = "impel-taskd";
+
+struct Args {
+    workspace: Option<PathBuf>,
+    enable_live: bool,
+    dry_run: bool,
+    once: bool,
+    start_delay: Option<u64>,
+    poll_secs: u64,
+    confidence_threshold: f64,
+    backfill_hours: u64,
+}
+
+fn parse_args() -> Args {
+    let mut args = Args {
+        workspace: None,
+        enable_live: false,
+        dry_run: false,
+        once: false,
+        start_delay: None,
+        poll_secs: 5,
+        confidence_threshold: 0.5,
+        backfill_hours: 0,
+    };
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--workspace" => args.workspace = it.next().map(PathBuf::from),
+            "--enable" => args.enable_live = true,
+            "--dry-run" => args.dry_run = true,
+            "--once" => args.once = true,
+            "--start-delay" => {
+                args.start_delay = it.next().and_then(|v| v.parse().ok());
+            }
+            "--poll" => {
+                if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                    args.poll_secs = v;
+                }
+            }
+            "--confidence" => {
+                if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                    args.confidence_threshold = v;
+                }
+            }
+            "--backfill" => {
+                if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                    args.backfill_hours = v;
+                }
+            }
+            "--help" | "-h" => {
+                eprintln!(
+                    "impel-taskd — impress task scheduler daemon\n\
+                     \n\
+                     USAGE: impel-taskd [--workspace DIR | --enable] [--dry-run] [--once]\n\
+                            [--start-delay SECS] [--poll SECS] [--confidence F]\n\
+                     \n\
+                     --workspace DIR   use DIR/impress.sqlite (testing; created if absent)\n\
+                     --enable          allow the LIVE group-container store (required for it)\n\
+                     --dry-run         observe + log; never write\n\
+                     --once            one scheduler pass, then exit\n\
+                     --start-delay S   delay before first pass (default: 90 live, 0 workspace)\n\
+                     --poll S          scheduler poll interval (default 5)\n\
+                     --confidence F    keyword-tag review threshold (default 0.5)\n\
+                     --backfill H      also spawn for entries created in the last H hours"
+                );
+                std::process::exit(0);
+            }
+            other => {
+                eprintln!("impel-taskd: unknown argument '{other}' (see --help)");
+                std::process::exit(2);
+            }
+        }
+    }
+    args
+}
+
+fn live_store_path() -> PathBuf {
+    dirs::home_dir()
+        .expect("home directory")
+        .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
+}
+
+fn open_store(args: &Args) -> Arc<SqliteItemStore> {
+    let path = match &args.workspace {
+        Some(dir) => {
+            std::fs::create_dir_all(dir).expect("create workspace dir");
+            dir.join("impress.sqlite")
+        }
+        None => {
+            if !args.enable_live {
+                eprintln!(
+                    "impel-taskd: refusing to touch the LIVE store without --enable.\n\
+                     Use --workspace DIR for testing, or pass --enable deliberately."
+                );
+                std::process::exit(2);
+            }
+            live_store_path()
+        }
+    };
+    eprintln!("impel-taskd: store = {}", path.display());
+    let config = StoreConfig {
+        author: ACTOR.to_string(),
+        author_kind: ActorKind::Agent,
+        ..StoreConfig::default()
+    };
+    Arc::new(
+        SqliteItemStore::open_with_config(&path, config)
+            .unwrap_or_else(|e| panic!("open store {}: {e}", path.display())),
+    )
+}
+
+/// Tasks already spawned for this entry? (idempotency guard)
+fn already_spawned(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
+    let q = ItemQuery {
+        schema: Some("task@1.0.0".into()),
+        predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, entry_id)],
+        limit: Some(1),
+        ..Default::default()
+    };
+    matches!(ItemStore::count(store, &q), Ok(n) if n > 0)
+}
+
+/// Cross-process trigger detection: the in-process event bus can't see
+/// inserts made by OTHER processes (imbib), so each loop also scans for
+/// entries created since the watermark. `already_spawned` makes the
+/// overlap harmless.
+fn scan_new_entries(
+    store: &SqliteItemStore,
+    since_ms: i64,
+) -> Vec<impress_core::item::Item> {
+    let q = ItemQuery {
+        schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA.into()),
+        predicates: vec![Predicate::Gte(
+            "created".into(),
+            impress_core::item::Value::Int(since_ms),
+        )],
+        limit: Some(64),
+        ..Default::default()
+    };
+    ItemStore::query(store, &q).unwrap_or_default()
+}
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() {
+    let args = parse_args();
+    let store = open_store(&args);
+
+    // Executors: credential-free sources by default; ADS joins when a
+    // token is supplied (IMPEL_ADS_TOKEN).
+    let mut sources = vec![
+        ConfiguredSource {
+            plugin: Arc::new(ArxivSource::new()),
+            credentials: None,
+        },
+        ConfiguredSource {
+            plugin: Arc::new(CrossrefSource::new()),
+            credentials: std::env::var("IMPEL_CROSSREF_EMAIL").ok(),
+        },
+        ConfiguredSource {
+            plugin: Arc::new(OpenAlexSource::new()),
+            credentials: None,
+        },
+    ];
+    if let Ok(token) = std::env::var("IMPEL_ADS_TOKEN") {
+        sources.insert(
+            0,
+            ConfiguredSource {
+                plugin: Arc::new(impress_sources::ads::AdsSource::new()),
+                credentials: Some(token),
+            },
+        );
+    }
+
+    let mut scheduler = Scheduler::new(store.clone(), SchedulerConfig {
+        actor: ACTOR.into(),
+        batch: 8,
+        start_delay: Duration::ZERO, // we manage the delay ourselves below
+        poll_interval: Duration::from_secs(args.poll_secs),
+    });
+    scheduler.register(Arc::new(MetadataResolveExecutor::new(
+        sources,
+        SourcePriority::default(),
+    )));
+    scheduler.register(Arc::new(KeywordTagExecutor::new(
+        Arc::new(HeuristicClassifier::default_vocabulary()),
+        args.confidence_threshold,
+    )));
+
+    // Subscribe BEFORE the start delay so no Created events are missed.
+    let events = ItemStore::subscribe(
+        store.as_ref(),
+        ItemQuery {
+            schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA.into()),
+            ..Default::default()
+        },
+    )
+    .expect("subscribe");
+
+    let delay = args
+        .start_delay
+        .unwrap_or(if args.workspace.is_some() { 0 } else { 90 });
+    if delay > 0 {
+        eprintln!("impel-taskd: start delay {delay}s (startup-settling guard)");
+        tokio::time::sleep(Duration::from_secs(delay)).await;
+    }
+
+    let rule = EnrichmentSpawnRule;
+    // Watermark for the cross-process scan (ms since epoch). A generous
+    // slack window guards against clock skew and the insert-vs-startup
+    // race; `already_spawned` makes re-scanning the overlap free.
+    const SCAN_SLACK_MS: i64 = 60_000;
+    let mut watermark_ms = chrono::Utc::now().timestamp_millis()
+        - (args.backfill_hours as i64) * 3_600_000
+        - SCAN_SLACK_MS;
+    eprintln!(
+        "impel-taskd: running (dry_run={}, once={}, poll={}s, backfill={}h)",
+        args.dry_run, args.once, args.poll_secs, args.backfill_hours
+    );
+
+    loop {
+        // Cross-process pass: entries created since the watermark. The
+        // in-process bus below covers same-process inserts with less lag.
+        let scanned = scan_new_entries(&store, watermark_ms);
+        let mut trigger_items: Vec<impress_core::item::Item> = scanned;
+        for item in &trigger_items {
+            // Advance the watermark but keep the slack window trailing it.
+            watermark_ms = watermark_ms.max(item.created.timestamp_millis() - SCAN_SLACK_MS);
+        }
+
+        // Drain in-process trigger events into the same list.
+        loop {
+            match events.try_recv() {
+                Ok(ItemEvent::Created(item)) => trigger_items.push(*item),
+                Ok(_) => {}
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    eprintln!("impel-taskd: event bus disconnected; exiting");
+                    return;
+                }
+            }
+        }
+
+        // Spawn DAGs for new triggers.
+        for item in trigger_items {
+            if already_spawned(&store, item.id) {
+                continue;
+            }
+            match rule.spawn(&item, store.as_ref() as &dyn TaskStoreApi).await {
+                Ok(specs) if !specs.is_empty() => {
+                    if args.dry_run {
+                        eprintln!(
+                            "impel-taskd[dry]: would spawn {} task(s) for {}",
+                            specs.len(),
+                            item.id
+                        );
+                    } else {
+                        match create_task_dag(store.as_ref() as &dyn TaskStoreApi, &specs, ACTOR) {
+                            Ok(ids) => eprintln!(
+                                "impel-taskd: spawned {} task(s) for {}: {ids:?}",
+                                ids.len(),
+                                item.id
+                            ),
+                            Err(e) => {
+                                eprintln!("impel-taskd: spawn failed for {}: {e}", item.id)
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("impel-taskd: rule error for {}: {e}", item.id),
+            }
+        }
+
+        // One scheduler pass.
+        if args.dry_run {
+            match TaskStoreApi::ready_tasks(store.as_ref(), 8) {
+                Ok(ready) if !ready.is_empty() => {
+                    eprintln!("impel-taskd[dry]: {} task(s) ready", ready.len())
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("impel-taskd[dry]: ready query failed: {e}"),
+            }
+        } else {
+            match scheduler.run_once().await {
+                Ok(r) => {
+                    if r.acquired + r.completed + r.suspended + r.resumed + r.retried + r.failed > 0
+                    {
+                        eprintln!(
+                            "impel-taskd: pass acquired={} completed={} suspended={} resumed={} retried={} failed={}",
+                            r.acquired, r.completed, r.suspended, r.resumed, r.retried, r.failed
+                        );
+                    }
+                }
+                Err(e) => eprintln!("impel-taskd: scheduler pass failed: {e}"),
+            }
+        }
+
+        if args.once {
+            eprintln!("impel-taskd: --once pass complete; exiting");
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(args.poll_secs)).await;
+    }
+}

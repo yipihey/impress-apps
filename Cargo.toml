@@ -22,6 +22,8 @@ members = [
     "crates/impel-core",
     # impel-enrichment - ADR-0005 §9 reference implementation (task executors)
     "crates/impel-enrichment",
+    # impel-taskd - live task scheduler daemon over the shared store
+    "crates/impel-taskd",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",

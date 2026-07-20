@@ -1,0 +1,21 @@
+[package]
+name = "impel-taskd"
+version = "0.1.0"
+edition = "2021"
+description = "impel task scheduler daemon: watches the shared impress-core store for new bibliography entries, spawns enrichment task DAGs, and executes them (ADR-0005 §6, ADR-0015)."
+
+[[bin]]
+name = "impel-taskd"
+path = "src/main.rs"
+
+[dependencies]
+impress-core = { workspace = true, features = ["sqlite"] }
+impel-core = { workspace = true }
+impel-enrichment = { path = "../impel-enrichment" }
+impress-sources = { workspace = true }
+imbib-core = { workspace = true, features = ["native"] }
+
+tokio = { workspace = true }
+dirs = "5"
+chrono = { workspace = true }
+uuid = { workspace = true }
