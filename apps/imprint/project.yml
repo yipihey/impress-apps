@@ -382,6 +382,21 @@ targets:
       - sdk: UniformTypeIdentifiers.framework
     info:
       path: imprint-ShareExtension/Info.plist
+      # These MUST live here — xcodegen regenerates Info.plist from this
+      # block, so hand-edits to the file are wiped on every `xcodegen
+      # generate`. Without NSExtension + CFBundleDisplayName installd
+      # rejects the whole host app ("Failed to create app extension
+      # placeholder", "does not have a CFBundleDisplayName").
+      properties:
+        CFBundleDisplayName: imprint
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsFileWithMaxCount: 1
     entitlements:
       path: imprint-ShareExtension/imprint-ShareExtension.entitlements
       properties:
