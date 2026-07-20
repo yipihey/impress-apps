@@ -11,6 +11,10 @@ use imprint_service::manuscript_service::{
 };
 use imprint_service::sections::SectionMetadata;
 use imprint_service::text_service::{DefaultImprintTextService, ImprintTextService};
+use imprint_service::throughline::ThroughlineStore;
+use imprint_service::throughline_service::{
+    DefaultImprintThroughlineService, ImprintThroughlineService,
+};
 
 use crate::{check, CapabilityResult, Tier};
 
@@ -19,16 +23,22 @@ use crate::{check, CapabilityResult, Tier};
 struct TempService {
     _dir: tempfile::TempDir,
     manuscript: DefaultImprintManuscriptService,
+    throughline: DefaultImprintThroughlineService,
 }
 
 impl TempService {
     fn open() -> Result<Self, String> {
         let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
         let svc = imprint_service::open(dir.path()).map_err(|e| format!("open workspace: {e}"))?;
+        let sections = Arc::new(svc.handlers.sections().clone());
         let manuscript = DefaultImprintManuscriptService::new(Arc::new(svc.handlers));
+        let throughline = DefaultImprintThroughlineService::new(Arc::new(ThroughlineStore::new(
+            sections,
+        )));
         Ok(Self {
             _dir: dir,
             manuscript,
+            throughline,
         })
     }
 }
@@ -48,8 +58,220 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_section_roundtrip().await);
     out.push(cap_replace_in_section().await);
     out.push(cap_compile_latex().await);
+    out.push(cap_throughline_create().await);
+    out.push(cap_throughline_anchor_states().await);
+    out.push(cap_throughline_coverage().await);
+    out.push(cap_throughline_broken_anchor().await);
 
     out
+}
+
+// ---------------------------------------------------------------------------
+// Throughline capabilities (ADR-0016)
+// ---------------------------------------------------------------------------
+
+async fn cap_throughline_create() -> CapabilityResult {
+    check(
+        "throughline.create",
+        "Throughline creation is an explicit opt-in; non-opted documents stay empty",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let doc = uuid::Uuid::new_v4().to_string();
+            let other = uuid::Uuid::new_v4().to_string();
+
+            // Opt-in invariant: nothing before creation.
+            if svc.throughline.get_throughline(doc.clone()).await.is_some() {
+                return Err("throughline existed before creation".into());
+            }
+            if !svc.throughline.get_anchor_states(doc.clone()).await.is_empty() {
+                return Err("anchor states nonempty before creation".into());
+            }
+            let cov = svc.throughline.get_coverage(doc.clone()).await;
+            if cov.has_throughline {
+                return Err("coverage claimed a throughline before creation".into());
+            }
+
+            let info = svc
+                .throughline
+                .create_throughline(doc.clone(), "Self-test story".into())
+                .await
+                .ok_or("create_throughline returned None")?;
+            if info.paragraph_count != 1 {
+                return Err(format!("scaffold paragraph_count = {}", info.paragraph_count));
+            }
+            // Second create must fail (activation is deliberate).
+            if svc
+                .throughline
+                .create_throughline(doc.clone(), "Again".into())
+                .await
+                .is_some()
+            {
+                return Err("second create_throughline unexpectedly succeeded".into());
+            }
+            // Scaffold starts synced.
+            let states = svc.throughline.get_anchor_states(doc.clone()).await;
+            if states.len() != 1 || states[0].state != "synced" {
+                return Err(format!("scaffold states: {states:?}"));
+            }
+            // Untouched sibling document remains empty.
+            if svc.throughline.get_throughline(other.clone()).await.is_some() {
+                return Err("non-opted document grew a throughline".into());
+            }
+            Ok("create + opt-in invariant hold".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_throughline_anchor_states() -> CapabilityResult {
+    check(
+        "throughline.anchor_states",
+        "Anchored section edits derive manuscript-ahead; narrative edits derive throughline-ahead",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let doc = uuid::Uuid::new_v4().to_string();
+            svc.manuscript
+                .put_section(
+                    doc.clone(),
+                    "introduction".into(),
+                    "We measure X.".into(),
+                    SectionMetadata::default(),
+                )
+                .await
+                .ok_or("put_section failed")?;
+            svc.throughline
+                .create_throughline(doc.clone(), "Story".into())
+                .await
+                .ok_or("create failed")?;
+            svc.throughline
+                .set_anchor(doc.clone(), "tl-overview".into(), vec!["introduction".into()])
+                .await
+                .ok_or("set_anchor failed")?;
+
+            let states = svc.throughline.get_anchor_states(doc.clone()).await;
+            if states[0].state != "synced" {
+                return Err(format!("expected synced after baseline, got {}", states[0].state));
+            }
+
+            // Manuscript drifts.
+            svc.manuscript
+                .put_section(
+                    doc.clone(),
+                    "introduction".into(),
+                    "We measure X and Y.".into(),
+                    SectionMetadata::default(),
+                )
+                .await
+                .ok_or("re-put_section failed")?;
+            let states = svc.throughline.get_anchor_states(doc.clone()).await;
+            if states[0].state != "manuscript-ahead" {
+                return Err(format!("expected manuscript-ahead, got {}", states[0].state));
+            }
+
+            // Narrative edit on top → both directions stale.
+            svc.throughline
+                .update_throughline_source(doc.clone(), "A bolder claim. <tl-overview>\n".into())
+                .await
+                .ok_or("update_source failed")?;
+            let states = svc.throughline.get_anchor_states(doc.clone()).await;
+            if states[0].state != "manuscript-ahead+throughline-ahead" {
+                return Err(format!("expected both-ahead, got {}", states[0].state));
+            }
+            Ok("staleness derivation matches ADR-0016 D5".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_throughline_coverage() -> CapabilityResult {
+    check(
+        "throughline.coverage",
+        "Unanchored sections are reported; mark_supporting suppresses them",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let doc = uuid::Uuid::new_v4().to_string();
+            for key in ["introduction", "appendix"] {
+                svc.manuscript
+                    .put_section(
+                        doc.clone(),
+                        key.into(),
+                        "body".into(),
+                        SectionMetadata::default(),
+                    )
+                    .await
+                    .ok_or("put_section failed")?;
+            }
+            svc.throughline
+                .create_throughline(doc.clone(), "Story".into())
+                .await
+                .ok_or("create failed")?;
+            svc.throughline
+                .set_anchor(doc.clone(), "tl-overview".into(), vec!["introduction".into()])
+                .await
+                .ok_or("set_anchor failed")?;
+
+            let cov = svc.throughline.get_coverage(doc.clone()).await;
+            if cov.uncovered_section_keys != vec!["appendix".to_string()] {
+                return Err(format!("coverage: {:?}", cov.uncovered_section_keys));
+            }
+            svc.throughline
+                .mark_supporting(doc.clone(), "appendix".into(), true)
+                .await
+                .ok_or("mark_supporting failed")?;
+            let cov = svc.throughline.get_coverage(doc.clone()).await;
+            if !cov.uncovered_section_keys.is_empty() {
+                return Err(format!("supporting not suppressed: {:?}", cov.uncovered_section_keys));
+            }
+            Ok("coverage + supporting suppression hold".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_throughline_broken_anchor() -> CapabilityResult {
+    check(
+        "throughline.broken_anchor",
+        "Removing an anchored section derives the broken state (rename policy, ADR-0016 D4)",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let doc = uuid::Uuid::new_v4().to_string();
+            svc.manuscript
+                .put_section(
+                    doc.clone(),
+                    "results".into(),
+                    "body".into(),
+                    SectionMetadata::default(),
+                )
+                .await
+                .ok_or("put_section failed")?;
+            svc.throughline
+                .create_throughline(doc.clone(), "Story".into())
+                .await
+                .ok_or("create failed")?;
+            svc.throughline
+                .set_anchor(doc.clone(), "tl-overview".into(), vec!["results".into()])
+                .await
+                .ok_or("set_anchor failed")?;
+            // Simulate a heading rename/removal: the old key disappears.
+            if !svc
+                .manuscript
+                .delete_section(doc.clone(), "results".into())
+                .await
+            {
+                return Err("delete_section failed".into());
+            }
+            let states = svc.throughline.get_anchor_states(doc.clone()).await;
+            if states[0].state != "broken" || states[0].broken != vec!["results".to_string()] {
+                return Err(format!("expected broken on 'results', got {states:?}"));
+            }
+            Ok("broken-anchor derivation holds".to_string())
+        },
+    )
+    .await
 }
 
 async fn cap_compile_latex() -> CapabilityResult {
