@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 #if canImport(WebKit)
 import WebKit
@@ -28,8 +29,12 @@ public actor WebArchiver {
 
     /// The base directory for artifact file storage.
     nonisolated private var artifactStorageURL: URL {
+        // NEVER hardcode the group id: macOS must use the Team-ID-prefixed
+        // form (QG3MEYVHMS.*) or every launch re-triggers the "access data
+        // from other apps" TCC prompt. SiblingDiscovery.suiteGroupID picks
+        // the right form per platform.
         let groupContainer = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.impress.suite"
+            forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         )
         let base = groupContainer ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("artifacts", isDirectory: true)
