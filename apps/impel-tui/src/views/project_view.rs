@@ -279,15 +279,11 @@ impl ProjectView {
     /// Navigate to next item in active panel
     pub fn next_item(&mut self, thread_count: usize, deliverable_count: usize) {
         match self.active_panel {
-            0 => {
-                if thread_count > 0 {
-                    self.selected_thread = (self.selected_thread + 1) % thread_count;
-                }
+            0 if thread_count > 0 => {
+                self.selected_thread = (self.selected_thread + 1) % thread_count;
             }
-            1 => {
-                if deliverable_count > 0 {
-                    self.selected_deliverable = (self.selected_deliverable + 1) % deliverable_count;
-                }
+            1 if deliverable_count > 0 => {
+                self.selected_deliverable = (self.selected_deliverable + 1) % deliverable_count;
             }
             _ => {}
         }
@@ -296,22 +292,18 @@ impl ProjectView {
     /// Navigate to previous item in active panel
     pub fn prev_item(&mut self, thread_count: usize, deliverable_count: usize) {
         match self.active_panel {
-            0 => {
-                if thread_count > 0 {
-                    if self.selected_thread > 0 {
-                        self.selected_thread -= 1;
-                    } else {
-                        self.selected_thread = thread_count - 1;
-                    }
+            0 if thread_count > 0 => {
+                if self.selected_thread > 0 {
+                    self.selected_thread -= 1;
+                } else {
+                    self.selected_thread = thread_count - 1;
                 }
             }
-            1 => {
-                if deliverable_count > 0 {
-                    if self.selected_deliverable > 0 {
-                        self.selected_deliverable -= 1;
-                    } else {
-                        self.selected_deliverable = deliverable_count - 1;
-                    }
+            1 if deliverable_count > 0 => {
+                if self.selected_deliverable > 0 {
+                    self.selected_deliverable -= 1;
+                } else {
+                    self.selected_deliverable = deliverable_count - 1;
                 }
             }
             _ => {}
