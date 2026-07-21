@@ -1,6 +1,20 @@
 # imbib - Claude Code Briefing
 
-Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compatible, multi-source search (arXiv, ADS, Crossref, etc.), CloudKit sync.
+Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compatible, multi-source search (arXiv, ADS, Crossref, etc.).
+
+> ⚠️ **SUPERSEDED — data layer is the Rust store, not Core Data.**
+> imbib migrated off Core Data + CloudKit onto the unified impress-core
+> SQLite item store (ADR-023). The single data path is
+> `RustStoreAdapter.shared` (`@MainActor @Observable`) over `ImbibStore`
+> (imbib-core UniFFI) + `SharedStore` (impress-store-ffi), both opening
+> `SharedWorkspace.databasePath`. **Ignore the Core Data / `CDPublication` /
+> `PublicationRepository` / CloudKit descriptions below** — they document the
+> retired architecture and are kept only for historical context. Value-type
+> models (`PublicationModel`, `LibraryModel`, `CollectionModel`, …) replace
+> the managed objects; the to-many / `mutableSetValue` / actor-boundary
+> pitfalls no longer apply. As of GUI-meld (ADR-0018), the macOS GUI chassis
+> also lives in `PublicationManagerCore` (`Chassis/`, `Manuscript/`) and is
+> shared with imprint; manuscripts are first-class store rows.
 
 ## Architecture
 
