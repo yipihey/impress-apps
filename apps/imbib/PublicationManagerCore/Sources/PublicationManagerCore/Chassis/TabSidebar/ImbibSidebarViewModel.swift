@@ -133,8 +133,9 @@ final class ImbibSidebarViewModel {
         // Seed expansion state from collapsed sections
         initializeExpansionState()
 
-        // Select inbox section by default — resolveSelectedTab maps this to .inbox
-        selectedNodeID = ImbibSidebarNodeID.section(.inbox)
+        // Select the app-shell's default section (imbib = inbox, imprint =
+        // manuscripts) — resolveSelectedTab maps it to the matching tab.
+        selectedNodeID = ImbibSidebarNodeID.section(shellConfiguration.defaultSection)
 
         bumpDataVersion()
     }

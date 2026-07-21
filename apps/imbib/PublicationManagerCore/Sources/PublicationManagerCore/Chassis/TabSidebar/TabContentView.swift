@@ -28,9 +28,15 @@ public struct TabContentView: View {
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(SearchViewModel.self) private var searchViewModel
 
+    /// Thin-twin app identity — restricts visible sections + default landing
+    /// (imbib = everything; imprint = Manuscripts facet). Injected at the app
+    /// root; defaults to `.imbib` so imbib is unchanged.
+    @Environment(\.appShellConfiguration) private var shellConfiguration
+
     // MARK: - State
 
     @State private var viewModel = ImbibSidebarViewModel()
+    @State private var didApplyShellConfig = false
     @State private var scixViewModel = SciXLibraryViewModel()
 
     /// NavigationSplitView column state, driven by the declarative layout
@@ -79,6 +85,13 @@ public struct TabContentView: View {
             }
         }
         .task {
+            // Thin-twin: apply the app-shell identity BEFORE configure() so the
+            // default section + section visibility reflect this app (imbib vs
+            // imprint). Idempotent across .task re-runs.
+            if !didApplyShellConfig {
+                viewModel.shellConfiguration = shellConfiguration
+                didApplyShellConfig = true
+            }
             // Wire up dependencies
             viewModel.configure(
                 libraryManager: libraryManager,
