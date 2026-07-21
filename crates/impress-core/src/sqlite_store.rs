@@ -1794,7 +1794,61 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
+        Self::replay_state_on(&conn, id, clock_cutoff, time_cutoff)
+    }
+
+    /// Connection-level replay, callable while the writer lock (or a
+    /// transaction on it) is already held — `compact_operations` uses this to
+    /// capture the watermark state before deleting compactable operations.
+    ///
+    /// ## Snapshot floor (compaction contract)
+    ///
+    /// `compact_operations` deletes compactable operations older than its
+    /// window, which removes both their forward effects and the `prev` chain
+    /// the reverse un-apply pass depends on. Before deleting, it inserts a
+    /// durable `custom:snapshot` operation pinned at the *watermark* — the
+    /// logical clock / wall time of the newest deleted op — whose `op_data`
+    /// carries the target's full effective state (payload + envelope) at that
+    /// point.
+    ///
+    /// Replay honors that in two ways:
+    /// 1. **Clamp**: a requested cutoff below the newest snapshot's watermark
+    ///    is raised to the watermark. History below the floor is gone by
+    ///    design; rather than silently returning wrong data reconstructed
+    ///    from a broken `prev` chain, we return the documented floor state
+    ///    (the returned `as_of_clock` reports the floor, so callers can see
+    ///    the clamp happened).
+    /// 2. **Seeding**: the forward pass applies `custom:snapshot` ops as a
+    ///    wholesale state replacement (see `replay_single_op`), which
+    ///    reconstructs both payload *and* envelope (tags/flags/read/…) across
+    ///    the deleted range; surviving later ops then replay on top as usual.
+    ///
+    /// With the clamp in place the reverse un-apply pass never crosses a
+    /// snapshot: every op with clock > cutoff >= floor survived compaction
+    /// and still carries its `prev` value.
+    fn replay_state_on(
+        conn: &Connection,
+        id: ItemId,
+        clock_cutoff: Option<u64>,
+        time_cutoff: Option<chrono::DateTime<Utc>>,
+    ) -> Result<Option<EffectiveState>, StoreError> {
         let id_str = id.to_string();
+
+        // Clamp the requested cutoff to the compaction snapshot floor.
+        let (clock_cutoff, time_cutoff) = match Self::latest_snapshot_floor(conn, &id_str)? {
+            Some((floor_clock, floor_created_ms)) => {
+                let clamped_clock = clock_cutoff.map(|c| c.max(floor_clock));
+                let clamped_time = time_cutoff.map(|ts| {
+                    if ts.timestamp_millis() < floor_created_ms {
+                        Utc.timestamp_millis_opt(floor_created_ms).single().unwrap_or(ts)
+                    } else {
+                        ts
+                    }
+                });
+                (clamped_clock, clamped_time)
+            }
+            None => (clock_cutoff, time_cutoff),
+        };
 
         // Load the base item's creation-time state
         let mut stmt = conn
@@ -1802,7 +1856,7 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("prepare base: {}", e)))?;
 
         let base_item = stmt
-            .query_row(params![&id_str], |row| Ok(Self::row_to_item(&conn, row)))
+            .query_row(params![&id_str], |row| Ok(Self::row_to_item(conn, row)))
             .optional()
             .map_err(|e| StoreError::Storage(format!("query base: {}", e)))?;
 
@@ -1853,7 +1907,7 @@ impl SqliteItemStore {
         let ops: Vec<Item> = if let Some(clock) = clock_cutoff {
             ops_stmt
                 .query_map(params![&id_str, clock as i64], |row| {
-                    Ok(Self::row_to_item(&conn, row))
+                    Ok(Self::row_to_item(conn, row))
                 })
                 .map_err(|e| StoreError::Storage(format!("query ops: {}", e)))?
                 .collect::<Result<Result<Vec<_>, _>, _>>()
@@ -1861,14 +1915,14 @@ impl SqliteItemStore {
         } else if let Some(ts) = time_cutoff {
             ops_stmt
                 .query_map(params![&id_str, ts.timestamp_millis()], |row| {
-                    Ok(Self::row_to_item(&conn, row))
+                    Ok(Self::row_to_item(conn, row))
                 })
                 .map_err(|e| StoreError::Storage(format!("query ops: {}", e)))?
                 .collect::<Result<Result<Vec<_>, _>, _>>()
                 .map_err(|e| StoreError::Storage(format!("collect ops: {}", e)))??
         } else {
             ops_stmt
-                .query_map(params![&id_str], |row| Ok(Self::row_to_item(&conn, row)))
+                .query_map(params![&id_str], |row| Ok(Self::row_to_item(conn, row)))
                 .map_err(|e| StoreError::Storage(format!("query ops: {}", e)))?
                 .collect::<Result<Result<Vec<_>, _>, _>>()
                 .map_err(|e| StoreError::Storage(format!("collect ops: {}", e)))??
@@ -1909,7 +1963,7 @@ impl SqliteItemStore {
             let later_ops: Vec<Item> = if let Some(clock) = clock_cutoff {
                 unapply_stmt
                     .query_map(params![&id_str, clock as i64], |row| {
-                        Ok(Self::row_to_item(&conn, row))
+                        Ok(Self::row_to_item(conn, row))
                     })
                     .map_err(|e| StoreError::Storage(format!("query later ops: {}", e)))?
                     .collect::<Result<Result<Vec<_>, _>, _>>()
@@ -1917,7 +1971,7 @@ impl SqliteItemStore {
             } else if let Some(ts) = time_cutoff {
                 unapply_stmt
                     .query_map(params![&id_str, ts.timestamp_millis()], |row| {
-                        Ok(Self::row_to_item(&conn, row))
+                        Ok(Self::row_to_item(conn, row))
                     })
                     .map_err(|e| StoreError::Storage(format!("query later ops: {}", e)))?
                     .collect::<Result<Result<Vec<_>, _>, _>>()
@@ -1992,6 +2046,129 @@ impl SqliteItemStore {
                 Some(Value::Null) => state.parent = None,
                 _ => {}
             },
+            // "custom:snapshot" is intentionally NOT un-applied: the state it
+            // replaced was deleted by compaction. The snapshot-floor clamp in
+            // `replay_state_on` guarantees the reverse pass never reaches one.
+            _ => {}
+        }
+    }
+
+    /// Newest compaction snapshot for an item: (logical_clock, created_ms).
+    /// This is the item's time-travel floor — see `replay_state_on`.
+    fn latest_snapshot_floor(
+        conn: &Connection,
+        target_id_str: &str,
+    ) -> Result<Option<(u64, i64)>, StoreError> {
+        conn.query_row(
+            "SELECT logical_clock, created FROM items
+             WHERE op_target_id = ?1
+               AND schema_ref = 'core/operation'
+               AND json_extract(payload, '$.op_type') = 'custom:snapshot'
+             ORDER BY logical_clock DESC, created DESC LIMIT 1",
+            params![target_id_str],
+            |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .map_err(|e| StoreError::Storage(format!("latest_snapshot_floor: {}", e)))
+    }
+
+    /// Serialize an item's full effective state (payload + envelope) as the
+    /// `op_data` of a `custom:snapshot` operation. Inverse of
+    /// `apply_snapshot_to_state`.
+    fn snapshot_op_data(state: &EffectiveState) -> Value {
+        let mut m: BTreeMap<String, Value> = BTreeMap::new();
+        m.insert("payload".into(), Value::Object(state.payload.clone()));
+        m.insert(
+            "tags".into(),
+            Value::Array(state.tags.iter().cloned().map(Value::String).collect()),
+        );
+        let flag_val = match &state.flag {
+            Some(f) => {
+                let mut fm = BTreeMap::new();
+                fm.insert("color".into(), Value::String(f.color.clone()));
+                if let Some(s) = &f.style {
+                    fm.insert("style".into(), Value::String(s.clone()));
+                }
+                if let Some(l) = &f.length {
+                    fm.insert("length".into(), Value::String(l.clone()));
+                }
+                Value::Object(fm)
+            }
+            None => Value::Null,
+        };
+        m.insert("flag".into(), flag_val);
+        m.insert("is_read".into(), Value::Bool(state.is_read));
+        m.insert("is_starred".into(), Value::Bool(state.is_starred));
+        m.insert("priority".into(), Value::String(state.priority.to_string()));
+        m.insert(
+            "visibility".into(),
+            Value::String(state.visibility.to_string()),
+        );
+        m.insert(
+            "parent".into(),
+            match state.parent {
+                Some(p) => Value::String(p.to_string()),
+                None => Value::Null,
+            },
+        );
+        Value::Object(m)
+    }
+
+    /// Apply a `custom:snapshot` op during forward replay: wholesale-replace
+    /// the state with the captured watermark state. Ops after the snapshot
+    /// replay on top as usual.
+    fn apply_snapshot_to_state(state: &mut EffectiveState, op_data: &Value) {
+        let Value::Object(m) = op_data else { return };
+        if let Some(Value::Object(payload)) = m.get("payload") {
+            state.payload = payload.clone();
+        }
+        if let Some(Value::Array(tags)) = m.get("tags") {
+            state.tags = tags
+                .iter()
+                .filter_map(|t| match t {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect();
+        }
+        match m.get("flag") {
+            Some(Value::Object(fm)) => {
+                if let Some(Value::String(color)) = fm.get("color") {
+                    state.flag = Some(FlagState {
+                        color: color.clone(),
+                        style: fm.get("style").and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        }),
+                        length: fm.get("length").and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        }),
+                    });
+                }
+            }
+            Some(Value::Null) => state.flag = None,
+            _ => {}
+        }
+        if let Some(Value::Bool(v)) = m.get("is_read") {
+            state.is_read = *v;
+        }
+        if let Some(Value::Bool(v)) = m.get("is_starred") {
+            state.is_starred = *v;
+        }
+        if let Some(Value::String(p)) = m.get("priority") {
+            if let Ok(prio) = p.parse::<Priority>() {
+                state.priority = prio;
+            }
+        }
+        if let Some(Value::String(v)) = m.get("visibility") {
+            if let Ok(vis) = v.parse::<Visibility>() {
+                state.visibility = vis;
+            }
+        }
+        match m.get("parent") {
+            Some(Value::String(s)) => state.parent = s.parse().ok(),
+            Some(Value::Null) => state.parent = None,
             _ => {}
         }
     }
@@ -2083,6 +2260,9 @@ impl SqliteItemStore {
                 }
                 _ => {}
             },
+            // Compaction watermark snapshot: reconstructs the full state at
+            // the point where compacted (deleted) ops used to end.
+            "custom:snapshot" => Self::apply_snapshot_to_state(state, &op_data),
             _ => {} // Unknown op types are ignored during replay
         }
     }
@@ -2770,74 +2950,261 @@ impl SqliteItemStore {
         Ok(rows)
     }
 
-    /// Remove compactable operations older than `window_days` and replace with Snapshot ops.
+    /// Remove compactable operations older than `window_days`, preserving
+    /// time-travel correctness via durable watermark snapshots.
     ///
     /// Returns the number of operations removed.
     ///
-    /// Operations with `retention = 'compactable'` and `created` older than the cutoff are
-    /// eligible. For each target item that has eligible compactable ops, this method deletes
-    /// those ops and updates the `compaction_watermark:{item_id}` metadata key.
+    /// Operations with `retention = 'compactable'` and `created` older than
+    /// the cutoff are eligible. For each target item with eligible ops:
     ///
-    /// NOTE: Snapshot creation is currently a TODO placeholder — compactable ops are deleted
-    /// without creating a replacement snapshot. A warning is logged to store_metadata.
+    /// 1. **Auto-revision gate** (manuscripts only): if the manuscript has no
+    ///    `manuscript-revision` created at/after the target's watermark (the
+    ///    newest op being deleted), one is auto-created with
+    ///    `snapshot_reason = "stable-churn"` — so the durable named-snapshot
+    ///    stratum never depends on compactable ops.
+    /// 2. **Watermark snapshot**: the item's effective state at the watermark
+    ///    clock is captured (while all ops are still present) and written as
+    ///    a durable `core/operation` item with op_type `custom:snapshot`,
+    ///    pinned at the watermark's logical clock and wall time. Forward
+    ///    replay applies it as a wholesale state replacement; time-travel
+    ///    below the watermark is clamped to it (documented floor — see
+    ///    `replay_state_on`).
+    /// 3. **Delete**: eligible compactable ops are removed. Snapshot + delete
+    ///    happen in one transaction, so replay never observes a deleted range
+    ///    without its covering snapshot.
+    ///
+    /// Durable and ephemeral-tier ops are never touched. The
+    /// `compaction_watermark:{item_id}` metadata key records each compaction
+    /// for sync.
     pub fn compact_operations(&self, window_days: u32) -> Result<u64, StoreError> {
+        let cutoff_ms =
+            (Utc::now() - chrono::Duration::days(window_days as i64)).timestamp_millis();
+
+        struct CompactionPlan {
+            target: ItemId,
+            target_str: String,
+            /// Manuscript lacking a revision >= its watermark.
+            needs_revision: bool,
+        }
+
+        // Phase 1 (writer lock, read-only): find targets with eligible ops
+        // and check the manuscript revision gate.
+        let plans: Vec<CompactionPlan> = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT op_target_id, MAX(created) FROM items
+                     WHERE schema_ref = 'core/operation'
+                       AND retention = 'compactable'
+                       AND created < ?1
+                       AND op_target_id IS NOT NULL
+                     GROUP BY op_target_id",
+                )
+                .map_err(|e| StoreError::Storage(format!("compact_operations prepare: {}", e)))?;
+
+            let rows: Vec<(String, i64)> = stmt
+                .query_map(params![cutoff_ms], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| StoreError::Storage(format!("compact_operations query: {}", e)))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| StoreError::Storage(format!("compact_operations collect: {}", e)))?;
+
+            let mut plans = Vec::with_capacity(rows.len());
+            for (target_str, watermark_ms) in rows {
+                let target: ItemId = target_str.parse().map_err(|_| {
+                    StoreError::Storage(format!("invalid op_target_id: {}", target_str))
+                })?;
+                let is_manuscript =
+                    Self::schema_of(&conn, &target_str).as_deref() == Some("manuscript");
+                let needs_revision = is_manuscript && {
+                    let fresh: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM items
+                             WHERE schema_ref = 'manuscript-revision'
+                               AND json_extract(payload, '$.parent_manuscript_ref') = ?1
+                               AND created >= ?2",
+                            params![&target_str, watermark_ms],
+                            |row| row.get(0),
+                        )
+                        .map_err(|e| {
+                            StoreError::Storage(format!("compact revision check: {}", e))
+                        })?;
+                    fresh == 0
+                };
+                plans.push(CompactionPlan {
+                    target,
+                    target_str,
+                    needs_revision,
+                });
+            }
+            plans
+        }; // lock released
+
+        // Phase 2 (no lock held — create_revision re-acquires it): ensure
+        // every manuscript being compacted has a durable named snapshot that
+        // does not depend on the ops about to be deleted.
+        for plan in plans.iter().filter(|p| p.needs_revision) {
+            crate::manuscript_ops::create_revision(
+                self,
+                plan.target,
+                "auto",
+                "stable-churn",
+                "system:compaction",
+                ActorKind::System,
+            )?;
+        }
+
+        // Phase 3 (writer lock + transaction): snapshot then delete, per target.
         let conn = self
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
-
-        let cutoff_ms =
-            (Utc::now() - chrono::Duration::days(window_days as i64)).timestamp_millis();
-
-        // Find distinct target item IDs that have compactable ops older than cutoff.
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT op_target_id FROM items
-                 WHERE schema_ref = 'impress/operation@1.0.0'
-                   AND retention = 'compactable'
-                   AND created < ?1
-                   AND op_target_id IS NOT NULL",
-            )
-            .map_err(|e| StoreError::Storage(format!("compact_operations prepare: {}", e)))?;
-
-        let target_ids: Vec<String> = stmt
-            .query_map(params![cutoff_ms], |row| row.get(0))
-            .map_err(|e| StoreError::Storage(format!("compact_operations query: {}", e)))?
-            .collect::<Result<_, _>>()
-            .map_err(|e| StoreError::Storage(format!("compact_operations collect: {}", e)))?;
-
-        drop(stmt);
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| StoreError::Storage(format!("compact begin tx: {}", e)))?;
 
         let mut total_deleted: u64 = 0;
 
-        for target_id in &target_ids {
-            // TODO: Build a snapshot item from the current materialized state and insert it
-            // before deleting. For now, we delete without creating snapshots (data is preserved
-            // in the materialized columns on the target item).
-            let deleted = conn
-                .execute(
-                    "DELETE FROM items
-                     WHERE schema_ref = 'impress/operation@1.0.0'
+        for plan in &plans {
+            // Re-derive the eligible set inside the transaction (the watermark
+            // is per-target: the newest compactable op being deleted).
+            let (count, max_clock, max_created): (i64, Option<i64>, Option<i64>) = tx
+                .query_row(
+                    "SELECT COUNT(*), MAX(logical_clock), MAX(created) FROM items
+                     WHERE schema_ref = 'core/operation'
                        AND retention = 'compactable'
                        AND created < ?1
                        AND op_target_id = ?2",
-                    params![cutoff_ms, target_id],
+                    params![cutoff_ms, &plan.target_str],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|e| StoreError::Storage(format!("compact watermark query: {}", e)))?;
+            if count == 0 {
+                continue;
+            }
+            let watermark_clock = max_clock.unwrap_or(0) as u64;
+            let watermark_ms = max_created.unwrap_or(cutoff_ms);
+
+            // Capture the effective state at the watermark while every op is
+            // still present — this replay is exact, not floor-clamped, because
+            // the ops we are about to delete still exist.
+            let state = Self::replay_state_on(&tx, plan.target, Some(watermark_clock), None)?
+                .ok_or(StoreError::NotFound(plan.target))?;
+
+            // Durable snapshot op pinned at the watermark's clock + wall time,
+            // so it sorts exactly where the deleted range ended.
+            let snap_payload = build_operation_payload(
+                plan.target,
+                &OperationType::Custom("snapshot".into(), Self::snapshot_op_data(&state)),
+                OperationIntent::Routine,
+                Some("compaction watermark snapshot"),
+                None,
+            );
+            let created_dt = Utc
+                .timestamp_millis_opt(watermark_ms)
+                .single()
+                .unwrap_or_else(Utc::now);
+            let snap_item = Item {
+                id: Uuid::new_v4(),
+                schema: "core/operation".into(),
+                payload: snap_payload,
+                created: created_dt,
+                modified: created_dt,
+                author: "system:compaction".into(),
+                author_kind: ActorKind::System,
+                logical_clock: watermark_clock,
+                origin: Some(self.origin_id.clone()),
+                canonical_id: None,
+                tags: vec![],
+                flag: None,
+                is_read: false,
+                is_starred: false,
+                priority: Priority::Normal,
+                visibility: Visibility::Private,
+                message_type: None,
+                produced_by: None,
+                version: None,
+                batch_id: None,
+                references: vec![],
+                parent: None,
+            };
+            Self::insert_operation_item(
+                &tx,
+                &snap_item,
+                plan.target,
+                &self.origin_id,
+                RetentionTier::Durable,
+            )?;
+
+            // Delete the compacted range. The snapshot survives (durable).
+            let deleted = tx
+                .execute(
+                    "DELETE FROM items
+                     WHERE schema_ref = 'core/operation'
+                       AND retention = 'compactable'
+                       AND created < ?1
+                       AND op_target_id = ?2",
+                    params![cutoff_ms, &plan.target_str],
                 )
                 .map_err(|e| StoreError::Storage(format!("compact delete: {}", e)))?;
 
             total_deleted += deleted as u64;
 
             // Record compaction watermark so sync knows what was compacted.
-            let watermark_key = format!("compaction_watermark:{}", target_id);
-            let hlc = Self::next_hlc_clock(&conn)?;
-            conn.execute(
+            let watermark_key = format!("compaction_watermark:{}", plan.target_str);
+            let hlc = Self::next_hlc_clock(&tx)?;
+            tx.execute(
                 "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?1, ?2)",
                 params![watermark_key, hlc.to_string()],
             )
             .map_err(|e| StoreError::Storage(format!("compact watermark: {}", e)))?;
         }
 
+        tx.commit()
+            .map_err(|e| StoreError::Storage(format!("compact commit: {}", e)))?;
+
         Ok(total_deleted)
+    }
+
+    /// `update()` with an explicit retention tier for the generated operations.
+    ///
+    /// The trait's `update()` writes every operation Durable. High-churn
+    /// callers (manuscript body autosaves: `body_content`,
+    /// `body_content_hash`, `body_modified_at`) should use this with
+    /// [`RetentionTier::Compactable`] so `compact_operations` can fold the
+    /// churn into a watermark snapshot later. Callers marking ops Compactable
+    /// accept the documented time-travel floor: after compaction, states
+    /// below the watermark resolve to the watermark snapshot.
+    pub fn update_with_retention(
+        &self,
+        id: ItemId,
+        mutations: Vec<FieldMutation>,
+        retention: RetentionTier,
+    ) -> Result<(), StoreError> {
+        let batch_id = if mutations.len() > 1 {
+            Some(Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+
+        for mutation in mutations {
+            self.apply_operation(OperationSpec {
+                target_id: id,
+                op_type: mutation.into(),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: batch_id.clone(),
+                author: self.default_author.clone(),
+                author_kind: self.default_author_kind,
+                retention,
+            })?;
+        }
+
+        Ok(())
     }
 }
 
