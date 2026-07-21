@@ -322,6 +322,36 @@ pub fn collection_to_item(
     }
 }
 
+/// Build a minimal user-authored Item with an explicit ID, schema, and
+/// payload — for suite-schema items (manuscript, manuscript-collection)
+/// whose payload the caller assembles directly.
+pub fn bare_item(id: Uuid, schema: &str, payload: BTreeMap<String, Value>) -> Item {
+    Item {
+        id,
+        schema: schema.into(),
+        payload,
+        created: Utc::now(),
+        modified: Utc::now(),
+        author: "user:local".into(),
+        author_kind: ActorKind::Human,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
+    }
+}
+
 /// Convert tag definition fields to an Item.
 pub fn tag_definition_to_item(
     name: &str,

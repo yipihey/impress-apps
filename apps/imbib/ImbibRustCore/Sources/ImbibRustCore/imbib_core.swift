@@ -642,6 +642,11 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func countFlagged(color: String?) throws  -> UInt32
     
+    /**
+     * Count manuscripts matching the same filters as `list_manuscripts`.
+     */
+    func countManuscripts(collectionId: String?, status: String?) throws  -> UInt32
+    
     func countPdfs(publicationId: String) throws  -> UInt32
     
     /**
@@ -695,6 +700,26 @@ public protocol ImbibStoreProtocol : AnyObject {
     func createInboxLibrary(name: String) throws  -> LibraryRow
     
     func createLibrary(name: String) throws  -> LibraryRow
+    
+    /**
+     * Create a manuscript. Payload mirrors imprint's ManuscriptStoreAdapter
+     * exactly (same fields, same `format_schema_version`, self-referential
+     * `current_revision_ref` until the first revision) so items are
+     * indistinguishable regardless of which app created them.
+     */
+    func createManuscript(title: String, format: String, body: String, authors: [String]) throws  -> ManuscriptRow
+    
+    /**
+     * Create a manuscript-collection (folder). Nesting via `parent_id`.
+     */
+    func createManuscriptCollection(name: String, parentId: String?) throws  -> ManuscriptCollectionRow
+    
+    /**
+     * Create an immutable revision snapshot of the manuscript's current body
+     * and advance its `current_revision_ref` (ADR-0011 D45 linear chain).
+     * `snapshot_reason`: status-change | user-tag | stable-churn | manual.
+     */
+    func createManuscriptRevision(manuscriptId: String, revisionTag: String, snapshotReason: String) throws  -> ManuscriptRevisionRow
     
     func createMutedItem(muteType: String, value: String) throws  -> MutedItemRow
     
@@ -823,6 +848,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func getLinkedFile(id: String) throws  -> LinkedFileRow?
     
+    /**
+     * Get full manuscript detail (body, metadata, collections) by ID.
+     */
+    func getManuscriptDetail(id: String) throws  -> ManuscriptDetail?
+    
+    /**
+     * Get a single manuscript row (list shape) by ID.
+     */
+    func getManuscriptRow(id: String) throws  -> ManuscriptRow?
+    
     func getPublication(id: String) throws  -> BibliographyRow?
     
     func getPublicationDetail(id: String) throws  -> PublicationDetail?
@@ -917,6 +952,24 @@ public protocol ImbibStoreProtocol : AnyObject {
     func listLibraries() throws  -> [LibraryRow]
     
     func listLinkedFiles(publicationId: String) throws  -> [LinkedFileRow]
+    
+    /**
+     * List all manuscript-collections (flat; tree assembly via `parent_id`
+     * happens in the sidebar view model, same as imbib collections).
+     */
+    func listManuscriptCollections() throws  -> [ManuscriptCollectionRow]
+    
+    /**
+     * List revision snapshots of a manuscript, newest first.
+     */
+    func listManuscriptRevisions(manuscriptId: String) throws  -> [ManuscriptRevisionRow]
+    
+    /**
+     * List manuscripts, optionally scoped to a manuscript-collection and/or a
+     * lifecycle status. `sort_field`: "title" | "created" | "modified" |
+     * "status" (default modified).
+     */
+    func listManuscripts(collectionId: String?, status: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [ManuscriptRow]
     
     func listMutedItems(muteType: String?) throws  -> [MutedItemRow]
     
@@ -1021,6 +1074,12 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func searchArtifacts(query: String, schemaFilter: String?) throws  -> [ArtifactRow]
     
+    /**
+     * Search manuscripts by title/body/notes substring (list-filter path;
+     * palette search goes through the store FTS on the SharedStore surface).
+     */
+    func searchManuscripts(query: String, limit: UInt32?) throws  -> [ManuscriptRow]
+    
     func searchPublications(query: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     func setFlag(ids: [String], color: String?, style: String?, length: String?) throws  -> UndoInfo
@@ -1040,6 +1099,25 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setLibraryDefault(id: String) throws 
     
     func setLocallyMaterialized(id: String, materialized: Bool) throws 
+    
+    /**
+     * Save a manuscript body, optionally guarded by the last-known
+     * `body_content_hash` (compare-and-set for cross-process safety).
+     *
+     * With `expected_hash = None` this is an unconditional save (legacy
+     * behavior, matching imprint's setBody). With `Some(hash)`, the save is
+     * rejected with `Conflict` when the stored hash differs — the caller
+     * should re-read, reconcile (fast-forward or surface a conflict banner),
+     * and retry.
+     *
+     * Note: the check-then-write runs as two store calls under this handle's
+     * connection lock; a cross-process writer can still interleave in the
+     * window between them. That residual race is closed by the Darwin
+     * cross-process change notification + `absorbExternalChange` path
+     * (GUI-meld Phase 4); the guard here catches the common stale-editor
+     * case deterministically.
+     */
+    func setManuscriptBody(id: String, body: String, expectedHash: String?) throws  -> ManuscriptSaveOutcome
     
     func setPdfCloudAvailable(id: String, available: Bool) throws 
     
@@ -1276,6 +1354,18 @@ open func countFlagged(color: String?)throws  -> UInt32 {
 })
 }
     
+    /**
+     * Count manuscripts matching the same filters as `list_manuscripts`.
+     */
+open func countManuscripts(collectionId: String?, status: String?)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_manuscripts(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(collectionId),
+        FfiConverterOptionString.lower(status),$0
+    )
+})
+}
+    
 open func countPdfs(publicationId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_pdfs(self.uniffiClonePointer(),
@@ -1462,6 +1552,50 @@ open func createLibrary(name: String)throws  -> LibraryRow {
     return try  FfiConverterTypeLibraryRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_create_library(self.uniffiClonePointer(),
         FfiConverterString.lower(name),$0
+    )
+})
+}
+    
+    /**
+     * Create a manuscript. Payload mirrors imprint's ManuscriptStoreAdapter
+     * exactly (same fields, same `format_schema_version`, self-referential
+     * `current_revision_ref` until the first revision) so items are
+     * indistinguishable regardless of which app created them.
+     */
+open func createManuscript(title: String, format: String, body: String, authors: [String])throws  -> ManuscriptRow {
+    return try  FfiConverterTypeManuscriptRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_manuscript(self.uniffiClonePointer(),
+        FfiConverterString.lower(title),
+        FfiConverterString.lower(format),
+        FfiConverterString.lower(body),
+        FfiConverterSequenceString.lower(authors),$0
+    )
+})
+}
+    
+    /**
+     * Create a manuscript-collection (folder). Nesting via `parent_id`.
+     */
+open func createManuscriptCollection(name: String, parentId: String?)throws  -> ManuscriptCollectionRow {
+    return try  FfiConverterTypeManuscriptCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_manuscript_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(name),
+        FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * Create an immutable revision snapshot of the manuscript's current body
+     * and advance its `current_revision_ref` (ADR-0011 D45 linear chain).
+     * `snapshot_reason`: status-change | user-tag | stable-churn | manual.
+     */
+open func createManuscriptRevision(manuscriptId: String, revisionTag: String, snapshotReason: String)throws  -> ManuscriptRevisionRow {
+    return try  FfiConverterTypeManuscriptRevisionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_manuscript_revision(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(revisionTag),
+        FfiConverterString.lower(snapshotReason),$0
     )
 })
 }
@@ -1833,6 +1967,28 @@ open func getLinkedFile(id: String)throws  -> LinkedFileRow? {
 })
 }
     
+    /**
+     * Get full manuscript detail (body, metadata, collections) by ID.
+     */
+open func getManuscriptDetail(id: String)throws  -> ManuscriptDetail? {
+    return try  FfiConverterOptionTypeManuscriptDetail.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_get_manuscript_detail(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Get a single manuscript row (list shape) by ID.
+     */
+open func getManuscriptRow(id: String)throws  -> ManuscriptRow? {
+    return try  FfiConverterOptionTypeManuscriptRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_get_manuscript_row(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
 open func getPublication(id: String)throws  -> BibliographyRow? {
     return try  FfiConverterOptionTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_get_publication(self.uniffiClonePointer(),
@@ -2088,6 +2244,46 @@ open func listLinkedFiles(publicationId: String)throws  -> [LinkedFileRow] {
     return try  FfiConverterSequenceTypeLinkedFileRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_linked_files(self.uniffiClonePointer(),
         FfiConverterString.lower(publicationId),$0
+    )
+})
+}
+    
+    /**
+     * List all manuscript-collections (flat; tree assembly via `parent_id`
+     * happens in the sidebar view model, same as imbib collections).
+     */
+open func listManuscriptCollections()throws  -> [ManuscriptCollectionRow] {
+    return try  FfiConverterSequenceTypeManuscriptCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_manuscript_collections(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * List revision snapshots of a manuscript, newest first.
+     */
+open func listManuscriptRevisions(manuscriptId: String)throws  -> [ManuscriptRevisionRow] {
+    return try  FfiConverterSequenceTypeManuscriptRevisionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_manuscript_revisions(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * List manuscripts, optionally scoped to a manuscript-collection and/or a
+     * lifecycle status. `sort_field`: "title" | "created" | "modified" |
+     * "status" (default modified).
+     */
+open func listManuscripts(collectionId: String?, status: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [ManuscriptRow] {
+    return try  FfiConverterSequenceTypeManuscriptRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_manuscripts(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(collectionId),
+        FfiConverterOptionString.lower(status),
+        FfiConverterString.lower(sortField),
+        FfiConverterBool.lower(ascending),
+        FfiConverterOptionUInt32.lower(limit),
+        FfiConverterOptionUInt32.lower(offset),$0
     )
 })
 }
@@ -2374,6 +2570,19 @@ open func searchArtifacts(query: String, schemaFilter: String?)throws  -> [Artif
 })
 }
     
+    /**
+     * Search manuscripts by title/body/notes substring (list-filter path;
+     * palette search goes through the store FTS on the SharedStore surface).
+     */
+open func searchManuscripts(query: String, limit: UInt32?)throws  -> [ManuscriptRow] {
+    return try  FfiConverterSequenceTypeManuscriptRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_search_manuscripts(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterOptionUInt32.lower(limit),$0
+    )
+})
+}
+    
 open func searchPublications(query: String, parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?)throws  -> [BibliographyRow] {
     return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_search_publications(self.uniffiClonePointer(),
@@ -2435,6 +2644,33 @@ open func setLocallyMaterialized(id: String, materialized: Bool)throws  {try rus
         FfiConverterBool.lower(materialized),$0
     )
 }
+}
+    
+    /**
+     * Save a manuscript body, optionally guarded by the last-known
+     * `body_content_hash` (compare-and-set for cross-process safety).
+     *
+     * With `expected_hash = None` this is an unconditional save (legacy
+     * behavior, matching imprint's setBody). With `Some(hash)`, the save is
+     * rejected with `Conflict` when the stored hash differs — the caller
+     * should re-read, reconcile (fast-forward or surface a conflict banner),
+     * and retry.
+     *
+     * Note: the check-then-write runs as two store calls under this handle's
+     * connection lock; a cross-process writer can still interleave in the
+     * window between them. That residual race is closed by the Darwin
+     * cross-process change notification + `absorbExternalChange` path
+     * (GUI-meld Phase 4); the guard here catches the common stale-editor
+     * case deterministically.
+     */
+open func setManuscriptBody(id: String, body: String, expectedHash: String?)throws  -> ManuscriptSaveOutcome {
+    return try  FfiConverterTypeManuscriptSaveOutcome.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_set_manuscript_body(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(body),
+        FfiConverterOptionString.lower(expectedHash),$0
+    )
+})
 }
     
 open func setPdfCloudAvailable(id: String, available: Bool)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -8529,6 +8765,942 @@ public func FfiConverterTypeLookupCommand_lift(_ buf: RustBuffer) throws -> Look
 #endif
 public func FfiConverterTypeLookupCommand_lower(_ value: LookupCommand) -> RustBuffer {
     return FfiConverterTypeLookupCommand.lower(value)
+}
+
+
+/**
+ * Manuscript folder (manuscript-collection item) for sidebar display.
+ */
+public struct ManuscriptCollectionRow {
+    public var id: String
+    public var name: String
+    /**
+     * UUID string of the parent collection (payload `parent_collection_ref`);
+     * None for top-level folders/workspaces.
+     */
+    public var parentId: String?
+    public var sortOrder: Int32
+    public var isSmart: Bool
+    public var isWorkspace: Bool
+    public var manuscriptCount: Int32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, 
+        /**
+         * UUID string of the parent collection (payload `parent_collection_ref`);
+         * None for top-level folders/workspaces.
+         */parentId: String?, sortOrder: Int32, isSmart: Bool, isWorkspace: Bool, manuscriptCount: Int32) {
+        self.id = id
+        self.name = name
+        self.parentId = parentId
+        self.sortOrder = sortOrder
+        self.isSmart = isSmart
+        self.isWorkspace = isWorkspace
+        self.manuscriptCount = manuscriptCount
+    }
+}
+
+
+
+extension ManuscriptCollectionRow: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptCollectionRow, rhs: ManuscriptCollectionRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
+        if lhs.sortOrder != rhs.sortOrder {
+            return false
+        }
+        if lhs.isSmart != rhs.isSmart {
+            return false
+        }
+        if lhs.isWorkspace != rhs.isWorkspace {
+            return false
+        }
+        if lhs.manuscriptCount != rhs.manuscriptCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(parentId)
+        hasher.combine(sortOrder)
+        hasher.combine(isSmart)
+        hasher.combine(isWorkspace)
+        hasher.combine(manuscriptCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptCollectionRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptCollectionRow {
+        return
+            try ManuscriptCollectionRow(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf), 
+                sortOrder: FfiConverterInt32.read(from: &buf), 
+                isSmart: FfiConverterBool.read(from: &buf), 
+                isWorkspace: FfiConverterBool.read(from: &buf), 
+                manuscriptCount: FfiConverterInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptCollectionRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
+        FfiConverterInt32.write(value.sortOrder, into: &buf)
+        FfiConverterBool.write(value.isSmart, into: &buf)
+        FfiConverterBool.write(value.isWorkspace, into: &buf)
+        FfiConverterInt32.write(value.manuscriptCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptCollectionRow_lift(_ buf: RustBuffer) throws -> ManuscriptCollectionRow {
+    return try FfiConverterTypeManuscriptCollectionRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptCollectionRow_lower(_ value: ManuscriptCollectionRow) -> RustBuffer {
+    return FfiConverterTypeManuscriptCollectionRow.lower(value)
+}
+
+
+/**
+ * Full manuscript detail for the detail pane (Info/Source tabs).
+ */
+public struct ManuscriptDetail {
+    public var id: String
+    public var title: String
+    public var status: String
+    public var authors: [String]
+    public var format: String
+    /**
+     * Inline UTF-8 source, or the raw `blob:sha256:...` ref when the body
+     * exceeded the inline threshold. Blob resolution happens caller-side
+     * via the content-addressed store (`ImpressContentStore`); check
+     * `body_is_blob_ref` before treating this as markup.
+     */
+    public var bodyContent: String
+    public var bodyIsBlobRef: Bool
+    public var bodyContentHash: String?
+    public var bodyModifiedAt: String?
+    public var formatSchemaVersion: Int32?
+    public var currentRevisionRef: String?
+    public var journalTarget: String?
+    public var submissionId: String?
+    public var topicTags: [String]
+    public var notes: String?
+    public var importSource: String?
+    public var linkedImbibManuscriptId: String?
+    public var linkedImbibLibraryId: String?
+    public var orcid: String?
+    public var affiliation: String?
+    public var funder: String?
+    public var license: String?
+    public var embargoUntil: String?
+    public var isRead: Bool
+    public var isStarred: Bool
+    public var flagColor: String?
+    public var flagStyle: String?
+    public var flagLength: String?
+    public var tags: [TagDisplayRow]
+    public var dateAdded: Int64
+    public var dateModified: Int64
+    /**
+     * IDs of manuscript-collections containing this manuscript.
+     */
+    public var collections: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, status: String, authors: [String], format: String, 
+        /**
+         * Inline UTF-8 source, or the raw `blob:sha256:...` ref when the body
+         * exceeded the inline threshold. Blob resolution happens caller-side
+         * via the content-addressed store (`ImpressContentStore`); check
+         * `body_is_blob_ref` before treating this as markup.
+         */bodyContent: String, bodyIsBlobRef: Bool, bodyContentHash: String?, bodyModifiedAt: String?, formatSchemaVersion: Int32?, currentRevisionRef: String?, journalTarget: String?, submissionId: String?, topicTags: [String], notes: String?, importSource: String?, linkedImbibManuscriptId: String?, linkedImbibLibraryId: String?, orcid: String?, affiliation: String?, funder: String?, license: String?, embargoUntil: String?, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, tags: [TagDisplayRow], dateAdded: Int64, dateModified: Int64, 
+        /**
+         * IDs of manuscript-collections containing this manuscript.
+         */collections: [String]) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.authors = authors
+        self.format = format
+        self.bodyContent = bodyContent
+        self.bodyIsBlobRef = bodyIsBlobRef
+        self.bodyContentHash = bodyContentHash
+        self.bodyModifiedAt = bodyModifiedAt
+        self.formatSchemaVersion = formatSchemaVersion
+        self.currentRevisionRef = currentRevisionRef
+        self.journalTarget = journalTarget
+        self.submissionId = submissionId
+        self.topicTags = topicTags
+        self.notes = notes
+        self.importSource = importSource
+        self.linkedImbibManuscriptId = linkedImbibManuscriptId
+        self.linkedImbibLibraryId = linkedImbibLibraryId
+        self.orcid = orcid
+        self.affiliation = affiliation
+        self.funder = funder
+        self.license = license
+        self.embargoUntil = embargoUntil
+        self.isRead = isRead
+        self.isStarred = isStarred
+        self.flagColor = flagColor
+        self.flagStyle = flagStyle
+        self.flagLength = flagLength
+        self.tags = tags
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.collections = collections
+    }
+}
+
+
+
+extension ManuscriptDetail: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptDetail, rhs: ManuscriptDetail) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.bodyContent != rhs.bodyContent {
+            return false
+        }
+        if lhs.bodyIsBlobRef != rhs.bodyIsBlobRef {
+            return false
+        }
+        if lhs.bodyContentHash != rhs.bodyContentHash {
+            return false
+        }
+        if lhs.bodyModifiedAt != rhs.bodyModifiedAt {
+            return false
+        }
+        if lhs.formatSchemaVersion != rhs.formatSchemaVersion {
+            return false
+        }
+        if lhs.currentRevisionRef != rhs.currentRevisionRef {
+            return false
+        }
+        if lhs.journalTarget != rhs.journalTarget {
+            return false
+        }
+        if lhs.submissionId != rhs.submissionId {
+            return false
+        }
+        if lhs.topicTags != rhs.topicTags {
+            return false
+        }
+        if lhs.notes != rhs.notes {
+            return false
+        }
+        if lhs.importSource != rhs.importSource {
+            return false
+        }
+        if lhs.linkedImbibManuscriptId != rhs.linkedImbibManuscriptId {
+            return false
+        }
+        if lhs.linkedImbibLibraryId != rhs.linkedImbibLibraryId {
+            return false
+        }
+        if lhs.orcid != rhs.orcid {
+            return false
+        }
+        if lhs.affiliation != rhs.affiliation {
+            return false
+        }
+        if lhs.funder != rhs.funder {
+            return false
+        }
+        if lhs.license != rhs.license {
+            return false
+        }
+        if lhs.embargoUntil != rhs.embargoUntil {
+            return false
+        }
+        if lhs.isRead != rhs.isRead {
+            return false
+        }
+        if lhs.isStarred != rhs.isStarred {
+            return false
+        }
+        if lhs.flagColor != rhs.flagColor {
+            return false
+        }
+        if lhs.flagStyle != rhs.flagStyle {
+            return false
+        }
+        if lhs.flagLength != rhs.flagLength {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        if lhs.dateAdded != rhs.dateAdded {
+            return false
+        }
+        if lhs.dateModified != rhs.dateModified {
+            return false
+        }
+        if lhs.collections != rhs.collections {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(status)
+        hasher.combine(authors)
+        hasher.combine(format)
+        hasher.combine(bodyContent)
+        hasher.combine(bodyIsBlobRef)
+        hasher.combine(bodyContentHash)
+        hasher.combine(bodyModifiedAt)
+        hasher.combine(formatSchemaVersion)
+        hasher.combine(currentRevisionRef)
+        hasher.combine(journalTarget)
+        hasher.combine(submissionId)
+        hasher.combine(topicTags)
+        hasher.combine(notes)
+        hasher.combine(importSource)
+        hasher.combine(linkedImbibManuscriptId)
+        hasher.combine(linkedImbibLibraryId)
+        hasher.combine(orcid)
+        hasher.combine(affiliation)
+        hasher.combine(funder)
+        hasher.combine(license)
+        hasher.combine(embargoUntil)
+        hasher.combine(isRead)
+        hasher.combine(isStarred)
+        hasher.combine(flagColor)
+        hasher.combine(flagStyle)
+        hasher.combine(flagLength)
+        hasher.combine(tags)
+        hasher.combine(dateAdded)
+        hasher.combine(dateModified)
+        hasher.combine(collections)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptDetail: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptDetail {
+        return
+            try ManuscriptDetail(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                bodyContent: FfiConverterString.read(from: &buf), 
+                bodyIsBlobRef: FfiConverterBool.read(from: &buf), 
+                bodyContentHash: FfiConverterOptionString.read(from: &buf), 
+                bodyModifiedAt: FfiConverterOptionString.read(from: &buf), 
+                formatSchemaVersion: FfiConverterOptionInt32.read(from: &buf), 
+                currentRevisionRef: FfiConverterOptionString.read(from: &buf), 
+                journalTarget: FfiConverterOptionString.read(from: &buf), 
+                submissionId: FfiConverterOptionString.read(from: &buf), 
+                topicTags: FfiConverterSequenceString.read(from: &buf), 
+                notes: FfiConverterOptionString.read(from: &buf), 
+                importSource: FfiConverterOptionString.read(from: &buf), 
+                linkedImbibManuscriptId: FfiConverterOptionString.read(from: &buf), 
+                linkedImbibLibraryId: FfiConverterOptionString.read(from: &buf), 
+                orcid: FfiConverterOptionString.read(from: &buf), 
+                affiliation: FfiConverterOptionString.read(from: &buf), 
+                funder: FfiConverterOptionString.read(from: &buf), 
+                license: FfiConverterOptionString.read(from: &buf), 
+                embargoUntil: FfiConverterOptionString.read(from: &buf), 
+                isRead: FfiConverterBool.read(from: &buf), 
+                isStarred: FfiConverterBool.read(from: &buf), 
+                flagColor: FfiConverterOptionString.read(from: &buf), 
+                flagStyle: FfiConverterOptionString.read(from: &buf), 
+                flagLength: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceTypeTagDisplayRow.read(from: &buf), 
+                dateAdded: FfiConverterInt64.read(from: &buf), 
+                dateModified: FfiConverterInt64.read(from: &buf), 
+                collections: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptDetail, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.bodyContent, into: &buf)
+        FfiConverterBool.write(value.bodyIsBlobRef, into: &buf)
+        FfiConverterOptionString.write(value.bodyContentHash, into: &buf)
+        FfiConverterOptionString.write(value.bodyModifiedAt, into: &buf)
+        FfiConverterOptionInt32.write(value.formatSchemaVersion, into: &buf)
+        FfiConverterOptionString.write(value.currentRevisionRef, into: &buf)
+        FfiConverterOptionString.write(value.journalTarget, into: &buf)
+        FfiConverterOptionString.write(value.submissionId, into: &buf)
+        FfiConverterSequenceString.write(value.topicTags, into: &buf)
+        FfiConverterOptionString.write(value.notes, into: &buf)
+        FfiConverterOptionString.write(value.importSource, into: &buf)
+        FfiConverterOptionString.write(value.linkedImbibManuscriptId, into: &buf)
+        FfiConverterOptionString.write(value.linkedImbibLibraryId, into: &buf)
+        FfiConverterOptionString.write(value.orcid, into: &buf)
+        FfiConverterOptionString.write(value.affiliation, into: &buf)
+        FfiConverterOptionString.write(value.funder, into: &buf)
+        FfiConverterOptionString.write(value.license, into: &buf)
+        FfiConverterOptionString.write(value.embargoUntil, into: &buf)
+        FfiConverterBool.write(value.isRead, into: &buf)
+        FfiConverterBool.write(value.isStarred, into: &buf)
+        FfiConverterOptionString.write(value.flagColor, into: &buf)
+        FfiConverterOptionString.write(value.flagStyle, into: &buf)
+        FfiConverterOptionString.write(value.flagLength, into: &buf)
+        FfiConverterSequenceTypeTagDisplayRow.write(value.tags, into: &buf)
+        FfiConverterInt64.write(value.dateAdded, into: &buf)
+        FfiConverterInt64.write(value.dateModified, into: &buf)
+        FfiConverterSequenceString.write(value.collections, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptDetail_lift(_ buf: RustBuffer) throws -> ManuscriptDetail {
+    return try FfiConverterTypeManuscriptDetail.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptDetail_lower(_ value: ManuscriptDetail) -> RustBuffer {
+    return FfiConverterTypeManuscriptDetail.lower(value)
+}
+
+
+/**
+ * Immutable manuscript-revision snapshot for the Versions section.
+ */
+public struct ManuscriptRevisionRow {
+    public var id: String
+    public var parentManuscriptRef: String
+    public var revisionTag: String
+    public var contentHash: String
+    public var pdfArtifactRef: String?
+    public var sourceArchiveRef: String?
+    public var predecessorRevisionRef: String?
+    public var snapshotReason: String?
+    public var wordCount: Int32?
+    public var author: String
+    public var dateCreated: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, parentManuscriptRef: String, revisionTag: String, contentHash: String, pdfArtifactRef: String?, sourceArchiveRef: String?, predecessorRevisionRef: String?, snapshotReason: String?, wordCount: Int32?, author: String, dateCreated: Int64) {
+        self.id = id
+        self.parentManuscriptRef = parentManuscriptRef
+        self.revisionTag = revisionTag
+        self.contentHash = contentHash
+        self.pdfArtifactRef = pdfArtifactRef
+        self.sourceArchiveRef = sourceArchiveRef
+        self.predecessorRevisionRef = predecessorRevisionRef
+        self.snapshotReason = snapshotReason
+        self.wordCount = wordCount
+        self.author = author
+        self.dateCreated = dateCreated
+    }
+}
+
+
+
+extension ManuscriptRevisionRow: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptRevisionRow, rhs: ManuscriptRevisionRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.parentManuscriptRef != rhs.parentManuscriptRef {
+            return false
+        }
+        if lhs.revisionTag != rhs.revisionTag {
+            return false
+        }
+        if lhs.contentHash != rhs.contentHash {
+            return false
+        }
+        if lhs.pdfArtifactRef != rhs.pdfArtifactRef {
+            return false
+        }
+        if lhs.sourceArchiveRef != rhs.sourceArchiveRef {
+            return false
+        }
+        if lhs.predecessorRevisionRef != rhs.predecessorRevisionRef {
+            return false
+        }
+        if lhs.snapshotReason != rhs.snapshotReason {
+            return false
+        }
+        if lhs.wordCount != rhs.wordCount {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.dateCreated != rhs.dateCreated {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(parentManuscriptRef)
+        hasher.combine(revisionTag)
+        hasher.combine(contentHash)
+        hasher.combine(pdfArtifactRef)
+        hasher.combine(sourceArchiveRef)
+        hasher.combine(predecessorRevisionRef)
+        hasher.combine(snapshotReason)
+        hasher.combine(wordCount)
+        hasher.combine(author)
+        hasher.combine(dateCreated)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptRevisionRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptRevisionRow {
+        return
+            try ManuscriptRevisionRow(
+                id: FfiConverterString.read(from: &buf), 
+                parentManuscriptRef: FfiConverterString.read(from: &buf), 
+                revisionTag: FfiConverterString.read(from: &buf), 
+                contentHash: FfiConverterString.read(from: &buf), 
+                pdfArtifactRef: FfiConverterOptionString.read(from: &buf), 
+                sourceArchiveRef: FfiConverterOptionString.read(from: &buf), 
+                predecessorRevisionRef: FfiConverterOptionString.read(from: &buf), 
+                snapshotReason: FfiConverterOptionString.read(from: &buf), 
+                wordCount: FfiConverterOptionInt32.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                dateCreated: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptRevisionRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.parentManuscriptRef, into: &buf)
+        FfiConverterString.write(value.revisionTag, into: &buf)
+        FfiConverterString.write(value.contentHash, into: &buf)
+        FfiConverterOptionString.write(value.pdfArtifactRef, into: &buf)
+        FfiConverterOptionString.write(value.sourceArchiveRef, into: &buf)
+        FfiConverterOptionString.write(value.predecessorRevisionRef, into: &buf)
+        FfiConverterOptionString.write(value.snapshotReason, into: &buf)
+        FfiConverterOptionInt32.write(value.wordCount, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterInt64.write(value.dateCreated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptRevisionRow_lift(_ buf: RustBuffer) throws -> ManuscriptRevisionRow {
+    return try FfiConverterTypeManuscriptRevisionRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptRevisionRow_lower(_ value: ManuscriptRevisionRow) -> RustBuffer {
+    return FfiConverterTypeManuscriptRevisionRow.lower(value)
+}
+
+
+/**
+ * Pre-shaped manuscript row for list display. Mirrors `BibliographyRow`'s
+ * role for `manuscript@1.0.0` items: display-ready fields, no Swift-side
+ * payload parsing. Deliberately NOT merged into `BibliographyRow` —
+ * manuscripts are not publication-shaped (see plan: option (a), additive).
+ */
+public struct ManuscriptRow {
+    public var id: String
+    public var title: String
+    /**
+     * Author display strings joined with "; " (from the `authors` array).
+     */
+    public var authorString: String
+    /**
+     * Lifecycle state: draft | internal-review | submitted | in-revision |
+     * published | archived.
+     */
+    public var status: String
+    /**
+     * Source format: "typst" | "latex" (empty for metadata-only items).
+     */
+    public var format: String
+    public var journalTarget: String?
+    /**
+     * SHA-256 hex of the current body (CAS token for guarded saves).
+     */
+    public var bodyContentHash: String?
+    /**
+     * ISO 8601 timestamp of the most recent body edit.
+     */
+    public var bodyModifiedAt: String?
+    /**
+     * Byte length of the inline body ("0" when body is a blob ref or absent).
+     */
+    public var bodySize: Int64
+    /**
+     * True when `body_content` is a `blob:sha256:...` ref (>1 MB escape hatch).
+     */
+    public var bodyIsBlobRef: Bool
+    /**
+     * Number of manuscript-revision snapshots (pre-computed by the store layer).
+     */
+    public var revisionCount: Int32
+    public var isRead: Bool
+    public var isStarred: Bool
+    public var flagColor: String?
+    public var flagStyle: String?
+    public var flagLength: String?
+    public var tags: [TagDisplayRow]
+    public var dateAdded: Int64
+    public var dateModified: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, 
+        /**
+         * Author display strings joined with "; " (from the `authors` array).
+         */authorString: String, 
+        /**
+         * Lifecycle state: draft | internal-review | submitted | in-revision |
+         * published | archived.
+         */status: String, 
+        /**
+         * Source format: "typst" | "latex" (empty for metadata-only items).
+         */format: String, journalTarget: String?, 
+        /**
+         * SHA-256 hex of the current body (CAS token for guarded saves).
+         */bodyContentHash: String?, 
+        /**
+         * ISO 8601 timestamp of the most recent body edit.
+         */bodyModifiedAt: String?, 
+        /**
+         * Byte length of the inline body ("0" when body is a blob ref or absent).
+         */bodySize: Int64, 
+        /**
+         * True when `body_content` is a `blob:sha256:...` ref (>1 MB escape hatch).
+         */bodyIsBlobRef: Bool, 
+        /**
+         * Number of manuscript-revision snapshots (pre-computed by the store layer).
+         */revisionCount: Int32, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, tags: [TagDisplayRow], dateAdded: Int64, dateModified: Int64) {
+        self.id = id
+        self.title = title
+        self.authorString = authorString
+        self.status = status
+        self.format = format
+        self.journalTarget = journalTarget
+        self.bodyContentHash = bodyContentHash
+        self.bodyModifiedAt = bodyModifiedAt
+        self.bodySize = bodySize
+        self.bodyIsBlobRef = bodyIsBlobRef
+        self.revisionCount = revisionCount
+        self.isRead = isRead
+        self.isStarred = isStarred
+        self.flagColor = flagColor
+        self.flagStyle = flagStyle
+        self.flagLength = flagLength
+        self.tags = tags
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+    }
+}
+
+
+
+extension ManuscriptRow: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptRow, rhs: ManuscriptRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.authorString != rhs.authorString {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.journalTarget != rhs.journalTarget {
+            return false
+        }
+        if lhs.bodyContentHash != rhs.bodyContentHash {
+            return false
+        }
+        if lhs.bodyModifiedAt != rhs.bodyModifiedAt {
+            return false
+        }
+        if lhs.bodySize != rhs.bodySize {
+            return false
+        }
+        if lhs.bodyIsBlobRef != rhs.bodyIsBlobRef {
+            return false
+        }
+        if lhs.revisionCount != rhs.revisionCount {
+            return false
+        }
+        if lhs.isRead != rhs.isRead {
+            return false
+        }
+        if lhs.isStarred != rhs.isStarred {
+            return false
+        }
+        if lhs.flagColor != rhs.flagColor {
+            return false
+        }
+        if lhs.flagStyle != rhs.flagStyle {
+            return false
+        }
+        if lhs.flagLength != rhs.flagLength {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        if lhs.dateAdded != rhs.dateAdded {
+            return false
+        }
+        if lhs.dateModified != rhs.dateModified {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(authorString)
+        hasher.combine(status)
+        hasher.combine(format)
+        hasher.combine(journalTarget)
+        hasher.combine(bodyContentHash)
+        hasher.combine(bodyModifiedAt)
+        hasher.combine(bodySize)
+        hasher.combine(bodyIsBlobRef)
+        hasher.combine(revisionCount)
+        hasher.combine(isRead)
+        hasher.combine(isStarred)
+        hasher.combine(flagColor)
+        hasher.combine(flagStyle)
+        hasher.combine(flagLength)
+        hasher.combine(tags)
+        hasher.combine(dateAdded)
+        hasher.combine(dateModified)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptRow {
+        return
+            try ManuscriptRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                authorString: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                journalTarget: FfiConverterOptionString.read(from: &buf), 
+                bodyContentHash: FfiConverterOptionString.read(from: &buf), 
+                bodyModifiedAt: FfiConverterOptionString.read(from: &buf), 
+                bodySize: FfiConverterInt64.read(from: &buf), 
+                bodyIsBlobRef: FfiConverterBool.read(from: &buf), 
+                revisionCount: FfiConverterInt32.read(from: &buf), 
+                isRead: FfiConverterBool.read(from: &buf), 
+                isStarred: FfiConverterBool.read(from: &buf), 
+                flagColor: FfiConverterOptionString.read(from: &buf), 
+                flagStyle: FfiConverterOptionString.read(from: &buf), 
+                flagLength: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceTypeTagDisplayRow.read(from: &buf), 
+                dateAdded: FfiConverterInt64.read(from: &buf), 
+                dateModified: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.authorString, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterOptionString.write(value.journalTarget, into: &buf)
+        FfiConverterOptionString.write(value.bodyContentHash, into: &buf)
+        FfiConverterOptionString.write(value.bodyModifiedAt, into: &buf)
+        FfiConverterInt64.write(value.bodySize, into: &buf)
+        FfiConverterBool.write(value.bodyIsBlobRef, into: &buf)
+        FfiConverterInt32.write(value.revisionCount, into: &buf)
+        FfiConverterBool.write(value.isRead, into: &buf)
+        FfiConverterBool.write(value.isStarred, into: &buf)
+        FfiConverterOptionString.write(value.flagColor, into: &buf)
+        FfiConverterOptionString.write(value.flagStyle, into: &buf)
+        FfiConverterOptionString.write(value.flagLength, into: &buf)
+        FfiConverterSequenceTypeTagDisplayRow.write(value.tags, into: &buf)
+        FfiConverterInt64.write(value.dateAdded, into: &buf)
+        FfiConverterInt64.write(value.dateModified, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptRow_lift(_ buf: RustBuffer) throws -> ManuscriptRow {
+    return try FfiConverterTypeManuscriptRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptRow_lower(_ value: ManuscriptRow) -> RustBuffer {
+    return FfiConverterTypeManuscriptRow.lower(value)
+}
+
+
+/**
+ * Result of a (possibly guarded) manuscript body save.
+ *
+ * `applied == false` means the compare-and-set guard rejected the write:
+ * `stored_hash` is what the store currently holds — re-read, reconcile,
+ * and retry (or surface a conflict banner).
+ */
+public struct ManuscriptSaveOutcome {
+    public var applied: Bool
+    /**
+     * The `body_content_hash` the store held BEFORE this call (None if unset).
+     */
+    public var storedHash: String?
+    /**
+     * The hash of the newly-written body (None when not applied).
+     */
+    public var newHash: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(applied: Bool, 
+        /**
+         * The `body_content_hash` the store held BEFORE this call (None if unset).
+         */storedHash: String?, 
+        /**
+         * The hash of the newly-written body (None when not applied).
+         */newHash: String?) {
+        self.applied = applied
+        self.storedHash = storedHash
+        self.newHash = newHash
+    }
+}
+
+
+
+extension ManuscriptSaveOutcome: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptSaveOutcome, rhs: ManuscriptSaveOutcome) -> Bool {
+        if lhs.applied != rhs.applied {
+            return false
+        }
+        if lhs.storedHash != rhs.storedHash {
+            return false
+        }
+        if lhs.newHash != rhs.newHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(applied)
+        hasher.combine(storedHash)
+        hasher.combine(newHash)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptSaveOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptSaveOutcome {
+        return
+            try ManuscriptSaveOutcome(
+                applied: FfiConverterBool.read(from: &buf), 
+                storedHash: FfiConverterOptionString.read(from: &buf), 
+                newHash: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptSaveOutcome, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.applied, into: &buf)
+        FfiConverterOptionString.write(value.storedHash, into: &buf)
+        FfiConverterOptionString.write(value.newHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptSaveOutcome_lift(_ buf: RustBuffer) throws -> ManuscriptSaveOutcome {
+    return try FfiConverterTypeManuscriptSaveOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptSaveOutcome_lower(_ value: ManuscriptSaveOutcome) -> RustBuffer {
+    return FfiConverterTypeManuscriptSaveOutcome.lower(value)
 }
 
 
@@ -17617,6 +18789,54 @@ fileprivate struct FfiConverterOptionTypeLinkedFileRow: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeManuscriptDetail: FfiConverterRustBuffer {
+    typealias SwiftType = ManuscriptDetail?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeManuscriptDetail.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeManuscriptDetail.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeManuscriptRow: FfiConverterRustBuffer {
+    typealias SwiftType = ManuscriptRow?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeManuscriptRow.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeManuscriptRow.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeParsedArXivForm: FfiConverterRustBuffer {
     typealias SwiftType = ParsedArXivForm?
 
@@ -18773,6 +19993,81 @@ fileprivate struct FfiConverterSequenceTypeLinkedFileRow: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeLinkedFileRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeManuscriptCollectionRow: FfiConverterRustBuffer {
+    typealias SwiftType = [ManuscriptCollectionRow]
+
+    public static func write(_ value: [ManuscriptCollectionRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeManuscriptCollectionRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ManuscriptCollectionRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ManuscriptCollectionRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeManuscriptCollectionRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeManuscriptRevisionRow: FfiConverterRustBuffer {
+    typealias SwiftType = [ManuscriptRevisionRow]
+
+    public static func write(_ value: [ManuscriptRevisionRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeManuscriptRevisionRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ManuscriptRevisionRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ManuscriptRevisionRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeManuscriptRevisionRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeManuscriptRow: FfiConverterRustBuffer {
+    typealias SwiftType = [ManuscriptRow]
+
+    public static func write(_ value: [ManuscriptRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeManuscriptRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ManuscriptRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ManuscriptRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeManuscriptRow.read(from: &buf))
         }
         return seq
     }
@@ -21955,6 +23250,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_count_flagged() != 43029) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_manuscripts() != 13241) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_pdfs() != 36052) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22001,6 +23299,15 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_library() != 49321) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript() != 65213) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript_collection() != 54416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript_revision() != 28666) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_muted_item() != 12526) {
@@ -22111,6 +23418,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_get_linked_file() != 37457) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_manuscript_detail() != 28353) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_manuscript_row() != 44868) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_get_publication() != 23576) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22181,6 +23494,15 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_linked_files() != 1338) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscript_collections() != 6043) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscript_revisions() != 34652) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscripts() != 20581) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_muted_items() != 56436) {
@@ -22261,6 +23583,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_search_artifacts() != 15549) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_search_manuscripts() != 49360) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_search_publications() != 3400) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22277,6 +23602,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_locally_materialized() != 18096) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_set_manuscript_body() != 9949) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_pdf_cloud_available() != 18555) {

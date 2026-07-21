@@ -328,6 +328,120 @@ pub struct OperationRow {
     pub batch_id: Option<String>,
 }
 
+// --- Manuscript Display Types (unified GUI — ADR-0011 / GUI-meld plan) ---
+
+/// Pre-shaped manuscript row for list display. Mirrors `BibliographyRow`'s
+/// role for `manuscript@1.0.0` items: display-ready fields, no Swift-side
+/// payload parsing. Deliberately NOT merged into `BibliographyRow` —
+/// manuscripts are not publication-shaped (see plan: option (a), additive).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptRow {
+    pub id: String,
+    pub title: String,
+    /// Author display strings joined with "; " (from the `authors` array).
+    pub author_string: String,
+    /// Lifecycle state: draft | internal-review | submitted | in-revision |
+    /// published | archived.
+    pub status: String,
+    /// Source format: "typst" | "latex" (empty for metadata-only items).
+    pub format: String,
+    pub journal_target: Option<String>,
+    /// SHA-256 hex of the current body (CAS token for guarded saves).
+    pub body_content_hash: Option<String>,
+    /// ISO 8601 timestamp of the most recent body edit.
+    pub body_modified_at: Option<String>,
+    /// Byte length of the inline body ("0" when body is a blob ref or absent).
+    pub body_size: i64,
+    /// True when `body_content` is a `blob:sha256:...` ref (>1 MB escape hatch).
+    pub body_is_blob_ref: bool,
+    /// Number of manuscript-revision snapshots (pre-computed by the store layer).
+    pub revision_count: i32,
+    pub is_read: bool,
+    pub is_starred: bool,
+    pub flag_color: Option<String>,
+    pub flag_style: Option<String>,
+    pub flag_length: Option<String>,
+    pub tags: Vec<TagDisplayRow>,
+    pub date_added: i64,
+    pub date_modified: i64,
+}
+
+/// Full manuscript detail for the detail pane (Info/Source tabs).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptDetail {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub authors: Vec<String>,
+    pub format: String,
+    /// Inline UTF-8 source, or the raw `blob:sha256:...` ref when the body
+    /// exceeded the inline threshold. Blob resolution happens caller-side
+    /// via the content-addressed store (`ImpressContentStore`); check
+    /// `body_is_blob_ref` before treating this as markup.
+    pub body_content: String,
+    pub body_is_blob_ref: bool,
+    pub body_content_hash: Option<String>,
+    pub body_modified_at: Option<String>,
+    pub format_schema_version: Option<i32>,
+    pub current_revision_ref: Option<String>,
+    pub journal_target: Option<String>,
+    pub submission_id: Option<String>,
+    pub topic_tags: Vec<String>,
+    pub notes: Option<String>,
+    pub import_source: Option<String>,
+    pub linked_imbib_manuscript_id: Option<String>,
+    pub linked_imbib_library_id: Option<String>,
+    pub orcid: Option<String>,
+    pub affiliation: Option<String>,
+    pub funder: Option<String>,
+    pub license: Option<String>,
+    pub embargo_until: Option<String>,
+    pub is_read: bool,
+    pub is_starred: bool,
+    pub flag_color: Option<String>,
+    pub flag_style: Option<String>,
+    pub flag_length: Option<String>,
+    pub tags: Vec<TagDisplayRow>,
+    pub date_added: i64,
+    pub date_modified: i64,
+    /// IDs of manuscript-collections containing this manuscript.
+    pub collections: Vec<String>,
+}
+
+/// Manuscript folder (manuscript-collection item) for sidebar display.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptCollectionRow {
+    pub id: String,
+    pub name: String,
+    /// UUID string of the parent collection (payload `parent_collection_ref`);
+    /// None for top-level folders/workspaces.
+    pub parent_id: Option<String>,
+    pub sort_order: i32,
+    pub is_smart: bool,
+    pub is_workspace: bool,
+    pub manuscript_count: i32,
+}
+
+/// Immutable manuscript-revision snapshot for the Versions section.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptRevisionRow {
+    pub id: String,
+    pub parent_manuscript_ref: String,
+    pub revision_tag: String,
+    pub content_hash: String,
+    pub pdf_artifact_ref: Option<String>,
+    pub source_archive_ref: Option<String>,
+    pub predecessor_revision_ref: Option<String>,
+    pub snapshot_reason: Option<String>,
+    pub word_count: Option<i32>,
+    pub author: String,
+    pub date_created: i64,
+}
+
 /// Tag definition with publication count for settings/management.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -784,6 +898,174 @@ pub fn item_to_operation_row(item: &Item) -> OperationRow {
         date: item.created.timestamp_millis(),
         logical_clock: item.logical_clock,
         batch_id: item.batch_id.clone(),
+    }
+}
+
+/// Prefix marking a payload string field as a content-addressed blob ref
+/// rather than inline content (the >1 MB escape hatch documented on
+/// `manuscript.body_content`).
+pub const BLOB_REF_PREFIX: &str = "blob:sha256:";
+
+/// Match an item's tag paths against tag definitions (shared by the
+/// bibliography/artifact/manuscript shapers).
+fn match_tags(item: &Item, tag_defs: &[TagDisplayRow]) -> Vec<TagDisplayRow> {
+    item.tags
+        .iter()
+        .map(|tag_path| {
+            tag_defs
+                .iter()
+                .find(|td| td.path == *tag_path)
+                .cloned()
+                .unwrap_or_else(|| {
+                    let leaf = tag_path.rsplit('/').next().unwrap_or(tag_path).to_string();
+                    TagDisplayRow {
+                        path: tag_path.clone(),
+                        leaf_name: leaf,
+                        color_light: None,
+                        color_dark: None,
+                    }
+                })
+        })
+        .collect()
+}
+
+fn get_string_array(payload: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
+    match payload.get(key) {
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| match v {
+                Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Convert a `manuscript@1.0.0` Item into a ManuscriptRow for list display.
+/// `revision_count` is pre-computed by the store API layer.
+pub fn item_to_manuscript_row(
+    item: &Item,
+    tag_defs: &[TagDisplayRow],
+    revision_count: i32,
+) -> ManuscriptRow {
+    let payload = &item.payload;
+    let body = get_str(payload, "body_content");
+    let body_is_blob_ref = body
+        .as_deref()
+        .map(|b| b.starts_with(BLOB_REF_PREFIX))
+        .unwrap_or(false);
+    let body_size = if body_is_blob_ref {
+        0
+    } else {
+        body.as_deref().map(|b| b.len() as i64).unwrap_or(0)
+    };
+
+    ManuscriptRow {
+        id: item.id.to_string(),
+        title: get_str(payload, "title").unwrap_or_default(),
+        author_string: get_string_array(payload, "authors").join("; "),
+        status: get_str(payload, "status").unwrap_or_else(|| "draft".into()),
+        format: get_str(payload, "format").unwrap_or_default(),
+        journal_target: get_str(payload, "journal_target"),
+        body_content_hash: get_str(payload, "body_content_hash"),
+        body_modified_at: get_str(payload, "body_modified_at"),
+        body_size,
+        body_is_blob_ref,
+        revision_count,
+        is_read: item.is_read,
+        is_starred: item.is_starred,
+        flag_color: item.flag.as_ref().map(|f| f.color.clone()),
+        flag_style: item.flag.as_ref().and_then(|f| f.style.clone()),
+        flag_length: item.flag.as_ref().and_then(|f| f.length.clone()),
+        tags: match_tags(item, tag_defs),
+        date_added: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
+    }
+}
+
+/// Convert a `manuscript@1.0.0` Item into a ManuscriptDetail.
+/// `collection_ids` are pre-fetched by the store API layer.
+pub fn item_to_manuscript_detail(
+    item: &Item,
+    tag_defs: &[TagDisplayRow],
+    collection_ids: Vec<String>,
+) -> ManuscriptDetail {
+    let payload = &item.payload;
+    let body = get_str(payload, "body_content").unwrap_or_default();
+    let body_is_blob_ref = body.starts_with(BLOB_REF_PREFIX);
+
+    ManuscriptDetail {
+        id: item.id.to_string(),
+        title: get_str(payload, "title").unwrap_or_default(),
+        status: get_str(payload, "status").unwrap_or_else(|| "draft".into()),
+        authors: get_string_array(payload, "authors"),
+        format: get_str(payload, "format").unwrap_or_default(),
+        body_content: body,
+        body_is_blob_ref,
+        body_content_hash: get_str(payload, "body_content_hash"),
+        body_modified_at: get_str(payload, "body_modified_at"),
+        format_schema_version: get_i64(payload, "format_schema_version").map(|v| v as i32),
+        current_revision_ref: get_str(payload, "current_revision_ref"),
+        journal_target: get_str(payload, "journal_target"),
+        submission_id: get_str(payload, "submission_id"),
+        topic_tags: get_string_array(payload, "topic_tags"),
+        notes: get_str(payload, "notes"),
+        import_source: get_str(payload, "import_source"),
+        linked_imbib_manuscript_id: get_str(payload, "linked_imbib_manuscript_id"),
+        linked_imbib_library_id: get_str(payload, "linked_imbib_library_id"),
+        orcid: get_str(payload, "orcid"),
+        affiliation: get_str(payload, "affiliation"),
+        funder: get_str(payload, "funder"),
+        license: get_str(payload, "license"),
+        embargo_until: get_str(payload, "embargo_until"),
+        is_read: item.is_read,
+        is_starred: item.is_starred,
+        flag_color: item.flag.as_ref().map(|f| f.color.clone()),
+        flag_style: item.flag.as_ref().and_then(|f| f.style.clone()),
+        flag_length: item.flag.as_ref().and_then(|f| f.length.clone()),
+        tags: match_tags(item, tag_defs),
+        date_added: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
+        collections: collection_ids,
+    }
+}
+
+/// Convert a `manuscript-collection@1.0.0` Item into a ManuscriptCollectionRow.
+pub fn item_to_manuscript_collection_row(
+    item: &Item,
+    manuscript_count: i32,
+) -> ManuscriptCollectionRow {
+    let payload = &item.payload;
+    ManuscriptCollectionRow {
+        id: item.id.to_string(),
+        name: get_str(payload, "name").unwrap_or_default(),
+        parent_id: get_str(payload, "parent_collection_ref"),
+        sort_order: get_i64(payload, "sort_order").unwrap_or(0) as i32,
+        is_smart: get_bool(payload, "is_smart"),
+        is_workspace: get_bool(payload, "is_workspace"),
+        manuscript_count,
+    }
+}
+
+/// Convert a `manuscript-revision@1.0.0` Item into a ManuscriptRevisionRow.
+/// Empty-string refs (used when a revision has no compiled PDF yet) are
+/// normalized to None.
+pub fn item_to_manuscript_revision_row(item: &Item) -> ManuscriptRevisionRow {
+    let payload = &item.payload;
+    let non_empty = |v: Option<String>| v.filter(|s| !s.is_empty());
+    ManuscriptRevisionRow {
+        id: item.id.to_string(),
+        parent_manuscript_ref: get_str(payload, "parent_manuscript_ref").unwrap_or_default(),
+        revision_tag: get_str(payload, "revision_tag").unwrap_or_default(),
+        content_hash: get_str(payload, "content_hash").unwrap_or_default(),
+        pdf_artifact_ref: non_empty(get_str(payload, "pdf_artifact_ref")),
+        source_archive_ref: non_empty(get_str(payload, "source_archive_ref")),
+        predecessor_revision_ref: non_empty(get_str(payload, "predecessor_revision_ref")),
+        snapshot_reason: get_str(payload, "snapshot_reason"),
+        word_count: get_i64(payload, "word_count").map(|v| v as i32),
+        author: item.author.clone(),
+        date_created: item.created.timestamp_millis(),
     }
 }
 

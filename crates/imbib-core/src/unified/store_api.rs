@@ -63,6 +63,21 @@ impl From<impress_core::UndoInfo> for UndoInfo {
     }
 }
 
+/// Result of a (possibly guarded) manuscript body save.
+///
+/// `applied == false` means the compare-and-set guard rejected the write:
+/// `stored_hash` is what the store currently holds — re-read, reconcile,
+/// and retry (or surface a conflict banner).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptSaveOutcome {
+    pub applied: bool,
+    /// The `body_content_hash` the store held BEFORE this call (None if unset).
+    pub stored_hash: Option<String>,
+    /// The hash of the newly-written body (None when not applied).
+    pub new_hash: Option<String>,
+}
+
 /// Summary of an undo group for the undo history panel.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -3278,10 +3293,357 @@ impl ImbibStore {
             }
         }
     }
+
+    // --- Manuscript operations (unified GUI — ADR-0011 / GUI-meld plan) ---
+    //
+    // Manuscripts are `manuscript@1.0.0` items written by BOTH apps (imprint's
+    // ManuscriptStoreAdapter and this store) into the same items table. These
+    // methods mirror the publication query surface with manuscript-shaped rows;
+    // collection membership reuses the schema-agnostic add_to_collection /
+    // remove_from_collection (Contains edges work on any collection item).
+
+    /// List manuscripts, optionally scoped to a manuscript-collection and/or a
+    /// lifecycle status. `sort_field`: "title" | "created" | "modified" |
+    /// "status" (default modified).
+    pub fn list_manuscripts(
+        &self,
+        collection_id: Option<String>,
+        status: Option<String>,
+        sort_field: String,
+        ascending: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Vec<ManuscriptRow>, StoreApiError> {
+        let mut predicates = Vec::new();
+        if let Some(cid) = collection_id {
+            let coll_uuid = parse_uuid(&cid)?;
+            predicates.push(Predicate::ReferencedBy(EdgeType::Contains, coll_uuid));
+        }
+        if let Some(st) = status {
+            predicates.push(Predicate::Eq("status".into(), Value::String(st)));
+        }
+        let q = ItemQuery {
+            schema: Some("manuscript".into()),
+            predicates,
+            sort: manuscript_sort_descriptors(&sort_field, ascending),
+            limit: limit.map(|l| l as usize),
+            offset: offset.map(|o| o as usize),
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        items
+            .iter()
+            .map(|item| {
+                let rev_count = self.count_revisions(item.id)?;
+                Ok(item_to_manuscript_row(item, &tag_defs, rev_count))
+            })
+            .collect()
+    }
+
+    /// Count manuscripts matching the same filters as `list_manuscripts`.
+    pub fn count_manuscripts(
+        &self,
+        collection_id: Option<String>,
+        status: Option<String>,
+    ) -> Result<u32, StoreApiError> {
+        let mut predicates = Vec::new();
+        if let Some(cid) = collection_id {
+            let coll_uuid = parse_uuid(&cid)?;
+            predicates.push(Predicate::ReferencedBy(EdgeType::Contains, coll_uuid));
+        }
+        if let Some(st) = status {
+            predicates.push(Predicate::Eq("status".into(), Value::String(st)));
+        }
+        let q = ItemQuery {
+            schema: Some("manuscript".into()),
+            predicates,
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
+    /// Get a single manuscript row (list shape) by ID.
+    pub fn get_manuscript_row(
+        &self,
+        id: String,
+    ) -> Result<Option<ManuscriptRow>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            Some(item) if item.schema == "manuscript" => {
+                let tag_defs = self.load_tag_definitions()?;
+                let rev_count = self.count_revisions(item.id)?;
+                Ok(Some(item_to_manuscript_row(&item, &tag_defs, rev_count)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Get full manuscript detail (body, metadata, collections) by ID.
+    pub fn get_manuscript_detail(
+        &self,
+        id: String,
+    ) -> Result<Option<ManuscriptDetail>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            Some(item) if item.schema == "manuscript" => {
+                let tag_defs = self.load_tag_definitions()?;
+                // Collections containing this manuscript (Contains edge holders
+                // with the manuscript-collection schema).
+                let coll_q = ItemQuery {
+                    schema: Some("manuscript-collection".into()),
+                    predicates: vec![Predicate::HasReference(EdgeType::Contains, uuid)],
+                    ..Default::default()
+                };
+                let collections: Vec<String> = self
+                    .store
+                    .query(&coll_q)?
+                    .iter()
+                    .map(|c| c.id.to_string())
+                    .collect();
+                Ok(Some(item_to_manuscript_detail(&item, &tag_defs, collections)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Create a manuscript. Payload mirrors imprint's ManuscriptStoreAdapter
+    /// exactly (same fields, same `format_schema_version`, self-referential
+    /// `current_revision_ref` until the first revision) so items are
+    /// indistinguishable regardless of which app created them.
+    pub fn create_manuscript(
+        &self,
+        title: String,
+        format: String,
+        body: String,
+        authors: Vec<String>,
+    ) -> Result<ManuscriptRow, StoreApiError> {
+        if format != "typst" && format != "latex" {
+            return Err(StoreApiError::InvalidInput(format!(
+                "format must be 'typst' or 'latex', got '{}'",
+                format
+            )));
+        }
+        let id = Uuid::new_v4();
+        let now_iso = impress_core::manuscript_ops::iso8601_now();
+        let body_hash = impress_core::manuscript_ops::sha256_hex(&body);
+
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("title".into(), Value::String(title));
+        payload.insert("status".into(), Value::String("draft".into()));
+        payload.insert(
+            "current_revision_ref".into(),
+            Value::String(id.to_string()),
+        );
+        payload.insert(
+            "authors".into(),
+            Value::Array(authors.into_iter().map(Value::String).collect()),
+        );
+        payload.insert("format".into(), Value::String(format));
+        payload.insert("body_content".into(), Value::String(body));
+        payload.insert("body_content_hash".into(), Value::String(body_hash));
+        payload.insert("body_modified_at".into(), Value::String(now_iso));
+        // Mirrors imprint's current DocumentSchemaVersion (v1.4).
+        payload.insert("format_schema_version".into(), Value::Int(140));
+
+        let item = conversion::bare_item(id, "manuscript", payload);
+        self.store.insert(item.clone())?;
+        let tag_defs = self.load_tag_definitions()?;
+        Ok(item_to_manuscript_row(&item, &tag_defs, 0))
+    }
+
+    /// Save a manuscript body, optionally guarded by the last-known
+    /// `body_content_hash` (compare-and-set for cross-process safety).
+    ///
+    /// With `expected_hash = None` this is an unconditional save (legacy
+    /// behavior, matching imprint's setBody). With `Some(hash)`, the save is
+    /// rejected with `Conflict` when the stored hash differs — the caller
+    /// should re-read, reconcile (fast-forward or surface a conflict banner),
+    /// and retry.
+    ///
+    /// Note: the check-then-write runs as two store calls under this handle's
+    /// connection lock; a cross-process writer can still interleave in the
+    /// window between them. That residual race is closed by the Darwin
+    /// cross-process change notification + `absorbExternalChange` path
+    /// (GUI-meld Phase 4); the guard here catches the common stale-editor
+    /// case deterministically.
+    pub fn set_manuscript_body(
+        &self,
+        id: String,
+        body: String,
+        expected_hash: Option<String>,
+    ) -> Result<ManuscriptSaveOutcome, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let item = self
+            .store
+            .get(uuid)?
+            .ok_or_else(|| StoreApiError::NotFound(id.clone()))?;
+        if item.schema != "manuscript" {
+            return Err(StoreApiError::InvalidInput(format!(
+                "set_manuscript_body requires schema 'manuscript', got '{}'",
+                item.schema
+            )));
+        }
+
+        let stored_hash = match item.payload.get("body_content_hash") {
+            Some(Value::String(h)) => Some(h.clone()),
+            _ => None,
+        };
+        if let Some(expected) = expected_hash {
+            if stored_hash.as_deref() != Some(expected.as_str()) {
+                return Ok(ManuscriptSaveOutcome {
+                    applied: false,
+                    stored_hash,
+                    new_hash: None,
+                });
+            }
+        }
+
+        let new_hash = impress_core::manuscript_ops::sha256_hex(&body);
+        let now_iso = impress_core::manuscript_ops::iso8601_now();
+        self.store.update(
+            uuid,
+            vec![
+                FieldMutation::SetPayload("body_content".into(), Value::String(body)),
+                FieldMutation::SetPayload(
+                    "body_content_hash".into(),
+                    Value::String(new_hash.clone()),
+                ),
+                FieldMutation::SetPayload("body_modified_at".into(), Value::String(now_iso)),
+            ],
+        )?;
+        Ok(ManuscriptSaveOutcome {
+            applied: true,
+            stored_hash,
+            new_hash: Some(new_hash),
+        })
+    }
+
+    /// Search manuscripts by title/body/notes substring (list-filter path;
+    /// palette search goes through the store FTS on the SharedStore surface).
+    pub fn search_manuscripts(
+        &self,
+        query: String,
+        limit: Option<u32>,
+    ) -> Result<Vec<ManuscriptRow>, StoreApiError> {
+        let search_pred = Predicate::Or(vec![
+            Predicate::Contains("title".into(), query.clone()),
+            Predicate::Contains("body_content".into(), query.clone()),
+            Predicate::Contains("notes".into(), query),
+        ]);
+        let q = ItemQuery {
+            schema: Some("manuscript".into()),
+            predicates: vec![search_pred],
+            sort: manuscript_sort_descriptors("modified", false),
+            limit: limit.map(|l| l as usize),
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        items
+            .iter()
+            .map(|item| {
+                let rev_count = self.count_revisions(item.id)?;
+                Ok(item_to_manuscript_row(item, &tag_defs, rev_count))
+            })
+            .collect()
+    }
+
+    /// List all manuscript-collections (flat; tree assembly via `parent_id`
+    /// happens in the sidebar view model, same as imbib collections).
+    pub fn list_manuscript_collections(
+        &self,
+    ) -> Result<Vec<ManuscriptCollectionRow>, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("manuscript-collection".into()),
+            sort: vec![SortDescriptor {
+                field: "payload.sort_order".into(),
+                ascending: true,
+            }],
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let mut rows = Vec::new();
+        for item in &items {
+            let count_q = ItemQuery {
+                schema: Some("manuscript".into()),
+                predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, item.id)],
+                ..Default::default()
+            };
+            let count = self.store.count(&count_q)? as i32;
+            rows.push(item_to_manuscript_collection_row(item, count));
+        }
+        Ok(rows)
+    }
+
+    /// Create a manuscript-collection (folder). Nesting via `parent_id`.
+    pub fn create_manuscript_collection(
+        &self,
+        name: String,
+        parent_id: Option<String>,
+    ) -> Result<ManuscriptCollectionRow, StoreApiError> {
+        if let Some(pid) = &parent_id {
+            parse_uuid(pid)?; // validate early
+        }
+        let id = Uuid::new_v4();
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("name".into(), Value::String(name));
+        payload.insert("sort_order".into(), Value::Int(0));
+        if let Some(pid) = parent_id {
+            payload.insert("parent_collection_ref".into(), Value::String(pid));
+        }
+        let item = conversion::bare_item(id, "manuscript-collection", payload);
+        self.store.insert(item.clone())?;
+        Ok(item_to_manuscript_collection_row(&item, 0))
+    }
+
+    /// List revision snapshots of a manuscript, newest first.
+    pub fn list_manuscript_revisions(
+        &self,
+        manuscript_id: String,
+    ) -> Result<Vec<ManuscriptRevisionRow>, StoreApiError> {
+        let uuid = parse_uuid(&manuscript_id)?;
+        let items = impress_core::manuscript_ops::list_revisions(&self.store, uuid)?;
+        Ok(items.iter().map(item_to_manuscript_revision_row).collect())
+    }
+
+    /// Create an immutable revision snapshot of the manuscript's current body
+    /// and advance its `current_revision_ref` (ADR-0011 D45 linear chain).
+    /// `snapshot_reason`: status-change | user-tag | stable-churn | manual.
+    pub fn create_manuscript_revision(
+        &self,
+        manuscript_id: String,
+        revision_tag: String,
+        snapshot_reason: String,
+    ) -> Result<ManuscriptRevisionRow, StoreApiError> {
+        let uuid = parse_uuid(&manuscript_id)?;
+        let item = impress_core::manuscript_ops::create_revision(
+            &self.store,
+            uuid,
+            &revision_tag,
+            &snapshot_reason,
+            "user:local",
+            impress_core::item::ActorKind::Human,
+        )?;
+        Ok(item_to_manuscript_revision_row(&item))
+    }
 }
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Count revision snapshots of a manuscript.
+    fn count_revisions(&self, manuscript_id: Uuid) -> Result<i32, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("manuscript-revision".into()),
+            predicates: vec![Predicate::Eq(
+                "parent_manuscript_ref".into(),
+                Value::String(manuscript_id.to_string()),
+            )],
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as i32)
+    }
+
     /// Check whether a publication with matching DOI, arXiv ID, or bibcode already exists
     /// in the given library.
     fn is_duplicate_in_library(
@@ -3686,6 +4048,21 @@ fn build_sort_descriptors(sort_field: &str, ascending: bool) -> Vec<SortDescript
             ascending,
         }],
     }
+}
+
+/// Sort descriptors for manuscript queries. Manuscript payloads have their
+/// own sortable fields (title, status); envelope dates are shared.
+fn manuscript_sort_descriptors(sort_field: &str, ascending: bool) -> Vec<SortDescriptor> {
+    let field = match sort_field {
+        "title" => "payload.title",
+        "status" => "payload.status",
+        "created" => "created",
+        _ => "modified",
+    };
+    vec![SortDescriptor {
+        field: field.into(),
+        ascending,
+    }]
 }
 
 #[cfg(test)]
