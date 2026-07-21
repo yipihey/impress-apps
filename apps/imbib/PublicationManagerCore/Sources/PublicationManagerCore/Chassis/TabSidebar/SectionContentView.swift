@@ -193,7 +193,7 @@ struct SectionContentView: View {
             return .citedInManuscripts
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
-        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
+        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
             // Journal pipeline tabs are NOT publication sources. They route
             // to ManuscriptDetailView / SubmissionsInboxView via a separate
             // dispatch path (added in Track 5/6 of Phase 2).
@@ -227,7 +227,7 @@ struct SectionContentView: View {
             return nil
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
-        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript:
+        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -315,13 +315,24 @@ struct SectionContentView: View {
     private func journalView(_ route: ImbibJournalRoute) -> some View {
         switch route {
         case .submissions:
+            // Submissions stays full-bleed — it's a triage board, not an
+            // item list (GUI-meld plan §5).
             SubmissionsInboxView()
         case .all:
-            JournalManuscriptsListView(statusFilter: nil)
+            ManuscriptSectionView(scope: .all)
         case .status(let status):
-            JournalManuscriptsListView(statusFilter: status)
+            ManuscriptSectionView(scope: .status(status))
+        case .folder(let id):
+            if let uuid = UUID(uuidString: id) {
+                ManuscriptSectionView(scope: .folder(uuid))
+            } else {
+                ManuscriptSectionView(scope: .all)
+            }
         case .manuscript(let id):
+            // Direct deep-link to one manuscript (e.g. from search): show it
+            // in the standard detail pane without a list.
             ManuscriptDetailView(manuscriptID: id)
+                .ignoresSafeArea(.container, edges: .top)
         }
     }
 

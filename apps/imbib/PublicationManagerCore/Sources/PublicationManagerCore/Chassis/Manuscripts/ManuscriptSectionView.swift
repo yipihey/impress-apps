@@ -1,0 +1,119 @@
+#if os(macOS)
+// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+//
+//  ManuscriptSectionView.swift
+//  PublicationManagerCore
+//
+//  Composes the Manuscripts section as the STANDARD chassis list|detail split
+//  (GUI-meld plan §5), replacing the old full-bleed JournalManuscriptsListView.
+//  The list is ManuscriptListWrapper; the detail is the existing
+//  ManuscriptDetailView for Phase 2 (read-mostly) — the tabbed Source-editor
+//  detail lands in Phase 3.
+
+import SwiftUI
+import AppKit
+import ImpressFTUI
+import ImpressSidebar
+
+public struct ManuscriptSectionView: View {
+
+    let scope: ManuscriptListScope
+    @State private var selectedID: UUID?
+
+    public init(scope: ManuscriptListScope) {
+        self.scope = scope
+    }
+
+    public var body: some View {
+        ImpressSplitView(listMinWidth: 220, listIdealWidth: 320, detailMinWidth: 320) {
+            ManuscriptListWrapper(
+                scope: scope,
+                selectedID: $selectedID,
+                actions: makeActions()
+            )
+        } detail: {
+            detailPane
+                .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var detailPane: some View {
+        if let id = selectedID {
+            ManuscriptDetailView(manuscriptID: id.uuidString)
+                // No `.id(id)` on the whole pane would keep stale @State across
+                // manuscript switches; ManuscriptDetailView loads by id in
+                // .task(id:), so a lightweight id() here is safe and correct
+                // for the read-mostly Phase-2 pane (the editor-session registry
+                // that needs no-.id() arrives with the Source tab in Phase 3).
+                .id(id)
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "doc.text.image")
+                .font(.system(size: 40))
+                .foregroundStyle(.tertiary)
+            Text("Select a manuscript")
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Actions
+
+    private func makeActions() -> ManuscriptListActions {
+        var a = ManuscriptListActions()
+        a.onNewManuscript = {
+            let format = scope.folderID != nil ? "typst" : "typst"
+            if let row = RustStoreAdapter.shared.createManuscript(
+                title: "Untitled Manuscript", format: format
+            ) {
+                if let folder = scope.folderID,
+                   let mID = UUID(uuidString: row.id) {
+                    RustStoreAdapter.shared.addToCollection(
+                        publicationIds: [mID], collectionId: folder
+                    )
+                }
+                selectedID = UUID(uuidString: row.id)
+            }
+        }
+        a.onDelete = { ids in
+            for id in ids { RustStoreAdapter.shared.deleteItem(id: id) }
+            if let sel = selectedID, ids.contains(sel) { selectedID = nil }
+        }
+        a.onDuplicate = { id in
+            guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id) else { return }
+            if let row = RustStoreAdapter.shared.createManuscript(
+                title: "\(detail.title) copy",
+                format: detail.format.isEmpty ? "typst" : detail.format,
+                body: detail.bodyContent,
+                authors: detail.authors
+            ) {
+                selectedID = UUID(uuidString: row.id)
+            }
+        }
+        a.onSetFlag = { ids, color in
+            RustStoreAdapter.shared.setFlag(ids: Array(ids), color: color?.rawValue)
+        }
+        a.onOpenInImprint = { id in
+            openInImprint(manuscriptID: id)
+        }
+        return a
+    }
+
+    private func openInImprint(manuscriptID: UUID) {
+        // Mirror ManuscriptDetailView.openInImprint's create path for the
+        // list-level action (the detail pane owns the bridged-open path).
+        let title = (RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)?.title ?? "Untitled")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Untitled"
+        let urlString = "imprint://create?title=\(title)&imbibManuscript=\(manuscriptID.uuidString)"
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+#endif

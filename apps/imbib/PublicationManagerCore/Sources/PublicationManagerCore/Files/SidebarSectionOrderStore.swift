@@ -21,7 +21,12 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     case flagged
     case citedInManuscripts
     case artifacts
-    case journal
+    /// The Manuscripts section (GUI-meld plan §5): one section absorbing the
+    /// old Journal section — All Manuscripts, status smart-children,
+    /// Submissions Inbox, and user folders (manuscript-collection items).
+    /// Raw value stays "journal" so persisted section order/collapse state
+    /// survives the rename.
+    case manuscripts = "journal"
     case reviewQueue
     case dismissed
 
@@ -38,7 +43,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .flagged: return "Flagged"
         case .citedInManuscripts: return "Cited in Manuscripts"
         case .artifacts: return "Artifacts"
-        case .journal: return "Journal"
+        case .manuscripts: return "Manuscripts"
         case .reviewQueue: return "Review Queue"
         case .dismissed: return "Dismissed"
         }
@@ -55,7 +60,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .flagged: return "flag.fill"
         case .citedInManuscripts: return "text.book.closed.fill"
         case .artifacts: return "archivebox"
-        case .journal: return "doc.text.image"
+        case .manuscripts: return "doc.text.image"
         case .reviewQueue: return "checklist"
         case .dismissed: return "trash"
         }
@@ -82,7 +87,7 @@ public final class SidebarSectionOrderStoreWrapper: Sendable {
         .flagged,
         .citedInManuscripts,
         .artifacts,
-        .journal,
+        .manuscripts,
         .reviewQueue,
         .dismissed
     ]

@@ -43,6 +43,7 @@ enum ImbibSidebarNodeType: Hashable {
     case journalByStatus(JournalManuscriptStatus)
     case journalSubmissions
     case manuscript(String)   // detail node — child of one of the journal sections
+    case manuscriptFolder(String)  // user folder (manuscript-collection item UUID)
 }
 
 // MARK: - Sidebar Node
@@ -124,6 +125,8 @@ extension ImbibSidebarNode {
             return .journalSubmissions
         case .manuscript(let id):
             return .manuscript(id)
+        case .manuscriptFolder(let id):
+            return .manuscriptFolder(id)
         }
     }
 }
@@ -195,6 +198,10 @@ enum ImbibSidebarNodeID {
 
     static func manuscript(_ manuscriptID: String) -> UUID {
         stable("journal.manuscript.\(manuscriptID)")
+    }
+
+    static func manuscriptFolder(_ collectionID: String) -> UUID {
+        stable("journal.folder.\(collectionID)")
     }
 }
 #endif

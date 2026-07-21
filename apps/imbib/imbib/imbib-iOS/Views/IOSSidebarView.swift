@@ -297,7 +297,7 @@ struct IOSSidebarView: View {
             if citedCount > 0 {
                 citedInManuscriptsSection
             }
-        case .sharedWithMe, .artifacts, .journal, .reviewQueue, .dismissed:
+        case .sharedWithMe, .artifacts, .manuscripts, .reviewQueue, .dismissed:
             // Not representable in the iOS SidebarSection routing table yet.
             EmptyView()
         }

@@ -335,7 +335,7 @@ final class ImbibSidebarViewModel {
             // one resolved citation-usage record. Keeps the sidebar
             // quiet for users who don't use imprint.
             return !CitedInManuscriptsSnapshot.shared.citedPaperIDs.isEmpty
-        case .journal:
+        case .manuscripts:
             // Journal section is always visible once the pipeline is
             // wired (per ADR-0011 D8). Phase 2 leaves the section open
             // so users can discover the "New Manuscript" command + the
@@ -397,7 +397,7 @@ final class ImbibSidebarViewModel {
             return citedInManuscriptsChildren()
         case .reviewQueue:
             return reviewQueueChildren()
-        case .journal:
+        case .manuscripts:
             return journalChildren()
         }
     }
@@ -450,7 +450,41 @@ final class ImbibSidebarViewModel {
                 displayName: "Submissions",
                 iconName: "tray.and.arrow.down"
             ),
-        ]
+        ] + manuscriptFolderNodes()
+    }
+
+    /// User folders (manuscript-collection items) as sidebar children of the
+    /// Manuscripts section, nested via parentId (GUI-meld plan §5). Emits a
+    /// FLAT, pre-order list carrying `treeDepth`/`hasTreeChildren` — the same
+    /// shape the publication-collection nodes use for the tree flattener.
+    private func manuscriptFolderNodes() -> [ImbibSidebarNode] {
+        let folders = RustStoreAdapter.shared.listManuscriptCollections()
+        guard !folders.isEmpty else { return [] }
+
+        func makeNode(_ folder: ManuscriptCollectionRow, depth: Int) -> [ImbibSidebarNode] {
+            let childFolders = folders
+                .filter { $0.parentId == folder.id }
+                .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+            var node = ImbibSidebarNode(
+                id: ImbibSidebarNodeID.manuscriptFolder(folder.id),
+                nodeType: .manuscriptFolder(folder.id),
+                displayName: folder.name,
+                iconName: folder.isSmart ? "folder.badge.gearshape" : "folder"
+            )
+            node.displayCount = folder.manuscriptCount > 0 ? Int(folder.manuscriptCount) : nil
+            node.treeDepth = depth
+            node.hasTreeChildren = !childFolders.isEmpty
+            var result = [node]
+            for child in childFolders {
+                result.append(contentsOf: makeNode(child, depth: depth + 1))
+            }
+            return result
+        }
+
+        return folders
+            .filter { $0.parentId == nil }
+            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+            .flatMap { makeNode($0, depth: 0) }
     }
 
     // MARK: Review Queue

@@ -47,6 +47,7 @@ public enum ImbibTab: Hashable {
     case journalByStatus(JournalManuscriptStatus)    // smart-collection-style filter
     case journalSubmissions                          // pending submissions inbox
     case manuscript(String)                          // detail view for a manuscript by ID
+    case manuscriptFolder(String)                    // user folder (manuscript-collection UUID)
     case addFeed                 // Navigate to search form picker for feed creation
     case addLibraryFeed(UUID)    // Navigate to feed creation for a specific library
     case editFeed(UUID)          // Navigate to search form to edit an existing feed
@@ -131,6 +132,7 @@ public enum ImbibJournalRoute: Equatable {
     case all
     case status(JournalManuscriptStatus)
     case manuscript(String)
+    case folder(String)
 
     public var stableID: String {
         switch self {
@@ -142,6 +144,8 @@ public enum ImbibJournalRoute: Equatable {
             return "status-\(status.rawValue)"
         case .manuscript(let id):
             return "manuscript-\(id)"
+        case .folder(let id):
+            return "folder-\(id)"
         }
     }
 }
@@ -157,6 +161,8 @@ extension ImbibTab {
             return .status(status)
         case .manuscript(let id):
             return .manuscript(id)
+        case .manuscriptFolder(let id):
+            return .folder(id)
         default:
             return nil
         }
