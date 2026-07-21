@@ -11,22 +11,42 @@ import ImpressLogging
 /// no hidden reads of live SwiftUI storage, so there are no feedback loops
 /// between "compile mutated state" and "state change triggered a compile".
 /// (See CLAUDE.md: "Capture @State Before Async Work".)
-struct CompileInputs {
-    let source: String
-    let format: DocumentFormat
-    let previewFormat: String
-    let documentID: UUID
-    let documentTitle: String
-    let latexEngine: String
-    let latexShellEscape: Bool
-    let latexShowBoxWarnings: Bool
+public struct CompileInputs: Sendable {
+    public let source: String
+    public let format: DocumentFormat
+    public let previewFormat: String
+    public let documentID: UUID
+    public let documentTitle: String
+    public let latexEngine: String
+    public let latexShellEscape: Bool
+    public let latexShowBoxWarnings: Bool
+
+    public init(
+        source: String,
+        format: DocumentFormat,
+        previewFormat: String,
+        documentID: UUID,
+        documentTitle: String,
+        latexEngine: String,
+        latexShellEscape: Bool,
+        latexShowBoxWarnings: Bool
+    ) {
+        self.source = source
+        self.format = format
+        self.previewFormat = previewFormat
+        self.documentID = documentID
+        self.documentTitle = documentTitle
+        self.latexEngine = latexEngine
+        self.latexShellEscape = latexShellEscape
+        self.latexShowBoxWarnings = latexShowBoxWarnings
+    }
 }
 
-/// The compile core for one imprint manuscript editor session.
+/// The compile core for one manuscript editor session.
 ///
-/// GUI-meld Phase 3 PREP: extracted out of `ImprintDocumentViewModel` so the
-/// compile pipeline is a self-contained, capability-injected unit that can
-/// later move to the shared GUI package as-is. It owns:
+/// GUI-meld Phase 3: moved out of the imprint app target into
+/// PublicationManagerCore so the compile pipeline is a self-contained,
+/// capability-injected unit shared by imprint AND imbib. It owns:
 ///
 /// - the compile/preview **output state** (PDF, SVG, source map, diagnostics),
 /// - the **orchestration** (branch on format, Typst via the in-process renderer,
@@ -35,32 +55,34 @@ struct CompileInputs {
 ///
 /// It deliberately holds no document/editor state and no platform conditionals
 /// in its decision logic — LaTeX platform specifics live behind
-/// `LaTeXCompiling`. The owning view model exposes this controller's state and
-/// methods unchanged, so call sites compile and read output exactly as before.
+/// `LaTeXCompiling`, and PDF/diagnostic caching lives behind
+/// `CompiledArtifactStoring`. The owning view model exposes this controller's
+/// state and methods unchanged, so call sites compile and read output exactly
+/// as before.
 @MainActor
 @Observable
-final class ManuscriptCompileController {
+public final class ManuscriptCompileController {
 
     // MARK: - Compile output (observed by the view)
 
-    var pdfData: Data?
-    var sourceMapEntries: [SourceMapEntry] = []
-    var isCompiling = false
-    var compilationError: String?
-    var compilationWarnings: [String] = []
+    public var pdfData: Data?
+    public var sourceMapEntries: [SourceMapEntry] = []
+    public var isCompiling = false
+    public var compilationError: String?
+    public var compilationWarnings: [String] = []
 
     /// SVG preview pages (Typst SVG preview mode).
-    var svgPages: [String] = []
+    public var svgPages: [String] = []
 
     // LaTeX-specific output
-    var latexDiagnostics: [LaTeXDiagnostic] = []
-    var latexCompilationTimeMs: Int = 0
-    var latexProjectFiles: [URL] = []
-    var latexMainFileURL: URL?
+    public var latexDiagnostics: [LaTeXDiagnostic] = []
+    public var latexCompilationTimeMs: Int = 0
+    public var latexProjectFiles: [URL] = []
+    public var latexMainFileURL: URL?
 
     // Debug breadcrumb state (surfaced in DEBUG toolbar items).
-    var debugStatus: String = "idle"
-    var debugHistory: String = ""
+    public var debugStatus: String = "idle"
+    public var debugHistory: String = ""
 
     // MARK: - Owned services
 
@@ -71,6 +93,11 @@ final class ManuscriptCompileController {
     /// iOS/absent: unsupported). Injected at composition time.
     private let latexCompiler: LaTeXCompiling
 
+    /// Side-effect cache for compiled PDFs + diagnostics (imprint's
+    /// `DocumentRegistry`; no-op in imbib). Injected so the controller holds no
+    /// app-target type.
+    private let artifactStore: CompiledArtifactStoring
+
     /// Post-compile follow-up work (SyncTeX load, dependency scan). Cancelled
     /// and replaced on each successful LaTeX compile.
     private var postCompileTask: Task<Void, Never>?
@@ -79,8 +106,12 @@ final class ManuscriptCompileController {
     /// with the compile core; the view supplies only the fire-time work.
     private var autoCompileTask: Task<Void, Never>?
 
-    init(latexCompiler: LaTeXCompiling) {
+    public init(
+        latexCompiler: LaTeXCompiling,
+        artifactStore: CompiledArtifactStoring = NoopCompiledArtifactStore()
+    ) {
         self.latexCompiler = latexCompiler
+        self.artifactStore = artifactStore
     }
 
     // MARK: - Auto-compile debounce
@@ -89,7 +120,7 @@ final class ManuscriptCompileController {
     /// previously scheduled compile. The view computes enablement/guards and
     /// passes the fire-time closure (which re-reads live view state and may
     /// bail); this type owns only the timing + task lifetime.
-    func scheduleCompile(after delayMs: Int, _ work: @escaping @MainActor () async -> Void) {
+    public func scheduleCompile(after delayMs: Int, _ work: @escaping @MainActor () async -> Void) {
         autoCompileTask?.cancel()
         autoCompileTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(delayMs))
@@ -99,7 +130,7 @@ final class ManuscriptCompileController {
     }
 
     /// Cancel a pending debounced compile (e.g. while a citation palette is open).
-    func cancelScheduledCompile() {
+    public func cancelScheduledCompile() {
         autoCompileTask?.cancel()
     }
 
@@ -108,7 +139,7 @@ final class ManuscriptCompileController {
     /// Compile `inputs.source` and publish the result into this controller's
     /// observable state. Branches on document format. Timed under the
     /// `compile` PerfMetrics bucket so budget breaches surface in the Console.
-    func compile(_ inputs: CompileInputs) async {
+    public func compile(_ inputs: CompileInputs) async {
         let sourceLen = inputs.source.count
         Logger.compilation.infoCapture(
             "Compile started: format=\(inputs.format), source=\(sourceLen)ch",
@@ -183,7 +214,7 @@ final class ManuscriptCompileController {
                     let pdfOutput = try await renderer.render(sourceText, options: options)
                     if pdfOutput.isSuccess {
                         pdfData = pdfOutput.pdfData
-                        DocumentRegistry.shared.cachePDF(pdfOutput.pdfData, for: inputs.documentID)
+                        artifactStore.cachePDF(pdfOutput.pdfData, for: inputs.documentID)
                     }
 
                     debugStatus = "6:set,\(output.svgPages.count)p,map=\(output.sourceMapEntries.count)"
@@ -203,7 +234,7 @@ final class ManuscriptCompileController {
                     pdfData = output.pdfData
                     sourceMapEntries = output.sourceMapEntries
                     compilationWarnings = output.warnings
-                    DocumentRegistry.shared.cachePDF(output.pdfData, for: inputs.documentID)
+                    artifactStore.cachePDF(output.pdfData, for: inputs.documentID)
                     debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
                     debugHistory += "6:ok "
                 } else {
@@ -245,13 +276,13 @@ final class ManuscriptCompileController {
         case .succeeded:
             latexCompilationTimeMs = result.compilationTimeMs
             latexDiagnostics = result.diagnostics
-            DocumentRegistry.shared.cachedDiagnostics[inputs.documentID] = latexDiagnostics
+            artifactStore.cacheDiagnostics(latexDiagnostics, for: inputs.documentID)
             compilationWarnings = result.formattedWarnings
 
             if let data = result.pdfData {
                 pdfData = data
                 sourceMapEntries = []
-                DocumentRegistry.shared.cachePDF(data, for: inputs.documentID)
+                artifactStore.cachePDF(data, for: inputs.documentID)
 
                 // Post-compile follow-up (SyncTeX load + dependency scan) runs
                 // off the critical path and stays cancellable — replaced on
@@ -275,7 +306,7 @@ final class ManuscriptCompileController {
         case .engineFailed:
             latexCompilationTimeMs = result.compilationTimeMs
             latexDiagnostics = result.diagnostics
-            DocumentRegistry.shared.cachedDiagnostics[inputs.documentID] = latexDiagnostics
+            artifactStore.cacheDiagnostics(latexDiagnostics, for: inputs.documentID)
             compilationWarnings = result.formattedWarnings
             compilationError = result.errorMessage
             debugHistory += "E "

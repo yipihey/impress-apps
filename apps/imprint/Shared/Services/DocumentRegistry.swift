@@ -79,3 +79,17 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
         cachedPDF[documentId] = data
     }
 }
+
+// MARK: - CompiledArtifactStoring (GUI-meld Phase 3)
+
+/// Lets the PMC-owned `ManuscriptCompileController` write compiled PDFs +
+/// diagnostics back into imprint's registry (which the HTTP API serves) without
+/// PMC referencing this imprint-only, app-type-generic singleton. `cachePDF`
+/// already satisfies the protocol; only the diagnostics setter is added here.
+/// (`CompiledArtifactStoring` / `LaTeXDiagnostic` are the PMC types, re-exported
+/// via typealias in `PMCManuscriptReexports.swift`.)
+extension DocumentRegistry: CompiledArtifactStoring {
+    func cacheDiagnostics(_ diagnostics: [LaTeXDiagnostic], for documentID: UUID) {
+        cachedDiagnostics[documentID] = diagnostics
+    }
+}

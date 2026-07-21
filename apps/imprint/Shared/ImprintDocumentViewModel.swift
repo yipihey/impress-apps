@@ -25,8 +25,14 @@ final class ImprintDocumentViewModel {
     /// forwarders below.
     let compileController: ManuscriptCompileController
 
-    init(latexCompiler: LaTeXCompiling = UnsupportedLaTeXCompiler()) {
-        self.compileController = ManuscriptCompileController(latexCompiler: latexCompiler)
+    init(
+        latexCompiler: LaTeXCompiling = UnsupportedLaTeXCompiler(),
+        artifactStore: CompiledArtifactStoring = DocumentRegistry.shared
+    ) {
+        self.compileController = ManuscriptCompileController(
+            latexCompiler: latexCompiler,
+            artifactStore: artifactStore
+        )
     }
 
     // MARK: - Compile output (forwarded from the controller)

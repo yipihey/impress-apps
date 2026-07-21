@@ -75,6 +75,10 @@ public extension Logger {
     // MARK: - Settings
 
     static let settings = Logger(subsystem: subsystem, category: "settings")
+
+    // MARK: - Manuscript Compilation (GUI-meld Phase 3)
+
+    static let compilation = Logger(subsystem: subsystem, category: "compilation")
 }
 
 // MARK: - PDF Browser Logging
