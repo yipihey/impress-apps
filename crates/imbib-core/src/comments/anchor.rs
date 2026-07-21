@@ -158,8 +158,14 @@ mod tests {
 
     #[test]
     fn orphaned_on_empty_anchor_text() {
-        assert_eq!(reanchor("some body", 0, 0, "", true), AnchorResolution::Orphaned);
-        assert_eq!(reanchor("some body", 2, 5, "", false), AnchorResolution::Orphaned);
+        assert_eq!(
+            reanchor("some body", 0, 0, "", true),
+            AnchorResolution::Orphaned
+        );
+        assert_eq!(
+            reanchor("some body", 2, 5, "", false),
+            AnchorResolution::Orphaned
+        );
     }
 
     #[test]
@@ -183,13 +189,19 @@ mod tests {
         let res = reanchor(body, 3, 3 + anchor.len(), anchor, true);
         assert_eq!(
             res,
-            AnchorResolution::Exact { start: 3, end: 3 + anchor.len() as u64 }
+            AnchorResolution::Exact {
+                start: 3,
+                end: 3 + anchor.len() as u64
+            }
         );
         // Stale offsets landing mid-codepoint must not panic and must re-find.
         let res = reanchor(body, 8, 8 + anchor.len(), anchor, false);
         assert_eq!(
             res,
-            AnchorResolution::Moved { start: 3, end: 3 + anchor.len() as u64 }
+            AnchorResolution::Moved {
+                start: 3,
+                end: 3 + anchor.len() as u64
+            }
         );
     }
 

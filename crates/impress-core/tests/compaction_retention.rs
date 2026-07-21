@@ -177,7 +177,10 @@ fn compaction_preserves_time_travel_floor_and_revision_refs() {
         .effective_state(ms, StateAsOf::LogicalClock(mid_clock))
         .unwrap()
         .expect("pre-cutoff time-travel must still resolve");
-    assert_eq!(floor_state.payload, pre_watermark, "floor = watermark state");
+    assert_eq!(
+        floor_state.payload, pre_watermark,
+        "floor = watermark state"
+    );
     assert_eq!(
         floor_state.payload.get("body_content"),
         Some(&Value::String("v4".into()))
@@ -194,7 +197,10 @@ fn compaction_preserves_time_travel_floor_and_revision_refs() {
         .effective_state(ms, StateAsOf::Timestamp(ancient))
         .unwrap()
         .expect("timestamp time-travel resolves");
-    assert_eq!(ts_state.payload.get("body_content"), Some(&Value::String("v4".into())));
+    assert_eq!(
+        ts_state.payload.get("body_content"),
+        Some(&Value::String("v4".into()))
+    );
 
     // Revision refs still dereference; the manual revision made the gate
     // pass, so no auto-revision was created.
@@ -207,7 +213,12 @@ fn compaction_preserves_time_travel_floor_and_revision_refs() {
         Some(&Value::String(rev.id.to_string()))
     );
     assert_eq!(
-        store.get(rev.id).unwrap().unwrap().payload.get("source_inline"),
+        store
+            .get(rev.id)
+            .unwrap()
+            .unwrap()
+            .payload
+            .get("source_inline"),
         Some(&Value::String("v4".into()))
     );
 }
@@ -223,7 +234,9 @@ fn compaction_auto_creates_stable_churn_revision() {
     save_body(&store, ms, "draft body one");
     save_body(&store, ms, "draft body two");
 
-    assert!(manuscript_ops::list_revisions(&store, ms).unwrap().is_empty());
+    assert!(manuscript_ops::list_revisions(&store, ms)
+        .unwrap()
+        .is_empty());
 
     age_ops();
     let deleted = store.compact_operations(0).unwrap();
@@ -236,7 +249,10 @@ fn compaction_auto_creates_stable_churn_revision() {
         rev.payload.get("snapshot_reason"),
         Some(&Value::String("stable-churn".into()))
     );
-    assert_eq!(rev.payload.get("revision_tag"), Some(&Value::String("auto".into())));
+    assert_eq!(
+        rev.payload.get("revision_tag"),
+        Some(&Value::String("auto".into()))
+    );
     assert_eq!(rev.author, "system:compaction");
     assert_eq!(rev.author_kind, ActorKind::System);
     assert_eq!(
@@ -385,7 +401,10 @@ fn compaction_preserves_current_state_bytes() {
 
     let post_item = store.get(ms).unwrap().unwrap();
     let post_payload_json = serde_json::to_string(&post_item.payload).unwrap();
-    assert_eq!(post_payload_json, pre_payload_json, "payload byte-identical");
+    assert_eq!(
+        post_payload_json, pre_payload_json,
+        "payload byte-identical"
+    );
     assert_eq!(post_item.tags, pre_item.tags);
     assert_eq!(post_item.is_read, pre_item.is_read);
     assert_eq!(post_item.is_starred, pre_item.is_starred);
@@ -412,8 +431,7 @@ enum EditOp {
 
 fn edit_op_strategy() -> impl Strategy<Value = EditOp> {
     prop_oneof![
-        (0u8..3, "[a-z]{1,8}", any::<bool>())
-            .prop_map(|(f, v, c)| EditOp::SetField(f, v, c)),
+        (0u8..3, "[a-z]{1,8}", any::<bool>()).prop_map(|(f, v, c)| EditOp::SetField(f, v, c)),
         (0u8..3, any::<bool>()).prop_map(|(t, c)| EditOp::AddTag(t, c)),
         (any::<bool>(), any::<bool>()).prop_map(|(v, c)| EditOp::SetRead(v, c)),
     ]

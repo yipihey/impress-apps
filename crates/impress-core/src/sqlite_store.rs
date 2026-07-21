@@ -1840,7 +1840,9 @@ impl SqliteItemStore {
                 let clamped_clock = clock_cutoff.map(|c| c.max(floor_clock));
                 let clamped_time = time_cutoff.map(|ts| {
                     if ts.timestamp_millis() < floor_created_ms {
-                        Utc.timestamp_millis_opt(floor_created_ms).single().unwrap_or(ts)
+                        Utc.timestamp_millis_opt(floor_created_ms)
+                            .single()
+                            .unwrap_or(ts)
                     } else {
                         ts
                     }
