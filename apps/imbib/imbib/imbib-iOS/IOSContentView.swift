@@ -26,6 +26,8 @@ struct IOSContentView: View {
     @State private var selectedSection: SidebarSection? = nil
     /// UUID-based selection for the publication list wrappers.
     @State private var selectedPublicationID: UUID?
+    /// Selected manuscript (manuscript@1.0.0 item) for the manuscripts section.
+    @State private var selectedManuscriptID: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     // File import/export
@@ -122,6 +124,7 @@ struct IOSContentView: View {
             }
             .onChange(of: selectedSection) { _, _ in
                 selectedPublicationID = nil
+                selectedManuscriptID = nil
             }
             .onChange(of: selectedPublicationID) { _, newValue in
                 // Reset active tab when publication changes
@@ -221,6 +224,9 @@ struct IOSContentView: View {
                             description: Text("This publication is no longer available.")
                         )
                     }
+                }
+                .navigationDestination(item: $selectedManuscriptID) { manuscriptID in
+                    IOSManuscriptDetailView(manuscriptID: manuscriptID)
                 }
         } detail: {
             detailView
@@ -336,6 +342,9 @@ struct IOSContentView: View {
                 selectedPublicationID: $selectedPublicationID
             )
 
+        case .manuscripts:
+            IOSManuscriptList(selectedManuscriptID: $selectedManuscriptID)
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -349,7 +358,9 @@ struct IOSContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let pubID = selectedPublicationID,
+        if let manuscriptID = selectedManuscriptID {
+            IOSManuscriptDetailView(manuscriptID: manuscriptID)
+        } else if let pubID = selectedPublicationID,
            let libraryID = selectedLibraryID {
             DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
         } else {
@@ -452,7 +463,7 @@ struct IOSContentView: View {
         case .inboxCollection(let colID):
             return .collection(colID, "Collection")
 
-        case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .none:
+        case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .manuscripts, .none:
             return .global
         }
     }
@@ -564,6 +575,7 @@ enum SidebarSection: Hashable {
     case scixLibrary(UUID)            // SciXLibrary ID
     case flagged(String?)             // Flagged publications (nil = any flag, or specific color name)
     case citedInManuscripts           // Papers cited in any imprint manuscript
+    case manuscripts                  // All manuscripts (manuscript@1.0.0 items)
 }
 
 // MARK: - iOS Search View

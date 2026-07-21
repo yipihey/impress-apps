@@ -1,24 +1,29 @@
 //
 //  IOSSourceEditorView.swift
-//  imprint-iOS
+//  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-27.
+//  Cross-app iOS source editor (GUI-meld Phase 8). Moved here from
+//  imprint-iOS so BOTH manuscript-editing companion apps (imprint-iOS and
+//  imbib-iOS) share one touch-optimized Typst/LaTeX source editor instead
+//  of forking two copies. macOS keeps its own AppKit editors — this file is
+//  `#if os(iOS)` only.
+//
+//  Features:
+//  - Full hardware-keyboard support with shortcuts (Cmd+B / Cmd+I / …)
+//  - Apple Pencil Scribble support (inherited from UITextView)
+//  - Touch-friendly text selection
+//  - One-shot go-to-line navigation (driven by a document outline)
 //
 
+#if os(iOS)
 import SwiftUI
 import UIKit
 import PDFKit
 
 // MARK: - iOS Source Editor View
 
-/// A touch-optimized source code editor for Typst documents.
-///
-/// Features:
-/// - Full hardware keyboard support with shortcuts
-/// - Apple Pencil Scribble support
-/// - Touch-friendly text selection
-/// - Syntax highlighting for Typst
-struct IOSSourceEditorView: View {
+/// A touch-optimized source code editor for Typst/LaTeX documents.
+public struct IOSSourceEditorView: View {
 
     // MARK: - Properties
 
@@ -38,7 +43,7 @@ struct IOSSourceEditorView: View {
     /// Focus state
     @FocusState private var isFocused: Bool
 
-    init(
+    public init(
         text: Binding<String>,
         selection: Binding<NSRange?>,
         goToLine: Binding<Int?> = .constant(nil)
@@ -50,7 +55,7 @@ struct IOSSourceEditorView: View {
 
     // MARK: - Body
 
-    var body: some View {
+    public var body: some View {
         IOSSourceEditorRepresentable(
             text: $text,
             selection: $selection,
@@ -217,7 +222,7 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
 // MARK: - Source Text View
 
 /// Custom UITextView with keyboard command support
-class SourceTextView: UITextView {
+final class SourceTextView: UITextView {
 
     // MARK: - Key Commands
 
@@ -253,7 +258,8 @@ class SourceTextView: UITextView {
     }
 
     @objc func goToLine() {
-        // TODO: Show go-to-line dialog
+        // Placeholder — the document outline drives go-to-line via the
+        // `goToLine` binding.
     }
 
     @objc func saveDocument() {
@@ -284,24 +290,21 @@ class SourceTextView: UITextView {
             }
         }
     }
-
-    // MARK: - Scribble Support
-
-    override var isUserInteractionEnabled: Bool {
-        get { super.isUserInteractionEnabled }
-        set { super.isUserInteractionEnabled = newValue }
-    }
 }
 
 // MARK: - iOS PDF Preview View
 
-/// Live PDF preview backed by PDFKit, fed from the shared compile pipeline
-/// (`ImprintDocumentViewModel.pdfData`).
-struct IOSPDFPreviewView: View {
+/// Live PDF preview backed by PDFKit, fed from a compile pipeline's PDF data.
+public struct IOSPDFPreviewView: View {
     let pdfData: Data?
     let isCompiling: Bool
 
-    var body: some View {
+    public init(pdfData: Data?, isCompiling: Bool) {
+        self.pdfData = pdfData
+        self.isCompiling = isCompiling
+    }
+
+    public var body: some View {
         ZStack {
             if let data = pdfData {
                 IOSPDFKitView(data: data)
@@ -381,3 +384,4 @@ private struct IOSPDFKitView: UIViewRepresentable {
         selection: .constant(nil)
     )
 }
+#endif

@@ -72,6 +72,7 @@ struct IOSSidebarView: View {
     @State private var libSmartSearches: [UUID: [SmartSearch]] = [:]
     @State private var libCollections: [UUID: [CollectionModel]] = [:]
     @State private var citedCount: Int = 0
+    @State private var manuscriptCount: Int = 0
     @State private var hasSciXAPIKey = false
     @State private var inboxAgeLimit: AgeLimitPreset = .threeMonths
 
@@ -297,7 +298,9 @@ struct IOSSidebarView: View {
             if citedCount > 0 {
                 citedInManuscriptsSection
             }
-        case .sharedWithMe, .artifacts, .manuscripts, .reviewQueue, .dismissed:
+        case .manuscripts:
+            manuscriptsSection
+        case .sharedWithMe, .artifacts, .reviewQueue, .dismissed:
             // Not representable in the iOS SidebarSection routing table yet.
             EmptyView()
         }
@@ -874,6 +877,22 @@ struct IOSSidebarView: View {
         }
     }
 
+    // MARK: - Manuscripts Section
+
+    @ViewBuilder
+    private var manuscriptsSection: some View {
+        Section("Manuscripts") {
+            NavigationLink(value: SidebarSection.manuscripts) {
+                Label {
+                    Text("All Manuscripts")
+                } icon: {
+                    Image(systemName: "doc.text.image")
+                }
+                .badge(manuscriptCount)
+            }
+        }
+    }
+
     // MARK: - Cited in Manuscripts Section
 
     @ViewBuilder
@@ -996,6 +1015,9 @@ struct IOSSidebarView: View {
         // Cited count.
         await CitedInManuscriptsSnapshot.shared.refresh()
         citedCount = CitedInManuscriptsSnapshot.shared.citedPaperIDs.count
+
+        // Manuscript count (Manuscripts section badge).
+        manuscriptCount = store.countManuscripts()
 
         // Inbox retention label.
         let settings = await InboxSettingsStore.shared.settings
