@@ -20,6 +20,7 @@ public struct ManuscriptSourceTab: View {
 
     @State private var session: ManuscriptEditorSession
     @AppStorage("manuscript.sourceTab.showPreview") private var showPreview = true
+    @AppStorage("manuscript.sourceTab.showOutline") private var showOutline = false
 
     public init(session: ManuscriptEditorSession) {
         _session = State(initialValue: session)
@@ -35,15 +36,21 @@ public struct ManuscriptSourceTab: View {
 
     @ViewBuilder
     private var editorSplit: some View {
-        if showPreview {
-            HSplitView {
-                editor
-                    .frame(minWidth: 320)
+        HSplitView {
+            if showOutline {
+                ManuscriptOutlineRail(
+                    source: session.source,
+                    format: session.format,
+                    onJump: { charOffset in session.cursorPosition = charOffset }
+                )
+                .frame(minWidth: 160, idealWidth: 200, maxWidth: 300)
+            }
+            editor
+                .frame(minWidth: 320)
+            if showPreview {
                 previewPane
                     .frame(minWidth: 280)
             }
-        } else {
-            editor
         }
     }
 
@@ -98,6 +105,11 @@ public struct ManuscriptSourceTab: View {
             Text(session.format.rawValue.capitalized)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            Toggle(isOn: $showOutline) {
+                Image(systemName: "list.bullet.indent")
+            }
+            .toggleStyle(.button)
+            .help("Toggle outline")
             Toggle(isOn: $showPreview) {
                 Image(systemName: "sidebar.right")
             }
@@ -124,6 +136,56 @@ public struct ManuscriptSourceTab: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.15))
+    }
+}
+
+/// A collapsible document outline for the Source tab (GUI-meld plan §4 —
+/// "toggleable outline rail (jump-to-line)"). Sections come from
+/// SectionExtractor; tapping one moves the editor caret to its start.
+struct ManuscriptOutlineRail: View {
+    let source: String
+    let format: DocumentFormat
+    let onJump: (Int) -> Void
+
+    private var sections: [ExtractedSection] {
+        SectionExtractor.extract(
+            from: source,
+            documentID: Self.stableDocID,
+            format: format == .latex ? .latex : .typst
+        )
+    }
+
+    // Outline doesn't persist section identity across manuscripts; a fixed
+    // doc id keeps SectionExtractor's deterministic ids stable within a body.
+    private static let stableDocID = UUID()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Outline")
+                .font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
+                .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
+            Divider()
+            if sections.isEmpty {
+                Text("No sections")
+                    .font(.callout).foregroundStyle(.tertiary)
+                    .padding(10)
+                Spacer()
+            } else {
+                List(sections, id: \.id) { section in
+                    Button {
+                        onJump(section.start)
+                    } label: {
+                        Text(section.title.isEmpty ? "(untitled)" : section.title)
+                            .lineLimit(1)
+                            .padding(.leading, CGFloat(max(0, section.level - 1)) * 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listStyle(.sidebar)
+            }
+        }
+        .background(.background)
     }
 }
 
