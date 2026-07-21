@@ -17,6 +17,10 @@
 //  `has_throughline: false`; nothing is created implicitly.
 //
 
+// The HTTP router (like the server) exists only on macOS; this file lives
+// in Shared/ and is compiled into the iOS target too, so it must carry the
+// same platform guard as ImprintHTTPRouter.swift.
+#if os(macOS)
 import Foundation
 import ImpressAutomation
 import ImpressLogging
@@ -305,3 +309,5 @@ extension ImprintHTTPRouter {
         return await handleGetThroughlineAnchors(id: id)
     }
 }
+
+#endif // os(macOS)
