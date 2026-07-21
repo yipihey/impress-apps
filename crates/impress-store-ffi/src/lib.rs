@@ -524,12 +524,13 @@ impl SharedStore {
         })?;
         let existing = self.inner.get(item_id)?;
 
-        let stored_guard = existing.as_ref().and_then(|item| {
-            match item.payload.get(guard_field.as_str()) {
-                Some(Value::String(s)) => Some(s.clone()),
-                _ => None,
-            }
-        });
+        let stored_guard =
+            existing
+                .as_ref()
+                .and_then(|item| match item.payload.get(guard_field.as_str()) {
+                    Some(Value::String(s)) => Some(s.clone()),
+                    _ => None,
+                });
 
         let guard_ok = match (&existing, &expected) {
             (None, None) => true,     // fresh insert, nothing to guard

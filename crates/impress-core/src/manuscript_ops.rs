@@ -250,10 +250,7 @@ mod tests {
         );
         payload.insert("format".into(), Value::String("typst".into()));
         payload.insert("body_content".into(), Value::String(body.into()));
-        payload.insert(
-            "body_content_hash".into(),
-            Value::String(sha256_hex(body)),
-        );
+        payload.insert("body_content_hash".into(), Value::String(sha256_hex(body)));
         let now = Utc::now();
         let item = Item {
             id,
@@ -301,10 +298,7 @@ mod tests {
             Some(&Value::String("= Introduction\nHello world".into()))
         );
         assert_eq!(rev.payload.get("word_count"), Some(&Value::Int(4)));
-        assert!(rev
-            .payload
-            .get("predecessor_revision_ref")
-            .is_none());
+        assert!(rev.payload.get("predecessor_revision_ref").is_none());
 
         // Head advanced
         let ms_item = store.get(ms).unwrap().unwrap();
