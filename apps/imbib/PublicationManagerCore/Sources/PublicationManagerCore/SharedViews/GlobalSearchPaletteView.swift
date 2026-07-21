@@ -319,6 +319,8 @@ public struct GlobalSearchPaletteView: View {
             return AnyShapeStyle(Color.orange.opacity(0.15))
         case .full:
             return AnyShapeStyle(Color.teal.opacity(0.15))
+        case .manuscript:
+            return AnyShapeStyle(Color.green.opacity(0.15))
         }
     }
 
@@ -332,6 +334,8 @@ public struct GlobalSearchPaletteView: View {
             return .orange
         case .full:
             return .teal
+        case .manuscript:
+            return .green
         }
     }
 

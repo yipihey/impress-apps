@@ -241,8 +241,18 @@ struct ContentView: View {
                 if searchPresenter.isLocalFindPresented {
                     GlobalSearchPaletteView(
                         isPresented: localFindPresented,
-                        onSelect: { publicationID in
-                            navigateToPublication(publicationID)
+                        onSelect: { selectedID in
+                            // Kind-aware: manuscript hits route to the
+                            // Manuscripts detail; everything else is a pub.
+                            if RustStoreAdapter.shared.getManuscriptRow(id: selectedID) != nil {
+                                NotificationCenter.default.post(
+                                    name: .navigateToManuscript,
+                                    object: nil,
+                                    userInfo: ["manuscriptID": selectedID.uuidString]
+                                )
+                            } else {
+                                navigateToPublication(selectedID)
+                            }
                         },
                         onPDFSearch: handlePDFSearch
                     )

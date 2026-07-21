@@ -353,6 +353,7 @@ public extension Notification.Name {
     /// Navigate to a specific publication: switch to its library, select it, scroll to it
     /// userInfo: ["publicationID": UUID]
     static let navigateToPublication = Notification.Name("navigateToPublication")
+    static let navigateToManuscript = Notification.Name("navigateToManuscript")
 
     // MARK: - Search Form Navigation
 

@@ -113,21 +113,26 @@ public final class GlobalSearchViewModel {
             async let semanticTask = performSemanticSearch()
             async let chunkTask = performChunkSearch()
 
+            // Manuscripts search (GUI-meld ⌘F unification): a cheap
+            // synchronous store scan over manuscript title/body, prepended so
+            // authored drafts surface alongside publications.
+            let manuscriptResults = performManuscriptSearch()
+
             // Phase 1 — FTS first.
             let ftsResults = await ftsTask
             guard !Task.isCancelled else { return }
-            results = mergeResults(fts: ftsResults, semantic: [], chunks: [])
+            results = manuscriptResults + mergeResults(fts: ftsResults, semantic: [], chunks: [])
 
             // Phase 2 — semantic merges in.
             let semanticResults = await semanticTask
             guard !Task.isCancelled else { return }
-            results = mergeResults(fts: ftsResults, semantic: semanticResults, chunks: [])
+            results = manuscriptResults + mergeResults(fts: ftsResults, semantic: semanticResults, chunks: [])
 
             // Phase 3 — chunks last.
             let chunkResults = await chunkTask
             guard !Task.isCancelled else { return }
             let merged = mergeResults(fts: ftsResults, semantic: semanticResults, chunks: chunkResults)
-            results = merged
+            results = manuscriptResults + merged
             isSearching = false
 
             logger.debug("Global search for '\(self.query)' returned \(merged.count) results (FTS: \(ftsResults.count), Semantic: \(semanticResults.count), Chunks: \(chunkResults.count))")
@@ -185,6 +190,37 @@ public final class GlobalSearchViewModel {
     // MARK: - Private Methods
 
     /// Perform fulltext search using Tantivy.
+    /// Search manuscript items by title/body (GUI-meld ⌘F unification). Synchronous
+    /// store scan — cheap relative to FTS/embeddings, so it runs inline and its
+    /// hits are prepended so authored drafts surface with publications.
+    private func performManuscriptSearch() -> [GlobalSearchResult] {
+        #if os(macOS)
+        let rows = RustStoreAdapter.shared.searchManuscripts(query: query, limit: 20)
+        return rows.compactMap { row in
+            guard let manuscript = ManuscriptRowData(from: row) else { return nil }
+            return GlobalSearchResult(
+                id: manuscript.id,
+                citeKey: "",
+                title: manuscript.title,
+                authors: manuscript.authorString,
+                year: nil,
+                snippet: manuscript.subtitleText,
+                matchType: .manuscript,
+                // Rank just above a mid FTS hit so exact-title drafts lead but
+                // strong publication matches can still interleave.
+                score: 0.9,
+                libraryNames: [],
+                dateAdded: manuscript.dateAdded,
+                dateModified: manuscript.dateModified,
+                citationCount: 0,
+                isStarred: manuscript.isStarredState
+            )
+        }
+        #else
+        return []
+        #endif
+    }
+
     private func performFulltextSearch() async -> [FullTextSearchResult] {
         let isAvailable = await FullTextSearchService.shared.isAvailable
         guard isAvailable else {

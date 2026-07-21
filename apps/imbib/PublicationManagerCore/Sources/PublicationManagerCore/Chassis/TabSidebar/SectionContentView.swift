@@ -464,6 +464,12 @@ struct SectionContentView: View {
             guard let publicationID = notification.userInfo?["publicationID"] as? UUID else { return }
             navigateToPublication(publicationID)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToManuscript)) { notification in
+            // ⌘F palette manuscript hit (GUI-meld §Search): select the
+            // Manuscripts section and deep-link to the manuscript detail.
+            guard let idString = notification.userInfo?["manuscriptID"] as? String else { return }
+            viewModel.selectedTab = .manuscript(idString)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .smartSearchAddDidComplete)) { notification in
             // After Cmd+S → "Add Selected" lands papers, navigate to the
             // library where they went and select the first one so the user

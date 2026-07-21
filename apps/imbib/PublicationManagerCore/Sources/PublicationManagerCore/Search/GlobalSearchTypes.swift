@@ -19,6 +19,8 @@ public enum GlobalSearchMatchType: String, Sendable, Codable {
     case both
     /// Matched via chunk-level content search inside PDF
     case full
+    /// A manuscript item matched by title/body (GUI-meld ⌘F unification)
+    case manuscript
 }
 
 // MARK: - Global Search Result
@@ -148,6 +150,8 @@ extension GlobalSearchMatchType {
             return "Both"
         case .full:
             return "Full"
+        case .manuscript:
+            return "Draft"
         }
     }
 
@@ -162,6 +166,8 @@ extension GlobalSearchMatchType {
             return "star.fill"
         case .full:
             return "doc.text.fill"
+        case .manuscript:
+            return "doc.text.image"
         }
     }
 }
