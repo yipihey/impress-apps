@@ -167,12 +167,8 @@ impl PubMedSource {
                             "Year" if year.is_none() => year = text.parse().ok(),
                             "LastName" if in_author => current_author_last = text,
                             "ForeName" if in_author => current_author_first = text,
-                            "ArticleId" => {
-                                // Check if this is DOI (need to check attribute)
-                                if text.starts_with("10.") {
-                                    doi = Some(text);
-                                }
-                            }
+                            // A DOI-shaped ArticleId (10.*) is the DOI.
+                            "ArticleId" if text.starts_with("10.") => doi = Some(text),
                             _ => {}
                         }
                     }

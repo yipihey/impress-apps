@@ -446,10 +446,7 @@ fn parse_flag_value(value: &str, negated: bool) -> Option<FlagQuery> {
     let color = if chars[0] == '*' {
         None
     } else {
-        match FlagColor::from_shortcut(chars[0]) {
-            Some(c) => Some(c),
-            None => return None,
-        }
+        Some(FlagColor::from_shortcut(chars[0])?)
     };
 
     if chars.len() == 1 {

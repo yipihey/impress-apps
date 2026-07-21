@@ -130,13 +130,7 @@ pub fn validate_pdf(bytes: &[u8]) -> Vec<ValidationIssue> {
     //    "/Type /Page" (with optional whitespace between) but exclude
     //    "/Type /Pages" (the page-tree node).
     let approx_pages = approximate_page_count(bytes);
-    if approx_pages == 0 {
-        issues.push(ValidationIssue::info(
-            "no_pages_detected",
-            "no `/Type /Page` objects found via byte scan (encrypted, FDF, or stub PDF)",
-        ));
-    } else {
-        let avg_bytes_per_page = bytes.len() / approx_pages;
+    if let Some(avg_bytes_per_page) = bytes.len().checked_div(approx_pages) {
         // PDF page objects are tiny (<100 B) by themselves but the content
         // stream they reference is typically much larger. Pick a generous
         // floor so this only flags wildly-out-of-bound files.
@@ -149,6 +143,11 @@ pub fn validate_pdf(bytes: &[u8]) -> Vec<ValidationIssue> {
                 ),
             ));
         }
+    } else {
+        issues.push(ValidationIssue::info(
+            "no_pages_detected",
+            "no `/Type /Page` objects found via byte scan (encrypted, FDF, or stub PDF)",
+        ));
     }
 
     issues
