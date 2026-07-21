@@ -447,4 +447,33 @@ public final class ImprintStoreAdapter {
         }
         #endif
     }
+
+    /// Load a manuscript's stored throughline (source + anchor map), if any.
+    /// The read counterpart of `storeThroughline` — used by the store-first
+    /// chassis (Panels Phase B) to hydrate the throughline pane without a
+    /// `.imprint` file bundle. Matches by the throughline item's `document_ref`.
+    public func loadThroughline(documentID: String)
+        -> (source: String, anchorMapJSON: String)?
+    {
+        guard isReady else { return nil }
+        #if canImport(ImpressRustCore)
+        let wanted = documentID.lowercased()
+        // Throughline items are few; scan the schema and match document_ref.
+        guard let rows = try? store?.queryBySchema(
+            schemaRef: "throughline", limit: 0, offset: 0
+        ) else { return nil }
+        for row in rows {
+            guard let data = row.payloadJson.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (payload["document_ref"] as? String)?.lowercased() == wanted
+            else { continue }
+            let source = payload["body_content"] as? String ?? ""
+            let anchors = payload["anchor_map_json"] as? String ?? ""
+            return (source, anchors)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
 }

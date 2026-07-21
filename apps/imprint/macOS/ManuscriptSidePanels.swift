@@ -14,6 +14,52 @@ import SwiftUI
 import PublicationManagerCore
 import ImpressPublicationUI
 
+// MARK: - Throughline (hard — needs an ImprintDocument bridge)
+
+struct ThroughlineSidePanel: ManuscriptSidePanel {
+    let id = "throughline"
+    let label = "Throughline"
+    let systemImage = "text.line.first.and.arrowtriangle.forward"
+
+    func makeView(_ context: ManuscriptPanelContext) -> AnyView {
+        AnyView(ThroughlinePanelHost(context: context))
+    }
+}
+
+/// Hosts `ThroughlinePaneView`, which binds `$document: ImprintDocument`.
+/// A per-manuscript `PanelManuscriptBridge` supplies that document from the
+/// store and keeps its `source` synced with the live editor. Navigation
+/// resolves the section slug to a caret offset (mirrors ContentView).
+private struct ThroughlinePanelHost: View {
+    let context: ManuscriptPanelContext
+    @State private var bridge: PanelManuscriptBridge
+
+    init(context: ManuscriptPanelContext) {
+        self.context = context
+        _bridge = State(initialValue: PanelBridgeRegistry.shared.bridge(for: context.manuscriptID))
+    }
+
+    var body: some View {
+        ThroughlinePaneView(
+            document: Binding(get: { bridge.doc }, set: { bridge.doc = $0 }),
+            onNavigateToSection: { slug in navigate(to: slug) }
+        )
+        .onAppear { bridge.syncSource(context.source.wrappedValue) }
+        .onChange(of: context.source.wrappedValue) { _, latest in bridge.syncSource(latest) }
+    }
+
+    private func navigate(to slug: String) {
+        for section in ThroughlineCoordinator.extractSections(of: bridge.doc)
+        where section.key == slug {
+            let src = bridge.doc.source
+            if let range = src.range(of: "= \(section.title)") ?? src.range(of: section.title) {
+                context.jumpToChar(src.distance(from: src.startIndex, to: range.lowerBound))
+            }
+            return
+        }
+    }
+}
+
 // MARK: - AI Assistant (easy — no ImprintDocument)
 
 struct AIAssistantSidePanel: ManuscriptSidePanel {

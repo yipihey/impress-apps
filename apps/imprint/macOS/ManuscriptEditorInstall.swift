@@ -81,6 +81,7 @@ enum ManuscriptEditorInstaller {
         // + Paper preview. Throughline + Veusz append in later phases.
         env.sidePanels = [
             AIAssistantSidePanel(),
+            ThroughlineSidePanel(),
             PaperPreviewSidePanel(),
         ]
     }
