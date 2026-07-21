@@ -1,0 +1,306 @@
+#if os(macOS)
+// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+//
+//  ManuscriptEditorSession.swift
+//  PublicationManagerCore
+//
+//  The editor lifecycle seam (GUI-meld plan §4 "the critical design"). A
+//  ManuscriptEditorSession owns one manuscript's editor buffer, cursor, compile
+//  controller, and debounced-save machinery. Sessions live in a registry
+//  OUTSIDE the SwiftUI view tree so the detail pane can present the Source tab
+//  WITHOUT `.id(manuscriptID)` — switching manuscripts or tabs never tears down
+//  the NSTextView, its undo stack, or an in-flight compile.
+
+import SwiftUI
+import Combine
+import ImbibRustCore
+import OSLog
+
+private let sessionLogger = Logger(subsystem: "com.imbib.app", category: "editor-session")
+
+/// The outcome of a compare-and-set body save.
+public enum ManuscriptSaveResult: Sendable {
+    case applied
+    /// The store held a different `body_content_hash` than we last loaded —
+    /// another writer (imprint, or another imbib view) changed the body.
+    case conflict(storedHash: String?)
+    case failed
+}
+
+/// One live editor session for a manuscript. `@Observable` so the Source tab
+/// binds directly to `source`/`cursorPosition`/compile state.
+@MainActor
+@Observable
+public final class ManuscriptEditorSession {
+
+    public let manuscriptID: UUID
+
+    /// The editor buffer — the local source of truth between debounced saves.
+    public var source: String {
+        didSet { if source != oldValue && !isApplyingExternal { noteEdit() } }
+    }
+
+    /// True while we set `source` programmatically (fast-forward / take-theirs /
+    /// keep-mine) so the `didSet` doesn't schedule a redundant save.
+    private var isApplyingExternal = false
+    public var cursorPosition: Int = 0
+
+    /// Set by a cross-tab SyncTeX inverse-sync jump (PDF tab → Source tab).
+    /// The Source tab observes this, scrolls, then clears it.
+    public var pendingScrollLine: Int?
+
+    /// The `body_content_hash` the store held at load / last successful save —
+    /// the compare-and-set token guarding against cross-process clobber.
+    public private(set) var savedHash: String?
+
+    /// Non-nil when an external writer changed the body under us and we could
+    /// not fast-forward; drives a non-modal conflict banner.
+    public var conflict: ExternalEditConflict?
+
+    public let format: DocumentFormat
+    public let vm: ManuscriptCompileController
+
+    /// True while a save is in flight (suppresses the store-event echo).
+    private var isSaving = false
+    private var saveTask: Task<Void, Never>?
+    private let saveDebounceMs: Int
+    private let title: String
+
+    /// The buffer content as of the last successful load or save. Used to tell
+    /// whether the user has local unsaved edits when an external change lands.
+    private var lastPersistedSource: String
+
+    init(
+        manuscriptID: UUID,
+        source: String,
+        format: DocumentFormat,
+        title: String,
+        savedHash: String?,
+        compiler: LaTeXCompiling,
+        saveDebounceMs: Int = 200
+    ) {
+        self.manuscriptID = manuscriptID
+        self.source = source
+        self.lastPersistedSource = source
+        self.format = format
+        self.title = title
+        self.savedHash = savedHash
+        self.saveDebounceMs = saveDebounceMs
+        self.vm = ManuscriptCompileController(latexCompiler: compiler)
+    }
+
+    // MARK: - Editing
+
+    /// Called on every buffer change: debounce a guarded save (200ms) and a
+    /// format-specific compile.
+    private func noteEdit() {
+        saveTask?.cancel()
+        let debounce = saveDebounceMs
+        saveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(debounce))
+            guard !Task.isCancelled else { return }
+            await self?.saveCAS()
+        }
+        scheduleCompile()
+    }
+
+    private func scheduleCompile() {
+        // Format-specific quiet window: LaTeX is heavier, so it waits longer.
+        let delay = format == .latex ? 1500 : 400
+        vm.scheduleCompile(after: delay) { [weak self] in
+            guard let self else { return }
+            await self.vm.compile(self.makeCompileInputs())
+        }
+    }
+
+    public func makeCompileInputs() -> CompileInputs {
+        CompileInputs(
+            source: source,
+            format: format,
+            previewFormat: format == .typst ? "svg" : "pdf",
+            documentID: manuscriptID,
+            documentTitle: title,
+            latexEngine: "pdflatex",
+            latexShellEscape: false,
+            latexShowBoxWarnings: false
+        )
+    }
+
+    // MARK: - Saving (compare-and-set)
+
+    /// Persist the buffer with a `body_content_hash` guard. On conflict, try to
+    /// fast-forward (if the store's change matches what we'd have loaded), else
+    /// raise `conflict` for the banner.
+    @discardableResult
+    public func saveCAS() async -> ManuscriptSaveResult {
+        isSaving = true
+        defer { isSaving = false }
+        guard let outcome = RustStoreAdapter.shared.setManuscriptBody(
+            id: manuscriptID, body: source, expectedHash: savedHash
+        ) else {
+            return .failed
+        }
+        if outcome.applied {
+            savedHash = outcome.newHash
+            lastPersistedSource = source
+            conflict = nil
+            return .applied
+        }
+        // Guard rejected: another writer moved the body.
+        conflict = ExternalEditConflict(
+            manuscriptID: manuscriptID, storedHash: outcome.storedHash)
+        sessionLogger.warning(
+            "Save conflict for \(self.manuscriptID): stored=\(outcome.storedHash ?? "nil")")
+        return .conflict(storedHash: outcome.storedHash)
+    }
+
+    /// Synchronous flush for eviction / window close / app resign-active.
+    public func flush() {
+        saveTask?.cancel()
+        // Best-effort synchronous-ish save: fire and let it complete.
+        Task { @MainActor [weak self] in await self?.saveCAS() }
+    }
+
+    /// React to a store mutation from ANOTHER writer: fast-forward the buffer
+    /// when the user hasn't diverged, else raise a conflict.
+    public func absorbExternalChange() {
+        // Ignore our own echo.
+        guard !isSaving else { return }
+        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
+        else { return }
+        // Already in sync with the store — re-pin the hash and clear.
+        if detail.bodyContentHash == savedHash || source == detail.bodyContent {
+            savedHash = detail.bodyContentHash
+            lastPersistedSource = source
+            conflict = nil
+            return
+        }
+        if source == lastPersistedSource {
+            // No local unsaved edits — safe to fast-forward to the store body.
+            isApplyingExternal = true
+            source = detail.bodyContent
+            isApplyingExternal = false
+            lastPersistedSource = detail.bodyContent
+            savedHash = detail.bodyContentHash
+            conflict = nil
+        } else {
+            // Local unsaved edits AND the store diverged — surface a conflict.
+            conflict = ExternalEditConflict(
+                manuscriptID: manuscriptID, storedHash: detail.bodyContentHash)
+        }
+    }
+
+    /// Take the store's current body, discarding local edits (conflict banner
+    /// "Take theirs").
+    public func takeExternal() {
+        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
+        else { return }
+        isApplyingExternal = true
+        source = detail.bodyContent
+        isApplyingExternal = false
+        lastPersistedSource = detail.bodyContent
+        savedHash = detail.bodyContentHash
+        conflict = nil
+    }
+
+    /// Force our buffer over the store's version (conflict banner "Keep mine").
+    public func keepMine() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Unguarded save wins deterministically.
+            _ = RustStoreAdapter.shared.setManuscriptBody(
+                id: self.manuscriptID, body: self.source, expectedHash: nil)
+            if let d = RustStoreAdapter.shared.getManuscriptDetail(id: self.manuscriptID) {
+                self.savedHash = d.bodyContentHash
+            }
+            self.conflict = nil
+        }
+    }
+}
+
+/// A detected external edit awaiting user resolution.
+public struct ExternalEditConflict: Sendable, Equatable {
+    public let manuscriptID: UUID
+    public let storedHash: String?
+}
+
+// MARK: - Registry
+
+/// LRU cache of live editor sessions, keyed by manuscript UUID, living OUTSIDE
+/// the SwiftUI view tree. The detail pane resolves a session per selection;
+/// tab and selection switches never destroy it. Capacity is small (a handful
+/// of recently-edited manuscripts on macOS); a session with an unresolved
+/// conflict is never evicted.
+@MainActor
+public final class ManuscriptSessionRegistry {
+
+    public static let shared = ManuscriptSessionRegistry(capacity: 3)
+
+    private var sessions: [UUID: ManuscriptEditorSession] = [:]
+    private var lru: [UUID] = []          // most-recent last
+    private let capacity: Int
+
+    /// The LaTeX compiler capability injected into new sessions. Defaults to
+    /// unsupported (imbib-without-TeX / iOS); imprint installs the real one.
+    public var latexCompilerFactory: @MainActor () -> LaTeXCompiling = {
+        UnsupportedLaTeXCompiler()
+    }
+
+    public init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    /// Return the cached session for `id`, or load one from the store.
+    public func session(for id: UUID) -> ManuscriptEditorSession? {
+        if let existing = sessions[id] {
+            touch(id)
+            return existing
+        }
+        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id) else {
+            return nil
+        }
+        let format = DocumentFormat(rawValue: detail.format) ?? .typst
+        let session = ManuscriptEditorSession(
+            manuscriptID: id,
+            source: detail.bodyIsBlobRef ? "" : detail.bodyContent,
+            format: format,
+            title: detail.title,
+            savedHash: detail.bodyContentHash,
+            compiler: latexCompilerFactory()
+        )
+        sessions[id] = session
+        lru.append(id)
+        evictIfNeeded()
+        return session
+    }
+
+    /// Notify all live sessions of a store mutation (cross-process wake-up).
+    public func broadcastExternalChange(to ids: Set<UUID>) {
+        for id in ids {
+            sessions[id]?.absorbExternalChange()
+        }
+    }
+
+    /// Flush every live session (app termination hook).
+    public func flushAll() {
+        for session in sessions.values { session.flush() }
+    }
+
+    private func touch(_ id: UUID) {
+        lru.removeAll { $0 == id }
+        lru.append(id)
+    }
+
+    private func evictIfNeeded() {
+        while sessions.count > capacity {
+            // Evict the oldest session that has no unresolved conflict.
+            guard let victim = lru.first(where: { sessions[$0]?.conflict == nil }) else {
+                return  // all remaining sessions are conflicted — keep them
+            }
+            sessions[victim]?.flush()
+            sessions[victim] = nil
+            lru.removeAll { $0 == victim }
+        }
+    }
+}
+#endif

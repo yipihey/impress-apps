@@ -19,6 +19,9 @@ public struct ManuscriptSectionView: View {
 
     let scope: ManuscriptListScope
     @State private var selectedID: UUID?
+    // Manuscripts default to the Source tab (thin-twin: launching imprint
+    // lands you in the editor). Persisted separately from the publication tab.
+    @State private var selectedTab: DetailTab = .source
 
     public init(scope: ManuscriptListScope) {
         self.scope = scope
@@ -40,13 +43,10 @@ public struct ManuscriptSectionView: View {
     @ViewBuilder
     private var detailPane: some View {
         if let id = selectedID {
-            ManuscriptDetailView(manuscriptID: id.uuidString)
-                // No `.id(id)` on the whole pane would keep stale @State across
-                // manuscript switches; ManuscriptDetailView loads by id in
-                // .task(id:), so a lightweight id() here is safe and correct
-                // for the read-mostly Phase-2 pane (the editor-session registry
-                // that needs no-.id() arrives with the Source tab in Phase 3).
-                .id(id)
+            // NO `.id(id)` — ManuscriptDetailPane resolves its editor session
+            // from the registry on `.onChange(of: manuscriptID)`, so the
+            // editor/undo/compile survive selection switches (GUI-meld Phase 3).
+            ManuscriptDetailPane(manuscriptID: id, selectedTab: $selectedTab)
         } else {
             placeholder
         }
