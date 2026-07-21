@@ -4,311 +4,63 @@ import OSLog
 import ImprintCore
 import ImpressLogging
 
-/// Inputs a compile needs, snapshotted from the view at call time.
+/// Owns the compile/preview pipeline for one imprint document editor session.
 ///
-/// Passing an explicit value type (rather than letting the view model read
-/// `@State`/`@AppStorage`/`@Binding` directly) keeps the compile pipeline pure:
-/// no hidden reads of live SwiftUI storage, so there are no feedback loops
-/// between "compile mutated state" and "state change triggered a compile".
-/// (See CLAUDE.md: "Capture @State Before Async Work".)
-struct CompileInputs {
-    let source: String
-    let format: DocumentFormat
-    let previewFormat: String
-    let documentID: UUID
-    let documentTitle: String
-    let latexEngine: String
-    let latexShellEscape: Bool
-    let latexShowBoxWarnings: Bool
-}
-
-/// Owns the compile/preview output state and the compile orchestration for one
-/// imprint document editor session.
+/// GUI-meld Phase 3 PREP: the compile core itself now lives in
+/// `ManuscriptCompileController` (a self-contained, platform-capability-injected
+/// unit that can move to the shared GUI package later). This view model *owns*
+/// that controller by delegation and re-exposes its state + methods unchanged,
+/// so every call site — `vm.compile(makeCompileInputs())`, `vm.pdfData`,
+/// `vm.isCompiling`, … — behaves exactly as before.
 ///
-/// Extracted from the former monolithic `ContentView` so the compile pipeline
-/// is (a) declaratively observable by the view, (b) driven by explicit inputs,
-/// and (c) timed by `PerfMetrics` so the Console Performance tab shows live
-/// editor-compile latency. The view retains only view-coupled concerns
-/// (cursor/SyncTeX, scheduling/debounce, export/print, PDF scrolling); this
-/// type retains only "given source + settings, produce a preview".
+/// The view model remains the imprint-specific composition seam: it is where the
+/// platform's `LaTeXCompiling` capability is injected (macOS → real system TeX;
+/// iOS / TeX-less desktop → `UnsupportedLaTeXCompiler`).
 @MainActor
 @Observable
 final class ImprintDocumentViewModel {
 
-    // MARK: - Compile output (observed by the view)
+    /// The extracted compile core. Public so future code can consume it directly
+    /// (or lift it into the shared package); existing callers keep using the
+    /// forwarders below.
+    let compileController: ManuscriptCompileController
 
-    var pdfData: Data?
-    var sourceMapEntries: [SourceMapEntry] = []
-    var isCompiling = false
-    var compilationError: String?
-    var compilationWarnings: [String] = []
+    init(latexCompiler: LaTeXCompiling = UnsupportedLaTeXCompiler()) {
+        self.compileController = ManuscriptCompileController(latexCompiler: latexCompiler)
+    }
 
-    /// SVG preview pages (Typst SVG preview mode).
-    var svgPages: [String] = []
+    // MARK: - Compile output (forwarded from the controller)
 
-    // LaTeX-specific output
-    var latexDiagnostics: [LaTeXDiagnostic] = []
-    var latexCompilationTimeMs: Int = 0
-    var latexProjectFiles: [URL] = []
-    var latexMainFileURL: URL?
+    var pdfData: Data? { compileController.pdfData }
+    var sourceMapEntries: [SourceMapEntry] { compileController.sourceMapEntries }
+    var isCompiling: Bool { compileController.isCompiling }
+    var compilationError: String? { compileController.compilationError }
+    var compilationWarnings: [String] { compileController.compilationWarnings }
+    var svgPages: [String] { compileController.svgPages }
 
-    // Debug breadcrumb state (surfaced in DEBUG toolbar items).
-    var debugStatus: String = "idle"
-    var debugHistory: String = ""
+    var latexDiagnostics: [LaTeXDiagnostic] { compileController.latexDiagnostics }
+    var latexCompilationTimeMs: Int { compileController.latexCompilationTimeMs }
+    var latexProjectFiles: [URL] { compileController.latexProjectFiles }
+    var latexMainFileURL: URL? { compileController.latexMainFileURL }
 
-    // MARK: - Owned services
+    var debugStatus: String { compileController.debugStatus }
+    var debugHistory: String { compileController.debugHistory }
 
-    /// Shared Typst renderer instance for this editor session.
-    private let renderer = TypstRenderer()
+    // MARK: - Compile (forwarded)
 
-    /// Post-compile follow-up work (SyncTeX load, dependency scan). Cancelled
-    /// and replaced on each successful LaTeX compile.
-    private var postCompileTask: Task<Void, Never>?
-
-    // MARK: - Entry point
-
-    /// Compile `inputs.source` and publish the result into this view model's
-    /// observable state. Branches on document format. Timed under the
-    /// `compile` PerfMetrics bucket so budget breaches surface in the Console.
+    /// Compile `inputs.source` and publish the result into the observable state.
     func compile(_ inputs: CompileInputs) async {
-        let sourceLen = inputs.source.count
-        Logger.compilation.infoCapture(
-            "Compile started: format=\(inputs.format), source=\(sourceLen)ch",
-            category: "compile"
-        )
-        log("compile() started")
-        debugHistory = ""
-        debugStatus = "1:started"
-        debugHistory += "1 "
-        isCompiling = true
-        compilationError = nil
-        compilationWarnings = []
-        latexDiagnostics = []
-
-        await PerfMetrics.shared.measureAsync(
-            PerfBucket.compile,
-            detail: "editor-\(inputs.format)"
-        ) {
-            switch inputs.format {
-            case .typst:
-                await compileTypst(inputs)
-            case .latex:
-                await compileLaTeX(inputs)
-            }
-        }
-
-        isCompiling = false
-        debugStatus = "F:pdf=\(pdfData?.count ?? 0)"
-        debugHistory += "F:\(pdfData?.count ?? 0)"
-        Logger.compilation.infoCapture(
-            "Compile finished: pdf=\(pdfData?.count ?? 0)b, errors=\(compilationError != nil ? 1 : 0)",
-            category: "compile"
-        )
-        log("compile() finished")
+        await compileController.compile(inputs)
     }
 
-    private func log(_ message: String) {
-        Logger.compilation.infoCapture(message, category: "compile")
+    /// Schedule a debounced auto-compile (the view supplies the fire-time work,
+    /// which re-reads live view state and may bail).
+    func scheduleCompile(after delayMs: Int, _ work: @escaping @MainActor () async -> Void) {
+        compileController.scheduleCompile(after: delayMs, work)
     }
 
-    // MARK: - Typst Compilation
-
-    private func compileTypst(_ inputs: CompileInputs) async {
-        let sourceText = inputs.source
-        let format = inputs.previewFormat
-        debugStatus = "2:src=\(sourceText.count)ch"
-        debugHistory += "2:\(sourceText.count) "
-        log("Source text length: \(sourceText.count), format: \(format)")
-
-        do {
-            log("Creating RenderOptions")
-            debugStatus = "3:options"
-            debugHistory += "3 "
-            let options = RenderOptions(
-                pageSize: .a4,
-                isDraft: false
-            )
-
-            if format == "svg" {
-                debugStatus = "4:rendering(svg)"
-                debugHistory += "4svg "
-                log("Calling renderer.renderSVG()")
-                let output = try await renderer.renderSVG(sourceText, options: options)
-                debugStatus = "5:done,ok=\(output.isSuccess),pages=\(output.svgPages.count)"
-                debugHistory += "5:\(output.svgPages.count)p "
-
-                if output.isSuccess {
-                    svgPages = output.svgPages
-                    sourceMapEntries = output.sourceMapEntries
-                    compilationWarnings = output.warnings
-
-                    let pdfOutput = try await renderer.render(sourceText, options: options)
-                    if pdfOutput.isSuccess {
-                        pdfData = pdfOutput.pdfData
-                        DocumentRegistry.shared.cachePDF(pdfOutput.pdfData, for: inputs.documentID)
-                    }
-
-                    debugStatus = "6:set,\(output.svgPages.count)p,map=\(output.sourceMapEntries.count)"
-                    debugHistory += "6:ok "
-                } else {
-                    compilationError = output.errors.joined(separator: "\n")
-                    debugHistory += "E "
-                }
-            } else {
-                debugStatus = "4:rendering(pdf)"
-                debugHistory += "4pdf "
-                let output = try await renderer.render(sourceText, options: options)
-                debugStatus = "5:done,ok=\(output.isSuccess),sz=\(output.pdfData.count)"
-                debugHistory += "5:\(output.pdfData.count) "
-
-                if output.isSuccess {
-                    pdfData = output.pdfData
-                    sourceMapEntries = output.sourceMapEntries
-                    compilationWarnings = output.warnings
-                    DocumentRegistry.shared.cachePDF(output.pdfData, for: inputs.documentID)
-                    debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
-                    debugHistory += "6:ok "
-                } else {
-                    compilationError = output.errors.joined(separator: "\n")
-                    debugHistory += "E "
-                }
-            }
-        } catch {
-            compilationError = error.localizedDescription
-            debugHistory += "X:\(error) "
-        }
-    }
-
-    // MARK: - LaTeX Compilation
-
-    private func compileLaTeX(_ inputs: CompileInputs) async {
-        #if !os(macOS)
-        // LaTeX compilation spawns a local TeX distribution via Process —
-        // desktop-only. Typst is the cross-platform path.
-        compilationError = "LaTeX compilation is only available on macOS. Use Typst format on this device."
-        #else
-        // LaTeX requires a file URL — the document must be saved to disk first.
-        // For unsaved documents, write to a temp directory.
-        let sourceText = inputs.source
-        debugStatus = "2:latex,src=\(sourceText.count)ch"
-        debugHistory += "2:\(sourceText.count) "
-
-        // Resolve the engine
-        let engineRaw = inputs.latexEngine
-        let engine = LaTeXEngine(rawValue: engineRaw) ?? .pdflatex
-
-        // Get or create a temp file URL for compilation
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("imprint-latex-\(inputs.documentID.uuidString)")
-        let sourceURL = tempDir.appendingPathComponent("main.tex")
-
-        do {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            try sourceText.data(using: .utf8)?.write(to: sourceURL)
-
-            // Mirror the per-document Veusz figures dir into the compile
-            // tempdir so `\includegraphics{figures/foo.pdf}` resolves.
-            // The plot store renders into
-            //   <container>/Application Support/imprint/manuscripts/<docID>/figures/
-            // but pdfLaTeX runs with `tempDir/` as cwd and only sees what's
-            // under it. We re-build figures/ on every compile so deletes
-            // + renames in the plot panel land here too. Best-effort: a
-            // copy failure shouldn't block the compile, only log it.
-            let figuresSrc = try? VeuszWorkingDirectory().figuresDirectory(forDocumentID: inputs.documentID)
-            let figuresDst = tempDir.appendingPathComponent("figures")
-            try? FileManager.default.removeItem(at: figuresDst)
-            if let figuresSrc, FileManager.default.fileExists(atPath: figuresSrc.path) {
-                do {
-                    try FileManager.default.copyItem(at: figuresSrc, to: figuresDst)
-                    Logger.documents.infoCapture("Mirrored figures/ from plot store into compile tempdir", category: "compile")
-                } catch {
-                    Logger.documents.warningCapture("Failed to mirror figures/ for compile: \(error.localizedDescription)", category: "compile")
-                }
-            }
-        } catch {
-            compilationError = "Failed to write temp file: \(error.localizedDescription)"
-            debugHistory += "X:write "
-            return
-        }
-
-        debugStatus = "3:engine=\(engine.rawValue)"
-        debugHistory += "3:\(engine.rawValue) "
-
-        let options = LaTeXCompileOptions(
-            engine: engine,
-            shellEscape: inputs.latexShellEscape
-        )
-
-        do {
-            let result = try await LaTeXCompilationService.shared.compile(
-                sourceURL: sourceURL,
-                engine: engine,
-                options: options
-            )
-
-            latexCompilationTimeMs = result.compilationTimeMs
-            latexDiagnostics = result.errors + result.warnings
-            DocumentRegistry.shared.cachedDiagnostics[inputs.documentID] = latexDiagnostics
-
-            if result.isSuccess, let data = result.pdfData {
-                pdfData = data
-                sourceMapEntries = []
-                DocumentRegistry.shared.cachePDF(data, for: inputs.documentID)
-
-                // Cancel previous post-compile tasks before starting new ones
-                postCompileTask?.cancel()
-                let capturedSynctexURL = result.synctexURL
-                let capturedSourceURL = sourceURL
-                postCompileTask = Task {
-                    // Load SyncTeX data for bidirectional sync
-                    if let synctexURL = capturedSynctexURL {
-                        do {
-                            try await SyncTeXService.shared.load(from: synctexURL)
-                        } catch {
-                            self.log("SyncTeX load failed: \(error)")
-                        }
-                    }
-
-                    guard !Task.isCancelled else { return }
-
-                    // Scan project dependencies for sidebar
-                    await LaTeXProjectService.shared.scanDependencies(from: capturedSourceURL)
-                    let files = await LaTeXProjectService.shared.allProjectFiles
-                    let mainFile = await LaTeXProjectService.shared.mainFile
-                    await MainActor.run {
-                        self.latexProjectFiles = files
-                        self.latexMainFileURL = mainFile
-                    }
-                }
-                debugStatus = "5:ok,\(data.count)b,\(result.compilationTimeMs)ms"
-                debugHistory += "5:ok "
-            } else {
-                compilationError = result.errors.map(\.message).joined(separator: "\n")
-                if compilationError?.isEmpty ?? true {
-                    compilationError = "Compilation failed (exit code \(result.exitCode))"
-                }
-                // Log first 500 chars of compilation output for debugging
-                let logSnippet = String(result.logOutput.prefix(500))
-                Logger.compilation.errorCapture("LaTeX failed (exit \(result.exitCode)): errors=\(result.errors.map(\.message)), log=\(logSnippet)", category: "latex")
-                debugHistory += "E "
-            }
-
-            // Surface warnings (filter box warnings if disabled)
-            let showBoxWarnings = inputs.latexShowBoxWarnings
-            compilationWarnings = result.warnings
-                .filter { diag in
-                    if !showBoxWarnings && (diag.message.hasPrefix("Overfull") || diag.message.hasPrefix("Underfull")) {
-                        return false
-                    }
-                    return true
-                }
-                .map { "\($0.file):\($0.line): \($0.message)" }
-
-        } catch {
-            compilationError = error.localizedDescription
-            Logger.compilation.errorCapture("LaTeX compile threw: \(error)", category: "latex")
-            debugHistory += "X:\(error) "
-        }
-        #endif // os(macOS)
+    /// Cancel any pending debounced compile.
+    func cancelScheduledCompile() {
+        compileController.cancelScheduledCompile()
     }
 }

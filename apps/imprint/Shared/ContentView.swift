@@ -25,7 +25,7 @@ struct ContentView: View {
     /// Owns the compile/preview output state + compile orchestration. The view
     /// reads `vm.pdfData` / `vm.isCompiling` / … declaratively and drives it via
     /// `vm.compile(makeCompileInputs())`.
-    @State private var vm = ImprintDocumentViewModel()
+    @State private var vm = ImprintDocumentViewModel(latexCompiler: SystemLaTeXCompiler())
 
     // In-imprint paper detail panel — publication ID if open, nil otherwise
     @State private var openPaperPublicationID: String?
@@ -38,7 +38,8 @@ struct ContentView: View {
     @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
     @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
     @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
-    @State private var autoCompileTask: Task<Void, Never>?
+    // Debounced auto-compile now lives in the compile controller (owned by `vm`);
+    // scheduling goes through `vm.scheduleCompile` / `vm.cancelScheduledCompile`.
     @State private var forwardSyncTask: Task<Void, Never>?
 
     // LaTeX-specific state
@@ -435,7 +436,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .inlineCitationPaletteOpened)) { _ in
             citationPaletteOpen = true
             // Cancel any pending auto-compile so an incomplete `\cite{` doesn't fire one
-            autoCompileTask?.cancel()
+            vm.cancelScheduledCompile()
         }
         .onReceive(NotificationCenter.default.publisher(for: .inlineCitationPaletteClosed)) { _ in
             citationPaletteOpen = false
@@ -1190,11 +1191,9 @@ struct ContentView: View {
            hasUnclosedCiteBrace(in: document.source, near: cursorPosition) {
             return
         }
-        autoCompileTask?.cancel()
-        autoCompileTask = Task {
-            try? await Task.sleep(for: .milliseconds(delayMs))
-            guard !Task.isCancelled else { return }
-            // Re-check at fire time
+        // Debounce timing + task lifetime are owned by the compile controller;
+        // the fire-time closure re-reads live view state and may still bail.
+        vm.scheduleCompile(after: delayMs) {
             if citationPaletteOpen { return }
             if appState.documentFormat == .latex,
                hasUnclosedCiteBrace(in: document.source, near: cursorPosition) {
