@@ -418,6 +418,258 @@ fn compaction_preserves_current_state_bytes() {
 }
 
 // ---------------------------------------------------------------------------
+// compact_undo_history: same snapshot-floor treatment as compact_operations
+//
+// `compact_undo_history(keep)` keeps the N most-recent undo groups and deletes
+// every non-durable op below the resulting logical-clock cutoff, across targets
+// in one pass. It must emit a durable watermark snapshot per affected target
+// first, so the same floor invariants hold.
+// ---------------------------------------------------------------------------
+
+/// Ops for a target in ascending clock order.
+fn ops_by_clock(store: &SqliteItemStore, id: ItemId) -> Vec<Item> {
+    let mut ops = store.operations_for(id, None).unwrap();
+    ops.sort_by_key(|o| o.logical_clock);
+    ops
+}
+
+fn snapshot_ops(store: &SqliteItemStore, id: ItemId) -> Vec<Item> {
+    store
+        .operations_for(id, None)
+        .unwrap()
+        .into_iter()
+        .filter(|o| op_type_of(o) == "custom:snapshot")
+        .collect()
+}
+
+#[test]
+fn undo_compaction_preserves_floor_and_survivors() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let item = make_item("note", BTreeMap::new());
+    let id = item.id;
+    store.insert(item).unwrap();
+
+    // Interleave compactable body churn with durable envelope edits. Each
+    // update is its own undo group (distinct id, no batch).
+    let set_body = |v: &str, tier: RetentionTier| {
+        store
+            .update_with_retention(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "body".into(),
+                    Value::String(v.into()),
+                )],
+                tier,
+            )
+            .unwrap();
+    };
+    set_body("v1", RetentionTier::Compactable); // op 0
+    set_body("v2", RetentionTier::Compactable); // op 1
+    store
+        .update(id, vec![FieldMutation::AddTag("keep/a".into())])
+        .unwrap(); // op 2 (durable)
+    set_body("v3", RetentionTier::Compactable); // op 3
+    set_body("v4", RetentionTier::Compactable); // op 4
+    set_body("v5", RetentionTier::Compactable); // op 5
+    store
+        .update(id, vec![FieldMutation::AddTag("keep/b".into())])
+        .unwrap(); // op 6 (durable)
+    set_body("v6", RetentionTier::Compactable); // op 7
+
+    let clocks: Vec<u64> = ops_by_clock(&store, id)
+        .iter()
+        .map(|o| o.logical_clock)
+        .collect();
+    assert_eq!(clocks.len(), 8);
+
+    // Exact reference states while the full log exists.
+    let pre_current = store.get(id).unwrap().unwrap();
+    let pre_current_json = serde_json::to_string(&pre_current.payload).unwrap();
+
+    // keep the 2 most-recent groups → cutoff = clocks[6]; deletes non-durable
+    // ops below it: ops 0,1,3,4,5 (five compactable ops). Durable ops 2,6 and
+    // the most-recent compactable op 7 survive.
+    let deleted = store.compact_undo_history(2).unwrap();
+    assert_eq!(deleted, 5, "exactly the five sub-cutoff compactable ops");
+
+    // A single durable watermark snapshot pinned at the newest deleted clock.
+    let snaps = snapshot_ops(&store, id);
+    assert_eq!(snaps.len(), 1);
+    assert_eq!(snaps[0].author, "system:compaction");
+    assert_eq!(snaps[0].author_kind, ActorKind::System);
+    let watermark = clocks[5]; // op 5 = v5, newest deleted
+    assert_eq!(snaps[0].logical_clock, watermark);
+
+    // Durable ops survive.
+    let post_ops = ops_by_clock(&store, id);
+    assert!(post_ops.iter().any(|o| o.logical_clock == clocks[2]));
+    assert!(post_ops.iter().any(|o| o.logical_clock == clocks[6]));
+    assert!(post_ops.iter().any(|o| o.logical_clock == clocks[7]));
+
+    // Current state is byte-identical.
+    let post_current = store.get(id).unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_string(&post_current.payload).unwrap(),
+        pre_current_json,
+        "payload byte-identical across undo compaction"
+    );
+    assert_eq!(post_current.tags, pre_current.tags);
+    let cur = store
+        .effective_state(id, StateAsOf::Current)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cur.payload.get("body"), Some(&Value::String("v6".into())));
+    assert_eq!(cur.tags, vec!["keep/a".to_string(), "keep/b".to_string()]);
+
+    // Below the floor: resolves to the watermark state (v5, only keep/a), and
+    // as_of_clock reveals the clamp.
+    let floor = store
+        .effective_state(id, StateAsOf::LogicalClock(clocks[1]))
+        .unwrap()
+        .expect("pre-cutoff time-travel still resolves");
+    assert_eq!(floor.payload.get("body"), Some(&Value::String("v5".into())));
+    assert_eq!(floor.tags, vec!["keep/a".to_string()]);
+    assert!(
+        floor.as_of_clock >= watermark,
+        "clamp is visible: {} >= {}",
+        floor.as_of_clock,
+        watermark
+    );
+
+    // At/above the floor: replay is exact. At clocks[6] (durable keep/b),
+    // body is still v5 (v6 lands later at clocks[7]).
+    let at_keep_b = store
+        .effective_state(id, StateAsOf::LogicalClock(clocks[6]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        at_keep_b.payload.get("body"),
+        Some(&Value::String("v5".into()))
+    );
+    assert_eq!(
+        at_keep_b.tags,
+        vec!["keep/a".to_string(), "keep/b".to_string()]
+    );
+
+    // Idempotent: re-running with the same depth deletes nothing more and adds
+    // no second snapshot (the snapshot is durable, above no cutoff it survives).
+    let again = store.compact_undo_history(2).unwrap();
+    assert_eq!(again, 0);
+    assert_eq!(snapshot_ops(&store, id).len(), 1);
+}
+
+#[test]
+fn undo_compaction_interleaves_with_compact_operations_newest_floor_wins() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let item = make_item("note", BTreeMap::new());
+    let id = item.id;
+    store.insert(item).unwrap();
+
+    let set_body = |v: &str, tier: RetentionTier| {
+        store
+            .update_with_retention(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "body".into(),
+                    Value::String(v.into()),
+                )],
+                tier,
+            )
+            .unwrap();
+    };
+    // Low-clock compactable churn (folded by compact_operations), then
+    // higher-clock ephemeral churn (folded by compact_undo_history), with
+    // durable envelope edits interleaved and a durable final body edit.
+    set_body("a", RetentionTier::Compactable); // op 0
+    set_body("b", RetentionTier::Compactable); // op 1
+    store
+        .update(id, vec![FieldMutation::AddTag("t/1".into())])
+        .unwrap(); // op 2 (durable)
+    set_body("c", RetentionTier::Ephemeral); // op 3
+    set_body("d", RetentionTier::Ephemeral); // op 4
+    store
+        .update(id, vec![FieldMutation::AddTag("t/2".into())])
+        .unwrap(); // op 5 (durable)
+    set_body("e", RetentionTier::Ephemeral); // op 6
+    set_body("f", RetentionTier::Durable); // op 7 (durable, current body)
+
+    let clocks: Vec<u64> = ops_by_clock(&store, id)
+        .iter()
+        .map(|o| o.logical_clock)
+        .collect();
+    assert_eq!(clocks.len(), 8);
+
+    // Exact reference states across the full clock range while the log exists.
+    let mut pre_states: BTreeMap<u64, (BTreeMap<String, Value>, Vec<String>)> = BTreeMap::new();
+    for &c in &clocks {
+        let s = store
+            .effective_state(id, StateAsOf::LogicalClock(c))
+            .unwrap()
+            .unwrap();
+        pre_states.insert(c, (s.payload, s.tags));
+    }
+    let pre_current = store.get(id).unwrap().unwrap();
+    let pre_current_json = serde_json::to_string(&pre_current.payload).unwrap();
+
+    // Pass 1: fold the aged compactable ops (0,1) → snapshot at clocks[1].
+    age_ops();
+    let deleted_ops = store.compact_operations(0).unwrap();
+    assert_eq!(deleted_ops, 2);
+    // current unchanged by pass 1.
+    assert_eq!(
+        serde_json::to_string(&store.get(id).unwrap().unwrap().payload).unwrap(),
+        pre_current_json
+    );
+
+    // Pass 2: keep 2 most-recent groups. Deletes the two sub-cutoff ephemeral
+    // ops (3,4) → snapshot at clocks[4], which is NEWER than pass 1's.
+    let deleted_undo = store.compact_undo_history(2).unwrap();
+    assert_eq!(deleted_undo, 2);
+
+    // Two durable snapshots coexist; the floor is the NEWEST (highest clock).
+    let snaps = snapshot_ops(&store, id);
+    assert_eq!(
+        snaps.len(),
+        2,
+        "one snapshot per pass, both durable, both kept"
+    );
+    let floor_clock = snaps.iter().map(|s| s.logical_clock).max().unwrap();
+    assert_eq!(floor_clock, clocks[4], "undo pass produced the newer floor");
+
+    // Current state byte-identical across BOTH passes.
+    let post_current = store.get(id).unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_string(&post_current.payload).unwrap(),
+        pre_current_json,
+        "payload byte-identical across both compactions"
+    );
+    assert_eq!(post_current.tags, pre_current.tags);
+
+    // Every original clock resolves consistently: below the newest floor →
+    // floor state; at/above → exact pre-compaction replay.
+    for &c in &clocks {
+        let post = store
+            .effective_state(id, StateAsOf::LogicalClock(c))
+            .unwrap()
+            .unwrap();
+        let expected = if c < floor_clock {
+            &pre_states[&floor_clock]
+        } else {
+            &pre_states[&c]
+        };
+        assert_eq!(&post.payload, &expected.0, "payload at clock {}", c);
+        assert_eq!(&post.tags, &expected.1, "tags at clock {}", c);
+        if c < floor_clock {
+            assert!(
+                post.as_of_clock >= floor_clock,
+                "clamp visible at clock {}",
+                c
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Property: compaction preserves replay at/above the watermark and floors
 // below it — for arbitrary interleavings of durable/compactable ops.
 // ---------------------------------------------------------------------------

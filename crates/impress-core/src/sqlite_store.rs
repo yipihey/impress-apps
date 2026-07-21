@@ -2952,6 +2952,77 @@ impl SqliteItemStore {
         Ok(rows)
     }
 
+    /// Emit a durable `custom:snapshot` operation for `target`, capturing its
+    /// full effective state (payload + envelope) at `watermark_clock` (wall
+    /// time `watermark_ms`), inside the caller's transaction.
+    ///
+    /// This is the shared primitive behind every compaction path that deletes
+    /// non-durable ops: it MUST be invoked *before* the delete, while the ops
+    /// the snapshot supersedes are still present, so the `replay_state_on`
+    /// below is exact rather than floor-clamped. The snapshot is pinned at the
+    /// watermark's logical clock and wall time so it sorts exactly where the
+    /// deleted range ended; forward replay applies it as a wholesale state
+    /// replacement and time-travel below it is clamped to it (documented floor
+    /// — see `replay_state_on`). Being `Durable`, the snapshot itself is never
+    /// deleted by any compaction pass.
+    ///
+    /// Shared by `compact_operations` and `compact_undo_history`.
+    fn emit_watermark_snapshot(
+        &self,
+        conn: &Connection,
+        target: ItemId,
+        watermark_clock: u64,
+        watermark_ms: i64,
+    ) -> Result<(), StoreError> {
+        // Capture the effective state at the watermark while every op is still
+        // present — this replay is exact, not floor-clamped.
+        let state = Self::replay_state_on(conn, target, Some(watermark_clock), None)?
+            .ok_or(StoreError::NotFound(target))?;
+
+        let snap_payload = build_operation_payload(
+            target,
+            &OperationType::Custom("snapshot".into(), Self::snapshot_op_data(&state)),
+            OperationIntent::Routine,
+            Some("compaction watermark snapshot"),
+            None,
+        );
+        let created_dt = Utc
+            .timestamp_millis_opt(watermark_ms)
+            .single()
+            .unwrap_or_else(Utc::now);
+        let snap_item = Item {
+            id: Uuid::new_v4(),
+            schema: "core/operation".into(),
+            payload: snap_payload,
+            created: created_dt,
+            modified: created_dt,
+            author: "system:compaction".into(),
+            author_kind: ActorKind::System,
+            logical_clock: watermark_clock,
+            origin: Some(self.origin_id.clone()),
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::Normal,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        Self::insert_operation_item(
+            conn,
+            &snap_item,
+            target,
+            &self.origin_id,
+            RetentionTier::Durable,
+        )
+    }
+
     /// Remove compactable operations older than `window_days`, preserving
     /// time-travel correctness via durable watermark snapshots.
     ///
@@ -3091,56 +3162,9 @@ impl SqliteItemStore {
             let watermark_clock = max_clock.unwrap_or(0) as u64;
             let watermark_ms = max_created.unwrap_or(cutoff_ms);
 
-            // Capture the effective state at the watermark while every op is
-            // still present — this replay is exact, not floor-clamped, because
-            // the ops we are about to delete still exist.
-            let state = Self::replay_state_on(&tx, plan.target, Some(watermark_clock), None)?
-                .ok_or(StoreError::NotFound(plan.target))?;
-
-            // Durable snapshot op pinned at the watermark's clock + wall time,
-            // so it sorts exactly where the deleted range ended.
-            let snap_payload = build_operation_payload(
-                plan.target,
-                &OperationType::Custom("snapshot".into(), Self::snapshot_op_data(&state)),
-                OperationIntent::Routine,
-                Some("compaction watermark snapshot"),
-                None,
-            );
-            let created_dt = Utc
-                .timestamp_millis_opt(watermark_ms)
-                .single()
-                .unwrap_or_else(Utc::now);
-            let snap_item = Item {
-                id: Uuid::new_v4(),
-                schema: "core/operation".into(),
-                payload: snap_payload,
-                created: created_dt,
-                modified: created_dt,
-                author: "system:compaction".into(),
-                author_kind: ActorKind::System,
-                logical_clock: watermark_clock,
-                origin: Some(self.origin_id.clone()),
-                canonical_id: None,
-                tags: vec![],
-                flag: None,
-                is_read: false,
-                is_starred: false,
-                priority: Priority::Normal,
-                visibility: Visibility::Private,
-                message_type: None,
-                produced_by: None,
-                version: None,
-                batch_id: None,
-                references: vec![],
-                parent: None,
-            };
-            Self::insert_operation_item(
-                &tx,
-                &snap_item,
-                plan.target,
-                &self.origin_id,
-                RetentionTier::Durable,
-            )?;
+            // Durable watermark snapshot pinned at the watermark's clock + wall
+            // time, captured while every op is still present (exact replay).
+            self.emit_watermark_snapshot(&tx, plan.target, watermark_clock, watermark_ms)?;
 
             // Delete the compacted range. The snapshot survives (durable).
             let deleted = tx
@@ -3690,6 +3714,33 @@ impl SqliteItemStore {
     }
 
     /// Remove old undo history beyond the specified depth.
+    ///
+    /// Keeps the `keep` most-recent undo *groups* (grouped by
+    /// `COALESCE(batch_id, id)`) and deletes every non-durable `core/operation`
+    /// below the resulting logical-clock cutoff, across all target items in one
+    /// pass. Durable ops (including named-snapshot strata and `custom:snapshot`
+    /// watermarks) are always preserved.
+    ///
+    /// ## Snapshot floor (compaction contract)
+    ///
+    /// Like [`Self::compact_operations`], deleting non-durable ops removes both
+    /// their forward effects and the `prev` chain the reverse un-apply pass
+    /// depends on. Before deleting, for every target item that has ops in the
+    /// doomed range we emit a durable `custom:snapshot` op pinned at that
+    /// target's *watermark* — the newest clock/wall-time among its ops being
+    /// deleted — capturing the item's full effective state there (payload +
+    /// envelope). Snapshot-and-delete happen in one transaction, so replay
+    /// never observes a deleted range without its covering snapshot.
+    ///
+    /// Invariants honored (shared with `compact_operations`): `custom:snapshot`
+    /// ops are load-bearing and never deleted; time-travel below the floor
+    /// returns the floor state (with `as_of_clock` reporting the floor); and
+    /// current state is byte-identical before/after compaction. When both
+    /// passes run, `latest_snapshot_floor` selects the newest snapshot, so the
+    /// higher watermark wins.
+    ///
+    /// Returns the number of operations removed (snapshots are durable and are
+    /// not counted).
     pub fn compact_undo_history(&self, keep: usize) -> Result<usize, crate::store::StoreError> {
         let conn = self
             .conn
@@ -3712,20 +3763,75 @@ impl SqliteItemStore {
             .query_row(cutoff_sql, params![keep as i64], |row| row.get(0))
             .map_err(|e| crate::store::StoreError::Storage(format!("cutoff query: {}", e)))?;
 
-        if let Some(cutoff_clock) = cutoff {
-            let delete_sql = "
-                DELETE FROM items
-                WHERE schema_ref = 'core/operation'
-                  AND logical_clock < ?1
-                  AND (retention != 'durable' OR retention IS NULL)
-            ";
-            let deleted = conn
-                .execute(delete_sql, params![cutoff_clock])
-                .map_err(|e| crate::store::StoreError::Storage(format!("compact delete: {}", e)))?;
-            Ok(deleted)
-        } else {
-            Ok(0)
+        let Some(cutoff_clock) = cutoff else {
+            return Ok(0);
+        };
+
+        // The doomed range: non-durable ops below the cutoff clock. Everything
+        // that follows (snapshot emission + delete) runs in one transaction so
+        // replay never sees a deleted range without its covering snapshot.
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| crate::store::StoreError::Storage(format!("compact begin tx: {}", e)))?;
+
+        // Per-target watermark (newest clock + wall time) among the ops about to
+        // be deleted. Only targets with an addressable item get a snapshot;
+        // op_target_id IS NULL ops carry no time-travel target (mirrors
+        // `compact_operations`).
+        let plans: Vec<(String, u64, i64)> = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT op_target_id, MAX(logical_clock), MAX(created) FROM items
+                     WHERE schema_ref = 'core/operation'
+                       AND logical_clock < ?1
+                       AND (retention != 'durable' OR retention IS NULL)
+                       AND op_target_id IS NOT NULL
+                     GROUP BY op_target_id",
+                )
+                .map_err(|e| {
+                    crate::store::StoreError::Storage(format!("undo watermark prepare: {}", e))
+                })?;
+            let rows = stmt
+                .query_map(params![cutoff_clock], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)? as u64,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .map_err(|e| {
+                    crate::store::StoreError::Storage(format!("undo watermark query: {}", e))
+                })?
+                .collect::<Result<_, _>>()
+                .map_err(|e| {
+                    crate::store::StoreError::Storage(format!("undo watermark collect: {}", e))
+                })?;
+            rows
+        };
+
+        for (target_str, watermark_clock, watermark_ms) in &plans {
+            let target: ItemId = target_str.parse().map_err(|_| {
+                crate::store::StoreError::Storage(format!("invalid op_target_id: {}", target_str))
+            })?;
+            self.emit_watermark_snapshot(&tx, target, *watermark_clock, *watermark_ms)?;
         }
+
+        // Delete the doomed range. Snapshots we just wrote are durable, so this
+        // never touches them; they are not counted in the returned total.
+        let delete_sql = "
+            DELETE FROM items
+            WHERE schema_ref = 'core/operation'
+              AND logical_clock < ?1
+              AND (retention != 'durable' OR retention IS NULL)
+        ";
+        let deleted = tx
+            .execute(delete_sql, params![cutoff_clock])
+            .map_err(|e| crate::store::StoreError::Storage(format!("compact delete: {}", e)))?;
+
+        tx.commit()
+            .map_err(|e| crate::store::StoreError::Storage(format!("compact commit: {}", e)))?;
+
+        Ok(deleted)
     }
 }
 
