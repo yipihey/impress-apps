@@ -6,12 +6,18 @@ on:
     paths:
       - 'crates/imbib-core/**'
       - 'crates/impress-*/**'
+      # Path deps compiled (and linted) as part of the imbib-core gate.
+      - 'crates/im-bibtex/**'
+      - 'crates/im-identifiers/**'
       - '.github/workflows/imbib-rust.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/imbib-core/**'
       - 'crates/impress-*/**'
+      # Path deps compiled (and linted) as part of the imbib-core gate.
+      - 'crates/im-bibtex/**'
+      - 'crates/im-identifiers/**'
       - '.github/workflows/imbib-rust.yml'
 
 env:

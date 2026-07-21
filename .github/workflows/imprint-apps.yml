@@ -95,8 +95,11 @@ jobs:
         working-directory: apps/imprint
         run: |
           set -eo pipefail
-          UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
-          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          # xcodebuild-accepted destination (simctl's list can disagree with
+          # xcodebuild's destination set on CI runners; see imbib-tests.yml).
+          UDID=$(xcodebuild -scheme imprint-iOS -showdestinations 2>/dev/null \
+            | grep "platform:iOS Simulator" | grep -v placeholder \
+            | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
           echo "sim: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
