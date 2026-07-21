@@ -2530,6 +2530,79 @@ impl ImbibStore {
         Ok(())
     }
 
+    /// Create a range-anchored comment on an item (e.g. a store-first manuscript).
+    ///
+    /// `anchor_start`/`anchor_end` are byte offsets into the parent item's body
+    /// text; `anchor_text` is the covered snippet, kept so the comment can be
+    /// re-anchored after edits (see `reanchor_comment`); `anchored_body_hash`
+    /// is the `body_content_hash` the range was valid against.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_anchored_comment(
+        &self,
+        item_id: String,
+        text: String,
+        author_identifier: Option<String>,
+        author_display_name: Option<String>,
+        anchor_start: i64,
+        anchor_end: i64,
+        anchor_text: String,
+        anchored_body_hash: String,
+    ) -> Result<CommentRow, StoreApiError> {
+        if anchor_start < 0 || anchor_end < anchor_start {
+            return Err(StoreApiError::InvalidInput(format!(
+                "invalid anchor range: {anchor_start}..{anchor_end}"
+            )));
+        }
+        let parent_uuid = parse_uuid(&item_id)?;
+        let item = conversion::anchored_comment_to_item(
+            parent_uuid,
+            &text,
+            author_identifier.as_deref(),
+            author_display_name.as_deref(),
+            anchor_start,
+            anchor_end,
+            &anchor_text,
+            &anchored_body_hash,
+        );
+        self.store.insert(item.clone())?;
+        // Look up parent schema for the returned row
+        let parent_schema = self.store.get(parent_uuid)?.map(|p| p.schema.to_string());
+        Ok(item_to_comment_row_with_schema(&item, parent_schema))
+    }
+
+    /// Persist a re-anchored range for an existing comment.
+    ///
+    /// Called after `reanchor_comment` resolves a Moved range against a new
+    /// body: stores the new byte offsets plus the `body_content_hash` they
+    /// are valid against. Leaves `anchor_text` unchanged (it is the original
+    /// snippet and remains the search key for future re-anchoring).
+    pub fn update_comment_anchor(
+        &self,
+        comment_id: String,
+        anchor_start: i64,
+        anchor_end: i64,
+        anchored_body_hash: String,
+    ) -> Result<(), StoreApiError> {
+        if anchor_start < 0 || anchor_end < anchor_start {
+            return Err(StoreApiError::InvalidInput(format!(
+                "invalid anchor range: {anchor_start}..{anchor_end}"
+            )));
+        }
+        let uuid = parse_uuid(&comment_id)?;
+        self.store.update(
+            uuid,
+            vec![
+                FieldMutation::SetPayload("anchor_start".into(), Value::Int(anchor_start)),
+                FieldMutation::SetPayload("anchor_end".into(), Value::Int(anchor_end)),
+                FieldMutation::SetPayload(
+                    "anchored_body_hash".into(),
+                    Value::String(anchored_body_hash),
+                ),
+            ],
+        )?;
+        Ok(())
+    }
+
     // --- Sync support operations ---
 
     /// Set the origin field on an item (records which device created it).
@@ -4879,6 +4952,76 @@ mod tests {
 
         store.delete_item(comment.id).unwrap();
         assert_eq!(store.list_comments(ids[0].clone()).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn anchored_comment_round_trip() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex("@article{X, title={Test}}".into(), lib.id)
+            .unwrap();
+
+        let comment = store
+            .create_anchored_comment(
+                ids[0].clone(),
+                "Needs a citation here".into(),
+                Some("user-1".into()),
+                Some("Jane".into()),
+                42,
+                57,
+                "dark matter halo".into(),
+                "hash-v1".into(),
+            )
+            .unwrap();
+        assert_eq!(comment.anchor_start, Some(42));
+        assert_eq!(comment.anchor_end, Some(57));
+        assert_eq!(comment.anchor_text.as_deref(), Some("dark matter halo"));
+        assert_eq!(comment.anchored_body_hash.as_deref(), Some("hash-v1"));
+
+        // Anchors survive the list round-trip.
+        let listed = store.list_comments_for_item(ids[0].clone()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].anchor_start, Some(42));
+        assert_eq!(listed[0].anchor_end, Some(57));
+        assert_eq!(listed[0].anchor_text.as_deref(), Some("dark matter halo"));
+        assert_eq!(listed[0].anchored_body_hash.as_deref(), Some("hash-v1"));
+
+        // Re-anchor persistence: new offsets + hash, anchor_text unchanged.
+        store
+            .update_comment_anchor(comment.id.clone(), 60, 75, "hash-v2".into())
+            .unwrap();
+        let updated = store.list_comments_for_item(ids[0].clone()).unwrap();
+        assert_eq!(updated[0].anchor_start, Some(60));
+        assert_eq!(updated[0].anchor_end, Some(75));
+        assert_eq!(updated[0].anchor_text.as_deref(), Some("dark matter halo"));
+        assert_eq!(updated[0].anchored_body_hash.as_deref(), Some("hash-v2"));
+
+        // Plain comments keep None anchors.
+        let plain = store
+            .create_comment(ids[0].clone(), "Plain".into(), None, None, None)
+            .unwrap();
+        assert_eq!(plain.anchor_start, None);
+        assert_eq!(plain.anchor_end, None);
+        assert_eq!(plain.anchor_text, None);
+        assert_eq!(plain.anchored_body_hash, None);
+
+        // Invalid ranges are rejected.
+        assert!(store
+            .create_anchored_comment(
+                ids[0].clone(),
+                "bad".into(),
+                None,
+                None,
+                10,
+                5,
+                "x".into(),
+                "h".into(),
+            )
+            .is_err());
+        assert!(store
+            .update_comment_anchor(comment.id, -1, 3, "h".into())
+            .is_err());
     }
 
     #[test]

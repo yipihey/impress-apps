@@ -679,6 +679,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func createActivityRecord(libraryId: String, activityType: String, actorDisplayName: String?, targetTitle: String?, targetId: String?, detail: String?) throws  -> ActivityRecordRow
     
+    /**
+     * Create a range-anchored comment on an item (e.g. a store-first manuscript).
+     *
+     * `anchor_start`/`anchor_end` are byte offsets into the parent item's body
+     * text; `anchor_text` is the covered snippet, kept so the comment can be
+     * re-anchored after edits (see `reanchor_comment`); `anchored_body_hash`
+     * is the `body_content_hash` the range was valid against.
+     */
+    func createAnchoredComment(itemId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, anchorStart: Int64, anchorEnd: Int64, anchorText: String, anchoredBodyHash: String) throws  -> CommentRow
+    
     func createAnnotation(linkedFileId: String, annotationType: String, pageNumber: Int64, boundsJson: String?, color: String?, contents: String?, selectedText: String?) throws  -> AnnotationRow
     
     /**
@@ -1147,6 +1157,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func updateComment(id: String, text: String) throws 
     
+    /**
+     * Persist a re-anchored range for an existing comment.
+     *
+     * Called after `reanchor_comment` resolves a Moved range against a new
+     * body: stores the new byte offsets plus the `body_content_hash` they
+     * are valid against. Leaves `anchor_text` unchanged (it is the original
+     * snippet and remains the search key for future re-anchoring).
+     */
+    func updateCommentAnchor(commentId: String, anchorStart: Int64, anchorEnd: Int64, anchoredBodyHash: String) throws 
+    
     func updateField(id: String, field: String, value: String?) throws  -> UndoInfo
     
     /**
@@ -1448,6 +1468,29 @@ open func createActivityRecord(libraryId: String, activityType: String, actorDis
         FfiConverterOptionString.lower(targetTitle),
         FfiConverterOptionString.lower(targetId),
         FfiConverterOptionString.lower(detail),$0
+    )
+})
+}
+    
+    /**
+     * Create a range-anchored comment on an item (e.g. a store-first manuscript).
+     *
+     * `anchor_start`/`anchor_end` are byte offsets into the parent item's body
+     * text; `anchor_text` is the covered snippet, kept so the comment can be
+     * re-anchored after edits (see `reanchor_comment`); `anchored_body_hash`
+     * is the `body_content_hash` the range was valid against.
+     */
+open func createAnchoredComment(itemId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, anchorStart: Int64, anchorEnd: Int64, anchorText: String, anchoredBodyHash: String)throws  -> CommentRow {
+    return try  FfiConverterTypeCommentRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_anchored_comment(self.uniffiClonePointer(),
+        FfiConverterString.lower(itemId),
+        FfiConverterString.lower(text),
+        FfiConverterOptionString.lower(authorIdentifier),
+        FfiConverterOptionString.lower(authorDisplayName),
+        FfiConverterInt64.lower(anchorStart),
+        FfiConverterInt64.lower(anchorEnd),
+        FfiConverterString.lower(anchorText),
+        FfiConverterString.lower(anchoredBodyHash),$0
     )
 })
 }
@@ -2757,6 +2800,24 @@ open func updateComment(id: String, text: String)throws  {try rustCallWithError(
     uniffi_imbib_core_fn_method_imbibstore_update_comment(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterString.lower(text),$0
+    )
+}
+}
+    
+    /**
+     * Persist a re-anchored range for an existing comment.
+     *
+     * Called after `reanchor_comment` resolves a Moved range against a new
+     * body: stores the new byte offsets plus the `body_content_hash` they
+     * are valid against. Leaves `anchor_text` unchanged (it is the original
+     * snippet and remains the search key for future re-anchoring).
+     */
+open func updateCommentAnchor(commentId: String, anchorStart: Int64, anchorEnd: Int64, anchoredBodyHash: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_update_comment_anchor(self.uniffiClonePointer(),
+        FfiConverterString.lower(commentId),
+        FfiConverterInt64.lower(anchorStart),
+        FfiConverterInt64.lower(anchorEnd),
+        FfiConverterString.lower(anchoredBodyHash),$0
     )
 }
 }
@@ -5473,10 +5534,38 @@ public struct CommentRow {
     public var parentCommentId: String?
     public var parentItemId: String
     public var parentSchema: String?
+    /**
+     * Byte offset where the anchored range starts (range-anchored comments only).
+     */
+    public var anchorStart: Int64?
+    /**
+     * Byte offset where the anchored range ends (exclusive).
+     */
+    public var anchorEnd: Int64?
+    /**
+     * Snippet the range covered when anchored, used for re-anchoring after edits.
+     */
+    public var anchorText: String?
+    /**
+     * The `body_content_hash` the range was valid against.
+     */
+    public var anchoredBodyHash: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, text: String, authorIdentifier: String?, authorDisplayName: String?, dateCreated: Int64, dateModified: Int64, parentCommentId: String?, parentItemId: String, parentSchema: String?) {
+    public init(id: String, text: String, authorIdentifier: String?, authorDisplayName: String?, dateCreated: Int64, dateModified: Int64, parentCommentId: String?, parentItemId: String, parentSchema: String?, 
+        /**
+         * Byte offset where the anchored range starts (range-anchored comments only).
+         */anchorStart: Int64?, 
+        /**
+         * Byte offset where the anchored range ends (exclusive).
+         */anchorEnd: Int64?, 
+        /**
+         * Snippet the range covered when anchored, used for re-anchoring after edits.
+         */anchorText: String?, 
+        /**
+         * The `body_content_hash` the range was valid against.
+         */anchoredBodyHash: String?) {
         self.id = id
         self.text = text
         self.authorIdentifier = authorIdentifier
@@ -5486,6 +5575,10 @@ public struct CommentRow {
         self.parentCommentId = parentCommentId
         self.parentItemId = parentItemId
         self.parentSchema = parentSchema
+        self.anchorStart = anchorStart
+        self.anchorEnd = anchorEnd
+        self.anchorText = anchorText
+        self.anchoredBodyHash = anchoredBodyHash
     }
 }
 
@@ -5520,6 +5613,18 @@ extension CommentRow: Equatable, Hashable {
         if lhs.parentSchema != rhs.parentSchema {
             return false
         }
+        if lhs.anchorStart != rhs.anchorStart {
+            return false
+        }
+        if lhs.anchorEnd != rhs.anchorEnd {
+            return false
+        }
+        if lhs.anchorText != rhs.anchorText {
+            return false
+        }
+        if lhs.anchoredBodyHash != rhs.anchoredBodyHash {
+            return false
+        }
         return true
     }
 
@@ -5533,6 +5638,10 @@ extension CommentRow: Equatable, Hashable {
         hasher.combine(parentCommentId)
         hasher.combine(parentItemId)
         hasher.combine(parentSchema)
+        hasher.combine(anchorStart)
+        hasher.combine(anchorEnd)
+        hasher.combine(anchorText)
+        hasher.combine(anchoredBodyHash)
     }
 }
 
@@ -5552,7 +5661,11 @@ public struct FfiConverterTypeCommentRow: FfiConverterRustBuffer {
                 dateModified: FfiConverterInt64.read(from: &buf), 
                 parentCommentId: FfiConverterOptionString.read(from: &buf), 
                 parentItemId: FfiConverterString.read(from: &buf), 
-                parentSchema: FfiConverterOptionString.read(from: &buf)
+                parentSchema: FfiConverterOptionString.read(from: &buf), 
+                anchorStart: FfiConverterOptionInt64.read(from: &buf), 
+                anchorEnd: FfiConverterOptionInt64.read(from: &buf), 
+                anchorText: FfiConverterOptionString.read(from: &buf), 
+                anchoredBodyHash: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -5566,6 +5679,10 @@ public struct FfiConverterTypeCommentRow: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.parentCommentId, into: &buf)
         FfiConverterString.write(value.parentItemId, into: &buf)
         FfiConverterOptionString.write(value.parentSchema, into: &buf)
+        FfiConverterOptionInt64.write(value.anchorStart, into: &buf)
+        FfiConverterOptionInt64.write(value.anchorEnd, into: &buf)
+        FfiConverterOptionString.write(value.anchorText, into: &buf)
+        FfiConverterOptionString.write(value.anchoredBodyHash, into: &buf)
     }
 }
 
@@ -15109,6 +15226,103 @@ extension AdsDatabase: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Outcome of resolving a stored comment anchor against a body text.
+ */
+
+public enum AnchorResolution {
+    
+    /**
+     * The stored hash matches the current body and the stored byte range is
+     * valid and still covers `anchor_text`: the range is usable as-is.
+     */
+    case exact(start: UInt64, end: UInt64
+    )
+    /**
+     * The body changed (or the stored range was invalid) but `anchor_text`
+     * occurs in the new body. When it occurs more than once, the occurrence
+     * whose start is closest to the original `anchor_start` wins (ties go to
+     * the earlier occurrence). Persist the new range with
+     * `update_comment_anchor`.
+     */
+    case moved(start: UInt64, end: UInt64
+    )
+    /**
+     * `anchor_text` is empty/absent or no longer occurs in the body. The
+     * comment survives as a document-level comment without a range.
+     */
+    case orphaned
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAnchorResolution: FfiConverterRustBuffer {
+    typealias SwiftType = AnchorResolution
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AnchorResolution {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .exact(start: try FfiConverterUInt64.read(from: &buf), end: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .moved(start: try FfiConverterUInt64.read(from: &buf), end: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 3: return .orphaned
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AnchorResolution, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .exact(start,end):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(start, into: &buf)
+            FfiConverterUInt64.write(end, into: &buf)
+            
+        
+        case let .moved(start,end):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt64.write(start, into: &buf)
+            FfiConverterUInt64.write(end, into: &buf)
+            
+        
+        case .orphaned:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnchorResolution_lift(_ buf: RustBuffer) throws -> AnchorResolution {
+    return try FfiConverterTypeAnchorResolution.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnchorResolution_lower(_ value: AnchorResolution) -> RustBuffer {
+    return FfiConverterTypeAnchorResolution.lower(value)
+}
+
+
+
+extension AnchorResolution: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * An operation that can be undone/redone
  */
 
@@ -22327,6 +22541,23 @@ public func publicationToBibtexString(publication: Publication) -> String {
 })
 }
 /**
+ * FFI wrapper for [`reanchor`] (owned types for UniFFI).
+ *
+ * Offsets larger than the platform's `usize` are clamped, which safely
+ * resolves as "not the exact range" and falls through to snippet search.
+ */
+public func reanchorComment(body: String, anchorStart: UInt64, anchorEnd: UInt64, anchorText: String, hashMatches: Bool) -> AnchorResolution {
+    return try!  FfiConverterTypeAnchorResolution.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_reanchor_comment(
+        FfiConverterString.lower(body),
+        FfiConverterUInt64.lower(anchorStart),
+        FfiConverterUInt64.lower(anchorEnd),
+        FfiConverterString.lower(anchorText),
+        FfiConverterBool.lower(hashMatches),$0
+    )
+})
+}
+/**
  * Replace LaTeX Greek letter commands with Unicode characters
  */
 public func replaceGreekLetters(text: String) -> String {
@@ -23122,6 +23353,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_publication_to_bibtex_string() != 2490) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_reanchor_comment() != 50524) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_replace_greek_letters() != 55256) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -23276,6 +23510,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_activity_record() != 57505) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_anchored_comment() != 20785) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_annotation() != 49918) {
@@ -23630,6 +23867,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_update_comment() != 25809) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_update_comment_anchor() != 60520) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_update_field() != 38282) {

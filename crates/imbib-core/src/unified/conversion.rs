@@ -732,6 +732,34 @@ pub fn comment_to_item(
     }
 }
 
+/// Convert range-anchored comment fields to an Item.
+///
+/// Same shape as [`comment_to_item`] plus the four anchor payload fields.
+/// `anchor_start`/`anchor_end` are byte offsets into the parent item's body
+/// text; `anchor_text` is the covered snippet (kept for re-anchoring after
+/// edits); `anchored_body_hash` is the `body_content_hash` the range was
+/// valid against.
+#[allow(clippy::too_many_arguments)]
+pub fn anchored_comment_to_item(
+    item_id: ItemId,
+    text: &str,
+    author_identifier: Option<&str>,
+    author_display_name: Option<&str>,
+    anchor_start: i64,
+    anchor_end: i64,
+    anchor_text: &str,
+    anchored_body_hash: &str,
+) -> Item {
+    let mut item = comment_to_item(item_id, text, author_identifier, author_display_name, None);
+    item.payload
+        .insert("anchor_start".into(), Value::Int(anchor_start));
+    item.payload
+        .insert("anchor_end".into(), Value::Int(anchor_end));
+    insert_string(&mut item.payload, "anchor_text", anchor_text);
+    insert_string(&mut item.payload, "anchored_body_hash", anchored_body_hash);
+    item
+}
+
 /// Convert assignment fields to an Item.
 /// Parent: the bibliography-entry item this assignment is for.
 pub fn assignment_to_item(

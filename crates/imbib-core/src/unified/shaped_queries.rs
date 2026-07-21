@@ -247,6 +247,14 @@ pub struct CommentRow {
     pub parent_comment_id: Option<String>,
     pub parent_item_id: String,
     pub parent_schema: Option<String>,
+    /// Byte offset where the anchored range starts (range-anchored comments only).
+    pub anchor_start: Option<i64>,
+    /// Byte offset where the anchored range ends (exclusive).
+    pub anchor_end: Option<i64>,
+    /// Snippet the range covered when anchored, used for re-anchoring after edits.
+    pub anchor_text: Option<String>,
+    /// The `body_content_hash` the range was valid against.
+    pub anchored_body_hash: Option<String>,
 }
 
 /// Paper assignment.
@@ -798,6 +806,10 @@ pub fn item_to_comment_row(item: &Item) -> CommentRow {
         parent_comment_id: get_str(payload, "parent_comment_id"),
         parent_item_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
         parent_schema: None,
+        anchor_start: get_i64(payload, "anchor_start"),
+        anchor_end: get_i64(payload, "anchor_end"),
+        anchor_text: get_str(payload, "anchor_text"),
+        anchored_body_hash: get_str(payload, "anchored_body_hash"),
     }
 }
 

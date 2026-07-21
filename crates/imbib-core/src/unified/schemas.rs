@@ -258,6 +258,14 @@ pub fn comment_schema() -> Schema {
             optional_string("author_display_name"),
             optional_string("parent_comment_id"),
             optional_string("sync_state"),
+            // Range anchor (optional — plain comments have none).
+            // Byte offsets into the parent item's body text.
+            optional_int("anchor_start"),
+            optional_int("anchor_end"),
+            // Snippet the range covered, used for re-anchoring after edits.
+            optional_string("anchor_text"),
+            // The body_content_hash the range was valid against.
+            optional_string("anchored_body_hash"),
         ],
         expected_edges: vec![],
         inherits: None,

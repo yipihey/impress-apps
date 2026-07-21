@@ -43,6 +43,7 @@ pub use input_mode::InputMode;
 
 // Phase 3: Full-text search, PDF extraction, and annotations
 pub mod annotations;
+pub mod comments;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pdf;
 pub mod recommendation;
