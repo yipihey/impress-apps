@@ -1582,6 +1582,61 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Create a range-anchored comment on any item (e.g. a store-first
+    /// manuscript). `anchorStart`/`anchorEnd` are UTF-8 byte offsets into the
+    /// parent item's body; `anchorText` is the covered snippet and
+    /// `anchoredBodyHash` the `body_content_hash` the range was valid against.
+    /// See `RangeAnchoredComments` for the resolve-after-edit flow.
+    public func createAnchoredComment(
+        itemId: UUID,
+        text: String,
+        authorIdentifier: String? = nil,
+        authorDisplayName: String? = nil,
+        anchorStart: Int,
+        anchorEnd: Int,
+        anchorText: String,
+        anchoredBodyHash: String
+    ) -> Comment? {
+        do {
+            let row = try store.createAnchoredComment(
+                itemId: itemId.uuidString,
+                text: text,
+                authorIdentifier: authorIdentifier,
+                authorDisplayName: authorDisplayName,
+                anchorStart: Int64(anchorStart),
+                anchorEnd: Int64(anchorEnd),
+                anchorText: anchorText,
+                anchoredBodyHash: anchoredBodyHash
+            )
+            didMutate()
+            return Comment(from: row)
+        } catch {
+            Logger.library.error("createAnchoredComment failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Persist a re-anchored range for an existing comment (after a Moved
+    /// resolution). Leaves the comment's `anchorText` unchanged.
+    public func updateCommentAnchor(
+        commentId: UUID,
+        anchorStart: Int,
+        anchorEnd: Int,
+        anchoredBodyHash: String
+    ) {
+        do {
+            try store.updateCommentAnchor(
+                commentId: commentId.uuidString,
+                anchorStart: Int64(anchorStart),
+                anchorEnd: Int64(anchorEnd),
+                anchoredBodyHash: anchoredBodyHash
+            )
+            didMutate()
+        } catch {
+            Logger.library.error("updateCommentAnchor failed: \(error)")
+        }
+    }
+
     /// Update a comment's text.
     public func updateComment(id: UUID, text: String) {
         do {

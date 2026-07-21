@@ -529,6 +529,15 @@ public final class ManuscriptStoreAdapter {
         return text
     }
 
+    /// The `body_content_hash` for a body string — the same SHA-256 scheme
+    /// the adapter stores in the manuscript payload. Exposed so range-anchored
+    /// comment code (`CommentService`) can stamp anchors with a hash that
+    /// matches the manuscript's persisted body when the editor buffer is in
+    /// sync, letting `RangeAnchoredComments` detect Exact vs Moved ranges.
+    public static func bodyContentHash(_ text: String) -> String {
+        sha256Hex(text)
+    }
+
     private static func sha256Hex(_ text: String) -> String {
         let data = Data(text.utf8)
         var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))

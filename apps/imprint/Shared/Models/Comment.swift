@@ -55,6 +55,13 @@ public struct Comment: Identifiable, Equatable, Codable {
     /// review UI to badge agent suggestions distinctly from human comments.
     public var authorAgentId: String?
 
+    /// True when the comment's stored anchor snippet could no longer be found
+    /// in the current manuscript body (the anchored text was deleted or
+    /// rewritten). The comment survives as a document-level note with no live
+    /// range; `textRange` is a zero range in that case. Views should badge
+    /// these distinctly so the annotation is not silently lost.
+    public var isOrphaned: Bool
+
     public init(
         id: UUID = UUID(),
         author: String,
@@ -66,7 +73,8 @@ public struct Comment: Identifiable, Equatable, Codable {
         isResolved: Bool = false,
         parentId: UUID? = nil,
         proposedText: String? = nil,
-        authorAgentId: String? = nil
+        authorAgentId: String? = nil,
+        isOrphaned: Bool = false
     ) {
         self.id = id
         self.author = author
@@ -79,6 +87,7 @@ public struct Comment: Identifiable, Equatable, Codable {
         self.parentId = parentId
         self.proposedText = proposedText
         self.authorAgentId = authorAgentId
+        self.isOrphaned = isOrphaned
     }
 
     /// Whether this comment carries a proposed text replacement.

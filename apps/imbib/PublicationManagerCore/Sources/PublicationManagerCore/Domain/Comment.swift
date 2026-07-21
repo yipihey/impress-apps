@@ -20,6 +20,14 @@ public struct Comment: Identifiable, Hashable, Sendable {
     public let parentItemID: UUID
     public let parentSchema: String?
 
+    /// Range-anchored comment fields (see `RangeAnchoredComments`). Non-nil
+    /// only for comments created via `createAnchoredComment` — e.g. imprint
+    /// store-first manuscript comments that pin to a UTF-8 byte range.
+    public let anchorStart: Int64?
+    public let anchorEnd: Int64?
+    public let anchorText: String?
+    public let anchoredBodyHash: String?
+
     /// Backward-compatible alias for code that expects `publicationID`.
     public var publicationID: UUID { parentItemID }
 
@@ -41,5 +49,9 @@ public struct Comment: Identifiable, Hashable, Sendable {
         self.parentCommentID = row.parentCommentId.flatMap { UUID(uuidString: $0) }
         self.parentItemID = UUID(uuidString: row.parentItemId) ?? UUID()
         self.parentSchema = row.parentSchema
+        self.anchorStart = row.anchorStart
+        self.anchorEnd = row.anchorEnd
+        self.anchorText = row.anchorText
+        self.anchoredBodyHash = row.anchoredBodyHash
     }
 }

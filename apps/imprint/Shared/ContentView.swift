@@ -326,6 +326,11 @@ struct ContentView: View {
             // Register this document's comment service so the HTTP API can
             // list/create/resolve comments for it from agent workflows.
             CommentRegistry.shared.register(commentService, for: document.id)
+            // Bind the comment service to this manuscript and load its
+            // store-backed comments. Under the store-first editor
+            // (`ManuscriptEditorView`) `document.id` is the manuscript's store
+            // UUID, which is the `parent_item_id` the comments hang off.
+            commentService.attach(manuscriptID: document.id, body: document.source)
             // Tell the outline snapshot maintainer which document's
             // stored structure to track. When the document has ≥2
             // sections, `DocumentOutlineView` reads from the snapshot
@@ -348,6 +353,10 @@ struct ContentView: View {
         }
         .onChange(of: document.source) { _, newSource in
             scheduleAutoCompile()
+            // Re-anchor comment ranges against the new body (Exact / Moved /
+            // Orphaned). In-memory ranges update immediately; Moved anchors
+            // persist on a short debounce inside the service.
+            commentService.syncBody(newSource)
             // Sync to the shared impress-core store so agents and sibling apps
             // can query the latest section content via `manuscript-section@1.0.0`.
             // Capture document properties before entering the Task to avoid stale

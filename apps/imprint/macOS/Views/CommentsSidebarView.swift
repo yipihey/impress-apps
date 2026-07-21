@@ -229,6 +229,16 @@ struct CommentThreadView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Orphaned banner — the anchored text was deleted or rewritten, so
+            // the comment survives as a document-level note with no live range.
+            if thread.rootComment.isOrphaned {
+                Label("Anchor lost — original text was edited", systemImage: "link.badge.plus")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+
             // Root comment
             CommentRowView(
                 comment: thread.rootComment,
