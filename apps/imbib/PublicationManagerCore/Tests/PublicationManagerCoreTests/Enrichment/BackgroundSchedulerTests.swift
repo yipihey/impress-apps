@@ -28,7 +28,8 @@ final class BackgroundSchedulerTests: XCTestCase {
             publicationProvider: publicationProvider,
             settingsProvider: settingsProvider,
             checkInterval: 0.1,  // Fast interval for testing
-            itemsPerCycle: 10
+            itemsPerCycle: 10,
+            startupDelay: 0  // Skip the 120s production startup delay in tests
         )
     }
 
@@ -329,8 +330,8 @@ final class BackgroundSchedulerTests: XCTestCase {
 
         await scheduler.start()
 
-        // Wait for multiple cycles (interval is 0.1s)
-        try? await Task.sleep(for: .milliseconds(350))
+        // Wait for multiple cycles (interval is 0.1s, startupDelay 0)
+        try? await Task.sleep(for: .milliseconds(500))
 
         await scheduler.stop()
 

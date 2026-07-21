@@ -32,8 +32,9 @@ final class SmartCollectionRuleTests: XCTestCase {
         // When
         let predicate = rule.toPredicate()
 
-        // Then
-        XCTAssertEqual(predicate, "NOT (authorString CONTAINS[cd] 'Smith')")
+        // Then — author is a rawFields-JSON field, so it queries `rawFields`
+        // (the old Core Data `authorString` attribute is retired).
+        XCTAssertEqual(predicate, "NOT (rawFields CONTAINS[cd] 'Smith')")
     }
 
     func testToPredicate_equals() {
@@ -157,14 +158,16 @@ final class RuleFieldTests: XCTestCase {
 
     func testPredicateKey_mapsCorrectly() {
         XCTAssertEqual(RuleField.title.predicateKey, "title")
-        XCTAssertEqual(RuleField.author.predicateKey, "authorString")
+        // author is stored in rawFields JSON under key "author" (post-Core-Data;
+        // the old Core Data attribute name "authorString" is retired).
+        XCTAssertEqual(RuleField.author.predicateKey, "author")
         XCTAssertEqual(RuleField.year.predicateKey, "year")
         XCTAssertEqual(RuleField.journal.predicateKey, "journal")
     }
 
     func testFromPredicateKey_findsField() {
         XCTAssertEqual(RuleField.from(predicateKey: "title"), .title)
-        XCTAssertEqual(RuleField.from(predicateKey: "authorString"), .author)
+        XCTAssertEqual(RuleField.from(predicateKey: "author"), .author)
         XCTAssertEqual(RuleField.from(predicateKey: "year"), .year)
     }
 

@@ -62,6 +62,7 @@ final class ADSEnrichmentTests: XCTestCase {
     // MARK: - Enrich Success Tests
 
     func testEnrichWithBibcode() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_work")
         MockURLProtocol.requestHandler = { request in
             XCTAssertTrue(request.url?.absoluteString.contains("bibcode") == true)
@@ -78,6 +79,7 @@ final class ADSEnrichmentTests: XCTestCase {
     }
 
     func testEnrichWithDOI() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_work")
         MockURLProtocol.requestHandler = { request in
             XCTAssertTrue(request.url?.absoluteString.contains("doi") == true)
@@ -92,6 +94,7 @@ final class ADSEnrichmentTests: XCTestCase {
     }
 
     func testEnrichWithArXiv() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_work")
         MockURLProtocol.requestHandler = { request in
             XCTAssertTrue(request.url?.absoluteString.contains("arXiv") == true)
@@ -106,6 +109,7 @@ final class ADSEnrichmentTests: XCTestCase {
     }
 
     func testEnrichReturnsAbstract() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_work")
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -120,6 +124,7 @@ final class ADSEnrichmentTests: XCTestCase {
     }
 
     func testEnrichReturnsReferenceCount() async throws {
+        try skipIfNoToken()
         // The new implementation makes separate API calls for basic info and full references.
         // This test verifies the reference count is returned from the basic info query.
         let fixtureData = loadFixture("ads_work")
@@ -140,6 +145,7 @@ final class ADSEnrichmentTests: XCTestCase {
     // MARK: - Minimal Response Tests
 
     func testEnrichWithMinimalResponse() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_minimal")
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -183,6 +189,7 @@ final class ADSEnrichmentTests: XCTestCase {
     }
 
     func testEnrichAddsBibcodeToResolvedIdentifiers() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_work")
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -232,7 +239,8 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    func testEnrichNotFound() async {
+    func testEnrichNotFound() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_not_found")
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -255,7 +263,8 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    func testEnrich401Unauthorized() async {
+    func testEnrich401Unauthorized() async throws {
+        try skipIfNoToken()
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
             return (response, nil)
@@ -277,7 +286,8 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    func testEnrichRateLimited() async {
+    func testEnrichRateLimited() async throws {
+        try skipIfNoToken()
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!
             return (response, nil)
@@ -299,7 +309,8 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    func testEnrichMalformedJSON() async {
+    func testEnrichMalformedJSON() async throws {
+        try skipIfNoToken()
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, "invalid json".data(using: .utf8))
@@ -345,6 +356,7 @@ final class ADSEnrichmentTests: XCTestCase {
     // MARK: - Merge Tests
 
     func testEnrichMergesWithExistingData() async throws {
+        try skipIfNoToken()
         let fixtureData = loadFixture("ads_minimal")
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!

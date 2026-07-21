@@ -64,6 +64,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - PDF URL Tests
 
     func testParseDoc_withArXivID_generateArXivPDFURL() async throws {
+        try skipIfNoToken()
         // Given - mock response with arXiv paper
         let responseJSON: [String: Any] = [
             "response": [
@@ -102,6 +103,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testParseDoc_withoutArXivID_generateDOIURL() async throws {
+        try skipIfNoToken()
         // Given - mock response without arXiv ID but with DOI
         let responseJSON: [String: Any] = [
             "response": [
@@ -144,6 +146,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testParseDoc_pdfURL_requiresArXivOrDOI() async throws {
+        try skipIfNoToken()
         // Given - papers with and without identifiers
         let responseJSON: [String: Any] = [
             "response": [
@@ -202,6 +205,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - Year Parsing Tests
 
     func testParseDoc_yearAsInt_parsesCorrectly() async throws {
+        try skipIfNoToken()
         // Given - year as Int
         let responseJSON: [String: Any] = [
             "response": [
@@ -236,6 +240,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testParseDoc_yearAsString_parsesCorrectly() async throws {
+        try skipIfNoToken()
         // Given - year as String (API sometimes returns this format)
         let responseJSON: [String: Any] = [
             "response": [
@@ -272,6 +277,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - arXiv ID Extraction Tests
 
     func testExtractArXivID_withArXivPrefix() async throws {
+        try skipIfNoToken()
         // Given
         let responseJSON: [String: Any] = [
             "response": [
@@ -304,6 +310,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testExtractArXivID_withNewFormat() async throws {
+        try skipIfNoToken()
         // Given - new format without prefix
         let responseJSON: [String: Any] = [
             "response": [
@@ -338,6 +345,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - Web URL Tests
 
     func testParseDoc_hasWebURL() async throws {
+        try skipIfNoToken()
         // Given
         let responseJSON: [String: Any] = [
             "response": [
@@ -372,6 +380,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testParseDoc_sourceID_isScix() async throws {
+        try skipIfNoToken()
         // Given
         let responseJSON: [String: Any] = [
             "response": [
@@ -422,6 +431,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testSearch_401Response_throwsAuthenticationRequired() async throws {
+        try skipIfNoToken()
         // Given
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -447,6 +457,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testSearch_serverError_throwsNetworkError() async throws {
+        try skipIfNoToken()
         // Given
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -472,6 +483,7 @@ final class SciXSourceTests: XCTestCase {
     }
 
     func testSearch_invalidJSON_throwsParseError() async throws {
+        try skipIfNoToken()
         // Given
         MockURLProtocol.requestHandler = { request in
             let data = "not valid json".data(using: .utf8)!
@@ -500,6 +512,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - BibTeX Fetch Tests
 
     func testFetchBibTeX_parsesEntry() async throws {
+        try skipIfNoToken()
         // Given
         let bibtexResponse: [String: Any] = [
             "export": """
@@ -545,6 +558,7 @@ final class SciXSourceTests: XCTestCase {
     // MARK: - RIS Fetch Tests
 
     func testFetchRIS_parsesEntry() async throws {
+        try skipIfNoToken()
         // Given
         let risResponse: [String: Any] = [
             "export": """

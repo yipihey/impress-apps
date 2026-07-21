@@ -63,6 +63,11 @@ public actor SourceManager {
         let availableSourceIDs = await filterAvailableSources(sourceIDs)
 
         guard !availableSourceIDs.isEmpty else {
+            // Nothing was requested or registered at all → nothing to search.
+            // Return empty rather than a misleading "authentication required"
+            // (that error is only meaningful when sources DO exist but lack
+            // credentials).
+            if sourceIDs.isEmpty { return [] }
             // Surface a clear, user-visible error instead of silently returning
             // 0 results. Without this, the search UI just shows "0 results"
             // and the user can't tell that the real cause is a missing API key

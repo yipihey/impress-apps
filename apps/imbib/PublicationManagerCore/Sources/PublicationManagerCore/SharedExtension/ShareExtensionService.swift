@@ -75,29 +75,31 @@ nonisolated public final class ShareExtensionService: Sendable {
 
     // MARK: - Properties
 
-    /// Cached UserDefaults instance for the app group (checked once at first access)
-    /// Using nonisolated(unsafe) since UserDefaults is thread-safe and we only write once
-    private nonisolated(unsafe) static var _cachedDefaults: UserDefaults?
-    private nonisolated(unsafe) static var _defaultsChecked = false
-
-    /// UserDefaults instance for the app group, cached after first access
-    private var sharedDefaults: UserDefaults? {
-        if !Self._defaultsChecked {
-            Self._defaultsChecked = true
-            Self._cachedDefaults = UserDefaults(suiteName: Self.appGroupIdentifier)
-            if Self._cachedDefaults == nil {
-                Logger.shareExtension.warningCapture(
-                    "App Group '\(Self.appGroupIdentifier)' not available - share extension features disabled",
-                    category: "shareext"
-                )
-            }
-        }
-        return Self._cachedDefaults
-    }
+    /// UserDefaults backing the pending-items queue. For `.shared` this is the
+    /// app-group suite; tests inject an isolated per-test suite via
+    /// `init(defaults:)` so the queue isn't shared on-disk state that parallel
+    /// test workers clear out from under each other. UserDefaults is
+    /// thread-safe, so `nonisolated(unsafe)` on this `let` is sound.
+    private nonisolated(unsafe) let sharedDefaults: UserDefaults?
 
     // MARK: - Initialization
 
-    private init() {}
+    private init() {
+        let defaults = UserDefaults(suiteName: Self.appGroupIdentifier)
+        if defaults == nil {
+            Logger.shareExtension.warningCapture(
+                "App Group '\(Self.appGroupIdentifier)' not available - share extension features disabled",
+                category: "shareext"
+            )
+        }
+        self.sharedDefaults = defaults
+    }
+
+    /// Test-only initializer: inject an isolated UserDefaults suite so the
+    /// pending-items queue has per-test isolation.
+    init(defaults: UserDefaults) {
+        self.sharedDefaults = defaults
+    }
 
     // MARK: - Share Extension API
 

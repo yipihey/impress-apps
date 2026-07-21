@@ -397,9 +397,14 @@ public struct EnrichmentSettings: Codable, Sendable, Equatable {
     public var autoSyncEnabled: Bool
     public var refreshIntervalDays: Int
 
+    // ADS-only by default: the production EnrichmentCoordinator wires only the
+    // ADS plugin (openalex/wos have plugin conformances but aren't wired), so
+    // the default priority must not list sources the service can't run. This is
+    // the single source of truth for the default (init param + store fallback
+    // both defer to it).
     public static let `default` = EnrichmentSettings(
         preferredSource: .ads,
-        sourcePriority: [.ads, .openalex, .wos],
+        sourcePriority: [.ads],
         autoSyncEnabled: true,
         refreshIntervalDays: 7
     )

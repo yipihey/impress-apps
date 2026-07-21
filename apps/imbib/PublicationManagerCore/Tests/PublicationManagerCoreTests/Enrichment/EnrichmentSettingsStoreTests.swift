@@ -24,6 +24,13 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
         userDefaults.removeObject(forKey: EnrichmentSettingsStore.userDefaultsKey)
 
         store = EnrichmentSettingsStore(userDefaults: userDefaults)
+
+        // The store's real persistence goes through the process-global
+        // SyncedSettingsStore (local defaults under tests), NOT the injected
+        // suite above — so a prior test that mutated settings (e.g. an empty
+        // sourcePriority) would leak in. Reset to a clean default state so each
+        // test is isolated.
+        await store.resetToDefaults()
     }
 
     override func tearDown() async throws {

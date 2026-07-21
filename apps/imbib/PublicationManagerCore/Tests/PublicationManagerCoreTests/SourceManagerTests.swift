@@ -420,13 +420,15 @@ final class SourceManagerTests: XCTestCase {
         // Then
         let sources = await sourceManager.availableSources
 
-        // Should have all built-in sources
+        // Should have all built-in sources. DBLP and Semantic Scholar were
+        // retired; SciX, WoS and PubMed are the current additions.
         let sourceIDs = Set(sources.map { $0.id })
         XCTAssertTrue(sourceIDs.contains("arxiv"))
         XCTAssertTrue(sourceIDs.contains("crossref"))
-        XCTAssertTrue(sourceIDs.contains("dblp"))
         XCTAssertTrue(sourceIDs.contains("ads"))
-        XCTAssertTrue(sourceIDs.contains("semanticscholar"))
+        XCTAssertTrue(sourceIDs.contains("scix"))
+        XCTAssertTrue(sourceIDs.contains("wos"))
+        XCTAssertTrue(sourceIDs.contains("pubmed"))
         XCTAssertTrue(sourceIDs.contains("openalex"))
     }
 }

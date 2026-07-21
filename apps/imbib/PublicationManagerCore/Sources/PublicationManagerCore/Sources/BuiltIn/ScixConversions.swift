@@ -111,6 +111,15 @@ extension ScixFfiError {
         case .NetworkError:
             return .networkError(URLError(.badServerResponse))
         case .ApiError(let message):
+            // The Rust FFI collapses a missing/invalid-token condition into a
+            // generic ApiError (its typed AuthRequired variant isn't matched at
+            // the boundary). Recover the intent here so the UI can prompt the
+            // user toward Settings instead of showing a misleading parse error.
+            // TODO: fix at the source — match SciXError::AuthRequired in
+            // crates/scix-client-ffi so this maps to .Unauthorized directly.
+            if message.hasPrefix("Authentication required") {
+                return .authenticationRequired(sourceID)
+            }
             return .parseError(message)
         case .Internal(let message):
             return .parseError("Internal error: \(message)")
@@ -129,6 +138,10 @@ extension ScixFfiError {
         case .NetworkError(let message):
             return .networkError(message)
         case .ApiError(let message):
+            // See toSourceError: recover the auth intent the FFI flattened.
+            if message.hasPrefix("Authentication required") {
+                return .authenticationRequired(sourceID)
+            }
             return .parseError(message)
         case .Internal(let message):
             return .parseError("Internal error: \(message)")

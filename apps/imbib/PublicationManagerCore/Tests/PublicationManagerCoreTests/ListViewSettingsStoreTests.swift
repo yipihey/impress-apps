@@ -15,17 +15,23 @@ final class ListViewSettingsStoreTests: XCTestCase {
     var store: ListViewSettingsStore!
     var defaults: UserDefaults!
 
+    private var suiteName: String!
+
     override func setUp() async throws {
-        // Use a separate UserDefaults suite for testing
-        defaults = UserDefaults(suiteName: "test.listViewSettings")!
-        defaults.removePersistentDomain(forName: "test.listViewSettings")
+        // Unique suite per test: a shared fixed suite name leaks persisted state
+        // between methods (a prior test's abstractLineLimit bled into
+        // testDefaultSettings), so isolate each test.
+        suiteName = "test.listViewSettings.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
         store = ListViewSettingsStore(userDefaults: defaults)
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: "test.listViewSettings")
+        defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
         store = nil
+        suiteName = nil
     }
 
     // MARK: - Default Values

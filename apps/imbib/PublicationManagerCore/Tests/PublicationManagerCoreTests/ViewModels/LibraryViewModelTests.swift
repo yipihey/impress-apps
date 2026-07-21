@@ -25,16 +25,20 @@ final class LibraryViewModelTests: XCTestCase {
     }
 
     func testLibrarySortOrder_sortKeys() {
-        XCTAssertEqual(LibrarySortOrder.dateAdded.sortKey, "dateAdded")
-        XCTAssertEqual(LibrarySortOrder.dateModified.sortKey, "dateModified")
+        // sortKey is a STORE SORT COLUMN (snake_case), fed to
+        // dataSource.reload(sort:) — not the camelCase rawValue.
+        XCTAssertEqual(LibrarySortOrder.dateAdded.sortKey, "created")
+        XCTAssertEqual(LibrarySortOrder.dateModified.sortKey, "modified")
         XCTAssertEqual(LibrarySortOrder.title.sortKey, "title")
         XCTAssertEqual(LibrarySortOrder.year.sortKey, "year")
-        XCTAssertEqual(LibrarySortOrder.citeKey.sortKey, "citeKey")
-        XCTAssertEqual(LibrarySortOrder.citationCount.sortKey, "citationCount")
+        XCTAssertEqual(LibrarySortOrder.citeKey.sortKey, "cite_key")
+        XCTAssertEqual(LibrarySortOrder.citationCount.sortKey, "citation_count")
+        XCTAssertEqual(LibrarySortOrder.starred.sortKey, "starred")
+        XCTAssertEqual(LibrarySortOrder.recommended.sortKey, "created")
     }
 
     func testLibrarySortOrder_allCases() {
-        XCTAssertEqual(LibrarySortOrder.allCases.count, 6)
+        XCTAssertEqual(LibrarySortOrder.allCases.count, 8)
     }
 
     func testLibrarySortOrder_identifiable() {

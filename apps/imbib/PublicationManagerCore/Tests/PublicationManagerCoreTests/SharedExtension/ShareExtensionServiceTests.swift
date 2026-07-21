@@ -19,8 +19,11 @@ final class ShareExtensionServiceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        service = ShareExtensionService.shared
-        // Clear any existing items before each test
+        // Use an isolated per-test suite (NOT the shared app-group singleton),
+        // so parallel test workers don't clear each other's pending-items queue
+        // out of the same on-disk plist.
+        testDefaults = UserDefaults(suiteName: "ShareExt-\(UUID().uuidString)")!
+        service = ShareExtensionService(defaults: testDefaults)
         service.clearPendingItems()
     }
 
@@ -78,13 +81,17 @@ final class ShareExtensionServiceTests: XCTestCase {
     func testSharedItem_equatable() {
         let id = UUID()
         let url = URL(string: "https://ui.adsabs.harvard.edu/search/q=test")!
+        // Pin createdAt explicitly: the default `createdAt: Date()` differs
+        // between two constructions, so relying on it would make equality flaky.
+        let createdAt = Date()
 
         let item1 = ShareExtensionService.SharedItem(
             id: id,
             url: url,
             type: .smartSearch,
             name: "Test",
-            libraryID: nil
+            libraryID: nil,
+            createdAt: createdAt
         )
 
         let item2 = ShareExtensionService.SharedItem(
@@ -92,7 +99,8 @@ final class ShareExtensionServiceTests: XCTestCase {
             url: url,
             type: .smartSearch,
             name: "Test",
-            libraryID: nil
+            libraryID: nil,
+            createdAt: createdAt
         )
 
         XCTAssertEqual(item1, item2)
@@ -144,7 +152,7 @@ final class ShareExtensionServiceTests: XCTestCase {
 
     // MARK: - Queue Smart Search Tests
 
-    func testQueueSmartSearch_addsItemToQueue() {
+    func testQueueSmartSearch_addsItemToQueue() throws {
         let url = URL(string: "https://ui.adsabs.harvard.edu/search/q=author%3AAbel")!
         let name = "Abel Papers"
         let libraryID = UUID()
@@ -154,7 +162,7 @@ final class ShareExtensionServiceTests: XCTestCase {
         let items = service.getPendingItems()
         XCTAssertEqual(items.count, 1)
 
-        let item = items.first!
+        let item = try XCTUnwrap(items.first)
         XCTAssertEqual(item.url, url)
         XCTAssertEqual(item.type, .smartSearch)
         XCTAssertEqual(item.name, name)
@@ -184,7 +192,7 @@ final class ShareExtensionServiceTests: XCTestCase {
 
     // MARK: - Queue Paper Import Tests
 
-    func testQueuePaperImport_addsItemToQueue() {
+    func testQueuePaperImport_addsItemToQueue() throws {
         let url = URL(string: "https://ui.adsabs.harvard.edu/abs/2024ApJ...123..456B/abstract")!
         let libraryID = UUID()
 
@@ -193,7 +201,7 @@ final class ShareExtensionServiceTests: XCTestCase {
         let items = service.getPendingItems()
         XCTAssertEqual(items.count, 1)
 
-        let item = items.first!
+        let item = try XCTUnwrap(items.first)
         XCTAssertEqual(item.url, url)
         XCTAssertEqual(item.type, .paper)
         XCTAssertNil(item.name)
@@ -212,7 +220,7 @@ final class ShareExtensionServiceTests: XCTestCase {
 
     // MARK: - Queue Docs Selection Tests
 
-    func testQueueDocsSelection_addsItemToQueue() {
+    func testQueueDocsSelection_addsItemToQueue() throws {
         let url = URL(string: "https://ui.adsabs.harvard.edu/search/q=docs(cfcf0423d46d0bd5222cb1392a6ec63f)")!
         let query = "docs(cfcf0423d46d0bd5222cb1392a6ec63f)"
 
@@ -221,7 +229,7 @@ final class ShareExtensionServiceTests: XCTestCase {
         let items = service.getPendingItems()
         XCTAssertEqual(items.count, 1)
 
-        let item = items.first!
+        let item = try XCTUnwrap(items.first)
         XCTAssertEqual(item.url, url)
         XCTAssertEqual(item.type, .docsSelection)
         XCTAssertEqual(item.query, query)

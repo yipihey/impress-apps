@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 // MARK: - UI Testing Environment
@@ -150,6 +151,18 @@ extension UserDefaults {
         if let suiteName = UITestingEnvironment.userDefaultsSuiteName,
            let testDefaults = UserDefaults(suiteName: suiteName) {
             return testDefaults
+        }
+        // Unit tests: hand each xctest worker PROCESS its own suite. Falling
+        // through to `.standard` (a real, cross-process store) makes parallel
+        // workers clobber each other's settings via CFPreferences' incoherent
+        // cross-process cache — flaky persistence tests. A per-process suite
+        // isolates workers while still letting multiple store instances in the
+        // SAME process share state (so persistence-across-instances holds).
+        if ImpressRuntime.isUnitTestProcess {
+            let pid = ProcessInfo.processInfo.processIdentifier
+            if let perProcess = UserDefaults(suiteName: "com.imbib.unittest.\(pid)") {
+                return perProcess
+            }
         }
         return .standard
     }

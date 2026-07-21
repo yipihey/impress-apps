@@ -74,6 +74,11 @@ public actor BackgroundScheduler {
     /// Default maximum items per check cycle
     public static let defaultItemsPerCycle = 50
 
+    /// Default startup delay before the first cycle. Deferring the first work
+    /// cycle ~2 min avoids the startup render-loop (background mutations during
+    /// the first ~90s of launch — see CLAUDE.md). Overridable for tests.
+    public static let defaultStartupDelay: TimeInterval = 120
+
     // MARK: - Dependencies
 
     private let enrichmentService: EnrichmentService
@@ -84,6 +89,7 @@ public actor BackgroundScheduler {
 
     private let checkInterval: TimeInterval
     private let itemsPerCycle: Int
+    private let startupDelay: TimeInterval
 
     // MARK: - State
 
@@ -108,13 +114,15 @@ public actor BackgroundScheduler {
         publicationProvider: StalePublicationProvider,
         settingsProvider: EnrichmentSettingsProvider = DefaultEnrichmentSettingsProvider(),
         checkInterval: TimeInterval = defaultCheckInterval,
-        itemsPerCycle: Int = defaultItemsPerCycle
+        itemsPerCycle: Int = defaultItemsPerCycle,
+        startupDelay: TimeInterval = defaultStartupDelay
     ) {
         self.enrichmentService = enrichmentService
         self.publicationProvider = publicationProvider
         self.settingsProvider = settingsProvider
         self.checkInterval = checkInterval
         self.itemsPerCycle = itemsPerCycle
+        self.startupDelay = startupDelay
     }
 
     // MARK: - Control
@@ -206,10 +214,13 @@ public actor BackgroundScheduler {
     /// Main scheduler loop.
     private func runSchedulerLoop() async {
         // Delay first cycle to avoid blocking startup with N+1 queries
-        do {
-            try await Task.sleep(for: .seconds(120))
-        } catch {
-            return  // Task was cancelled during startup delay
+        // (injectable; tests pass 0).
+        if startupDelay > 0 {
+            do {
+                try await Task.sleep(for: .seconds(startupDelay))
+            } catch {
+                return  // Task was cancelled during startup delay
+            }
         }
 
         while isRunning && !Task.isCancelled {

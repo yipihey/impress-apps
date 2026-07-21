@@ -222,7 +222,9 @@ public actor EnrichmentSettingsStore: EnrichmentSettingsProvider {
             if let rawValues = store.stringArray(forKey: .enrichmentSourcePriority) {
                 return rawValues.compactMap { EnrichmentSource(rawValue: $0) }
             }
-            return EnrichmentSource.allCases
+            // Defer to the single canonical default (ADS-only), not allCases —
+            // allCases includes unwired sources and diverged from `.default`.
+            return EnrichmentSettings.default.sourcePriority
         }()
 
         let autoSyncEnabled = store.bool(forKey: .enrichmentAutoSyncEnabled) ?? true

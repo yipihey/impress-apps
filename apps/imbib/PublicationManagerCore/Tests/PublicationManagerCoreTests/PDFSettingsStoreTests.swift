@@ -13,11 +13,15 @@ final class PDFSettingsStoreTests: XCTestCase {
     var store: PDFSettingsStore!
     var testDefaults: UserDefaults!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         // Use a separate UserDefaults suite for testing
         testDefaults = UserDefaults(suiteName: "PDFSettingsStoreTests-\(UUID().uuidString)")!
         store = PDFSettingsStore(userDefaults: testDefaults)
+        // Real persistence flows through the process-global SyncedSettingsStore
+        // (local defaults under tests), not the injected suite — so a prior
+        // mutating test would leak into default-asserting tests. Reset first.
+        await store.reset()
     }
 
     override func tearDown() {

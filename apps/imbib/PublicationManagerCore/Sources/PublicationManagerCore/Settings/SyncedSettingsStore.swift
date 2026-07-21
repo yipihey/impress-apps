@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 /// Keys for synced settings stored in iCloud
@@ -112,13 +113,18 @@ public final class SyncedSettingsStore: @unchecked Sendable {
     // MARK: - Initialization
 
     private init() {
-        self.isUITesting = UITestingEnvironment.isUITesting
+        // Unit tests (like UI tests) must NOT touch iCloud KVS: the xctest
+        // process has no ubiquity entitlement, so KVS set+synchronize is a
+        // silent no-op and reads return nil — which breaks any persistence
+        // test that builds a second store instance. Route both to isolated
+        // local UserDefaults.
+        self.isUITesting = UITestingEnvironment.isUITesting || ImpressRuntime.isUnitTestProcess
 
         if isUITesting {
-            // Use isolated local UserDefaults for UI testing
+            // Use isolated local UserDefaults for UI / unit testing
             self.store = nil
             self.localStore = UserDefaults.forCurrentEnvironment
-            Logger.settings.info("SyncedSettingsStore initialized in UI testing mode (local storage)")
+            Logger.settings.info("SyncedSettingsStore initialized in test mode (local storage)")
         } else {
             // Use iCloud sync for production
             self.store = NSUbiquitousKeyValueStore.default
