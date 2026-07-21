@@ -36,7 +36,8 @@ let package = Package(
         .package(path: "../../../packages/ImpressSpotlight"),
         .package(path: "../../../packages/ImpressTheme"),
         .package(path: "../../../packages/ImpressUndoHistory"),
-        .package(path: "../../../packages/ImpressSmartSearch")
+        .package(path: "../../../packages/ImpressSmartSearch"),
+        .package(path: "../../../packages/ImpressHelixCore")
     ],
     targets: [
         .target(
@@ -63,7 +64,8 @@ let package = Package(
                 "ImpressSpotlight",
                 "ImpressTheme",
                 "ImpressUndoHistory",
-                "ImpressSmartSearch"
+                "ImpressSmartSearch",
+                "ImpressHelixCore"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),
